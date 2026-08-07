@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.shuaizhang.selection-review-open-chrome</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/shuaizhang/Library/Application Support/今日选品评审台/scripts/open-review-in-chrome.sh</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>StandardOutPath</key>
+  <string>/Users/shuaizhang/Library/Application Support/今日选品评审台/logs/open-chrome.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/shuaizhang/Library/Application Support/今日选品评审台/logs/open-chrome.stderr.log</string>
+</dict>
+</plist>

@@ -1,0 +1,42 @@
+.DS_Store
+
+# Local tool caches and dependency/build output
+/.playwright-cli/
+/.pnpm-store/
+**/node_modules/
+**/dist/
+**/logs/
+*.log
+*.tmp
+*.bak
+
+# Live and historical business data (backed up outside Git)
+/selection-review-app/data/candidates*.json
+/selection-review-app/product-images
+/selection-review-app/evidence/
+/evidence/
+
+# Local screenshots and imported product media
+/*.png
+/Ozon竞品图-1688搜图/
+/selection-review-app/*.png
+
+# Finder/browser launch artifacts and stale duplicate entrypoint
+/selection-review-app/*.webloc
+/selection-review-app/server 2.mjs
+
+# Historical one-off business notes and migration snapshots are not source code
+/上架测试交接模板.md
+/只读候选池-*.md
+/蛋蛋鼠选品-*.md
+/selection-review-app/docs/
+
+# One-off scripts that mutate historical candidate records
+/selection-review-app/scripts/accept-*.mjs
+/selection-review-app/scripts/apply-*.mjs
+/selection-review-app/scripts/backfill-*.mjs
+/selection-review-app/scripts/mark-*.mjs
+/selection-review-app/scripts/migrate-*.mjs
+/selection-review-app/scripts/normalize-*.mjs
+/selection-review-app/scripts/pause-*.mjs
+/selection-review-app/scripts/update-*.mjs
