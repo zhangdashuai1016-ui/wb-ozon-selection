@@ -118,7 +118,7 @@ test("real C1 rejects stale or conflicting source identity", async () => {
   );
 });
 
-test("real C1 rejects unknown Ozon seller identity instead of using it as the main price band", async () => {
+test("real C1 accepts a comparable unknown seller snapshot without rewriting its identity", async () => {
   const candidate = await fixtureCandidate();
   candidate.salesSnapshotsV11[0] = {
     ...candidate.salesSnapshotsV11[0],
@@ -129,8 +129,27 @@ test("real C1 rejects unknown Ozon seller identity instead of using it as the ma
       evidenceRef: "test:seller-identity:unknown"
     }
   };
+  const result = prepareRealC1ForFinalAssets({ candidate, ownerFactConfirmation, preparedAt });
+  assert.equal(result.opportunityPackage.marketAssessment.status, "passed");
+  assert.equal(result.opportunityPackage.marketAssessment.sampleSummaries[0].sellerType, "unknown");
+  assert.equal(result.opportunityPackage.marketAssessment.manualReviewRequired, false);
+  assert.equal(result.skuPackage.profitModels[0].result, "passed");
+  assert.equal(result.skuPackage.businessPhase, "C2");
+});
+
+test("real C1 keeps local_ru as background and stops when it is the only price sample", async () => {
+  const candidate = await fixtureCandidate();
+  candidate.salesSnapshotsV11[0] = {
+    ...candidate.salesSnapshotsV11[0],
+    sellerType: "local_ru",
+    sellerIdentityEvidence: {
+      status: "verified",
+      signals: [{ field: "seller_registered_country", value: "RU", sourcePath: "test.fixture" }],
+      evidenceRef: "test:seller-identity:local-ru"
+    }
+  };
   assert.throws(
     () => prepareRealC1ForFinalAssets({ candidate, ownerFactConfirmation, preparedAt }),
-    /unknown只能作辅助证据/
+    /销售证据不足或商品可比性不足/
   );
 });

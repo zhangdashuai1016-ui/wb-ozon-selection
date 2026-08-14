@@ -44,21 +44,23 @@ import {
   readAuthorizedProductionSnapshot,
   validateProductionAuthorization
 } from "../lib/production-authorization.mjs";
+import { attachPassedMarketAssessment } from "./helpers/market-assessment-fixture.mjs";
 
 const TEST_PRODUCT_ID = "CX-20260803-010";
 const VARIANT = "规格:豪华小火车";
 
-async function phase7PassedState() {
+async function phase7PassedState({ sellerType = "cross_border_cn" } = {}) {
   const url = new URL("../data/candidates.json", import.meta.url);
   const document = JSON.parse(await readFile(url, "utf8"));
   const candidate = document.candidates.find((item) => item.id === TEST_PRODUCT_ID);
   const opportunity = structuredClone(adaptLegacyCandidateToOpportunity(candidate));
   opportunity.salesSnapshots[0].platform = "ozon";
-  opportunity.salesSnapshots[0].sellerType = "cross_border_cn";
+  opportunity.salesSnapshots[0].sellerType = sellerType;
   opportunity.salesSnapshots[0].sellerIdentityEvidence = {
-    status: "verified",
-    evidenceRef: "test:cross-border-cn"
+    status: sellerType === "unknown" ? "unverified" : "verified",
+    evidenceRef: sellerType === "unknown" ? "test:seller-identity:unknown" : "test:cross-border-cn"
   };
+  attachPassedMarketAssessment(opportunity, { sellerType });
   const evidence = sanitize1688Evidence({
     offerId: "712421624571",
     observedAt: "2026-08-12T12:00:00.000Z",
@@ -341,6 +343,21 @@ test("CX-20260803-010 enters C1 from exactly four frozen upstream inputs", async
   assert.equal(plan.inputSnapshots.platformSchemaRules.requiredFields.length, 3);
   assert.deepEqual(validateC1ProductPlan(plan), { valid: true, errors: [] });
   assert.deepEqual(validatePlatformSchemaEvidence(plan.inputSnapshots.platformSchemaRules), { valid: true, errors: [] });
+});
+
+test("unknown卖家样本经A正式放行且B利润达标后正常进入C1", async () => {
+  const state = await phase7PassedState({ sellerType: "unknown" });
+  assert.equal(state.skuPackage.businessResult, "passed");
+  assert.ok(state.skuPackage.profitModels[0].unitProfitRmb >= 20);
+  assert.ok(state.skuPackage.profitModels[0].profitMargin >= 0.25);
+  const result = createC1ProductPlan({
+    ...state,
+    platformSchemaEvidence: platformSchemaEvidence(),
+    createdAt: "2026-08-12T12:31:00.000Z"
+  });
+  assert.equal(result.skuPackage.businessPhase, "C1");
+  assert.equal(result.skuPackage.ownerAction, "none");
+  assert.equal(result.c1ProductPlan.inputSnapshots.salesSnapshot.sellerType, "unknown");
 });
 
 test("C1 uses no external access and does not generate SEO, attributes, assets or production data", async () => {

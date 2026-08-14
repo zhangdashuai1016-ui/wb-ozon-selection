@@ -9,6 +9,7 @@ import { PlusIcon } from "./components/Icons";
 import QueueTabs from "./components/QueueTabs";
 import OperatingRules from "./components/OperatingRules";
 import ProcessingBreakdown from "./components/ProcessingBreakdown";
+import Phase2ASimulation from "./components/Phase2ASimulation";
 import UserInspector from "./components/UserInspector";
 import WorkflowMap from "./components/WorkflowMap";
 import {
@@ -481,6 +482,9 @@ export default function App() {
           <span className={`extension-status ${extensionStatus.code}`} data-testid="extension-status">
             <i aria-hidden="true" />{extensionStatus.label}
           </span>
+          <button className={`button ${view === "phase2a" ? "primary" : "secondary"}`} onClick={() => setView(view === "phase2a" ? "review" : "phase2a")}>
+            {view === "phase2a" ? "返回评审台" : "第2A模拟验收"}
+          </button>
           <button className={`button ${view === "map" ? "primary" : "secondary"}`} onClick={() => setView(view === "map" ? "review" : "map")}>
             {view === "map" ? "返回评审台" : "打开小地图"}
           </button>
@@ -490,7 +494,9 @@ export default function App() {
         </div>
       </header>
 
-      {view === "map" ? (
+      {view === "phase2a" ? (
+        <Phase2ASimulation onClose={() => setView("review")} />
+      ) : view === "map" ? (
         <>
           {notice ? <div className={`global-notice ${notice.type}`}>{notice.message}</div> : null}
           <WorkflowMap

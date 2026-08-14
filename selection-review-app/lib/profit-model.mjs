@@ -5,6 +5,7 @@ import {
   assertValidLifecyclePackage,
   validateOpportunityPackage
 } from "./product-lifecycle-schema.mjs";
+import { resolveBMarketPrice } from "./market-sample-policy.mjs";
 
 export const PROFIT_MODEL_SCHEMA_VERSION = "profit-model-v1.1";
 export const PROFIT_THRESHOLD_VERSION = "profit-threshold-v1.1-25pct-20cny";
@@ -47,10 +48,6 @@ function deepFreeze(value) {
   Object.freeze(value);
   for (const child of Object.values(value)) deepFreeze(child);
   return value;
-}
-
-function valueAtPath(value, path) {
-  return path.split(".").reduce((current, key) => current?.[key], value);
 }
 
 function roundMoney(value) {
@@ -109,6 +106,10 @@ export function validateProfitModel(model) {
   }
   if (!Array.isArray(model.externalAccesses) || model.externalAccesses.length !== 0) errors.push({ path: "externalAccesses", message: "B阶段不得访问外部平台" });
   if (!Array.isArray(model.requestedExistingFields) || model.requestedExistingFields.length !== 0) errors.push({ path: "requestedExistingFields", message: "不得重新询问已有字段" });
+  if (!nonEmptyString(model.marketAssessmentRef)) errors.push({ path: "marketAssessmentRef", message: "必须引用A阶段市场评估" });
+  if (!Array.isArray(model.marketSampleRefs) || model.marketSampleRefs.length === 0 || model.marketSampleRefs.some((item) => !nonEmptyString(item))) {
+    errors.push({ path: "marketSampleRefs", message: "必须保留A阶段主要价格样本引用" });
+  }
   if (finite(model.unitProfitRmb) && finite(model.recommendedSalePriceCny) && finite(model.profitMargin)) {
     const expected = roundRate(model.unitProfitRmb / model.recommendedSalePriceCny);
     if (Math.abs(model.profitMargin - expected) > 0.0001) errors.push({ path: "profitMargin", message: "必须等于单件利润除以建议成交价人民币" });
@@ -144,17 +145,15 @@ export function runSkuProfitModel({
 
   const selection = requireObject(salesSelection, "A销售端快照选择");
   const salesSnapshotId = requireString(selection.salesSnapshotId, "销售快照ID");
-  const salesSnapshot = opportunityPackage.salesSnapshots.find((item) => item.snapshotId === salesSnapshotId);
+  const resolvedMarket = resolveBMarketPrice(opportunityPackage, salesSnapshotId);
+  const salesSnapshot = resolvedMarket.snapshot;
   if (!salesSnapshot || !skuPackage.inheritedSalesSnapshotRefs.includes(salesSnapshotId)) throw new Error("B_INPUT_GAP: SKU未继承所选销售快照");
-  if ((salesSnapshot.platform === "ozon" || /ozon\.ru/i.test(String(salesSnapshot.productUrl || ""))) && salesSnapshot.sellerType !== "cross_border_cn") {
-    throw new Error("B_INPUT_GAP: Ozon主要价格带必须来自已验证的中国跨境卖家；sellerType=unknown只能作辅助证据");
-  }
   const recommendedSalePriceRub = requireNumber(
-    valueAtPath(salesSnapshot, requireString(selection.pricePath, "A销售价格字段路径")),
+    resolvedMarket.recommendedSalePrice.amount,
     "A销售建议价格",
     { positive: true }
   );
-  if (selection.currency !== "RUB") throw new Error("B_INPUT_GAP: 当前测试销售价格必须为RUB");
+  if (resolvedMarket.recommendedSalePrice.currency !== "RUB") throw new Error("B_INPUT_GAP: 当前测试销售价格必须为RUB");
 
   const supplySnapshot = requireObject(skuPackage.selectedSupplySnapshot, "主人确认供应SKU快照");
   const supplySku = requireObject(supplySnapshot.supplierSku, "主人确认供应SKU");
@@ -199,6 +198,11 @@ export function runSkuProfitModel({
       logisticsEvidenceId,
       exchangeEvidenceId
     ],
+    marketAssessmentRef: resolvedMarket.assessment.assessmentId,
+    marketSampleRefs: structuredClone(resolvedMarket.assessment.primarySampleIds),
+    marketSellerTypesUsed: structuredClone(resolvedMarket.assessment.sellerTypesUsed),
+    marketConfidence: resolvedMarket.assessment.confidence,
+    containsLocalRuBackground: resolvedMarket.assessment.containsLocalRuBackground,
     recommendedSalePriceRub,
     recommendedSalePriceCny,
     sellerSettlementRevenue: {

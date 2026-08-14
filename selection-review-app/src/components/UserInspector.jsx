@@ -575,7 +575,8 @@ function ListingPreparationPanel({ candidate, onRecoveryAction, onCapture, onSel
     ? handoff.decisionItems
     : Array.isArray(preparation.decisionItems) ? preparation.decisionItems : [];
   const capturing = sourceCapture.status === "waiting_extension" || handoff.state === "capturing_source";
-  const choosingSku = sourceCapture.status === "needs_sku_selection";
+  const choosingSku = sourceCapture.status === "needs_sku_selection" && sourceCapture.mode === "listed_evidence_recovery";
+  const legacySkuSelection = sourceCapture.status === "needs_sku_selection" && sourceCapture.mode !== "listed_evidence_recovery";
   const suggestedSkuKey = Array.isArray(sourceCapture.suggestedSkuIds) ? sourceCapture.suggestedSkuIds.join("|") : "";
   const is1688 = /^https:\/\/detail\.1688\.com\/offer\/\d+\.html(?:[?#]|$)/i.test(candidate.sourceUrl || "");
   const dimensions = candidate.dimensionsCm || {};
@@ -621,10 +622,12 @@ function ListingPreparationPanel({ candidate, onRecoveryAction, onCapture, onSel
   return (
     <section className="workflow-card listing-preparation-card">
       <div>
-        <h3>{capturing ? "正在读取1688商品" : choosingSku ? "请选择一个或多个1688 SKU" : waiting ? "待上架准备" : lifecycleSku?.businessPhase === "C2" && c2Assets?.status === "awaiting_final_uploads" ? "C1商品方案完成 · 等待C2最终素材" : needsOwnerDecision ? "C阶段核验完成 · 等待你确认" : stopped ? "C阶段已停止" : handoff.state === "running" ? "上架任务正在做C阶段" : "C阶段已派发"}</h3>
+        <h3>{capturing ? "正在读取1688商品" : legacySkuSelection ? "历史1688 SKU选择记录" : choosingSku ? "请选择一个或多个1688 SKU" : waiting ? "待上架准备" : lifecycleSku?.businessPhase === "C2" && c2Assets?.status === "awaiting_final_uploads" ? "C1商品方案完成 · 等待C2最终素材" : needsOwnerDecision ? "C阶段核验完成 · 等待你确认" : stopped ? "C阶段已停止" : handoff.state === "running" ? "上架任务正在做C阶段" : "C阶段已派发"}</h3>
         <p>
           {capturing
             ? "本机Chrome正在处理当前商品一次；尚未派发上架任务。"
+            : legacySkuSelection
+              ? "这是旧流程留下的SKU选择状态，只读保留；不能再由此创建旧C阶段派发。"
             : choosingSku
               ? "商品页面中的全部SKU已经列出。勾选本次要核验的一个或多个规格后，才会向上架任务派发当前商品的C阶段。"
               : waiting
@@ -756,15 +759,8 @@ function ListingPreparationPanel({ candidate, onRecoveryAction, onCapture, onSel
             <small>所有采到的SKU都会显示；商品价、国内运费、实际采购成本、重量和尺寸未齐全时不得进入B。</small>
           </div>
         ) : null}
-        {waiting ? <small>新流程将在A阶段确认供应SKU、B通过后自动进入C1；这条历史记录等待后续受控迁移。</small> : null}
-        {is1688 && candidate.supplyConfirmation?.stage === "A" && !capturing && !choosingSku && (waiting || (stopped && !needsOwnerDecision)) ? (
-          <div className="recovery-confirmation">
-            <button className="button primary" disabled={saving} onClick={() => run("capture")}>
-              {saving ? "正在连接Chrome…" : "打开1688并采集，然后开始上架准备"}
-            </button>
-            <small>只处理当前商品一次；选择SKU后才派发上架任务，失败立即停止。</small>
-          </div>
-        ) : null}
+        {waiting ? <small>这条awaiting_user_start只作历史状态读取，不再提供人工启动C或旧1688采集按钮。新版流程在A阶段一张卡确认供应SKU，B通过后自动进入C1。</small> : null}
+        {legacySkuSelection ? <small>旧1688采集结果仍可查看，但所有选择和继续按钮已停用；新版供应SKU只能在A阶段完整确认卡中一次确认。</small> : null}
         {stopped && !is1688 ? (
           <div className="recovery-confirmation">
             <b>{handoff.recoveryDecision?.summary || "本次C阶段已停止"}</b>
@@ -1137,6 +1133,21 @@ function Activity({ candidate, onComment }) {
 
 function OzonSalesCapturePanel({ candidate, onStart }) {
   const capture = candidate.salesCapture || {};
+  const marketAssessment = candidate.lifecycleV11?.opportunityPackage?.marketAssessment || null;
+  const sampleAssessment = marketAssessment?.sampleSummaries?.find((item) => item.snapshotId === capture.snapshotId) || null;
+  const sellerLabels = {
+    cross_border_cn: "中国跨境卖家",
+    other_cross_border: "其他跨境卖家",
+    unknown: "卖家身份未确认",
+    local_ru: "俄罗斯本土卖家"
+  };
+  const priorityLabels = {
+    cross_border_cn: "最高（中国跨境）",
+    other_cross_border: "次优（其他跨境）",
+    unknown: "可用（身份未确认）",
+    local_ru: "仅作背景"
+  };
+  const confidenceLabels = { high: "高", medium: "中", limited: "有限", unavailable: "暂不可判断" };
   const canShow = /^https:\/\/(?:www\.)?ozon\.ru\/product\//i.test(candidate.productUrl || "") &&
     ["awaiting_user_direction", "codex_processing", "needs_user_data"].includes(candidate.workflowStatus) &&
     !candidate.lifecycleV11?.skuPackage;
@@ -1166,7 +1177,18 @@ function OzonSalesCapturePanel({ candidate, onStart }) {
         {capture.status === "verified" ? (
           <div className="source-capture-summary">
             <b>当前Ozon快照已保存</b>
-            <span>{capture.currentPrice} {capture.currency} · 图片 {capture.imageCount} 张 · 卖家身份 {capture.sellerType === "unknown" ? "未验证" : capture.sellerType}</span>
+            <span>卖家类型：{sellerLabels[capture.sellerType] || capture.sellerType || "未取得"} · 身份证据：{capture.sellerType === "unknown" ? "未确认" : "已确认"}</span>
+            {capture.sellerType === "unknown" ? <span>卖家身份未确认，当前商品和价格证据可用。</span> : null}
+            <span>当前价格：{capture.currentPrice} {capture.currency} · 图片 {capture.imageCount} 张 · 样本优先级：{priorityLabels[capture.sellerType] || "待判断"}</span>
+            <span>商品可比性：{sampleAssessment?.comparability === "comparable" ? "可比" : sampleAssessment?.comparability === "not_comparable" ? "不可比" : "待A阶段综合判断"}</span>
+            {marketAssessment ? (
+              <>
+                <span>价格带采用：{marketAssessment.sellerTypesUsed.map((type) => sellerLabels[type] || type).join("、") || "暂无"}；样本 {marketAssessment.primarySampleIds.length} 条；可信度 {confidenceLabels[marketAssessment.confidence] || marketAssessment.confidence}</span>
+                <span>俄罗斯本土背景价：{marketAssessment.containsLocalRuBackground ? "包含，未作为主要价格基准" : "未包含"}；当前影响：{marketAssessment.status === "passed" ? "A销售证据已放行" : marketAssessment.gateReason}</span>
+              </>
+            ) : (
+              <span>当前影响：卖家身份未知本身不阻断A/B；是否采用取决于商品可比性、价格、时效和证据完整度。</span>
+            )}
             <span>商品ID {capture.productId} · {capture.observedAt ? new Date(capture.observedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : ""}</span>
           </div>
         ) : null}

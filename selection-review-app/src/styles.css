@@ -248,6 +248,43 @@ a svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-widt
 .source-capture-summary span { color: #43524b; font-size: 10px; line-height: 1.55; }
 .source-capture-summary.capture-failed { border-color: #e1bd78; background: var(--amber-soft); }
 .source-capture-summary.capture-failed b { color: var(--amber); }
+
+.phase2a-page { display: grid; gap: 18px; padding: 22px 28px 36px; }
+.phase2a-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 22px 24px; border: 1px solid #bad9cc; border-radius: 18px; background: #f5fbf8; }
+.phase2a-header h2 { margin: 5px 0 6px; font-size: 24px; }
+.phase2a-header p { margin: 0; color: #56665f; }
+.phase2a-proof-banner { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; overflow: hidden; border: 1px solid #dce7e2; border-radius: 14px; background: #dce7e2; }
+.phase2a-proof-banner span { padding: 13px 16px; background: white; color: #315247; font-size: 12px; font-weight: 700; }
+.phase2a-card, .phase2a-result { padding: 22px 24px; border: 1px solid #d8e3de; border-radius: 18px; background: #fff; box-shadow: 0 10px 28px rgba(25, 68, 54, .05); }
+.phase2a-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.phase2a-card-heading small { color: #507064; font-weight: 700; }
+.phase2a-card-heading h3 { margin: 5px 0 0; font-size: 20px; }
+.simulation-pill { padding: 6px 10px; border-radius: 999px; color: #7c5317; background: #fff0cf; font-size: 11px; font-weight: 800; }
+.phase2a-sales-snapshot { display: grid; gap: 5px; padding: 15px 17px; border-radius: 12px; background: #f2f8f5; color: #40564d; font-size: 12px; }
+.phase2a-sales-snapshot b { color: #164f3d; }
+.phase2a-form-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.phase2a-form-grid label { display: grid; gap: 6px; }
+.phase2a-form-grid label span { color: #52645d; font-size: 11px; font-weight: 700; }
+.phase2a-form-grid input { width: 100%; min-width: 0; padding: 10px 11px; border: 1px solid #cddbd5; border-radius: 9px; color: var(--ink); background: white; }
+.phase2a-form-grid .span-2 { grid-column: span 2; }
+.phase2a-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.phase2a-missing { margin-top: 14px; padding: 11px 13px; border: 1px solid #e3bd76; border-radius: 10px; color: #8c5811; background: #fff6e4; font-size: 12px; }
+.phase2a-status-grid, .phase2a-profit-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.phase2a-status-grid span, .phase2a-profit-grid span { display: grid; gap: 5px; padding: 13px; border-radius: 11px; background: #f5f8f7; }
+.phase2a-status-grid small, .phase2a-profit-grid small { color: #64746e; }
+.phase2a-status-grid b, .phase2a-profit-grid b { color: #163e32; }
+.phase2a-profit-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 14px; }
+.phase2a-list-prices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.phase2a-list-prices span { padding: 7px 10px; border-radius: 999px; color: #6f4a14; background: #fff1d5; font-size: 11px; font-weight: 700; }
+.phase2a-formula { margin: 12px 0 0; color: #50615a; font-size: 12px; line-height: 1.6; }
+.phase2a-zero-access { margin-top: 12px; padding: 10px 12px; border-radius: 10px; color: #13523f; background: #eaf7f1; font-size: 12px; font-weight: 700; }
+.phase2a-handoff { display: grid; gap: 5px; margin-top: 14px; padding: 14px 16px; border: 1px solid #a9d1c0; border-radius: 12px; color: #3e574e; background: #f1faf6; font-size: 12px; }
+.phase2a-handoff b { color: #14513d; font-size: 14px; }
+
+@media (max-width: 900px) {
+  .phase2a-proof-banner, .phase2a-status-grid, .phase2a-profit-grid { grid-template-columns: 1fr 1fr; }
+  .phase2a-form-grid { grid-template-columns: 1fr 1fr; }
+}
 .source-sku-selector { margin-top: 14px; padding: 14px; border: 1px solid #bad9cc; border-radius: 10px; background: #f3faf7; display: grid; grid-template-columns: minmax(220px, 1fr) auto auto; gap: 9px 12px; align-items: center; }
 .source-sku-selector-heading, .source-sku-dropdown, .source-sku-selector > small { grid-column: 1 / -1; }
 .source-sku-selector-heading { display: flex; justify-content: space-between; gap: 12px; color: var(--green-2); font-size: 11px; }

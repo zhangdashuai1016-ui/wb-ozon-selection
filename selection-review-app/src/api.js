@@ -14,6 +14,12 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  getPhase2ASimulation: () => request("/api/simulations/phase-2a"),
+  confirmPhase2ASimulation: (payload) =>
+    request("/api/simulations/phase-2a/confirm", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   getState: () => request("/api/state"),
   getWorkflowMap: (candidateId = "") =>
     request(`/api/workflow-map${candidateId ? `?candidateId=${encodeURIComponent(candidateId)}` : ""}`),

@@ -7,6 +7,7 @@ import {
   runBProfitModel
 } from "../lib/product-lifecycle-b-flow.mjs";
 import { validateSkuLifecyclePackage } from "../lib/product-lifecycle-schema.mjs";
+import { attachPassedMarketAssessment } from "./helpers/market-assessment-fixture.mjs";
 
 const TEST_SKU_ID = "CX-20260803-010";
 const CALCULATED_AT = "2026-08-12T12:00:00.000Z";
@@ -71,6 +72,7 @@ test("single SKU flows from OpportunityPackage to SkuLifecyclePackage and B Prof
   opportunityPackage.salesSnapshots[0].platform = "ozon";
   opportunityPackage.salesSnapshots[0].sellerType = "cross_border_cn";
   opportunityPackage.salesSnapshots[0].sellerIdentityEvidence = { status: "verified", evidenceRef: "test:cross-border-cn" };
+  attachPassedMarketAssessment(opportunityPackage);
   const inputs = createTestInputs(candidate, opportunityPackage);
   const opportunityBefore = JSON.stringify(opportunityPackage);
   const skuBefore = JSON.stringify(inputs.skuPackage);
@@ -94,6 +96,7 @@ test("B reads the exact upstream revisions and exposes a complete evidence trace
   opportunityPackage.salesSnapshots[0].platform = "ozon";
   opportunityPackage.salesSnapshots[0].sellerType = "cross_border_cn";
   opportunityPackage.salesSnapshots[0].sellerIdentityEvidence = { status: "verified", evidenceRef: "test:cross-border-cn" };
+  attachPassedMarketAssessment(opportunityPackage);
   const inputs = createTestInputs(candidate, opportunityPackage);
   const result = runBProfitModel(inputs);
   const model = result.profitModel;
@@ -112,7 +115,7 @@ test("B reads the exact upstream revisions and exposes a complete evidence trace
     value: 1831,
     currency: "RUB",
     sourceRef: "legacy-sales:CX-20260803-010",
-    sourcePath: "marketEvidence.exactTarget.lowestOtherOfferRub"
+    sourcePath: "marketAssessment.recommendedSalePrice.amount"
   });
   assert.deepEqual(model.inputs.purchaseCost, {
     value: 41,
@@ -134,6 +137,7 @@ test("B independently generates the frozen v1.1 profit output from four upstream
   opportunityPackage.salesSnapshots[0].platform = "ozon";
   opportunityPackage.salesSnapshots[0].sellerType = "cross_border_cn";
   opportunityPackage.salesSnapshots[0].sellerIdentityEvidence = { status: "verified", evidenceRef: "test:cross-border-cn" };
+  attachPassedMarketAssessment(opportunityPackage);
   const result = runBProfitModel(createTestInputs(alteredHistory, opportunityPackage));
 
   assert.equal(result.profitModel.recommendedSalePriceCny, 151.78);
@@ -150,6 +154,7 @@ test("B completes with network access disabled and does not request already supp
   opportunityPackage.salesSnapshots[0].platform = "ozon";
   opportunityPackage.salesSnapshots[0].sellerType = "cross_border_cn";
   opportunityPackage.salesSnapshots[0].sellerIdentityEvidence = { status: "verified", evidenceRef: "test:cross-border-cn" };
+  attachPassedMarketAssessment(opportunityPackage);
   const originalFetch = globalThis.fetch;
   let fetchCalls = 0;
   globalThis.fetch = async () => {
@@ -172,6 +177,7 @@ test("missing upstream evidence stops as a data gap without guessing or entering
   opportunityPackage.salesSnapshots[0].platform = "ozon";
   opportunityPackage.salesSnapshots[0].sellerType = "cross_border_cn";
   opportunityPackage.salesSnapshots[0].sellerIdentityEvidence = { status: "verified", evidenceRef: "test:cross-border-cn" };
+  attachPassedMarketAssessment(opportunityPackage);
   const inputs = createTestInputs(candidate, opportunityPackage);
   inputs.feeEvidence = { ...inputs.feeEvidence, internationalLogisticsRmb: "unknown" };
   assert.throws(() => runBProfitModel(inputs), /B_INPUT_GAP: 缺少国际物流/);

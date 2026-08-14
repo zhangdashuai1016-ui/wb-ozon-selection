@@ -168,89 +168,13 @@ test("node comments, one-shot dispatch, exact claim, and production confirmation
   const startPreparation = await post("/api/candidates/C-PENDING-1/start-listing-preparation", {
     dataRevision: 1
   });
-  assert.equal(startPreparation.status, 200);
-  const preparationDispatch = (await startPreparation.json()).dispatch;
-  assert.equal(preparationDispatch.assigneeRole, "listing_task");
-  assert.equal(preparationDispatch.nodeId, "M07");
-  assert.equal(preparationDispatch.trigger, "listing_preparation_user_start");
-  assert.deepEqual(preparationDispatch.requiredSkills.map((skill) => skill.name), ["ozon-wb-pricing", "optimize-ecommerce-seo"]);
-
-  const preparationData = JSON.parse(await readFile(dataFile, "utf8"));
-  preparationData.dispatches.find((item) => item.id === preparationDispatch.id).status = "received";
-  await writeFile(dataFile, JSON.stringify(preparationData));
-  const preparationClaim = await post(`/api/dispatches/${preparationDispatch.id}/claim`, {
-    runId: "prep-run-1",
-    currentStep: "核对精确1688 SKU与上架字段"
-  });
-  assert.equal(preparationClaim.status, 200);
-  const preparationCandidate = (await preparationClaim.json()).candidate;
-  const preparationReview = await post("/api/candidates/C-PENDING-1/listing-preparation-review", {
-    dataRevision: preparationCandidate.dataRevision,
-    runId: "prep-run-1",
-    status: "prepared",
-    candidateData: {
-      powered: false,
-      complianceStatus: "clear",
-      authorizationStatus: "clear"
-    },
-    codexReview: {
-      marketEvidence: { comparableCount: 1, checkedAt: "2026-08-11T09:00:00.000Z" },
-      commission: { sourceType: "real", rate: 0.15, checkedAt: "2026-08-11T09:00:00.000Z" },
-      logistics: { sourceType: "real", route: "GUOO", freightRmb: 18, checkedAt: "2026-08-11T09:00:00.000Z" },
-      sourceConsistency: { status: "verified" },
-      profitCalculation: { status: "verified", inputsComplete: true, unitProfitRmb: 25, marginRate: 0.3 }
-    },
-    preparation: {
-      exactSourceSku: "1688-123456-red",
-      category: "Ozon test category",
-      schemaEvidence: "schema-current-2026-08-11",
-      finalPrice: "3000 RUB",
-      assets: ["main.png", "detail.png"]
-    },
-    evidencePackIds: []
-  });
-  assert.equal(preparationReview.status, 200);
-  const readyAfterPreparation = (await preparationReview.json()).candidate;
-  assert.equal(readyAfterPreparation.workflowStatus, "ready_to_list");
-  assert.equal(readyAfterPreparation.defaultStock, 100);
-  assert.equal(readyAfterPreparation.listingPreparation.status, "prepared");
-  const preparationComplete = await post(`/api/dispatches/${preparationDispatch.id}/complete`, {
-    runId: "prep-run-1",
-    status: "completed",
-    reply: "C阶段结构化回写已完成",
-    evidence: "listing-preparation-review accepted"
-  });
-  assert.equal(preparationComplete.status, 200);
+  assert.equal(startPreparation.status, 409);
+  assert.match((await startPreparation.json()).message, /awaiting_user_start只作为历史状态读取/);
 
   const decisionStart = await post("/api/candidates/C-DECISION-1/start-listing-preparation", {
     dataRevision: 1
   });
-  assert.equal(decisionStart.status, 200);
-  const decisionDispatch = (await decisionStart.json()).dispatch;
-  const decisionData = JSON.parse(await readFile(dataFile, "utf8"));
-  decisionData.dispatches.find((item) => item.id === decisionDispatch.id).status = "received";
-  await writeFile(dataFile, JSON.stringify(decisionData));
-  const decisionClaim = await post(`/api/dispatches/${decisionDispatch.id}/claim`, {
-    runId: "decision-run-1",
-    currentStep: "核对品牌与素材"
-  });
-  assert.equal(decisionClaim.status, 200);
-  const decisionCandidate = (await decisionClaim.json()).candidate;
-  const needsDecision = await post("/api/candidates/C-DECISION-1/listing-preparation-review", {
-    dataRevision: decisionCandidate.dataRevision,
-    runId: "decision-run-1",
-    status: "needs_decision",
-    reason: "品牌和素材需要主人确认",
-    userAction: "请确认品牌与素材清单",
-    decisionItems: ["无品牌或准确品牌", "授权素材清单与顺序"],
-    evidencePackIds: []
-  });
-  assert.equal(needsDecision.status, 200);
-  const decisionResult = (await needsDecision.json()).candidate;
-  assert.equal(decisionResult.listingHandoff.currentStep, "C阶段只读核验完成，等待主人确认必要事实");
-  assert.equal(decisionResult.listingHandoff.userAction, "请确认品牌与素材清单");
-  assert.deepEqual(decisionResult.listingHandoff.decisionItems, ["无品牌或准确品牌", "授权素材清单与顺序"]);
-  assert.equal(decisionResult.listingPreparation.status, "needs_decision");
+  assert.equal(decisionStart.status, 409);
 
   const packOne = await post("/api/evidence-packs", {
     kind: "commission",
@@ -283,7 +207,7 @@ test("node comments, one-shot dispatch, exact claim, and production confirmation
   state = await (await fetch(`${baseUrl}/api/state`)).json();
   assert.equal(state.summary.dispatch.processingCounts.authorized, 0);
   assert.equal(state.summary.dispatch.processingCounts.dispatched, 1);
-  assert.equal(state.summary.dispatch.processingCounts.stopped, 2);
+  assert.equal(state.summary.dispatch.processingCounts.stopped, 1);
 
   const persisted = JSON.parse(await readFile(dataFile, "utf8"));
   persisted.dispatches.find((item) => item.id === dispatch.id).status = "received";
@@ -367,10 +291,7 @@ test("node comments, one-shot dispatch, exact claim, and production confirmation
   const legacyPreparation = await post("/api/candidates/LEGACY-READY/start-listing-preparation", {
     dataRevision: 1
   });
-  assert.equal(legacyPreparation.status, 200);
-  const legacyBody = await legacyPreparation.json();
-  assert.equal(legacyBody.candidate.workflowStatus, "listing_preparation");
-  assert.equal(legacyBody.dispatch.assigneeRole, "listing_task");
+  assert.equal(legacyPreparation.status, 409);
 
   const deniedPreparationListing = await post("/api/candidates/MANUAL-PREP-DENIED/mark-listed", {
     dataRevision: 1,

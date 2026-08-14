@@ -83,6 +83,11 @@ import {
   verifyExternalListing,
   verifySystemCreatedListing
 } from "./lib/e-stage-readback.mjs";
+import {
+  phase2ADemoCard,
+  phase2AResultSummary,
+  runPhase2AConfirmation
+} from "./lib/phase-2a-simulation.mjs";
 
 const appDir = path.dirname(fileURLToPath(import.meta.url));
 const dataFile = process.env.SELECTION_REVIEW_DATA_FILE || path.join(appDir, "data", "candidates.json");
@@ -1589,6 +1594,25 @@ async function handleApi(req, res, pathname) {
     });
   }
 
+  if (req.method === "GET" && pathname === "/api/simulations/phase-2a") {
+    return json(res, 200, { card: phase2ADemoCard() });
+  }
+
+  if (req.method === "POST" && pathname === "/api/simulations/phase-2a/confirm") {
+    const input = await requestBody(req);
+    const result = runPhase2AConfirmation(input);
+    return json(res, 200, {
+      result,
+      profitSummary: phase2AResultSummary(result),
+      persistence: {
+        sharedCandidatesWritten: 0,
+        dispatchesCreated: 0,
+        platformAccesses: 0,
+        platformWrites: 0
+      }
+    });
+  }
+
   if (req.method === "GET" && pathname === "/api/state") {
     return json(res, 200, responseState(await readData()));
   }
@@ -2044,6 +2068,9 @@ async function handleApi(req, res, pathname) {
     const input = await requestBody(req);
     if (!Number.isInteger(input.dataRevision)) throw httpError(400, "1688采集必须提供当前数据修订号");
     if (input.mode && input.mode !== "listed_evidence_recovery") throw httpError(400, "1688采集模式无效");
+    if (input.mode !== "listed_evidence_recovery") {
+      throw httpError(409, "旧1688上架采集入口已停用：新版流程必须在A阶段的一张确认卡内确认供应链接、具体SKU、价格、国内运费、采购成本、重量和尺寸；该入口不会创建旧C阶段派发");
+    }
     const candidateId = sourceCaptureStartRoute[1];
     const existing = captureSession(candidateId);
     if (existing && [existing.requestRevision, existing.dataRevision].includes(input.dataRevision)) {
@@ -2183,6 +2210,9 @@ async function handleApi(req, res, pathname) {
       if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后重新选择SKU");
       if (current.sourceCapture?.status !== "needs_sku_selection") throw httpError(409, "当前商品不在等待选择1688 SKU");
       if (activeDispatchForCandidate(data, current.id)) throw httpError(409, "当前SKU已有任务正在等待或运行");
+      if (current.sourceCapture.mode !== "listed_evidence_recovery") {
+        throw httpError(409, "旧1688选择入口只保留历史读取，不再创建C阶段派发；请使用新版A阶段确认卡");
+      }
       const evidence = {
         offerId: current.sourceCapture.offerId,
         sourceUrl: current.sourceCapture.sourceUrl,
@@ -2217,65 +2247,8 @@ async function handleApi(req, res, pathname) {
 
   const listingPreparationStartRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/start-listing-preparation$/);
   if (req.method === "POST" && listingPreparationStartRoute) {
-    const input = await requestBody(req);
-    if (!Number.isInteger(input.dataRevision)) throw httpError(400, "开始上架准备必须提供当前数据修订号");
-    const map = await readWorkflowMap(workflowMapFile);
-    let dispatchId = null;
-    const result = await mutateData((data) => {
-      const current = data.candidates.find((item) => item.id === listingPreparationStartRoute[1]);
-      if (!current) throw httpError(404, "候选不存在");
-      const legacyReadyPendingC = current.workflowStatus === "ready_to_list" &&
-        !(current.listingPreparation?.status === "prepared" && current.cCompletedAt);
-      if (current.workflowStatus !== "listing_preparation" && !legacyReadyPendingC) {
-        throw httpError(409, "只有待上架准备或缺C阶段证据的历史待上架商品可以启动C阶段");
-      }
-      if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后再开始上架准备");
-      if (!legacyReadyPendingC && current.listingHandoff?.state !== "awaiting_user_start") {
-        throw httpError(409, "当前SKU已经启动、停止或完成，不能重复开始上架准备");
-      }
-      if (activeDispatchForCandidate(data, current.id)) throw httpError(409, "当前SKU已有任务正在等待或运行");
-      if (extract1688OfferId(current.sourceUrl) && current.sourceCapture?.status !== "verified") {
-        throw httpError(409, "当前商品有精确1688链接，必须先使用主界面的1688采集器并选择SKU，不能绕过采集直接派发C阶段");
-      }
-      const timestamp = now();
-      current.workflowStatus = "listing_preparation";
-      current.readyAt = null;
-      current.cCompletedAt = null;
-      current.dataRevision = Number(current.dataRevision || 0) + 1;
-      current.updatedAt = timestamp;
-      current.lastModifiedBy = "user";
-      current.listingHandoff = {
-        ...(current.listingHandoff || {}),
-        state: "queued",
-        owner: "listing_task",
-        queuedAt: timestamp,
-        runId: null,
-        currentStep: "等待上架任务领取C阶段",
-        defaultStock: 100,
-        inheritedInputRevision: Number(current.dataRevision || 0),
-        sourceCaptureId: current.sourceCapture?.captureId || null
-      };
-      current.listingPreparation = {
-        ...(current.listingPreparation || {}),
-        status: "queued",
-        requestedAt: timestamp,
-        requestedBy: "user"
-      };
-      const dispatch = createCandidateDispatch(data, map, current, {
-        nodeId: "M07",
-        message: "主人已点击开始上架准备：只执行当前SKU的C阶段只读核验，默认库存100；不得执行任何店铺写入",
-        trigger: "listing_preparation_user_start",
-        actor: "user"
-      });
-      dispatchId = dispatch.id;
-      addHistory(current, "user", "listingPreparationStarted", "主人从评审台启动单SKU C阶段上架准备；尚未授权店铺写入", timestamp);
-      return { candidate: publicCandidate(current, data.rules), dispatch: dispatchPublic(dispatch) };
-    });
-    json(res, 200, result);
-    if (dispatchId && explicitDispatchDeliveryEnabled) {
-      setTimeout(() => deliverDispatch(dispatchId).catch((error) => console.error("上架准备派发失败", error)), 0);
-    }
-    return;
+    await requestBody(req);
+    throw httpError(409, "旧“开始上架准备”入口已停用：awaiting_user_start只作为历史状态读取；新版商品必须由B通过后自动进入C1，调用本接口不会改变商品状态");
   }
 
   const listingPreparationReviewRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/listing-preparation-review$/);
@@ -4002,6 +3975,9 @@ async function handleApi(req, res, pathname) {
     const result = await mutateData((data) => {
       const current = data.candidates.find((item) => item.id === evaluationRoute[1]);
       if (!current) throw httpError(404, "候选不存在");
+      if (current.lifecycleV11?.opportunityPackage || current.lifecycleV11?.skuPackage) {
+        throw httpError(409, "新版生命周期商品不能使用旧方向确认入口；请使用A阶段完整确认卡，商品状态未改变");
+      }
       if (!Number.isInteger(input.dataRevision)) {
         throw httpError(400, "提交判断必须提供当前数据修订号");
       }
@@ -4125,6 +4101,9 @@ async function handleApi(req, res, pathname) {
     const candidate = await mutateData((data) => {
       const current = data.candidates.find((item) => item.id === reviewRoute[1]);
       if (!current) throw httpError(404, "候选不存在");
+      if (current.lifecycleV11?.opportunityPackage || current.lifecycleV11?.skuPackage) {
+        throw httpError(409, "新版生命周期商品不能使用旧B审核入口；请使用新版B利润模型，商品状态未改变");
+      }
       if (Number(current.dataRevision) !== input.dataRevision) {
         throw httpError(409, "候选资料已更新，旧审核结果不得覆盖新数据", {
           currentRevision: current.dataRevision

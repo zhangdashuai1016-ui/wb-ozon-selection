@@ -97,7 +97,7 @@ function capturedEvidence(skus) {
   };
 }
 
-test("1688 capture lists every SKU and multi-selection creates one listing-task C-stage dispatch", async (t) => {
+test("旧1688 C入口不再派发，已上架证据恢复仍保持只读", async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), "source-capture-api-"));
   const dataFile = path.join(directory, "candidates.json");
   const originalOther = candidate("OTHER-1", "其他商品100片");
@@ -131,55 +131,8 @@ test("1688 capture lists every SKU and multi-selection creates one listing-task 
   assert.equal(preflight.headers.get("access-control-allow-origin"), "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 
   const start = await post("/api/candidates/CAPTURE-1/source-capture/start", { dataRevision: 1 });
-  assert.equal(start.status, 201);
-  const started = await start.json();
-  assert.equal(started.candidate.sourceCapture.status, "waiting_extension");
-  assert.equal(started.candidate.dataRevision, 2);
-  assert.equal(started.expectedOfferId, "712421624571");
-
-  const duplicate = await post("/api/candidates/CAPTURE-1/source-capture/start", { dataRevision: 1 });
-  assert.equal(duplicate.status, 200);
-  assert.equal((await duplicate.json()).captureId, started.captureId);
-
-  const result = await post("/api/candidates/CAPTURE-1/source-capture/result", {
-    captureId: started.captureId,
-    token: started.extensionRequest.token,
-    dataRevision: started.dataRevision,
-    status: "captured",
-    evidence: capturedEvidence([
-      { sourceSkuId: "sku-320", attributes: { 片数: "320片" }, priceCny: 41, priceSource: "tradeModel.skuMap[0].price", stock: null, stockSource: null },
-      { sourceSkuId: "sku-100", attributes: { 片数: "100片" }, priceCny: null, priceSource: null, stock: 9, stockSource: "tradeModel.skuMap[1].stock" }
-    ])
-  }, { Origin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
-  assert.equal(result.status, 200);
-  assert.equal(result.headers.get("access-control-allow-origin"), "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-  const captured = await result.json();
-  assert.equal(captured.candidate.sourceCapture.status, "needs_sku_selection");
-  assert.equal(captured.candidate.sourceCapture.skuChoices.length, 2);
-  assert.equal(captured.dispatch, null);
-
-  const multiSelected = await post("/api/candidates/CAPTURE-1/source-capture/select-sku", {
-    dataRevision: captured.candidate.dataRevision,
-    sourceSkuIds: ["sku-320", "sku-100"]
-  });
-  assert.equal(multiSelected.status, 200);
-  const completed = await multiSelected.json();
-  assert.deepEqual(completed.candidate.sourceCapture.selectedSkus.map((sku) => sku.sourceSkuId), ["sku-320", "sku-100"]);
-  assert.deepEqual(completed.candidate.sourceCapture.missingDirectPriceSkuIds, ["sku-100"]);
-  assert.equal(completed.dispatch.trigger, "listing_preparation_source_capture_skus_selected");
-  assert.equal(completed.dispatch.assigneeRole, "listing_task");
-  assert.deepEqual(completed.dispatch.requiredSkills.map((skill) => skill.name), ["ozon-wb-pricing", "optimize-ecommerce-seo"]);
-  assert.equal(completed.dispatch.capabilityPlan.sourceCapture.captureId, completed.candidate.sourceCapture.captureId);
-  assert.deepEqual(completed.dispatch.candidateSnapshot.sourceCapture.selectedSkus.map((sku) => sku.sourceSkuId), ["sku-320", "sku-100"]);
-
-  const replay = await post("/api/candidates/CAPTURE-1/source-capture/result", {
-    captureId: started.captureId,
-    token: started.extensionRequest.token,
-    dataRevision: started.dataRevision,
-    status: "captured",
-    evidence: capturedEvidence([])
-  });
-  assert.equal(replay.status, 409);
+  assert.equal(start.status, 409);
+  assert.match((await start.json()).message, /不会创建旧C阶段派发/);
 
   let state = await (await fetch(`${baseUrl}/api/state`)).json();
   const listedRecovery = state.candidates.find((item) => item.id === "LISTED-RECOVERY");
@@ -221,63 +174,17 @@ test("1688 capture lists every SKU and multi-selection creates one listing-task 
   assert.equal(listedCompleted.candidate.sourceCapture.selectedSkus[0].sourceSkuId, "ghost-house");
   assert.equal(listedCompleted.dispatch, null);
 
-  state = await (await fetch(`${baseUrl}/api/state`)).json();
-  const other = state.candidates.find((item) => item.id === "OTHER-1");
-  const failedStart = await post("/api/candidates/OTHER-1/source-capture/start", { dataRevision: other.dataRevision });
-  assert.equal(failedStart.status, 201);
-  const failedSession = await failedStart.json();
-  const failedResult = await post("/api/candidates/OTHER-1/source-capture/result", {
-    captureId: failedSession.captureId,
-    token: failedSession.extensionRequest.token,
-    dataRevision: failedSession.dataRevision,
-    status: "failed",
-    failureCode: "extension_not_installed",
-    message: "没有ACK",
-    observedAt: new Date().toISOString()
-  });
-  assert.equal(failedResult.status, 200);
-  const failedBody = await failedResult.json();
-  assert.equal(failedBody.dispatch, null);
-  assert.equal(failedBody.candidate.sourceCapture.status, "failed");
-
-  state = await (await fetch(`${baseUrl}/api/state`)).json();
-  const ambiguous = state.candidates.find((item) => item.id === "AMBIG-1");
-  const ambiguousStart = await post("/api/candidates/AMBIG-1/source-capture/start", { dataRevision: ambiguous.dataRevision });
-  const ambiguousSession = await ambiguousStart.json();
-  const ambiguousResult = await post("/api/candidates/AMBIG-1/source-capture/result", {
-    captureId: ambiguousSession.captureId,
-    token: ambiguousSession.extensionRequest.token,
-    dataRevision: ambiguousSession.dataRevision,
-    status: "captured",
-    evidence: capturedEvidence([
-      { sourceSkuId: "sku-a", attributes: { 颜色: "原木" }, priceCny: 30, priceSource: "sku.price", stock: null, stockSource: null },
-      { sourceSkuId: "sku-b", attributes: { 颜色: "红色" }, priceCny: 32, priceSource: "sku.price", stock: null, stockSource: null }
-    ])
-  });
-  assert.equal(ambiguousResult.status, 200);
-  const ambiguousBody = await ambiguousResult.json();
-  assert.equal(ambiguousBody.candidate.sourceCapture.status, "needs_sku_selection");
-  assert.equal(ambiguousBody.dispatch, null);
-  const selected = await post("/api/candidates/AMBIG-1/source-capture/select-sku", {
-    dataRevision: ambiguousBody.candidate.dataRevision,
-    sourceSkuIds: ["sku-a", "sku-b"]
-  });
-  assert.equal(selected.status, 200);
-  const selectedBody = await selected.json();
-  assert.deepEqual(selectedBody.candidate.sourceCapture.selectedSkus.map((sku) => sku.sourceSkuId), ["sku-a", "sku-b"]);
-  assert.equal(selectedBody.dispatch.trigger, "listing_preparation_source_capture_skus_selected");
-
   const persisted = JSON.parse(await readFile(dataFile, "utf8"));
   assert.equal(persisted.meta.automationStarted, false);
-  assert.equal(persisted.dispatches.filter((item) => item.candidateId === "CAPTURE-1").length, 1);
+  assert.equal(persisted.dispatches.filter((item) => item.candidateId === "CAPTURE-1").length, 0);
   assert.equal(persisted.dispatches.filter((item) => item.candidateId === "OTHER-1").length, 0);
-  assert.equal(persisted.dispatches.filter((item) => item.candidateId === "AMBIG-1").length, 1);
+  assert.equal(persisted.dispatches.filter((item) => item.candidateId === "AMBIG-1").length, 0);
   assert.equal(persisted.dispatches.filter((item) => item.candidateId === "LISTED-RECOVERY").length, 0);
   const persistedListed = persisted.candidates.find((item) => item.id === "LISTED-RECOVERY");
   assert.equal(persistedListed.workflowStatus, "listed");
   assert.deepEqual(persistedListed.listingRecord, listedRecordBefore);
   const persistedOther = persisted.candidates.find((item) => item.id === "OTHER-1");
-  assert.equal(persistedOther.sourceCapture.status, "failed");
+  assert.equal(persistedOther.sourceCapture, undefined);
   const untouched = persisted.candidates.find((item) => item.id === "UNTOUCHED-1");
   assert.equal(untouched.dataRevision, 1);
   assert.equal(untouched.sourceCapture, undefined);

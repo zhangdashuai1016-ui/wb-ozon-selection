@@ -11,6 +11,7 @@ import { createC1SeoDraft } from "./c1-seo-draft.mjs";
 import { createC2AssetLifecycle, confirmFinalUploads } from "./c2-asset-lifecycle.mjs";
 import { createFinalProductPlanConfirmationCard } from "./final-product-plan-confirmation-card.mjs";
 import { assertValidLifecyclePackage } from "./product-lifecycle-schema.mjs";
+import { assessAStageMarket } from "./market-sample-policy.mjs";
 
 export const REAL_C1_PREPARATION_VERSION = "real-c1-preparation-v1.1";
 
@@ -138,19 +139,28 @@ function buildSupplierOption(candidate, evidence, ownerFacts) {
 
 function prepareOpportunity(candidate, option, preparedAt) {
   const opportunity = structuredClone(adaptLegacyCandidateToOpportunity(candidate));
-  const verifiedCrossBorderSnapshot = opportunity.salesSnapshots.find((snapshot) =>
-    snapshot?.schemaVersion === "sales-snapshot-v1.1" &&
-    snapshot?.platform === "ozon" &&
-    snapshot?.sellerType === "cross_border_cn" &&
-    snapshot?.sellerIdentityEvidence?.status === "verified"
-  );
-  if (!verifiedCrossBorderSnapshot) {
-    throw new Error("REAL_C1_INPUT_GAP: 缺少已验证的Ozon中国跨境销售快照；unknown只能作辅助证据");
+  opportunity.salesSnapshots = opportunity.salesSnapshots.filter((snapshot) => snapshot?.schemaVersion === "sales-snapshot-v1.1");
+  if (!opportunity.salesSnapshots.length) throw new Error("REAL_C1_INPUT_GAP: 缺少可追溯的A阶段销售快照");
+  const sampleReviews = Object.fromEntries(opportunity.salesSnapshots.map((snapshot) => [
+    snapshot.snapshotId,
+    {
+      comparability: snapshot.productUrl === candidate.productUrl ? "comparable" : "unknown",
+      priceEvidenceStatus: Number.isFinite(snapshot.currentPrice) && snapshot.currentPrice > 0 ? "verified" : "missing",
+      validityStatus: "current",
+      evidenceTraceable: nonEmptyString(snapshot.evidenceRef)
+    }
+  ]));
+  opportunity.marketAssessment = assessAStageMarket({
+    opportunityPackage: opportunity,
+    sampleReviews,
+    assessedAt: preparedAt,
+    assessmentId: "a-market:" + candidate.id + ":revision-" + candidate.dataRevision,
+    marketCriteriaStatus: "passed",
+    supplyDataStatus: "ready"
+  });
+  if (opportunity.marketAssessment.status !== "passed") {
+    throw new Error("REAL_C1_INPUT_GAP: 销售证据不足或商品可比性不足");
   }
-  opportunity.salesSnapshots = [
-    verifiedCrossBorderSnapshot,
-    ...opportunity.salesSnapshots.filter((snapshot) => snapshot.snapshotId !== verifiedCrossBorderSnapshot.snapshotId)
-  ];
   opportunity.businessPhase = "A";
   opportunity.businessResult = "passed";
   opportunity.technicalStatus = "completed";
@@ -295,7 +305,6 @@ export function prepareRealC1ForFinalAssets({ candidate, ownerFactConfirmation, 
     skuPackage,
     salesSelection: {
       salesSnapshotId: confirmed.opportunityPackage.salesSnapshots[0].snapshotId,
-      pricePath: "currentPrice",
       currency: "RUB"
     },
     platformFeeEvidence: {

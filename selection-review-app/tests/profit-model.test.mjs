@@ -15,6 +15,7 @@ import {
   validateProfitModel
 } from "../lib/profit-model.mjs";
 import { validateSkuLifecyclePackage } from "../lib/product-lifecycle-schema.mjs";
+import { attachPassedMarketAssessment } from "./helpers/market-assessment-fixture.mjs";
 
 const TEST_PRODUCT_ID = "CX-20260803-010";
 const VARIANT = "规格:豪华小火车";
@@ -31,6 +32,7 @@ async function preparedInputs() {
   opportunity.salesSnapshots[0].platform = "ozon";
   opportunity.salesSnapshots[0].sellerType = "cross_border_cn";
   opportunity.salesSnapshots[0].sellerIdentityEvidence = { status: "verified", evidenceRef: "test:cross-border-cn" };
+  attachPassedMarketAssessment(opportunity);
   const evidence = sanitize1688Evidence({
     offerId: "712421624571",
     observedAt: "2026-08-12T12:00:00.000Z",
@@ -152,6 +154,8 @@ test("CX-20260803-010 produces the complete frozen ProfitModel from five upstrea
   assert.equal(model.profitMargin, 0.2962);
   assert.equal(model.thresholdVersion, PROFIT_THRESHOLD_VERSION);
   assert.equal(model.result, "passed");
+  assert.equal(model.marketAssessmentRef, "a-market:CX-20260803-010:test");
+  assert.deepEqual(model.marketSampleRefs, ["legacy-sales:CX-20260803-010"]);
   assert.equal(model.inputSnapshotRefs.length, 5);
   assert.deepEqual(validateProfitModel(model), { valid: true, errors: [] });
 });
@@ -237,4 +241,5 @@ test("published ProfitModel schema requires every phase-7 output", async () => {
     "thresholdVersion",
     "result"
   ]) assert.ok(schema.required.includes(field), field);
+  for (const field of ["marketAssessmentRef", "marketSampleRefs"]) assert.ok(schema.required.includes(field), field);
 });

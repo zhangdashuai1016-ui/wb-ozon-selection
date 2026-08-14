@@ -1,3 +1,5 @@
+import { validateAMarketAssessment } from "./market-sample-policy.mjs";
+
 export const PRODUCT_LIFECYCLE_SCHEMA_VERSION = "product-lifecycle-v1.1";
 export const MINIMUM_PROFIT_MARGIN = 0.25;
 export const MINIMUM_UNIT_PROFIT_RMB = 20;
@@ -356,6 +358,15 @@ export function validateOpportunityPackage(pkg) {
   requireString(pkg.targetPlatform, "targetPlatform", errors);
   requireString(pkg.targetStore, "targetStore", errors);
   requireArray(pkg.salesSnapshots, "salesSnapshots", errors);
+  if (pkg.marketAssessment !== undefined && pkg.marketAssessment !== null) {
+    const marketValidation = validateAMarketAssessment(pkg.marketAssessment);
+    for (const error of marketValidation.errors) {
+      push(errors, "marketAssessment." + error.path, error.message);
+    }
+    if (pkg.marketAssessment?.sourceOpportunityRevision !== pkg.dataRevision) {
+      push(errors, "marketAssessment.sourceOpportunityRevision", "必须对应当前OpportunityPackage修订号");
+    }
+  }
   requireArray(pkg.supplierOptions, "supplierOptions", errors);
   if (!isNullableString(pkg.recommendedSupplierOptionId)) {
     push(errors, "recommendedSupplierOptionId", "必须是字符串或null");

@@ -6,6 +6,7 @@ import {
   assertValidLifecyclePackage,
   validateOpportunityPackage
 } from "./product-lifecycle-schema.mjs";
+import { resolveBMarketPrice } from "./market-sample-policy.mjs";
 
 export const B_FLOW_VERSION = "single-sku-b-flow-v1";
 
@@ -37,10 +38,6 @@ function deepFreeze(value) {
   Object.freeze(value);
   for (const child of Object.values(value)) deepFreeze(child);
   return value;
-}
-
-function valueAtPath(value, path) {
-  return path.split(".").reduce((current, key) => current?.[key], value);
 }
 
 function roundMoney(value) {
@@ -160,7 +157,8 @@ export function runBProfitModel({
 
   const selection = requireObject(priceSelection, "A阶段销售价格选择");
   const salesSnapshotId = requireString(selection.salesSnapshotId, "销售快照ID");
-  const salesSnapshot = opportunityPackage.salesSnapshots.find((item) => item.snapshotId === salesSnapshotId);
+  const resolvedMarket = resolveBMarketPrice(opportunityPackage, salesSnapshotId);
+  const salesSnapshot = resolvedMarket.snapshot;
   if (!salesSnapshot) throw new Error("B_INPUT_GAP: 销售快照不在OpportunityPackage中");
   if (!skuPackage.inheritedSalesSnapshotRefs.includes(salesSnapshotId)) {
     throw new Error("B_INPUT_GAP: SKU没有继承所选销售快照");
@@ -168,11 +166,8 @@ export function runBProfitModel({
   if (salesSnapshot.sourceDataRevision !== opportunityPackage.dataRevision) {
     throw new Error("B_INPUT_GAP: 销售快照不是当前OpportunityPackage版本");
   }
-  if ((salesSnapshot.platform === "ozon" || /ozon\.ru/i.test(String(salesSnapshot.productUrl || ""))) && salesSnapshot.sellerType !== "cross_border_cn") {
-    throw new Error("B_INPUT_GAP: Ozon主要价格带必须来自已验证的中国跨境卖家；sellerType=unknown只能作辅助证据");
-  }
-  const marketPriceRub = requireNumber(valueAtPath(salesSnapshot, requireString(selection.pricePath, "销售价格字段路径")), "A阶段销售价格", { positive: true });
-  if (selection.currency !== "RUB") throw new Error("B_INPUT_GAP: 当前单SKU测试只接受明确的RUB销售快照");
+  const marketPriceRub = requireNumber(resolvedMarket.recommendedSalePrice.amount, "A阶段销售价格", { positive: true });
+  if (resolvedMarket.recommendedSalePrice.currency !== "RUB") throw new Error("B_INPUT_GAP: 当前单SKU测试只接受明确的RUB销售快照");
 
   const supply = requireObject(skuPackage.selectedSupplySnapshot?.data, "主人确认供应快照");
   const actualPurchaseCost = requireNumber(supply.actualPurchaseCost, "采购到手总价", { nonNegative: true });
@@ -212,6 +207,11 @@ export function runBProfitModel({
       feeEvidenceId,
       exchangeRateEvidenceId
     ],
+    marketAssessmentRef: resolvedMarket.assessment.assessmentId,
+    marketSampleRefs: structuredClone(resolvedMarket.assessment.primarySampleIds),
+    marketSellerTypesUsed: structuredClone(resolvedMarket.assessment.sellerTypesUsed),
+    marketConfidence: resolvedMarket.assessment.confidence,
+    containsLocalRuBackground: resolvedMarket.assessment.containsLocalRuBackground,
     recommendedSalePriceCny,
     unitProfitRmb,
     profitMargin,
@@ -221,7 +221,7 @@ export function runBProfitModel({
     externalAccesses: [],
     requestedExistingFields: [],
     inputs: {
-      salesPrice: { value: marketPriceRub, currency: "RUB", sourceRef: salesSnapshotId, sourcePath: selection.pricePath },
+      salesPrice: { value: marketPriceRub, currency: "RUB", sourceRef: salesSnapshotId, sourcePath: "marketAssessment.recommendedSalePrice.amount" },
       purchaseCost: { value: actualPurchaseCost, currency: "CNY", sourceRef: skuPackage.selectedSupplySnapshot.snapshotId },
       logistics: { value: logisticsRmb, currency: "CNY", sourceRef: feeEvidenceId },
       commission: { rate: commissionRate, sourceRef: feeEvidenceId, evidenceType: fees.commissionEvidenceType },
