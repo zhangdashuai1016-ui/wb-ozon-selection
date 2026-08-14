@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "platform-write-preflight-v1.1",
+  "title": "平台写入前置检查 v1.1",
+  "type": "object",
+  "required": [
+    "schemaVersion", "preflightId", "sourceProductionPlanId", "sourceProductionPlanFingerprint",
+    "targetPlatform", "storeIdentity", "permission", "connectionStatus", "authorizedWriteFields",
+    "platformWritableFields", "effectiveWritableFields", "imagePermission", "priceCurrency", "risks", "technicalStatus",
+    "businessStateEffect", "checkedAt", "readyForPlatformWrite", "productCreated", "imagesUploaded",
+    "inventoryModified", "storeDataModified", "productionRecordCreated", "platformWrites"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "platform-write-preflight-v1.1" },
+    "preflightId": { "type": "string", "minLength": 1 },
+    "sourceProductionPlanId": { "type": "string", "minLength": 1 },
+    "sourceProductionPlanFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "targetPlatform": { "type": "string", "minLength": 1 },
+    "storeIdentity": {
+      "type": "object",
+      "required": ["expectedStore", "observedStore", "status", "evidenceRef"],
+      "properties": {
+        "expectedStore": { "type": "string", "minLength": 1 },
+        "observedStore": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["matched", "mismatched", "unverified"] },
+        "evidenceRef": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "permission": {
+      "type": "object",
+      "required": ["status", "evidenceRef"],
+      "properties": {
+        "status": { "enum": ["verified", "denied", "permission_required", "unknown"] },
+        "evidenceRef": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "connectionStatus": {
+      "type": "object",
+      "required": ["api", "sellerBackend"],
+      "properties": {
+        "api": { "$ref": "#/$defs/connection" },
+        "sellerBackend": { "$ref": "#/$defs/connection" }
+      },
+      "additionalProperties": false
+    },
+    "authorizedWriteFields": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "platformWritableFields": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "effectiveWritableFields": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "imagePermission": {
+      "type": "object",
+      "required": ["status", "evidenceRef"],
+      "properties": {
+        "status": { "enum": ["verified", "denied", "permission_required", "unknown"] },
+        "evidenceRef": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "priceCurrency": {
+      "type": "object",
+      "required": ["expected", "observed", "status", "evidenceRef"],
+      "properties": {
+        "expected": { "type": "string", "minLength": 1 },
+        "observed": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["matched", "mismatched", "unverified"] },
+        "evidenceRef": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string", "minLength": 1 },
+          "message": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "technicalStatus": { "enum": ["completed", "system_error", "permission_required", "data_unavailable"] },
+    "businessStateEffect": { "const": "none" },
+    "checkedAt": { "type": "string", "format": "date-time" },
+    "readyForPlatformWrite": { "const": false },
+    "productCreated": { "const": false },
+    "imagesUploaded": { "const": 0 },
+    "inventoryModified": { "const": false },
+    "storeDataModified": { "const": false },
+    "productionRecordCreated": { "const": false },
+    "platformWrites": { "const": 0 }
+  },
+  "$defs": {
+    "connection": {
+      "type": "object",
+      "required": ["status", "checkedVia", "evidenceRef"],
+      "properties": {
+        "status": { "enum": ["connected", "unavailable", "system_error", "permission_required", "unknown"] },
+        "checkedVia": { "type": "string", "minLength": 1 },
+        "evidenceRef": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

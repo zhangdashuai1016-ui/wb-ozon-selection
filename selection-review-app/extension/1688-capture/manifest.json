@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "今日选品评审台 · 商品只读采集器",
+  "version": "1.2.0",
+  "description": "仅在主人从本机评审台点击后，读取当前1688或Ozon商品页的结构化证据并回传到127.0.0.1:4317。",
+  "permissions": [
+    "scripting",
+    "tabs",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://detail.1688.com/offer/*",
+    "https://www.ozon.ru/product/*",
+    "http://127.0.0.1:4317/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1:4317/*"
+      ],
+      "js": [
+        "bridge.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "评审台商品只读采集器"
+  }
+}

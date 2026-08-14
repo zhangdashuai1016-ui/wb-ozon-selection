@@ -3,11 +3,22 @@ import { matchesQueue, orderCandidates } from "../candidateViews";
 import StatusBadge from "./StatusBadge";
 
 function executionLabel(candidate) {
-  const dispatch = candidate.activeDispatch;
+  const dispatch = candidate.activeDispatch || candidate.latestDispatch;
+  if (
+    candidate.workflowStatus === "listing_preparation" &&
+    candidate.listingPreparation?.status === "awaiting_final_assets"
+  ) return "C1完成 · 等待最终素材";
+  if (
+    candidate.workflowStatus === "listing_preparation" &&
+    (candidate.listingHandoff?.state === "needs_decision" || candidate.listingPreparation?.status === "needs_decision")
+  ) return "C阶段完成 · 等待你确认";
   if (dispatch) {
     if (["queued", "waiting_assignee", "delivering"].includes(dispatch.status)) return "已派发待负责人领取";
     if (["received", "permission_required"].includes(dispatch.status)) return "负责人已接收";
     if (dispatch.status === "running") return "运行中 · 有实际任务";
+    if (dispatch.status === "responded_unverified") return "任务已回复 · 结果未验证";
+    if (dispatch.status === "blocked" && candidate.processing?.manualHold !== true) return "证据不足 · 已停止";
+    if (["failed", "blocked", "needs_decision"].includes(dispatch.status)) return "已停止 · 等待固定选择";
   }
   if (candidate.processingStatus?.key === "queued") return "已确认 · 尚未派发";
   return candidate.processingStatus?.label || "当前无人运行";
@@ -62,7 +73,7 @@ export default function CandidateRail({
               <span className="candidate-copy">
                 <strong>{candidate.productName}</strong>
                 <small>{STORE_LABELS[candidate.targetStore]}</small>
-                {candidate.workflowStatus === "codex_processing" ? (
+                {["codex_processing", "listing_preparation"].includes(candidate.workflowStatus) ? (
                   <small className={`rail-processing rail-${candidate.processingStatus?.key || "idle"}`}>
                     {executionLabel(candidate)}
                   </small>

@@ -3,6 +3,7 @@
 # Local tool caches and dependency/build output
 /.playwright-cli/
 /.pnpm-store/
+/output/
 **/node_modules/
 **/dist/
 **/logs/

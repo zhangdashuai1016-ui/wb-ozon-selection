@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "supplier-option-v1.1",
+  "title": "SupplierOption and SupplierSKU v1.1",
+  "$defs": {
+    "unknown": { "const": "unknown" },
+    "SupplierSKU": {
+      "type": "object",
+      "required": [
+        "supplierSkuId",
+        "variantKey",
+        "attributes",
+        "unitProductPrice",
+        "unitDomesticFreight",
+        "actualPurchaseCost",
+        "weight",
+        "dimensions",
+        "material",
+        "powerProfile",
+        "imageRefs"
+      ],
+      "properties": {
+        "supplierSkuId": { "type": "string", "minLength": 1 },
+        "variantKey": { "type": "string", "minLength": 1 },
+        "attributes": { "type": "object" },
+        "unitProductPrice": { "oneOf": [{ "type": "number", "exclusiveMinimum": 0 }, { "$ref": "#/$defs/unknown" }] },
+        "unitDomesticFreight": { "oneOf": [{ "type": "number", "minimum": 0 }, { "$ref": "#/$defs/unknown" }] },
+        "actualPurchaseCost": { "oneOf": [{ "type": "number", "minimum": 0 }, { "$ref": "#/$defs/unknown" }] },
+        "weight": {
+          "oneOf": [
+            { "type": "number", "minimum": 0 },
+            { "type": "object" },
+            { "type": "string", "minLength": 1, "not": { "const": "unknown" } },
+            { "$ref": "#/$defs/unknown" }
+          ]
+        },
+        "dimensions": {
+          "oneOf": [
+            { "type": "object" },
+            { "type": "string", "minLength": 1, "not": { "const": "unknown" } },
+            { "$ref": "#/$defs/unknown" }
+          ]
+        },
+        "material": {
+          "oneOf": [
+            { "type": "object" },
+            { "type": "string", "minLength": 1, "not": { "const": "unknown" } },
+            { "$ref": "#/$defs/unknown" }
+          ]
+        },
+        "powerProfile": {
+          "oneOf": [
+            { "type": "object" },
+            { "type": "string", "minLength": 1, "not": { "const": "unknown" } },
+            { "$ref": "#/$defs/unknown" }
+          ]
+        },
+        "imageRefs": {
+          "oneOf": [
+            { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+            { "$ref": "#/$defs/unknown" }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "SupplierOption": {
+      "type": "object",
+      "required": [
+        "supplierOptionId",
+        "sourcePlatform",
+        "productUrl",
+        "offerId",
+        "supplierSalesEvidence",
+        "supplierBadges",
+        "supplierSkus",
+        "captureTime",
+        "evidenceRef"
+      ],
+      "properties": {
+        "supplierOptionId": { "type": "string", "minLength": 1 },
+        "sourcePlatform": { "const": "1688" },
+        "productUrl": { "type": "string", "format": "uri" },
+        "offerId": { "type": "string", "minLength": 1 },
+        "supplierSalesEvidence": { "oneOf": [{ "type": "object" }, { "$ref": "#/$defs/unknown" }] },
+        "supplierBadges": {
+          "oneOf": [
+            { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+            { "$ref": "#/$defs/unknown" }
+          ]
+        },
+        "supplierSkus": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/SupplierSKU" } },
+        "captureTime": { "type": "string", "format": "date-time" },
+        "evidenceRef": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$ref": "#/$defs/SupplierOption"
+}

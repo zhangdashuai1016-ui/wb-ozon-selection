@@ -37,8 +37,53 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  confirmLifecycleFinalAssets: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/final-assets`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  confirmLifecycleProductionAuthorization: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/production-authorization`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  reviseLifecycleProductionAuthorization: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/production-authorization/revise`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  startSourceCapture: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/source-capture/start`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  startOzonSalesCapture: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/sales-capture/start`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  completeOzonSalesCapture: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/sales-capture/result`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  completeSourceCapture: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/source-capture/result`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  selectSourceCaptureSku: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/source-capture/select-sku`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   resumeCandidate: (payload) =>
     request("/api/control/resume", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  chooseRecoveryAction: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/recovery-action`, {
       method: "POST",
       body: JSON.stringify(payload)
     }),

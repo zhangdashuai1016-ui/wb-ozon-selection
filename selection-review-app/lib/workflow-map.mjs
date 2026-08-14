@@ -9,6 +9,13 @@ export const ACTIVE_DISPATCH_STATES = new Set([
   "permission_required"
 ]);
 
+export const RECOVERABLE_TERMINAL_DISPATCH_STATES = new Set([
+  "failed",
+  "blocked",
+  "needs_decision",
+  "responded_unverified"
+]);
+
 export const TASK_ROUTE_DEFAULTS = {
   selection_task: {
     role: "selection_task",
@@ -43,6 +50,7 @@ export async function readWorkflowMap(file) {
 export function ensureCollaborationData(data) {
   data.workflowComments ||= [];
   data.dispatches ||= [];
+  data.evidencePacks ||= [];
   data.taskRoutes = {
     ...TASK_ROUTE_DEFAULTS,
     ...(data.taskRoutes || {})
@@ -54,6 +62,66 @@ export function ensureCollaborationData(data) {
     };
   }
   return data;
+}
+
+export function dispatchDeliveryGroups(dispatches = [], taskRoutes = {}) {
+  const groups = new Map();
+  for (const dispatch of dispatches) {
+    const route = taskRoutes?.[dispatch.assigneeRole] || {};
+    const key = dispatch.assigneeThreadId || route.threadId || dispatch.assigneeRole;
+    if (!key) continue;
+    const group = groups.get(key) || [];
+    group.push(dispatch);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+
+export function migrateLegacyCStageOwnership(data, timestamp = new Date().toISOString()) {
+  ensureCollaborationData(data);
+  const listingRoute = data.taskRoutes.listing_task;
+  let changed = false;
+  const migratedCandidateIds = new Set();
+
+  for (const dispatch of data.dispatches) {
+    if (
+      dispatch.nodeId !== "M07" ||
+      dispatch.assigneeRole !== "selection_task" ||
+      !ACTIVE_DISPATCH_STATES.has(dispatch.status)
+    ) continue;
+    const candidate = data.candidates?.find((item) => item.id === dispatch.candidateId);
+    if (!candidate || !["listing_preparation", "ready_to_list"].includes(candidate.workflowStatus)) continue;
+
+    dispatch.assigneeRole = "listing_task";
+    dispatch.assigneeThreadId = listingRoute.threadId;
+    dispatch.assigneeTitle = listingRoute.title;
+    dispatch.status = "queued";
+    dispatch.runId = null;
+    dispatch.turnId = null;
+    dispatch.failureLayer = "";
+    dispatch.error = "";
+    dispatch.deliveryDetail = "";
+    dispatch.deliveryAttemptedAt = null;
+    dispatch.lastEventAt = timestamp;
+    dispatch.message = String(dispatch.message || "")
+      .replaceAll("选品任务", "上架任务")
+      .replaceAll("选品负责人", "上架负责人");
+
+    candidate.listingHandoff = {
+      ...(candidate.listingHandoff || {}),
+      state: "queued",
+      owner: "listing_task",
+      runId: null,
+      currentStep: "等待上架任务领取C阶段",
+      blockReason: null
+    };
+    candidate.updatedAt = timestamp;
+    candidate.lastModifiedBy = "system";
+    migratedCandidateIds.add(candidate.id);
+    changed = true;
+  }
+
+  return { changed, migratedCandidateIds: [...migratedCandidateIds] };
 }
 
 export function dispatchOwnerForNode(node, scope) {
@@ -71,10 +139,13 @@ export function candidateActiveNode(candidate) {
   if (candidate.workflowStatus === "needs_user_data") return "M04";
   if (candidate.workflowStatus === "eliminated") return "M06";
   if (candidate.workflowStatus === "listed") return "M11";
+  if (candidate.workflowStatus === "listing_preparation") {
+    if (["blocked", "needs_decision"].includes(candidate.listingHandoff?.state)) return "M12";
+    if (["queued", "claimed", "running", "permission_required"].includes(candidate.listingHandoff?.state)) return "M07";
+    return "M08";
+  }
   if (candidate.workflowStatus === "ready_to_list") {
-    return ["handed_off", "paused_user_stopped", "claimed", "running"].includes(candidate.listingHandoff?.state)
-      ? "M09"
-      : "M08";
+    return candidate.listingPreparation?.status === "prepared" && candidate.cCompletedAt ? "M09" : "M08";
   }
   if (candidate.workflowStatus !== "codex_processing") return "M01";
 
@@ -88,8 +159,8 @@ export function candidateActiveNode(candidate) {
 
 function completedNodeIds(candidate, activeNodeId) {
   if (!candidate || !activeNodeId) return [];
-  const userPath = ["M01", "M04", "M05", "M06", "M07", "M08", "M09", "M10", "M11"];
-  const codexPath = ["M01", "M02", "M03", "M04", "M05", "M06", "M07", "M08", "M09", "M10", "M11"];
+  const userPath = ["M01", "M04", "M05", "M06", "M08", "M07", "M09", "M10", "M11"];
+  const codexPath = ["M01", "M02", "M03", "M04", "M05", "M06", "M08", "M07", "M09", "M10", "M11"];
   const path = candidate.source === "user" ? userPath : codexPath;
   if (activeNodeId === "M12") return [];
   const index = path.indexOf(activeNodeId);
@@ -102,29 +173,59 @@ export function activeDispatchForCandidate(data, candidateId) {
     .find((item) => item.candidateId === candidateId && ACTIVE_DISPATCH_STATES.has(item.status)) || null;
 }
 
+export function latestDispatchForCandidate(data, candidateId) {
+  return [...(data.dispatches || [])]
+    .reverse()
+    .find((item) => item.candidateId === candidateId) || null;
+}
+
 export function collaborationSummary(data, baseSummary) {
-  const processing = data.candidates.filter((item) => item.workflowStatus === "codex_processing");
+  const processing = data.candidates.filter((item) =>
+    ["codex_processing", "listing_preparation", "ready_to_list"].includes(item.workflowStatus)
+  );
   const activeByCandidate = new Map();
+  const latestByCandidate = new Map();
   for (const dispatch of data.dispatches || []) {
+    if (dispatch.candidateId) latestByCandidate.set(dispatch.candidateId, dispatch);
     if (dispatch.candidateId && ACTIVE_DISPATCH_STATES.has(dispatch.status)) {
       activeByCandidate.set(dispatch.candidateId, dispatch);
     }
   }
-  const received = [...activeByCandidate.values()].filter((item) => ["received", "running", "permission_required"].includes(item.status)).length;
+  const hasRecoverableTerminal = (candidate) => {
+    const latest = latestByCandidate.get(candidate.id);
+    if (!RECOVERABLE_TERMINAL_DISPATCH_STATES.has(latest?.status)) return false;
+    const revisionMatches = latest.dataRevision === null || latest.dataRevision === undefined ||
+      Number(latest.dataRevision) === Number(candidate.dataRevision);
+    const stageMatches = !latest.workflowStatusAtDispatch || latest.workflowStatusAtDispatch === candidate.workflowStatus;
+    return revisionMatches && stageMatches;
+  };
+  const received = [...activeByCandidate.values()].filter((item) => ["received", "permission_required"].includes(item.status)).length;
   const dispatched = [...activeByCandidate.values()].filter((item) => ["queued", "waiting_assignee", "delivering"].includes(item.status)).length;
   const authorized = processing.filter((candidate) =>
     candidate.processing?.state === "queued" &&
     candidate.processing?.manualHold !== true &&
-    !activeByCandidate.has(candidate.id)
+    !activeByCandidate.has(candidate.id) &&
+    !hasRecoverableTerminal(candidate)
   ).length;
   return {
     ...(baseSummary || {}),
-    actualRunning: processing.filter((candidate) => candidate.processing?.state === "running" && candidate.processing?.runId).length,
+    actualRunning: [...activeByCandidate.values()].filter((dispatch) => dispatch.status === "running" && dispatch.runId).length,
     received,
     dispatched,
     authorized,
-    stopped: processing.filter((candidate) => candidate.processing?.manualHold === true || ["blocked", "deferred"].includes(candidate.processing?.state)).length,
-    stateAnomaly: processing.filter((candidate) => candidate.processing?.state === "running" && !candidate.processing?.runId).length
+    stopped: processing.filter((candidate) => {
+      if (candidate.workflowStatus === "codex_processing") {
+        return candidate.processing?.manualHold === true ||
+          ["blocked", "deferred"].includes(candidate.processing?.state) ||
+          hasRecoverableTerminal(candidate);
+      }
+      return ["blocked", "needs_decision", "paused_user_stopped"].includes(candidate.listingHandoff?.state) ||
+        hasRecoverableTerminal(candidate);
+    }).length,
+    stateAnomaly: processing.filter((candidate) =>
+      (candidate.workflowStatus === "codex_processing" && candidate.processing?.state === "running" && !candidate.processing?.runId) ||
+      (candidate.workflowStatus !== "codex_processing" && candidate.listingHandoff?.state === "running" && !candidate.listingHandoff?.runId)
+    ).length
   };
 }
 
@@ -139,7 +240,7 @@ export function workflowMapView(map, data, publicCandidates, selectedCandidateId
     if (!nodeId || !counts[nodeId]) continue;
     counts[nodeId].total += 1;
     if (nodeId === "M12") counts[nodeId].blocked += 1;
-    if (candidate.processingStatus?.actualRunning) counts[nodeId].running += 1;
+    if (candidate.processingStatus?.actualRunning || candidate.activeDispatch?.status === "running") counts[nodeId].running += 1;
   }
 
   const dispatches = (data.dispatches || []).filter((item) =>
@@ -180,10 +281,10 @@ export function validateNodeExecution(node, scope, candidate) {
   if (!node) throw Object.assign(new Error("小地图节点不存在"), { status: 404 });
   if (!["candidate", "workflow"].includes(scope)) throw Object.assign(new Error("评论范围无效"), { status: 400 });
   if (scope === "candidate" && !candidate) throw Object.assign(new Error("当前商品不存在"), { status: 404 });
-  if (scope === "candidate" && ["M08", "M09", "M10", "M11"].includes(node.id) && !["ready_to_list", "listed"].includes(candidate.workflowStatus)) {
+  if (scope === "candidate" && ["M07", "M08", "M09", "M10", "M11"].includes(node.id) && !["listing_preparation", "ready_to_list", "listed"].includes(candidate.workflowStatus)) {
     throw Object.assign(new Error("该商品尚未进入待上架，不能派给上架任务"), { status: 409 });
   }
-  if (scope === "candidate" && ["M01", "M02", "M03", "M04", "M05", "M06", "M07"].includes(node.id) && ["ready_to_list", "listed"].includes(candidate.workflowStatus)) {
+  if (scope === "candidate" && ["M01", "M02", "M03", "M04", "M05", "M06"].includes(node.id) && ["listing_preparation", "ready_to_list", "listed"].includes(candidate.workflowStatus)) {
     throw Object.assign(new Error("该商品已交由上架任务负责，不能重新派给选品任务"), { status: 409 });
   }
 }

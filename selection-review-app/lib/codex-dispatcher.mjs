@@ -1,15 +1,198 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import { sourceCaptureForDispatch } from "./source-capture.mjs";
 
 const DEFAULT_CODEX_BIN = "/Applications/ChatGPT.app/Contents/Resources/codex";
+
+const DISPATCH_SKILLS = Object.freeze({
+  pricing: {
+    name: "ozon-wb-pricing",
+    path: "/Users/shuaizhang/.codex/skills/ozon-wb-pricing/SKILL.md"
+  },
+  ecommerceSeo: {
+    name: "optimize-ecommerce-seo",
+    path: "/Users/shuaizhang/Documents/电商能力实验室/optimize-ecommerce-seo/SKILL.md"
+  },
+  wbListing: {
+    name: "wb-listing-launch",
+    path: "/Users/shuaizhang/.codex/skills/wb-listing-launch/SKILL.md"
+  },
+  wbSafeWrite: {
+    name: "wb-safe-write",
+    path: "/Users/shuaizhang/.codex/skills/wb-safe-write/SKILL.md"
+  }
+});
 
 function plainStatus(status) {
   if (!status) return "unknown";
   return typeof status === "string" ? status : status.type || "unknown";
 }
 
+function activeStatusDetail(status) {
+  const flags = Array.isArray(status?.activeFlags) ? status.activeFlags.filter(Boolean) : [];
+  return flags.length ? `负责人任务存在未结束轮次（${flags.join("、")}）` : "负责人任务存在未结束轮次";
+}
+
 function safeMessage(value) {
   return String(value || "").trim().slice(0, 12000);
+}
+
+function safePublicUrl(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    const url = new URL(text);
+    if (!["http:", "https:"].includes(url.protocol)) return "";
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
+function finiteOrNull(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+const DISPATCH_RESULT_TYPES = ["selection_review", "listing_preparation_review", "none"];
+const DISPATCH_RESULT_STATUSES = ["completed", "blocked", "needs_decision"];
+
+export const DISPATCH_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    status: { type: "string", enum: DISPATCH_RESULT_STATUSES },
+    reply: { type: "string" },
+    resultType: { type: "string", enum: DISPATCH_RESULT_TYPES },
+    resultJson: { type: "string" },
+    evidenceSummary: { type: "string" }
+  },
+  required: ["status", "reply", "resultType", "resultJson", "evidenceSummary"],
+  additionalProperties: false
+};
+
+export function parseDispatchOutput(value) {
+  const parsed = typeof value === "string" ? JSON.parse(value) : value;
+  if (!parsed || typeof parsed !== "object") throw new Error("任务没有返回结构化结果");
+  if (!DISPATCH_RESULT_STATUSES.includes(parsed.status)) throw new Error("任务返回状态无效");
+  if (!DISPATCH_RESULT_TYPES.includes(parsed.resultType)) throw new Error("任务返回结果类型无效");
+  const reply = safeMessage(parsed.reply);
+  if (!reply) throw new Error("任务没有返回给主人可读的结论");
+  return {
+    status: parsed.status,
+    reply,
+    resultType: parsed.resultType,
+    resultJson: String(parsed.resultJson || "").trim().slice(0, 100000),
+    evidenceSummary: safeMessage(parsed.evidenceSummary)
+  };
+}
+
+export function dispatchCandidateSnapshot(candidate) {
+  if (!candidate) return null;
+  return {
+    candidateId: String(candidate.id || ""),
+    dataRevision: Number(candidate.dataRevision || 0),
+    workflowStatus: String(candidate.workflowStatus || ""),
+    selectionStage: String(candidate.selectionStage?.stage || candidate.codexReview?.selectionStage || ""),
+    source: String(candidate.source || ""),
+    targetStore: String(candidate.targetStore || ""),
+    productName: safeMessage(candidate.productName).slice(0, 500),
+    productUrl: safePublicUrl(candidate.productUrl),
+    sourceUrl: safePublicUrl(candidate.sourceUrl),
+    competitorUrl: safePublicUrl(candidate.competitorUrl),
+    purchasePriceRmb: finiteOrNull(candidate.purchasePriceRmb),
+    packagingCostRmb: finiteOrNull(candidate.packagingCostRmb),
+    packedWeightKg: finiteOrNull(candidate.packedWeightKg),
+    dimensionsCm: {
+      length: finiteOrNull(candidate.dimensionsCm?.length),
+      width: finiteOrNull(candidate.dimensionsCm?.width),
+      height: finiteOrNull(candidate.dimensionsCm?.height)
+    },
+    expectedPriceRub: finiteOrNull(candidate.expectedPriceRub),
+    sellerRevenueCny: finiteOrNull(candidate.sellerRevenueCny),
+    powered: candidate.powered ?? "unknown",
+    materialsAndAge: safeMessage(candidate.materialsAndAge).slice(0, 1000),
+    complianceStatus: String(candidate.complianceStatus || ""),
+    authorizationStatus: String(candidate.authorizationStatus || ""),
+    defaultStock: finiteOrNull(candidate.defaultStock) ?? 100,
+    evidencePackIds: Array.isArray(candidate.evidencePackIds)
+      ? candidate.evidencePackIds.map((item) => String(item)).slice(0, 20)
+      : [],
+    acceptedEstimatedCommission: candidate.acceptedEstimatedCommission || null,
+    acceptedTestRisk: candidate.acceptedTestRisk || null,
+    bPassedAt: candidate.bPassedAt || null,
+    cCompletedAt: candidate.cCompletedAt || null,
+    existingReview: candidate.codexReview ? {
+      decision: candidate.codexReview.decision || "",
+      selectionStage: candidate.codexReview.selectionStage || "",
+      reason: safeMessage(candidate.codexReview.reason).slice(0, 2500),
+      category: candidate.codexReview.category || null,
+      marketEvidence: candidate.codexReview.marketEvidence || null,
+      commission: candidate.codexReview.commission || null,
+      logistics: candidate.codexReview.logistics || null,
+      exchangeRate: candidate.codexReview.exchangeRate || null,
+      completeCost: candidate.codexReview.completeCost || null,
+      profitCalculation: candidate.codexReview.profitCalculation || null,
+      risks: Array.isArray(candidate.codexReview.risks) ? candidate.codexReview.risks.slice(0, 20) : [],
+      evidence: Array.isArray(candidate.codexReview.evidence) ? candidate.codexReview.evidence.slice(0, 20) : [],
+      reviewedAt: candidate.codexReview.reviewedAt || null
+    } : null,
+    existingWbAssessment: candidate.wbAssessment || null,
+    sourceCapture: sourceCaptureForDispatch(candidate.sourceCapture),
+    listingPreparation: candidate.listingPreparation || null,
+    listingHandoff: candidate.listingHandoff ? {
+      state: candidate.listingHandoff.state || "",
+      currentStep: safeMessage(candidate.listingHandoff.currentStep).slice(0, 1000),
+      blockReason: safeMessage(candidate.listingHandoff.blockReason).slice(0, 2000),
+      defaultStock: finiteOrNull(candidate.listingHandoff.defaultStock) ?? 100
+    } : null,
+    needsFromUser: Array.isArray(candidate.needsFromUser)
+      ? candidate.needsFromUser.map((item) => safeMessage(item).slice(0, 300)).slice(0, 20)
+      : [],
+    notes: safeMessage(candidate.notes).slice(0, 2000)
+  };
+}
+
+export function requiredSkillsForDispatch(node, candidate) {
+  if (!node) return [];
+  if (node.id === "M07") {
+    return [DISPATCH_SKILLS.pricing, DISPATCH_SKILLS.ecommerceSeo].map((skill) => ({ ...skill }));
+  }
+  if (node.id === "M10" && candidate?.targetStore === "wb") {
+    return [DISPATCH_SKILLS.wbListing, DISPATCH_SKILLS.wbSafeWrite].map((skill) => ({ ...skill }));
+  }
+  return [];
+}
+
+export function dispatchCapabilityPlan(node, candidate) {
+  const snapshot = dispatchCandidateSnapshot(candidate);
+  const sourceCapture = snapshot?.sourceCapture || null;
+  return {
+    requiredSkills: requiredSkillsForDispatch(node, candidate),
+    inheritedInputs: snapshot ? {
+      dataRevision: snapshot.dataRevision,
+      targetStore: snapshot.targetStore,
+      sourceUrl: snapshot.sourceUrl,
+      purchasePriceRmb: snapshot.purchasePriceRmb,
+      packedWeightKg: snapshot.packedWeightKg,
+      dimensionsCm: snapshot.dimensionsCm
+    } : null,
+    sourceCapture: sourceCapture ? {
+      status: "attached",
+      captureId: sourceCapture.captureId,
+      offerId: sourceCapture.offerId,
+      selectedSkuCount: sourceCapture.selectedSkus.length
+    } : {
+      status: "not_attached",
+      captureId: null,
+      offerId: null,
+      selectedSkuCount: 0
+    }
+  };
 }
 
 export class CodexDispatcher {
@@ -23,9 +206,18 @@ export class CodexDispatcher {
     this.pending = new Map();
     this.turns = new Map();
     this.threadDispatches = new Map();
+    this.dispatchThreads = new Map();
+    this.waitingDispatchesByThread = new Map();
     this.approvals = new Map();
     this.initialized = false;
     this.initializing = null;
+    this.eventQueue = Promise.resolve();
+  }
+
+  emitEvent(event) {
+    this.eventQueue = this.eventQueue
+      .then(() => this.onEvent(event))
+      .catch((error) => console.error("Codex派发事件处理失败", error));
   }
 
   async ensureStarted() {
@@ -62,7 +254,7 @@ export class CodexDispatcher {
           title: "今日选品评审台",
           version: "1.0.0"
         },
-        capabilities: { experimentalApi: false }
+        capabilities: { experimentalApi: true }
       }, child).then(() => {
         this.notify("initialized", {}, child);
         this.initialized = true;
@@ -102,6 +294,18 @@ export class CodexDispatcher {
     }
 
     const params = message.params || {};
+    if (message.method === "thread/status/changed") {
+      const threadId = params.threadId;
+      const status = plainStatus(params.status);
+      const queue = this.waitingDispatchesByThread.get(threadId) || [];
+      if (["idle", "notLoaded"].includes(status) && queue.length) {
+        const dispatchId = queue.shift();
+        if (queue.length) this.waitingDispatchesByThread.set(threadId, queue);
+        else this.waitingDispatchesByThread.delete(threadId);
+        this.emitEvent({ type: "assignee_available", dispatchId, threadId });
+      }
+      return;
+    }
     const turnId = params.turn?.id || params.turnId || params.item?.turnId;
     const dispatchId = turnId ? this.turns.get(turnId) : null;
 
@@ -126,11 +330,23 @@ export class CodexDispatcher {
 
     if (!dispatchId) return;
     if (message.method === "item/agentMessage/delta") {
-      this.onEvent({ type: "assistant_delta", dispatchId, text: safeMessage(params.delta) });
+      this.emitEvent({ type: "assistant_delta", dispatchId, text: safeMessage(params.delta) });
     } else if (message.method === "item/completed" && params.item?.type === "agentMessage") {
-      this.onEvent({ type: "assistant_message", dispatchId, text: safeMessage(params.item.text || params.item.content) });
+      const rawText = String(params.item.text || params.item.content || "");
+      let structuredResult = null;
+      try {
+        structuredResult = parseDispatchOutput(rawText);
+      } catch {
+        structuredResult = null;
+      }
+      this.emitEvent({
+        type: "assistant_message",
+        dispatchId,
+        text: structuredResult?.reply || safeMessage(rawText),
+        structuredResult
+      });
     } else if (message.method === "turn/completed") {
-      this.onEvent({
+      this.emitEvent({
         type: "turn_completed",
         dispatchId,
         turnId,
@@ -138,11 +354,22 @@ export class CodexDispatcher {
         error: safeMessage(params.turn?.error?.message || params.turn?.error)
       });
       this.turns.delete(turnId);
+      const threadId = this.dispatchThreads.get(dispatchId);
+      if (threadId && this.threadDispatches.get(threadId) === dispatchId) {
+        this.threadDispatches.delete(threadId);
+      }
+      this.dispatchThreads.delete(dispatchId);
     }
   }
 
   findDispatchByThread(threadId) {
     return this.threadDispatches.get(threadId) || null;
+  }
+
+  queueWaitingDispatch(threadId, dispatchId) {
+    const queue = this.waitingDispatchesByThread.get(threadId) || [];
+    if (!queue.includes(dispatchId)) queue.push(dispatchId);
+    this.waitingDispatchesByThread.set(threadId, queue);
   }
 
   request(method, params, child = this.process) {
@@ -152,6 +379,14 @@ export class CodexDispatcher {
       this.pending.set(id, { resolve, reject });
       child.stdin.write(`${JSON.stringify({ method, id, params })}\n`);
     });
+  }
+
+  close() {
+    const child = this.process;
+    this.process = null;
+    this.initialized = false;
+    this.initializing = null;
+    if (child && child.exitCode === null) child.kill("SIGTERM");
   }
 
   notify(method, params, child = this.process) {
@@ -176,14 +411,70 @@ export class CodexDispatcher {
     if (cwd && route.projectPath && cwd !== route.projectPath) {
       throw new Error(`任务项目目录不一致：${cwd}`);
     }
-    return { thread, status: plainStatus(thread.status) };
+    return { thread, status: plainStatus(thread.status), statusDetail: activeStatusDetail(thread.status) };
+  }
+
+  async verifyDesktopTurn(route, turnId, dispatchId) {
+    await this.ensureStarted();
+    const result = await this.request("thread/turns/list", {
+      threadId: route.threadId,
+      limit: 5,
+      sortDirection: "desc",
+      itemsView: "summary"
+    });
+    const turn = (result?.data || []).find((item) => item?.id === turnId);
+    if (!turn) throw new Error("Codex桌面端没有找到指定真实运行编号");
+    if (!JSON.stringify(turn).includes(dispatchId)) {
+      throw new Error("Codex桌面端本轮内容与原派发编号不一致");
+    }
+    if (turn.status === "interrupted") {
+      try {
+        await this.request("thread/resume", { threadId: route.threadId, excludeTurns: true });
+      } catch (error) {
+        if (/active writer|already has an active writer/i.test(String(error.message || ""))) {
+          return { turnId: turn.id, status: "inProgress", liveWriterConfirmed: true };
+        }
+        throw error;
+      }
+      throw new Error("Codex桌面端记录显示已中断，且没有检测到当前桌面端写入连接");
+    }
+    if (!["inProgress", "completed"].includes(turn.status)) {
+      throw new Error(`Codex桌面端运行状态不可接管：${turn.status || "unknown"}`);
+    }
+    return { turnId: turn.id, status: turn.status };
   }
 
   buildPrompt(dispatch, node, candidate) {
     const scopeText = dispatch.scope === "workflow" ? "整个评审流程" : `当前SKU ${candidate?.id || dispatch.candidateId}`;
-    const claimUrl = `http://127.0.0.1:4317/api/dispatches/${dispatch.id}/claim`;
-    const progressUrl = `http://127.0.0.1:4317/api/dispatches/${dispatch.id}/progress`;
-    const completeUrl = `http://127.0.0.1:4317/api/dispatches/${dispatch.id}/complete`;
+    const snapshot = dispatch.candidateSnapshot || dispatchCandidateSnapshot(candidate);
+    const selectionInstructions =
+      dispatch.assigneeRole === "selection_task" &&
+      dispatch.scope === "candidate" &&
+      ["M04", "M05", "M06"].includes(node.id)
+        ? [
+            "本轮只完成A/B选品与利润工作。B阶段不得打开1688，也不得因精确货源、材质、带电、IP或最终包装尚未核验而阻塞利润。",
+            "快照里尚未保存市场、佣金、物流或汇率结果，正是本轮选品任务应主动取得的工作，不得把这些项目重新要求主人补充。优先复用仍在适用范围和有效期内的证据；缺失时按当前店铺、类目、销售模式和包装现场只读取证。",
+            "只有当前SKU数据已记录主人明确允许时，B阶段才可使用清楚标注的估算佣金；估算费率不得冒充当前平台事实。",
+            "B阶段通过时，resultType必须为selection_review，resultJson必须是原codex-review业务结果JSON（无需包含runId和dataRevision）；评审台服务会自行校验并把商品移入待上架准备。选品任务到此停止，不得继续打开1688或执行C阶段。"
+          ]
+        : [];
+    const listingPreparationInstructions =
+      dispatch.assigneeRole === "listing_task" &&
+      dispatch.scope === "candidate" &&
+      node.id === "M07"
+        ? [
+            "这是主人从评审台明确启动的当前商品C阶段核验，由上架任务负责，不是生产写入授权。",
+            "快照中的采购到手总价、真实打包重量、尺寸、目标店铺和精确1688链接均为前期已填写的继承输入；不得重新索取或静默覆盖。只有发现明确冲突时才写needs_decision并指出冲突字段。",
+            "若快照带sourceCapture，必须直接使用其中已校验的offerId、captureId和主人选中的一个或多个SKU；不得重新打开1688、控制插件或改用截图兜底。若当前精确1688链接没有已校验采集结果，本轮不得开始。",
+            "核验选中SKU、页面直接价格与国内邮费、当前精确佣金和物流、材质、品牌/IP、合规、带电/电池、Schema、素材与必填字段；复用证据包时必须核对适用范围和有效时间。",
+            "采集结果中缺少SKU直接价格时：若只选择了一个SKU且priceRanges里存在minimumQuantity=1的明确页面阶梯价，可把它标成商品页面1件起批价证据并单独列国内运费，但不得冒充SKU直取价；除此以外不得拿最低价或默认值补齐。",
+            "新品库存默认100，只写入准备结果和确认卡，不得修改店铺库存。若最终成本或证据变化，只更新失效字段并复算利润，不重复整段B历史。",
+            "C阶段无论通过、阻塞或待决定，resultType必须为listing_preparation_review，resultJson必须是原listing-preparation-review业务结果JSON（无需包含runId和dataRevision）。使用了1688采集结果时，resultJson必须原样带回sourceCaptureId；评审台会核对后落盘。失败时停止，不自动重试。"
+          ]
+        : [];
+    const requiredSkills = Array.isArray(dispatch.requiredSkills)
+      ? dispatch.requiredSkills.map((skill) => skill.name).filter(Boolean)
+      : requiredSkillsForDispatch(node, candidate).map((skill) => skill.name);
     return [
       "【今日选品评审台一次性派发】",
       `派发编号：${dispatch.id}`,
@@ -191,33 +482,94 @@ export class CodexDispatcher {
       `范围：${scopeText}`,
       candidate ? `商品：${candidate.productName}` : "商品：无（流程级意见）",
       candidate ? `当前数据修订号：${candidate.dataRevision}` : "当前数据修订号：不适用",
+      snapshot ? `本次派发SKU快照：${JSON.stringify(snapshot)}` : "本次派发SKU快照：无（流程级意见）",
+      Array.isArray(dispatch.reusableEvidencePacks) && dispatch.reusableEvidencePacks.length
+        ? `本轮可复用证据包（必须先核适用范围与有效期）：${JSON.stringify(dispatch.reusableEvidencePacks)}`
+        : "本轮可复用证据包：无",
+      requiredSkills.length
+        ? `本轮评审台已显式附加的必需Skill：${requiredSkills.join("、")}`
+        : "本轮没有额外必需Skill。",
       `主人留言：${dispatch.message}`,
       "",
-      "只处理这一条明确派发，不领取下一条，不开启连续自动化。先读取评审台当前状态和修订号，不凭聊天旧值工作。",
-      `开始实质工作前，POST ${claimUrl}，JSON至少包含 {\"runId\":\"本轮唯一编号\",\"currentStep\":\"当前真实步骤\"}。`,
-      `取得新证据或步骤变化后，POST ${progressUrl}，JSON包含 {\"runId\":\"同一编号\",\"currentStep\":\"新步骤\",\"evidence\":\"新增证据摘要\"}。`,
-      `完成、真实阻塞或需要主人决定时，POST ${completeUrl}，JSON包含 {\"runId\":\"同一编号\",\"status\":\"completed|blocked|needs_decision\",\"reply\":\"给主人的简短人话\",\"evidence\":\"完成证据或失败层\"}。`,
+      "只处理这一条明确派发，不领取下一条，不开启连续自动化。上述SKU快照和修订号是本轮开始依据；不要把聊天旧值当成当前事实。",
+      "本轮是否已领取由Codex App Server返回的真实turn编号判断。不要连接127.0.0.1:4317，也不要调用评审台本地claim、progress、codex-review、listing-preparation-review或complete接口；执行任务所在环境可能无法反向访问评审台。",
+      "最终输出由Codex App Server的outputSchema约束：status写completed、blocked或needs_decision；reply写给主人看的最简单结论；resultType写selection_review、listing_preparation_review或none；resultJson写对应业务结果的JSON字符串，无业务结构时写空字符串；evidenceSummary写最关键证据或失败层。评审台收到最终结构化输出后负责落盘和收口。",
+      "直接在当前任务中完成这一个SKU的授权工作。结束时用最简单人话明确写：做到哪里、证据、真实阻塞或待主人决定事项、是否产生任何写入。",
+      "没有共享数据回写或独立证据时，只能报告结果未验证，不得自称评审台或平台已完成。",
+      ...selectionInstructions,
+      ...listingPreparationInstructions,
       "普通节点留言不授权店铺生产写入。涉及平台、店铺、SKU、价格、库存、素材或发布，缺精确生产确认卡时必须停止并写 needs_decision。",
-      "若技术失败，说明失败层、是否产生写入和最小恢复动作；同一路径不要重复尝试。"
+      "若技术失败，说明失败层、是否产生写入和最小恢复动作并立即停止；不得自动重试或自动换路径。"
     ].join("\n");
   }
 
   async deliver(dispatch, route, node, candidate) {
     const inspected = await this.inspectRoute(route);
-    if (["active", "systemError"].includes(inspected.status)) {
-      return { status: "waiting_assignee", detail: inspected.status === "active" ? "负责人正在处理其他工作" : "负责人任务当前异常" };
+    if (inspected.status === "active") {
+      try {
+        await this.request("thread/resume", { threadId: route.threadId, excludeTurns: true });
+      } catch (error) {
+        if (/active writer|already has an active writer/i.test(String(error.message || ""))) {
+          return {
+            status: "blocked",
+            detail: "负责人任务被另一客户端占用，无法订阅空闲事件；本轮已停止自动重试",
+            failureLayer: "codex_thread_writer_lock"
+          };
+        }
+        throw error;
+      }
+      this.queueWaitingDispatch(route.threadId, dispatch.id);
+      return { status: "waiting_assignee", detail: inspected.statusDetail || "负责人任务存在未结束轮次" };
     }
-    await this.request("thread/resume", { threadId: route.threadId });
-    const result = await this.request("turn/start", {
-      threadId: route.threadId,
-      input: [{ type: "text", text: this.buildPrompt(dispatch, node, candidate) }],
-      cwd: route.projectPath
-    });
+    if (inspected.status === "systemError") throw new Error("负责人任务当前为systemError，已停止本次派发");
+    if (!["idle", "notLoaded"].includes(inspected.status)) throw new Error(`负责人任务状态无法确认：${inspected.status}`);
+    try {
+      await this.request("thread/resume", { threadId: route.threadId, excludeTurns: true });
+    } catch (error) {
+      if (/active writer|already has an active writer/i.test(String(error.message || ""))) {
+        return {
+          status: "blocked",
+          detail: "负责人任务由Codex桌面端写入连接占用；本轮未启动，已停止而不是继续假排队",
+          failureLayer: "codex_desktop_writer_lock"
+        };
+      }
+      throw error;
+    }
+    const requiredSkills = requiredSkillsForDispatch(node, candidate);
+    for (const skill of requiredSkills) {
+      if (!fs.existsSync(skill.path)) throw new Error(`本轮必需Skill不存在：${skill.name}`);
+    }
+    const skillMention = requiredSkills.map((skill) => `$${skill.name}`).join(" ");
+    const prompt = this.buildPrompt({ ...dispatch, requiredSkills }, node, candidate);
+    let result;
+    try {
+      result = await this.request("turn/start", {
+        threadId: route.threadId,
+        input: [
+          { type: "text", text: skillMention ? `${skillMention}\n${prompt}` : prompt },
+          ...requiredSkills.map((skill) => ({ type: "skill", name: skill.name, path: skill.path }))
+        ],
+        cwd: route.projectPath,
+        outputSchema: DISPATCH_OUTPUT_SCHEMA
+      });
+    } catch (error) {
+      if (/active writer|already has an active writer|负责人正在处理/i.test(String(error.message || ""))) {
+        this.queueWaitingDispatch(route.threadId, dispatch.id);
+        return { status: "waiting_assignee", detail: "负责人任务存在未结束轮次，空闲事件到达后自动领取" };
+      }
+      throw error;
+    }
     const turnId = result?.turn?.id;
     if (!turnId) throw new Error("Codex任务没有返回本轮编号");
     this.turns.set(turnId, dispatch.id);
     this.threadDispatches.set(route.threadId, dispatch.id);
-    return { status: "received", turnId, detail: "负责人任务已接收一次性派发" };
+    this.dispatchThreads.set(dispatch.id, route.threadId);
+    return {
+      status: "running",
+      turnId,
+      detail: "负责人任务已启动，已取得真实运行编号",
+      attachedSkills: requiredSkills.map((skill) => skill.name)
+    };
   }
 
   resolveApproval(dispatchId, requestId, decision) {

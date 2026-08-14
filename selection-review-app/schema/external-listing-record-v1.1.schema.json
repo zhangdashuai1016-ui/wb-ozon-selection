@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "external-listing-record-v1.1",
+  "title": "外部发现平台商品记录 v1.1",
+  "type": "object",
+  "required": ["schemaVersion", "externalListingRecordId", "discoverySource", "discoveredAt", "createdByCurrentRun", "platform", "store", "skuPackageId", "supplierSkuId", "platformProductId", "merchantSku", "currentPrice", "currentStock", "imageCount", "moderationStatus", "validationStatus", "saleStatus", "errors", "platformEvidenceRef", "ownerPriceDecision"],
+  "properties": {
+    "schemaVersion": { "const": "external-listing-record-v1.1" },
+    "externalListingRecordId": { "type": "string", "minLength": 1 },
+    "discoverySource": { "enum": ["seller_api", "seller_portal"] },
+    "discoveredAt": { "type": "string", "format": "date-time" },
+    "createdByCurrentRun": { "const": false },
+    "platform": { "type": "string", "minLength": 1 },
+    "store": { "type": "string", "minLength": 1 },
+    "skuPackageId": { "type": "string", "minLength": 1 },
+    "supplierSkuId": { "type": "string", "minLength": 1 },
+    "platformProductId": { "type": "string", "minLength": 1 },
+    "merchantSku": { "type": "string", "minLength": 1 },
+    "currentPrice": { "type": "object", "required": ["amount", "currency"], "properties": { "amount": { "type": "number", "minimum": 0 }, "currency": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
+    "currentStock": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "const": "unknown" }] },
+    "imageCount": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "const": "unknown" }] },
+    "moderationStatus": { "type": "string", "minLength": 1 },
+    "validationStatus": { "type": "string", "minLength": 1 },
+    "saleStatus": { "type": "string", "minLength": 1 },
+    "errors": { "oneOf": [{ "type": "array" }, { "const": "unknown" }] },
+    "platformEvidenceRef": { "type": "string", "minLength": 1 },
+    "ownerPriceDecision": { "type": "object" }
+  },
+  "additionalProperties": false
+}

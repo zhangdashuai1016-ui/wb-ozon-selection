@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sales-snapshot-v1.1",
+  "title": "SalesSnapshot v1.1",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "snapshotId",
+    "platform",
+    "marketScope",
+    "sellerType",
+    "sellerIdentityEvidence",
+    "productUrl",
+    "title",
+    "imageRefs",
+    "currentPrice",
+    "currency",
+    "categoryPath",
+    "attributes",
+    "collectedAt",
+    "evidenceRef",
+    "collectorVersion",
+    "collectorMode",
+    "readOnly"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "sales-snapshot-v1.1" },
+    "snapshotId": { "type": "string", "minLength": 1 },
+    "platform": { "const": "ozon" },
+    "marketScope": { "enum": ["ozon_cn_cross_border", "ozon_general_market", "unknown"] },
+    "sellerType": { "enum": ["cross_border_cn", "local_ru", "other_cross_border", "unknown"] },
+    "sellerIdentityEvidence": {
+      "type": "object",
+      "required": ["status", "signals", "evidenceRef"],
+      "properties": {
+        "status": { "enum": ["verified", "unverified"] },
+        "signals": { "type": "array", "items": { "type": "object" } },
+        "evidenceRef": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "productUrl": { "type": "string", "format": "uri" },
+    "title": { "type": "string", "minLength": 1 },
+    "imageRefs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "currentPrice": {
+      "oneOf": [
+        { "type": "number", "exclusiveMinimum": 0 },
+        { "const": "unknown" }
+      ]
+    },
+    "currency": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[A-Z]{3}$" },
+        { "const": "unknown" }
+      ]
+    },
+    "categoryPath": { "type": "string", "minLength": 1 },
+    "attributes": { "type": "object" },
+    "collectedAt": { "type": "string", "format": "date-time" },
+    "evidenceRef": { "type": "string", "minLength": 1 },
+    "collectorVersion": {
+      "enum": ["mock-ozon-sales-snapshot-v1", "real-ozon-sales-snapshot-v1"]
+    },
+    "collectorMode": { "enum": ["mock_only", "real_page_read_only"] },
+    "readOnly": { "const": true }
+  },
+  "allOf": [
+    {
+      "oneOf": [
+        {
+          "properties": {
+            "collectorMode": { "const": "mock_only" },
+            "collectorVersion": { "const": "mock-ozon-sales-snapshot-v1" }
+          }
+        },
+        {
+          "properties": {
+            "collectorMode": { "const": "real_page_read_only" },
+            "collectorVersion": { "const": "real-ozon-sales-snapshot-v1" }
+          }
+        }
+      ]
+    }
+  ],
+  "additionalProperties": false
+}

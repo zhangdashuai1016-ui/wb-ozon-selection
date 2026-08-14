@@ -6,6 +6,7 @@ import {
   USER_DECISION_LABELS
 } from "../constants";
 import { ExternalIcon } from "./Icons";
+import LifecycleStatusCard from "./LifecycleStatusCard";
 import StatusBadge from "./StatusBadge";
 
 function Link({ href, children }) {
@@ -58,6 +59,7 @@ export default function CandidateDetail({ candidate }) {
             <Link href={candidate.competitorUrl}>打开俄区竞品</Link>
           </div>
           {candidate.notes ? <p className="product-note">{candidate.notes}</p> : null}
+          <LifecycleStatusCard candidate={candidate} />
           {candidate.selectionStage ? (
             <div className={`selection-stage stage-${candidate.selectionStage.stage}`}>
               <strong>{candidate.selectionStage.label}</strong>
@@ -90,7 +92,7 @@ function Evidence({ evidence }) {
       {evidence.map((item, index) => (
         <li key={`${item.url}-${index}`}>
           <a href={item.url} target="_blank" rel="noreferrer">证据 {index + 1} <ExternalIcon /></a>
-          <span>{item.checkedAt ? new Date(item.checkedAt).toLocaleString("zh-CN") : "未记录时间"} · {item.note || "无说明"}</span>
+          <span>{item.checkedAt ? new Date(item.checkedAt).toLocaleString("zh-CN") : "未记录时间"} · {item.note || item.detail || "无说明"}</span>
         </li>
       ))}
     </ul>
@@ -117,11 +119,29 @@ function PromotionPricingTable({ profit }) {
 
 function Profit({ review }) {
   const profit = review?.profitCalculation;
+  if (profit?.status === "conditional_unverified") {
+    return (
+      <div className="profit-unverified profit-scenario">
+        <strong>条件测算已完成 · 正式利润未验证</strong>
+        <p>{profit.formula}</p>
+        <div className="conditional-scenarios">
+          {(profit.scenarios || []).map((scenario) => (
+            <div key={scenario.key} className="conditional-scenario">
+              <b>{scenario.label} · {scenario.transactionPriceRub} RUB</b>
+              <span>条件卖家收入 ¥{scenario.conditionalSellerRevenueAfterCommissionCny} · 利润 ¥{scenario.unitProfitRmb} · 利润率 {(Number(scenario.marginRate) * 100).toFixed(1)}%</span>
+              <small>促销20%/25%/30%建议标价：{scenario.promotionListPricesRub?.discount20}/{scenario.promotionListPricesRub?.discount25}/{scenario.promotionListPricesRub?.discount30} RUB</small>
+            </div>
+          ))}
+        </div>
+        <p>仍缺：{profit.missing?.join("、") || "当前真实完整证据"}</p>
+      </div>
+    );
+  }
   if (profit?.directionalStatus === "passed" && profit?.status !== "verified") {
     return (
       <div className="profit-unverified profit-direction-passed">
-        <strong>利润通过 · 来源待复核</strong>
-        <p>这是B阶段具体SKU利润结论；货源页仅用于C阶段采购/上架前的精确SKU、权利/IP、合规、带电与最终包装复核。来源不一致只拦当前SKU，不淘汰方向。</p>
+        <strong>历史/方向利润为正 · 当前B阶段尚未正式通过</strong>
+        <p>该数值只保留为历史参考；仍须满足当前市场、佣金、物流和促销口径后，系统才会自动进入待上架准备。1688精确SKU仍只在C阶段核验。</p>
         <div className="profit-grid">
           <div><span>单件利润</span><strong>¥{profit.unitProfitRmb}</strong></div>
           <div><span>利润率</span><strong>{(Number(profit.marginRate) * 100).toFixed(1)}%</strong></div>
@@ -197,16 +217,18 @@ export function CandidateReview({ candidate }) {
                 <dl>
                   <div><dt>真实打开</dt><dd>{review.linkOpen?.detail || "未记录"}</dd></div>
                   <div><dt>SKU / 款式</dt><dd><Value value={[review.sourceSku?.sku, review.sourceSku?.variant].filter(Boolean).join(" · ")} /></dd></div>
-                  <div><dt>MOQ / 采购价</dt><dd><Value value={review.sourceSku?.moq ? `${review.sourceSku.moq}件 / ¥${review.sourceSku.purchasePriceRmb}` : null} /></dd></div>
+                  <div><dt>MOQ / 采购价</dt><dd><Value value={review.sourceSku?.purchasePriceRmb !== null && review.sourceSku?.purchasePriceRmb !== undefined ? `${review.sourceSku.moq ? `${review.sourceSku.moq}件` : "MOQ留待C阶段"} / ¥${review.sourceSku.purchasePriceRmb}` : null} /></dd></div>
                 </dl>
               </section>
               <section className="review-block">
                 <h4>市场与费用</h4>
                 <dl>
-                  <div><dt>同规格竞品</dt><dd>{review.marketEvidence?.comparableCount || 0}/5 · {review.marketEvidence?.status || "未验证"}</dd></div>
+                  <div><dt>同规格竞品</dt><dd>{review.marketEvidence?.comparableCount || 0}条 · {review.marketEvidence?.status || "未验证"}</dd></div>
                   <div><dt>市场中位数</dt><dd><Value value={review.marketEvidence?.medianPriceRub ? `${review.marketEvidence.medianPriceRub} RUB` : null} /></dd></div>
+                  <div><dt>Ozon类目 / 类型</dt><dd><Value value={review.category?.path ? `${review.category.path} · ${review.category.productType || "类型未记录"}` : null} /></dd></div>
                   <div><dt>佣金</dt><dd><Value value={review.commission?.rate !== null && review.commission?.rate !== undefined ? `${(review.commission.rate * 100).toFixed(1)}% · ${review.commission.source || "未记录来源"}` : null} /></dd></div>
-                  <div><dt>物流</dt><dd><Value value={review.logistics?.line ? `${review.logistics.line} · 实重${review.logistics.actualWeightKg ?? "?"}kg / 体积重${review.logistics.volumetricWeightKg ?? "?"}kg · ¥${review.logistics.freightRmb ?? "?"}` : null} /></dd></div>
+                  <div><dt>官方汇率</dt><dd><Value value={review.exchangeRate?.rubPerCny ? `1 CNY = ${review.exchangeRate.rubPerCny} RUB · ${review.exchangeRate.rateDate || "日期未记录"}` : null} /></dd></div>
+                  <div><dt>物流</dt><dd><Value value={review.logistics?.line ? `${review.logistics.line} · 实重${review.logistics.actualWeightKg ?? "?"}kg / 体积重${review.logistics.volumetricWeightKg ?? "?"}kg · ¥${review.logistics.freightRmb ?? "?"} · ${review.logistics.formula || ""}` : null} /></dd></div>
                   <div><dt>完整成本</dt><dd>{review.completeCost?.status === "complete" ? `¥${review.completeCost.totalRmb}` : `未完整：${review.completeCost?.missing?.join("、") || "待核"}`}</dd></div>
                 </dl>
               </section>

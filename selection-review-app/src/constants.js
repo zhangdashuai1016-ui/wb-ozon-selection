@@ -8,7 +8,8 @@ export const QUEUE_LABELS = {
   awaiting_user_direction: "待你确认",
   codex_processing: "选品处理",
   needs_user_data: "需你补资料",
-  ready_to_list: "待上架",
+  listing_preparation: "待上架准备",
+  ready_to_list: "上架前确认",
   listed: "已上架",
   eliminated: "已淘汰"
 };
@@ -25,6 +26,7 @@ export const CODEX_DECISION_LABELS = {
   approved: "通过",
   sourcePending: "来源待核",
   needsInfo: "需补资料",
+  blocked: "证据不足，已停止",
   eliminated: "淘汰"
 };
 
@@ -42,7 +44,7 @@ export const GROUP_LABELS = {
 };
 
 export const PROFIT_RULES = [
-  "单件利润 ≥ 20 RMB，或利润率 ≥ 15%（满足任一项）",
+  "单件利润 ≥ 20 RMB，且利润率 ≥ 25%（两项必须同时满足）",
   "默认自然流量：广告成本按0记录；有真实投放计划时另算",
   "促销20% / 25% / 30%只反推标价，不从折后成交价二次扣除",
   "退货/运营 5%",

@@ -174,8 +174,13 @@ function PurchaseCeiling({ ceiling }) {
     const maximum = Number(ceiling.maximumAllInPurchaseRmb);
     const estimated = ceiling.status === "estimated";
     const referencePrice = Number(ceiling.sellerRevenueRmb);
+    const referencePriceRub = Number(ceiling.marketReferenceRub);
+    const exchangeRate = Number(ceiling.exchangeRateRubPerCny);
     const commission = Number(ceiling.commissionRate);
     const freight = Number(ceiling.internationalLogisticsRmb);
+    const marketPriceLabel = ceiling.marketAvailability === "sold_out"
+      ? "精确商品已售罄，上次可见价"
+      : "Ozon保守参考价";
     const promotionPricing = Array.isArray(ceiling.promotionPricing)
       ? ceiling.promotionPricing
       : [];
@@ -184,7 +189,10 @@ function PurchaseCeiling({ ceiling }) {
         <span>{estimated ? "含国内邮费建议采购区间" : "含国内邮费采购区间"}</span>
         <strong>{maximum >= 0 ? `¥0–¥${maximum.toFixed(2)}` : "没有可行采购价"}</strong>
         <small>
-          {Number.isFinite(referencePrice) ? `Ozon参考售价 ¥${referencePrice.toFixed(2)} · ` : ""}
+          {Number.isFinite(referencePriceRub) && Number.isFinite(referencePrice)
+            ? `${marketPriceLabel} ${referencePriceRub.toFixed(0)}₽≈¥${referencePrice.toFixed(2)} · `
+            : Number.isFinite(referencePrice) ? `Ozon参考售价 ¥${referencePrice.toFixed(2)} · ` : ""}
+          {Number.isFinite(exchangeRate) ? `央行汇率 1¥=${exchangeRate.toFixed(4)}₽ · ` : ""}
           {Number.isFinite(commission) ? `佣金 ${(commission * 100).toFixed(1)}%${estimated ? "(方向参考)" : ""} · ` : ""}
           {Number.isFinite(freight) ? `${ceiling.route || "GUOO"}运费约 ¥${freight.toFixed(2)}。` : ""}
           {estimated ? ceiling.caveat || "这是找货上限；找到1688精确SKU后按最终包装重算。" : "已按最终规格验证。"}
@@ -222,28 +230,45 @@ function PromotionPricingTable({ scenarios }) {
   );
 }
 
-function ProcessingPanel({ candidate, onResume, onDispatch }) {
+function ProcessingPanel({ candidate, onRecoveryAction }) {
   const review = candidate.codexReview;
   const profit = review?.profitCalculation;
   const status = candidate.processingStatus || { key: "idle", label: "空闲" };
-  const dispatch = candidate.activeDispatch;
-  const recoveryOptions = Array.isArray(status.recoveryOptions) ? status.recoveryOptions : [];
-  const [recoveryPath, setRecoveryPath] = useState(recoveryOptions[0] || "");
-  const [savingRecovery, setSavingRecovery] = useState(false);
-  const [dispatching, setDispatching] = useState(false);
+  const activeDispatch = candidate.activeDispatch;
+  const latestDispatch = candidate.latestDispatch;
+  const dispatch = activeDispatch || latestDispatch;
+  const recoverableTerminal = !activeDispatch &&
+    ["failed", "blocked", "needs_decision", "responded_unverified"].includes(latestDispatch?.status) &&
+    (latestDispatch?.status !== "blocked" || candidate.processing?.manualHold === true);
+  const returnPathFailed = latestDispatch?.status === "responded_unverified" ||
+    latestDispatch?.failureLayer === "missing_business_readback";
+  const businessBlocker = candidate.selectionStage?.nextAction || candidate.profitReviewGate?.blockers?.[0] || "";
+  const recoveryDecision = candidate.processing?.recoveryDecision || null;
+  const recoveryActions = Array.isArray(recoveryDecision?.actions) ? recoveryDecision.actions : [];
+  const [savingRecovery, setSavingRecovery] = useState("");
   const running = status.actualRunning === true && status.key === "running";
   const attempts = Number(candidate.processing?.attempts || 0);
   const error = ["blocked", "stalled", "state_anomaly"].includes(status.key)
     ? String(status.reason || candidate.processing?.lastError || "")
     : "";
   let currentStep = status.currentStep || "当前没有实际任务在运行";
-  if (dispatch?.status === "running") currentStep = dispatch.currentStep || currentStep;
+  if (recoverableTerminal) {
+    currentStep = latestDispatch.status === "responded_unverified"
+      ? "任务确实已经运行并回复；卡在结果回传，评审台没有收到可验收的结构化结果"
+      : `最近一次派发已停止：${latestDispatch.error || latestDispatch.agentReply || "等待明确恢复方式"}`;
+  } else if (dispatch?.status === "running") currentStep = dispatch.currentStep || currentStep;
   else if (["received", "permission_required"].includes(dispatch?.status)) currentStep = "负责人任务已接收，等待登记真实执行步骤";
   else if (["queued", "waiting_assignee", "delivering"].includes(dispatch?.status)) currentStep = "已派发一次，等待负责人空闲并领取";
-  if (status.key === "blocked") currentStep = "系统动作已停止，等待总控确认恢复方式";
-  else if (status.key === "queued" && !dispatch) currentStep = "恢复方式已确认，但尚未创建真实派发";
-  else if (status.key === "idle" || status.key === "state_anomaly") currentStep = "当前没有实际任务在运行";
-  const statusTitle = dispatch?.status === "running"
+  if (!recoverableTerminal) {
+    if (status.key === "blocked") currentStep = "本次处理已停止；系统不会自动重试";
+    else if (status.key === "queued" && !dispatch) currentStep = "候选已进入A/B处理，但尚未取得真实派发记录";
+    else if (status.key === "idle" || status.key === "state_anomaly") currentStep = "当前没有实际任务在运行";
+  }
+  const statusTitle = recoverableTerminal
+    ? latestDispatch.status === "responded_unverified"
+      ? "任务已回复 · 结果未验证"
+      : "派发已停止 · 等待明确恢复"
+    : dispatch?.status === "running"
     ? "运行中 · 有实际任务"
     : ["received", "permission_required"].includes(dispatch?.status)
       ? "负责人已接收"
@@ -254,41 +279,24 @@ function ProcessingPanel({ candidate, onResume, onDispatch }) {
     : status.key === "queued"
       ? "已确认 · 尚未派发"
       : status.key === "blocked"
-          ? "需要总控确认 · 已停止重试"
+          ? "处理失败 · 已停止重试"
           : status.key === "state_anomaly"
             ? "状态异常 · 当前无人运行"
             : status.key === "stalled"
               ? "运行超时 · 无法确认仍在运行"
               : "无人运行 · 等待明确指令";
-  const listingPaused = ["paused_user_stopped", "blocked"].includes(candidate.listingHandoff?.state);
-  const canDirectDispatch = !dispatch && (
-    (candidate.workflowStatus === "codex_processing" && status.key === "queued" && candidate.processing?.manualHold !== true) ||
-    (candidate.workflowStatus === "ready_to_list" && !listingPaused)
-  );
-  const directAssignee = candidate.workflowStatus === "ready_to_list" ? "上架任务" : "选品任务";
+  const canRecover = candidate.workflowStatus === "codex_processing" && recoveryActions.length > 0;
 
   useEffect(() => {
-    setRecoveryPath(recoveryOptions[0] || "");
-    setSavingRecovery(false);
+    setSavingRecovery("");
   }, [candidate.id, candidate.dataRevision]);
 
-  async function confirmRecovery(event) {
-    event.preventDefault();
-    if (!recoveryPath.trim()) return;
-    setSavingRecovery(true);
+  async function confirmRecovery(actionId) {
+    setSavingRecovery(actionId);
     try {
-      await onResume(recoveryPath.trim());
+      await onRecoveryAction(actionId);
     } finally {
-      setSavingRecovery(false);
-    }
-  }
-
-  async function dispatchCurrent() {
-    setDispatching(true);
-    try {
-      await onDispatch();
-    } finally {
-      setDispatching(false);
+      setSavingRecovery("");
     }
   }
 
@@ -299,56 +307,43 @@ function ProcessingPanel({ candidate, onResume, onDispatch }) {
         <div>
           <h3>{statusTitle}</h3>
           <p>{currentStep}</p>
-          {candidate.activeDispatch?.id && status.estimatedStart ? <small className="processing-attempts">派发状态：{status.estimatedStart}</small> : null}
           {status.dispatchRequestedAt ? <small className="processing-attempts">用户操作触发：{new Date(status.dispatchRequestedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}</small> : null}
           {dispatch ? <small className="processing-attempts">一次性派发：{dispatch.id} · 负责人：{dispatch.assigneeTitle || dispatch.assigneeRole}</small> : null}
+          {dispatch?.runId ? <small className="processing-attempts">真实运行编号：{dispatch.runId}</small> : null}
           {dispatch?.deliveryDetail ? <small className="processing-attempts">派发状态：{dispatch.deliveryDetail}</small> : null}
           {dispatch?.error ? <small className="processing-error">派发失败层：{dispatch.failureLayer || "未知"} · {dispatch.error}</small> : null}
+          {returnPathFailed ? <small className="processing-error">系统卡点：执行任务无法把结构化结果交回评审台；这不等于商品审核失败。</small> : null}
+          {businessBlocker ? <small className="processing-attempts">商品当前业务卡点：{businessBlocker}</small> : null}
           {status.lastAttemptAt ? <small className="processing-attempts">最近尝试：{new Date(status.lastAttemptAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}</small> : null}
           {status.lastProgressAt ? <small className="processing-attempts">最近实质进展：{new Date(status.lastProgressAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}</small> : null}
           {attempts ? <small className="processing-attempts">累计历史尝试 {attempts} 次；新规则下同轮同层同目标只允许一次。</small> : null}
           {error ? <small className="processing-error">卡点：{error}</small> : null}
-          {status.userAction ? <small className="processing-error">下一步：{status.userAction}</small> : null}
-          {status.key === "blocked" && status.recoveryOptions?.length ? <small className="processing-error">可选恢复：{status.recoveryOptions.join("；")}</small> : null}
-          {status.key === "blocked" && candidate.processing?.manualHold === true ? (
-            <form className="recovery-confirmation" onSubmit={confirmRecovery}>
-              <label htmlFor={`recovery-${candidate.id}`}>选择本次恢复方式</label>
-              {recoveryOptions.length ? (
-                <select
-                  id={`recovery-${candidate.id}`}
-                  value={recoveryPath}
-                  onChange={(event) => setRecoveryPath(event.target.value)}
-                >
-                  {recoveryOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                </select>
-              ) : (
-                <input
-                  id={`recovery-${candidate.id}`}
-                  value={recoveryPath}
-                  onChange={(event) => setRecoveryPath(event.target.value)}
-                  placeholder="写明这一次采用的唯一恢复路径"
-                />
-              )}
-              <button className="button primary" disabled={savingRecovery || !recoveryPath.trim()}>
-                {savingRecovery ? "确认并派发中…" : "确认并派发当前SKU一次"}
-              </button>
-              <small>只派发当前SKU一次；不会开启连续自动化，也不会执行未经精确确认的店铺写入。</small>
-            </form>
-          ) : null}
-          {canDirectDispatch ? (
-            <div className="direct-dispatch">
-              <button className="button primary" disabled={dispatching} onClick={dispatchCurrent}>
-                {dispatching ? "正在派发…" : `派发当前SKU给${directAssignee}`}
-              </button>
-              <small>只派发当前商品这一次；不会领取下一条，也不会开启连续自动化。</small>
+          {!canRecover && status.userAction ? <small className="processing-error">下一步：{status.userAction}</small> : null}
+          {canRecover ? (
+            <div className="recovery-confirmation">
+              <b>{recoveryDecision.summary || "请选择当前SKU的处理方式"}</b>
+              <div className="recovery-actions">
+                {recoveryActions.map((action) => (
+                  <button
+                    type="button"
+                    className={`button ${action.id === "keep_stopped" ? "secondary" : "primary"}`}
+                    disabled={Boolean(savingRecovery)}
+                    onClick={() => confirmRecovery(action.id)}
+                    key={action.id}
+                  >
+                    {savingRecovery === action.id ? "正在处理…" : action.label}
+                  </button>
+                ))}
+              </div>
+              <small>无需手写建议。系统错误会自动纠正；这里只处理真实技术失败或必须由你决定的事项。</small>
             </div>
           ) : null}
         </div>
       </section>
       <section className="result-preview" aria-label="审核结果预览">
         <div><span>利润</span><strong>{profit?.status === "verified" ? `¥${profit.unitProfitRmb} / ${(profit.marginRate * 100).toFixed(1)}%` : "未验证"}</strong></div>
-        <div><span>市场证据</span><strong>{review?.marketEvidence?.comparableCount || 0}/5</strong></div>
-        <div><span>你要做什么</span><strong>{status.userAction || (dispatch ? "已派发，等待负责人处理" : canDirectDispatch ? `点击上方按钮派发给${directAssignee}` : "当前状态没有要求你操作")}</strong></div>
+        <div><span>市场证据</span><strong>{review?.marketEvidence?.comparableCount || 0}条</strong></div>
+        <div><span>你要做什么</span><strong>{canRecover ? "选择一个明确处理方式" : activeDispatch ? "无需操作，等待负责人处理" : "当前状态没有要求你操作"}</strong></div>
       </section>
     </>
   );
@@ -458,7 +453,7 @@ function WbNotSuitableDetails({ candidate, rules }) {
     damageLossReserveRate: 0.05,
     labelCostRmb: 1.5,
     minimumUnitProfitRmb: 20,
-    targetMarginRate: 0.15
+    targetMarginRate: 0.25
   };
   const sellerRevenue = numeric(profit.targetPriceRmb);
   const purchase = numeric(candidate.purchasePriceRmb);
@@ -507,7 +502,7 @@ function WbNotSuitableDetails({ candidate, rules }) {
           </p>
         ) : <p>当前存在未取得项，不能生成数值代入结果。</p>}
         <p>利润率 = 单件利润 ÷ WB卖家收入 × 100%{calculatedMargin !== null ? ` = ${(calculatedMargin * 100).toFixed(2)}%` : ""}</p>
-        <p className="wb-threshold">通过门槛：单件利润≥{rule.minimumUnitProfitRmb} RMB，或利润率≥{Math.round(rule.targetMarginRate * 100)}%，满足任一项即可。</p>
+        <p className="wb-threshold">通过门槛：单件利润≥{rule.minimumUnitProfitRmb} RMB，且利润率≥{Math.round(rule.targetMarginRate * 100)}%，两项必须同时满足。</p>
       </div>
       {promotionPricing.length ? <PromotionPricingTable scenarios={promotionPricing} /> : <p className="legacy-profit-note">历史利润模型未按当前促销口径重算。</p>}
       {profit.stressScenario ? <p className="wb-stress">压力/补充情景：{profit.stressScenario}</p> : null}
@@ -567,7 +562,234 @@ function WbMarketSummary({ candidate, presentation }) {
   );
 }
 
-function ReadyPanel({ candidate, rules, onMarkListed }) {
+function ListingPreparationPanel({ candidate, onRecoveryAction, onCapture, onSelectSku, onLifecycleProductionAuthorization }) {
+  const handoff = candidate.listingHandoff || {};
+  const preparation = candidate.listingPreparation || {};
+  const sourceCapture = candidate.sourceCapture || {};
+  const dispatch = candidate.activeDispatch || candidate.latestDispatch;
+  const waiting = handoff.state === "awaiting_user_start";
+  const needsOwnerDecision = handoff.state === "needs_decision" || preparation.status === "needs_decision";
+  const stopped = ["blocked", "needs_decision", "paused_user_stopped"].includes(handoff.state) ||
+    ["blocked", "needs_decision"].includes(preparation.status);
+  const decisionItems = Array.isArray(handoff.decisionItems) && handoff.decisionItems.length
+    ? handoff.decisionItems
+    : Array.isArray(preparation.decisionItems) ? preparation.decisionItems : [];
+  const capturing = sourceCapture.status === "waiting_extension" || handoff.state === "capturing_source";
+  const choosingSku = sourceCapture.status === "needs_sku_selection";
+  const suggestedSkuKey = Array.isArray(sourceCapture.suggestedSkuIds) ? sourceCapture.suggestedSkuIds.join("|") : "";
+  const is1688 = /^https:\/\/detail\.1688\.com\/offer\/\d+\.html(?:[?#]|$)/i.test(candidate.sourceUrl || "");
+  const dimensions = candidate.dimensionsCm || {};
+  const inheritedDimensions = [dimensions.length, dimensions.width, dimensions.height].every((value) => Number(value) > 0)
+    ? `${dimensions.length} × ${dimensions.width} × ${dimensions.height} cm`
+    : "未填写";
+  const requiredSkills = (dispatch?.requiredSkills || []).map((skill) => skill.name).filter(Boolean);
+  const attachedSkills = Array.isArray(dispatch?.attachedSkills) ? dispatch.attachedSkills : [];
+  const lifecycle = candidate.lifecycleV11 || null;
+  const lifecycleSku = lifecycle?.skuPackage || null;
+  const c1Plan = lifecycleSku?.c1ProductPlan || null;
+  const c2Assets = lifecycleSku?.c2FinalAssets || null;
+  const activeProfit = lifecycleSku?.profitModels?.find((model) => model.profitModelVersion === lifecycleSku.activeProfitModelVersion) || null;
+  const finalCard = lifecycleSku?.productionConfirmationCard || null;
+  const productionScope = lifecycleSku?.productionAuthorization?.lockedScope || null;
+  const localFinalAssets = (productionScope?.finalUploads || []).some((asset) => !/^https:\/\//i.test(asset.assetRef || ""));
+  const [selectedSkuIds, setSelectedSkuIds] = useState([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setSelectedSkuIds(suggestedSkuKey ? suggestedSkuKey.split("|") : []);
+    setSaving(false);
+  }, [candidate.id, candidate.dataRevision, suggestedSkuKey]);
+
+  function toggleSku(sourceSkuId) {
+    setSelectedSkuIds((current) => current.includes(sourceSkuId)
+      ? current.filter((id) => id !== sourceSkuId)
+      : [...current, sourceSkuId]);
+  }
+
+  async function run(action) {
+    setSaving(true);
+    try {
+      if (action === "capture") await onCapture("");
+      else if (action === "select-sku") await onSelectSku(selectedSkuIds);
+      else if (action === "authorize-production") await onLifecycleProductionAuthorization();
+      else await onRecoveryAction(action);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="workflow-card listing-preparation-card">
+      <div>
+        <h3>{capturing ? "正在读取1688商品" : choosingSku ? "请选择一个或多个1688 SKU" : waiting ? "待上架准备" : lifecycleSku?.businessPhase === "C2" && c2Assets?.status === "awaiting_final_uploads" ? "C1商品方案完成 · 等待C2最终素材" : needsOwnerDecision ? "C阶段核验完成 · 等待你确认" : stopped ? "C阶段已停止" : handoff.state === "running" ? "上架任务正在做C阶段" : "C阶段已派发"}</h3>
+        <p>
+          {capturing
+            ? "本机Chrome正在处理当前商品一次；尚未派发上架任务。"
+            : choosingSku
+              ? "商品页面中的全部SKU已经列出。勾选本次要核验的一个或多个规格后，才会向上架任务派发当前商品的C阶段。"
+              : waiting
+            ? "这是旧流程遗留状态。本阶段不改变商品状态，也不再提供人工启动C的旧按钮。"
+            : stopped
+              ? sourceCapture.reason || handoff.blockReason || preparation.reason || "本次核验已停止；系统不会自动重试。"
+              : handoff.currentStep || "等待上架任务领取当前SKU。"}
+        </p>
+        {needsOwnerDecision ? (
+          <div className="recovery-confirmation owner-decision-card">
+            <b>现在只需要确认这些真实缺口</b>
+            {decisionItems.length ? (
+              <ol>
+                {decisionItems.map((item) => <li key={item}>{item}</li>)}
+              </ol>
+            ) : null}
+            <p>{handoff.userAction || "确认前不会重新采集、重新核算或继续上架。"}</p>
+            <small>这不是1688采集失败，也不需要再次点击采集；确认结果会继续留在当前SKU的C阶段。</small>
+          </div>
+        ) : null}
+        {lifecycleSku ? (
+          <div className="capability-receipt lifecycle-c1-receipt">
+            <b>新版生命周期 · C1已完成</b>
+            <span>精确SKU：{lifecycleSku.supplierSkuId} · 当前阶段：{lifecycleSku.businessPhase} · 技术状态：{lifecycleSku.technicalStatus}</span>
+            <span>商品事实：无品牌 · DVP · {lifecycle?.ownerFactConfirmation?.pieceCount || "?"}件 · 机械发条 · 非电无电池</span>
+            {activeProfit ? <span>建议成交价：{activeProfit.recommendedSalePriceRub} RUB · 单件利润 ¥{activeProfit.unitProfitRmb} · 利润率 {(activeProfit.profitMargin * 100).toFixed(2)}%</span> : null}
+            {c1Plan?.seoTitleDraft?.text ? <span>俄语标题草稿：{c1Plan.seoTitleDraft.text}</span> : null}
+            <span>关键词证据：当前冻结事实词，无搜索量声明，Seerfar 0点；草稿仍待主人审阅。</span>
+            <span>最终素材：{c2Assets?.assets?.finalUploads?.length || 0}个 · 生产授权：{lifecycleSku.productionAuthorization ? "已生成" : "未生成"} · 平台写入：0</span>
+            {finalCard ? (
+              <div className="lifecycle-final-card">
+                <b>最终商品方案确认卡 · {lifecycleSku.productionAuthorization ? "已生成生产授权" : "等待主人商业确认"}</b>
+                <span>标题：{finalCard.seoDraft?.title?.text}</span>
+                <span>精确SKU：{finalCard.productInformation?.sku?.value?.supplierSkuId} · 建议售价：{finalCard.profitResult?.recommendedSalePrice?.value?.rub} RUB</span>
+                <span>利润：¥{finalCard.profitResult?.unitProfitRmb?.value} · 利润率 {(Number(finalCard.profitResult?.profitMargin?.value || 0) * 100).toFixed(2)}%</span>
+                <span>最终上传顺序：{(finalCard.c2Assets?.finalUploads || []).map((asset) => asset.fileName || asset.assetId).join(" → ")}</span>
+                {finalCard.riskAndUnknowns?.marketReferenceMismatch ? <span>风险：A阶段价格参考为320片，当前精确供应SKU为282件；只作为有限市场参考。</span> : null}
+                {lifecycleSku.productionAuthorization ? (
+                  <>
+                    <span>买家目标成交价：{productionScope?.buyerTargetPrice?.amount ?? finalCard.profitResult?.recommendedSalePrice?.value?.rub} {productionScope?.buyerTargetPrice?.currency || "RUB"}</span>
+                    <span>Ozon后台实际写入价：{productionScope?.platformWritePrice ? `${productionScope.platformWritePrice.amount} ${productionScope.platformWritePrice.currency}` : "旧授权待修复，禁止生产"}</span>
+                    <span>上架最短路径：Seller API自动填写类目、属性、价格、包装并独立回读；{localFinalAssets ? "本机素材只保留一次人工多选" : "素材也可由API直接处理"}。</span>
+                    <small>浏览器不再承担逐字段填表；后台价格字段只允许CNY。新品库存100仍按精确生产范围单独写入。</small>
+                  </>
+                ) : (
+                  <>
+                    <small>通过后只生成“仅创建草稿”的锁定授权，不派发上架任务，也不创建Ozon商品。</small>
+                    <button className="button primary" disabled={saving} onClick={() => run("authorize-production")}>{saving ? "正在锁定…" : "通过并生成生产授权"}</button>
+                  </>
+                )}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        <small>负责人：上架任务 · C1只继承A阶段确认的供应SKU和B利润结果，核对材质/带电/IP/合规、Schema与SEO；不得重新寻找或替换供应SKU。</small>
+        <div className="inherited-input-card">
+          <b>前期继承资料 · 不需要重新填写</b>
+          <div className="inherited-input-grid">
+            <span><small>目标店铺</small>{STORE_LABELS[candidate.targetStore] || candidate.targetStore || "未填写"}</span>
+            <span><small>采购到手总价</small>{candidate.purchasePriceRmb === null || candidate.purchasePriceRmb === undefined ? "未填写" : `¥${candidate.purchasePriceRmb}（含国内运费）`}</span>
+            <span><small>真实打包重量</small>{candidate.packedWeightKg ? `${candidate.packedWeightKg} kg` : "未填写"}</span>
+            <span><small>包装尺寸</small>{inheritedDimensions}</span>
+            <span className="inherited-source"><small>精确货源链接</small>{candidate.sourceUrl ? <a href={candidate.sourceUrl} target="_blank" rel="noreferrer">打开已保存链接</a> : "未填写"}</span>
+            <span><small>数据修订号</small>{candidate.dataRevision}</span>
+          </div>
+        </div>
+        {sourceCapture.offerId ? (
+          <div className={`source-capture-summary capture-${sourceCapture.status || "unknown"}`}>
+            <b>1688只读证据 · offer {sourceCapture.offerId}</b>
+            {sourceCapture.title ? <span>{sourceCapture.title}</span> : null}
+            {(sourceCapture.selectedSkus || (sourceCapture.selectedSku ? [sourceCapture.selectedSku] : [])).map((sku) => (
+              <span key={sku.sourceSkuId}>
+                SKU {sku.sourceSkuId} · {sku.priceCny ? `页面直接价格 ¥${sku.priceCny}` : "页面直接价格未取得"}
+                {sku.stock === null || sku.stock === undefined ? " · 库存未取得" : ` · 库存${sku.stock}`}
+              </span>
+            ))}
+            {sourceCapture.observedAt ? <small>取得时间：{new Date(sourceCapture.observedAt).toLocaleString("zh-CN")}</small> : null}
+          </div>
+        ) : null}
+        {dispatch ? (
+          <div className="capability-receipt">
+            <b>本轮能力包</b>
+            <span>派发编号：{dispatch.id}{dispatch.runId ? ` · 运行编号：${dispatch.runId}` : ""}</span>
+            <span>1688采集：{dispatch.capabilityPlan?.sourceCapture?.status === "attached" ? `已附加 ${dispatch.capabilityPlan.sourceCapture.captureId}` : is1688 ? "尚未附加" : "当前链接无需插件"}</span>
+            <span>必需Skill：{requiredSkills.length ? requiredSkills.join("、") : "无"}</span>
+            <span>实际注入：{dispatch.skillsAttachedAt ? attachedSkills.join("、") || "无" : "尚未取得真实运行编号"}</span>
+          </div>
+        ) : (
+          <div className="capability-receipt planned">
+            <b>启动C阶段时将自动准备</b>
+            <span>1688采集结果＋前期继承资料＋ozon-wb-pricing＋optimize-ecommerce-seo</span>
+          </div>
+        )}
+        {choosingSku && candidate.supplyConfirmation?.stage === "A" ? (
+          <div className="source-sku-selector">
+            <div className="source-sku-selector-heading">
+              <b>本次要采购/上架的SKU（可多选）</b>
+              <span>已选 {selectedSkuIds.length}/{(sourceCapture.skuChoices || []).length}</span>
+            </div>
+            <details className="source-sku-dropdown" open>
+              <summary>展开/收起全部 {(sourceCapture.skuChoices || []).length} 个SKU</summary>
+              <div className="source-sku-options">
+                {(sourceCapture.skuChoices || []).map((sku) => {
+                  const attributes = Object.entries(sku.attributes || {}).map(([key, value]) => `${key}:${value}`).join(" · ");
+                  return (
+                    <label className={`source-sku-option ${selectedSkuIds.includes(sku.sourceSkuId) ? "selected" : ""}`} key={sku.sourceSkuId}>
+                      <input
+                        type="checkbox"
+                        checked={selectedSkuIds.includes(sku.sourceSkuId)}
+                        onChange={() => toggleSku(sku.sourceSkuId)}
+                      />
+                      <span className="source-sku-option-main">
+                        <b>{attributes || sku.propPath || `SKU ${sku.sourceSkuId}`}</b>
+                        <small>SKU ID：{sku.sourceSkuId}</small>
+                      </span>
+                      <span className={sku.priceCny ? "source-sku-price" : "source-sku-price missing"}>
+                        {sku.priceCny ? `¥${sku.priceCny}` : "直接价格未取得"}
+                      </span>
+                      <small>{sku.stock === null || sku.stock === undefined ? "库存未取得" : `库存 ${sku.stock}`}</small>
+                    </label>
+                  );
+                })}
+              </div>
+            </details>
+            <button className="button primary" disabled={saving || !selectedSkuIds.length} onClick={() => run("select-sku")}>
+              {saving ? "正在确认…" : `确认${selectedSkuIds.length ? ` ${selectedSkuIds.length} 个` : ""}供应SKU并进入B`}
+            </button>
+            <button className="button secondary" disabled={saving} onClick={() => run("capture")}>重新采集全部SKU</button>
+            <small>所有采到的SKU都会显示；商品价、国内运费、实际采购成本、重量和尺寸未齐全时不得进入B。</small>
+          </div>
+        ) : null}
+        {waiting ? <small>新流程将在A阶段确认供应SKU、B通过后自动进入C1；这条历史记录等待后续受控迁移。</small> : null}
+        {is1688 && candidate.supplyConfirmation?.stage === "A" && !capturing && !choosingSku && (waiting || (stopped && !needsOwnerDecision)) ? (
+          <div className="recovery-confirmation">
+            <button className="button primary" disabled={saving} onClick={() => run("capture")}>
+              {saving ? "正在连接Chrome…" : "打开1688并采集，然后开始上架准备"}
+            </button>
+            <small>只处理当前商品一次；选择SKU后才派发上架任务，失败立即停止。</small>
+          </div>
+        ) : null}
+        {stopped && !is1688 ? (
+          <div className="recovery-confirmation">
+            <b>{handoff.recoveryDecision?.summary || "本次C阶段已停止"}</b>
+            <div className="recovery-actions">
+              {(handoff.recoveryDecision?.actions || []).map((action) => (
+                <button
+                  type="button"
+                  className={`button ${action.id === "keep_stopped" ? "secondary" : "primary"}`}
+                  disabled={saving}
+                  onClick={() => run(action.id)}
+                  key={action.id}
+                >
+                  {saving ? "正在处理…" : action.label}
+                </button>
+              ))}
+            </div>
+            <small>无需手写建议；再次真实失败仍立即停止，也不会触发店铺写入。</small>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function ReadyPanel({ candidate, rules, onMarkListed, onProductionAuthorization }) {
   const [showListedForm, setShowListedForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const emptyForm = () => ({
@@ -580,26 +802,51 @@ function ReadyPanel({ candidate, rules, onMarkListed }) {
     confirmedAt: ""
   });
   const [form, setForm] = useState(emptyForm);
+  const preparation = candidate.listingPreparation || {};
+  const productionDefaults = () => ({
+    platform: candidate.targetStore === "wb" ? "WB" : "Ozon",
+    store: STORE_LABELS[candidate.targetStore] || candidate.targetStore || "",
+    product: candidate.productName || "",
+    sku: preparation.exactSourceSku || candidate.sku || candidate.id,
+    price: String(preparation.finalPrice || candidate.codexReview?.profitCalculation?.targetPriceRub || ""),
+    stock: "100",
+    assets: Array.isArray(preparation.assets) ? preparation.assets.join("\n") : "",
+    publishScope: "创建商品、写入已确认字段与素材、提交审核，并完成独立回读",
+    exclusions: "不得改动未列明的其他商品、SKU、价格、库存或素材",
+    confirmed: false
+  });
+  const [production, setProduction] = useState(productionDefaults);
+  const [productionSaving, setProductionSaving] = useState(false);
   const profit = candidate.codexReview?.profitCalculation;
   const wb = candidate.wbAssessment || { status: "notSuitable", reason: "尚无完整WB复算依据" };
   const wbView = wbPresentation(candidate);
   const wbCurrent = wbView.current;
-  const listingPaused = candidate.listingHandoff?.state === "paused_user_stopped";
   useEffect(() => {
     setShowListedForm(false);
     setForm(emptyForm());
+    setProduction(productionDefaults());
   }, [candidate.id, candidate.dataRevision]);
+  const preparationComplete = preparation.status === "prepared" && Boolean(candidate.cCompletedAt);
+  if (!preparationComplete) {
+    return (
+      <section className="workflow-card listing-preparation-card">
+        <div>
+          <h3>历史待上架 · 需补做C阶段</h3>
+          <p>这条旧记录没有当前精确货源SKU、佣金/物流、带电/IP/合规、Schema和素材的完整C阶段完成证据，不能直接开始上架。</p>
+          <small>这是历史兼容记录。本阶段不迁移业务状态，也不恢复旧的人工启动C按钮。</small>
+        </div>
+      </section>
+    );
+  }
   return (
     <>
       <section className="workflow-card ready-card">
         <div>
-          <h3>已通过，进入待上架</h3>
+          <h3>C阶段通过 · 可上架</h3>
           {profit?.status === "verified" ? (
             <p>单件利润 ¥{profit.unitProfitRmb} · 利润率 {(Number(profit.marginRate) * 100).toFixed(1)}% · 目标售价 {profit.targetPriceRub ? `${profit.targetPriceRub} RUB` : `¥${profit.targetPriceRmb || "?"}`}</p>
           ) : <p>旧利润结论已失效或尚未验证，不显示伪精确数值。</p>}
-          <small className="handoff-owner">
-            负责人：上架任务 · {listingPaused ? "用户已停止，等待最终图片组" : candidate.listingHandoff?.state === "handed_off" ? "已交接" : "已进入交接队列"}
-          </small>
+          <small className="handoff-owner">负责人：上架任务 · 当前尚未获得生产写入授权</small>
         </div>
         <span className={`wb-result wb-${wbView.kind}`} title={wbView.detail || wb.reason || ""}>{wbView.label}</span>
       </section>
@@ -607,9 +854,36 @@ function ReadyPanel({ candidate, rules, onMarkListed }) {
       {wbCurrent && wb.status === "notSuitable" ? <WbNotSuitableDetails candidate={candidate} rules={rules} /> : null}
       <section className="listing-confirmation">
         <div className="automatic-listing-note">
-          <strong>正常流程：上架任务回读后自动移入“已上架”</strong>
-          <span>系统会保存平台、店铺、商品ID、商家货号、审核与销售状态；不会根据聊天记录推断。</span>
+          <strong>确认当前SKU的生产范围</strong>
+          <span>确认后才会启动D阶段；库存统一100。完成写入后，上架任务必须执行E阶段独立回读。</span>
         </div>
+        <form className="production-confirmation-form" onSubmit={async (event) => {
+          event.preventDefault();
+          setProductionSaving(true);
+          try {
+            await onProductionAuthorization({
+              ...production,
+              assets: production.assets.split("\n").map((item) => item.trim()).filter(Boolean)
+            });
+          } finally {
+            setProductionSaving(false);
+          }
+        }}>
+          <label>平台<input value={production.platform} readOnly /></label>
+          <label>店铺<input value={production.store} readOnly /></label>
+          <label className="span-2">商品<input value={production.product} onChange={(event) => setProduction((current) => ({ ...current, product: event.target.value }))} /></label>
+          <label>精确SKU<input value={production.sku} onChange={(event) => setProduction((current) => ({ ...current, sku: event.target.value }))} /></label>
+          <label>价格<input value={production.price} onChange={(event) => setProduction((current) => ({ ...current, price: event.target.value }))} /></label>
+          <label>库存<input value="100" readOnly /></label>
+          <label className="span-2">素材清单（每行一个）<textarea rows="4" value={production.assets} onChange={(event) => setProduction((current) => ({ ...current, assets: event.target.value }))} /></label>
+          <label className="span-2">发布范围<textarea rows="2" value={production.publishScope} onChange={(event) => setProduction((current) => ({ ...current, publishScope: event.target.value }))} /></label>
+          <label className="span-2">排除项<textarea rows="2" value={production.exclusions} onChange={(event) => setProduction((current) => ({ ...current, exclusions: event.target.value }))} /></label>
+          <label className="production-check span-2"><input type="checkbox" checked={production.confirmed} onChange={(event) => setProduction((current) => ({ ...current, confirmed: event.target.checked }))} />我确认只按以上平台、店铺、SKU、价格、库存100、素材和发布范围执行</label>
+          <button className="button primary span-2" disabled={productionSaving || !production.confirmed || !production.product.trim() || !production.sku.trim() || !production.price.trim() || !production.assets.trim() || !production.publishScope.trim()}>
+            {productionSaving ? "正在启动…" : "确认并开始上架"}
+          </button>
+        </form>
+        <hr />
         <button className="button secondary" onClick={() => setShowListedForm((value) => !value)}>无法自动回读？手动标记</button>
         <small>仅作兜底：确定上架任务无法取得当前回读时使用。</small>
         {showListedForm ? (
@@ -641,9 +915,47 @@ function ReadyPanel({ candidate, rules, onMarkListed }) {
   );
 }
 
-function ListedPanel({ candidate }) {
+function ListedPanel({ candidate, onCapture, onSelectSku }) {
   const record = candidate.listingRecord || {};
+  const sourceCapture = candidate.sourceCapture || {};
   const automatic = record.method === "automatic_readback";
+  const listedRecoveryAllowed = record.stateOnly === true &&
+    candidate.listingPreparation?.status === "queued" &&
+    /^https:\/\/detail\.1688\.com\/offer\/\d+\.html(?:[?#]|$)/i.test(candidate.sourceUrl || "") &&
+    sourceCapture.status !== "verified";
+  const suggestedSkuKey = Array.isArray(sourceCapture.suggestedSkuIds) ? sourceCapture.suggestedSkuIds.join("|") : "";
+  const [selectedSkuIds, setSelectedSkuIds] = useState([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setSelectedSkuIds(suggestedSkuKey ? suggestedSkuKey.split("|") : []);
+    setSaving(false);
+  }, [candidate.id, candidate.dataRevision, suggestedSkuKey]);
+
+  function toggleSku(sourceSkuId) {
+    setSelectedSkuIds((current) => current.includes(sourceSkuId)
+      ? current.filter((id) => id !== sourceSkuId)
+      : [...current, sourceSkuId]);
+  }
+
+  async function captureOnce() {
+    setSaving(true);
+    try {
+      await onCapture("", "listed_evidence_recovery");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveSelection() {
+    setSaving(true);
+    try {
+      await onSelectSku(selectedSkuIds);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <section className="workflow-card listed-card">
       <div>
@@ -658,9 +970,70 @@ function ListedPanel({ candidate }) {
           <div><dt>确认时间</dt><dd>{record.confirmedAt ? new Date(record.confirmedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "未记录"}</dd></div>
           <div><dt>审核状态</dt><dd>{record.moderationStatus || "未记录"}</dd></div>
           <div><dt>销售状态</dt><dd>{record.saleStatus || "未记录"}</dd></div>
+          {record.eVerificationOutcome ? <div><dt>E阶段结果</dt><dd>{record.eVerificationOutcome === "externally_verified" ? "外部发现并验证" : "系统创建并验证"}</dd></div> : null}
+          {record.eVerificationOutcome ? <div><dt>是否本轮创建</dt><dd>{record.createdByCurrentRun ? "是" : "否"}</dd></div> : null}
+          {record.currentPrice ? <div><dt>当前价格</dt><dd>{record.currentPrice.amount} {record.currentPrice.currency}</dd></div> : null}
+          {record.currentStock !== undefined ? <div><dt>当前库存</dt><dd>{record.currentStock === "unknown" ? "未验证" : record.currentStock}</dd></div> : null}
+          {record.imageCount !== undefined ? <div><dt>图片数量</dt><dd>{record.imageCount === "unknown" ? "未验证" : record.imageCount}</dd></div> : null}
+          {record.validationStatus ? <div><dt>校验状态</dt><dd>{record.validationStatus}</dd></div> : null}
+          {record.errors !== undefined ? <div><dt>单品错误</dt><dd>{record.errors === "unknown" ? "未验证" : `${record.errors.length}条`}</dd></div> : null}
         </dl>
+        {record.ownerPriceDecision?.decision === "keep_current_live_price" ? (
+          <p className="readback-evidence">主人最终价格决定：保留 {record.ownerPriceDecision.price.amount} {record.ownerPriceDecision.price.currency}</p>
+        ) : null}
         {automatic && record.readback?.checkedAt ? <p className="readback-evidence">最近回读：{new Date(record.readback.checkedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })} · {record.readback.evidenceRef}</p> : null}
         {record.productUrl ? <a href={record.productUrl} target="_blank" rel="noreferrer">打开已上架商品</a> : null}
+        {sourceCapture.status === "waiting_extension" && sourceCapture.mode === "listed_evidence_recovery" ? (
+          <div className="source-capture-summary">
+            <b>正在补采1688只读证据</b>
+            <span>Chrome只处理当前商品一次；原“已上架”记录保持不变。</span>
+          </div>
+        ) : null}
+        {sourceCapture.status === "needs_sku_selection" && sourceCapture.mode === "listed_evidence_recovery" ? (
+          <div className="source-sku-selector">
+            <div className="source-sku-selector-heading">
+              <b>选择DD-H1对应的1688规格</b>
+              <span>已选 {selectedSkuIds.length}/{(sourceCapture.skuChoices || []).length}</span>
+            </div>
+            <div className="source-sku-options">
+              {(sourceCapture.skuChoices || []).map((sku) => {
+                const attributes = Object.entries(sku.attributes || {}).map(([key, value]) => `${key}:${value}`).join(" · ");
+                return (
+                  <label className={`source-sku-option ${selectedSkuIds.includes(sku.sourceSkuId) ? "selected" : ""}`} key={sku.sourceSkuId}>
+                    <input type="checkbox" checked={selectedSkuIds.includes(sku.sourceSkuId)} onChange={() => toggleSku(sku.sourceSkuId)} />
+                    <span className="source-sku-option-main">
+                      <b>{attributes || sku.propPath || `SKU ${sku.sourceSkuId}`}</b>
+                      <small>SKU ID：{sku.sourceSkuId}</small>
+                    </span>
+                    <span className={sku.priceCny ? "source-sku-price" : "source-sku-price missing"}>{sku.priceCny ? `¥${sku.priceCny}` : "直接价格未取得"}</span>
+                    <small>{sku.stock === null || sku.stock === undefined ? "库存未取得" : `库存 ${sku.stock}`}</small>
+                  </label>
+                );
+              })}
+            </div>
+            <button className="button primary" disabled={saving || !selectedSkuIds.length} onClick={saveSelection}>
+              {saving ? "正在保存…" : "确认规格并保存证据"}
+            </button>
+            <small>只保存1688证据，不退回选品、不自动派发，也不修改Ozon。</small>
+          </div>
+        ) : null}
+        {sourceCapture.status === "verified" && sourceCapture.mode === "listed_evidence_recovery" ? (
+          <div className="source-capture-summary">
+            <b>1688精确证据已补齐</b>
+            {(sourceCapture.selectedSkus || []).map((sku) => (
+              <span key={sku.sourceSkuId}>SKU {sku.sourceSkuId} · {Object.values(sku.attributes || {}).join(" · ") || sku.propPath || "规格已锁定"}</span>
+            ))}
+          </div>
+        ) : null}
+        {listedRecoveryAllowed && !["waiting_extension", "needs_sku_selection"].includes(sourceCapture.status) ? (
+          <div className="recovery-confirmation">
+            {sourceCapture.status === "failed" ? <b>{sourceCapture.reason || "上次采集已停止"}</b> : null}
+            <button className="button primary" disabled={saving} onClick={captureOnce}>
+              {saving ? "正在连接Chrome…" : "重新采集1688证据（一次）"}
+            </button>
+            <small>仅补当前商品的精确SKU和页面事实；原已上架记录保持不变。</small>
+          </div>
+        ) : null}
       </div>
     </section>
   );
@@ -719,11 +1092,11 @@ function Activity({ candidate, onComment }) {
     ...(candidate.history || []).map((item) => ({ ...item, message: item.detail }))
   ].sort((a, b) => new Date(a.at) - new Date(b.at)).slice(-16), [candidate.comments, candidate.history]);
 
-  async function send(requestReview) {
+  async function send() {
     if (!comment.trim()) return;
     setSaving(true);
     try {
-      await onComment(comment, requestReview);
+      await onComment(comment, false);
       setComment("");
     } finally {
       setSaving(false);
@@ -754,24 +1127,78 @@ function Activity({ candidate, onComment }) {
         <MessageIcon />
         <textarea rows="2" value={comment} onChange={(event) => setComment(event.target.value)} placeholder="补充说明给Codex" />
         <div className="comment-actions">
-          <button className="button secondary" onClick={() => send(false)} disabled={!comment.trim() || saving}>仅记录</button>
-          {!['ready_to_list', 'listed'].includes(candidate.workflowStatus) ? <button className="button primary" onClick={() => send(true)} disabled={!comment.trim() || saving}>{saving ? "发送中…" : "发送并交给Codex"}</button> : null}
+          <button className="button secondary" onClick={send} disabled={!comment.trim() || saving}>{saving ? "保存中…" : "仅留言"}</button>
+          <small>普通留言不会启动任务；真实失败或业务决定请使用状态卡里的固定选项。</small>
         </div>
       </div>
     </details>
   );
 }
 
-export default function UserInspector({ candidate, rules, onUpdate, onEvaluate, onComment, onMarkListed, onResume, onDispatch }) {
+function OzonSalesCapturePanel({ candidate, onStart }) {
+  const capture = candidate.salesCapture || {};
+  const canShow = /^https:\/\/(?:www\.)?ozon\.ru\/product\//i.test(candidate.productUrl || "") &&
+    ["awaiting_user_direction", "codex_processing", "needs_user_data"].includes(candidate.workflowStatus) &&
+    !candidate.lifecycleV11?.skuPackage;
+  const [saving, setSaving] = useState(false);
+  if (!canShow) return null;
+
+  async function start() {
+    setSaving(true);
+    try {
+      await onStart();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="workflow-card">
+      <div>
+        <h3>销售端快照</h3>
+        <p>由本机Chrome读取当前Ozon商品的结构化标题、价格、图片、属性和卖家身份证据。只保存证据，不推进业务阶段。</p>
+        {capture.status === "waiting_extension" ? (
+          <div className="source-capture-summary">
+            <b>Ozon只读采集中</b>
+            <span>仅处理当前商品一次；失败后立即停止，不自动重试。</span>
+          </div>
+        ) : null}
+        {capture.status === "verified" ? (
+          <div className="source-capture-summary">
+            <b>当前Ozon快照已保存</b>
+            <span>{capture.currentPrice} {capture.currency} · 图片 {capture.imageCount} 张 · 卖家身份 {capture.sellerType === "unknown" ? "未验证" : capture.sellerType}</span>
+            <span>商品ID {capture.productId} · {capture.observedAt ? new Date(capture.observedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : ""}</span>
+          </div>
+        ) : null}
+        {capture.status === "failed" ? (
+          <div className="source-capture-summary capture-failed">
+            <b>Ozon采集已停止</b>
+            <span>{capture.reason || "未取得结构化销售快照"}</span>
+            <span>技术状态：{capture.technicalStatus || "未验证"}；商品业务状态未改变。</span>
+          </div>
+        ) : null}
+        {capture.status !== "waiting_extension" ? (
+          <button className="button primary" disabled={saving} onClick={start}>
+            {saving ? "正在连接Chrome…" : capture.status === "failed" ? "按当前页面重试一次" : "用Chrome采集当前Ozon快照（一次）"}
+          </button>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+export default function UserInspector({ candidate, rules, onUpdate, onEvaluate, onComment, onMarkListed, onRecoveryAction, onStartSourceCapture, onStartOzonSalesCapture, onSelectSourceCaptureSku, onProductionAuthorization, onLifecycleProductionAuthorization }) {
   return (
     <section className="workflow-region">
+      <OzonSalesCapturePanel candidate={candidate} onStart={onStartOzonSalesCapture} />
       {candidate.workflowStatus === "awaiting_user_direction" ? <DirectionPanel candidate={candidate} onEvaluate={onEvaluate} /> : null}
-      {["codex_processing", "ready_to_list"].includes(candidate.workflowStatus) ? (
-        <ProcessingPanel candidate={candidate} onResume={onResume} onDispatch={onDispatch} />
+      {candidate.workflowStatus === "codex_processing" ? <ProcessingPanel candidate={candidate} onRecoveryAction={onRecoveryAction} /> : null}
+      {candidate.workflowStatus === "listing_preparation" ? (
+        <ListingPreparationPanel candidate={candidate} onRecoveryAction={onRecoveryAction} onCapture={onStartSourceCapture} onSelectSku={onSelectSourceCaptureSku} onLifecycleProductionAuthorization={onLifecycleProductionAuthorization} />
       ) : null}
       {candidate.workflowStatus === "needs_user_data" ? <NeedsDataPanel candidate={candidate} onUpdate={onUpdate} /> : null}
-      {candidate.workflowStatus === "ready_to_list" ? <ReadyPanel candidate={candidate} rules={rules} onMarkListed={onMarkListed} /> : null}
-      {candidate.workflowStatus === "listed" ? <ListedPanel candidate={candidate} /> : null}
+      {candidate.workflowStatus === "ready_to_list" ? <ReadyPanel candidate={candidate} rules={rules} onMarkListed={onMarkListed} onProductionAuthorization={onProductionAuthorization} /> : null}
+      {candidate.workflowStatus === "listed" ? <ListedPanel candidate={candidate} onCapture={onStartSourceCapture} onSelectSku={onSelectSourceCaptureSku} /> : null}
       {candidate.workflowStatus === "eliminated" ? <EliminatedPanel candidate={candidate} onComment={onComment} /> : null}
       <Activity candidate={candidate} onComment={onComment} />
     </section>

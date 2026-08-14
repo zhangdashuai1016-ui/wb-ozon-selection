@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "production-authorization-v1.1",
+  "title": "生产授权 v1.1",
+  "type": "object",
+  "required": ["schemaVersion", "authorizationId", "status", "confirmedBy", "confirmedAt", "sourceConfirmationCardId", "authorizedDataRevision", "lockedScope", "scopeExpansionAllowed", "fieldMutationAllowed", "skuReplacementAllowed", "assetReplacementAllowed", "readPolicy", "productionExecuted", "platformWrites"],
+  "properties": {
+    "schemaVersion": { "const": "production-authorization-v1.1" },
+    "authorizationId": { "type": "string", "minLength": 1 },
+    "status": { "const": "confirmed" },
+    "confirmedBy": { "const": "owner" },
+    "confirmedAt": { "type": "string", "format": "date-time" },
+    "sourceConfirmationCardId": { "type": "string", "minLength": 1 },
+    "authorizedDataRevision": { "type": "integer", "minimum": 0 },
+    "lockedScope": {
+      "type": "object",
+      "required": ["platform", "store", "skuPackageId", "supplierSkuId", "variantKey", "titleVersion", "title", "attributeVersion", "attributes", "platformCategory", "recommendedPrice", "buyerTargetPrice", "platformWritePrice", "priceConversion", "stock", "assetsFinalUploadsVersion", "finalUploads", "publishScope", "exclusions", "allowedWriteFields"],
+      "properties": {
+        "platform": { "type": "string", "minLength": 1 },
+        "store": { "type": "string", "minLength": 1 },
+        "skuPackageId": { "type": "string", "minLength": 1 },
+        "supplierSkuId": { "type": "string", "minLength": 1 },
+        "variantKey": { "type": "string", "minLength": 1 },
+        "titleVersion": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "attributeVersion": { "type": "string", "minLength": 1 },
+        "attributes": { "type": "object" },
+        "platformCategory": { "type": "object" },
+        "recommendedPrice": { "type": "object" },
+        "buyerTargetPrice": { "$ref": "#/$defs/money" },
+        "platformWritePrice": { "$ref": "#/$defs/money" },
+        "priceConversion": {
+          "type": "object",
+          "required": ["rubPerCny", "evidenceRef", "checkedAt"],
+          "properties": {
+            "rubPerCny": { "type": "number", "exclusiveMinimum": 0 },
+            "evidenceRef": { "type": "string", "minLength": 1 },
+            "checkedAt": { "type": "string", "format": "date-time" }
+          },
+          "additionalProperties": false
+        },
+        "stock": { "const": 100 },
+        "assetsFinalUploadsVersion": { "type": "string", "minLength": 1 },
+        "finalUploads": { "type": "array", "minItems": 1 },
+        "publishScope": { "enum": ["create_draft_only", "create_and_allow_validation_moderation"] },
+        "exclusions": { "type": "array" },
+        "allowedWriteFields": { "type": "array", "minItems": 1 }
+      },
+      "additionalProperties": false
+    },
+    "scopeExpansionAllowed": { "const": false },
+    "fieldMutationAllowed": { "const": false },
+    "skuReplacementAllowed": { "const": false },
+    "assetReplacementAllowed": { "const": false },
+    "readPolicy": { "const": "authorization_snapshot_only" },
+    "productionExecuted": { "const": false },
+    "platformWrites": { "const": 0 }
+  },
+  "$defs": {
+    "money": {
+      "type": "object",
+      "required": ["amount", "currency"],
+      "properties": {
+        "amount": { "type": "number", "exclusiveMinimum": 0 },
+        "currency": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

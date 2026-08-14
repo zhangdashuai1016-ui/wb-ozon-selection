@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "c2-asset-lifecycle-v1.1",
+  "title": "C2素材生命周期 v1.1",
+  "type": "object",
+  "required": ["schemaVersion", "assetPackageId", "status", "createdAt", "updatedAt", "assets", "ownerFinalUploadConfirmation", "dReadPolicy", "generationIntegrations", "platformUploads", "productionStarted"],
+  "properties": {
+    "schemaVersion": { "const": "c2-asset-lifecycle-v1.1" },
+    "assetPackageId": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["awaiting_final_uploads", "completed"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "assets": {
+      "type": "object",
+      "required": ["collected", "aiDrafts", "finalUploads"],
+      "properties": {
+        "collected": { "type": "array" },
+        "aiDrafts": { "type": "array" },
+        "finalUploads": { "type": "array" }
+      },
+      "additionalProperties": false
+    },
+    "ownerFinalUploadConfirmation": { "type": ["object", "null"] },
+    "dReadPolicy": {
+      "type": "object",
+      "required": ["onlyAllowedArea", "collectedAllowed", "aiDraftsAllowed", "ownerConfirmationRequired"],
+      "properties": {
+        "onlyAllowedArea": { "const": "assets.finalUploads" },
+        "collectedAllowed": { "const": false },
+        "aiDraftsAllowed": { "const": false },
+        "ownerConfirmationRequired": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "generationIntegrations": { "type": "object" },
+    "platformUploads": { "const": 0 },
+    "productionStarted": { "const": false }
+  },
+  "additionalProperties": false
+}

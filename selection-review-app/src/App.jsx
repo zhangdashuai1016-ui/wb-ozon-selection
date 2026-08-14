@@ -11,8 +11,54 @@ import OperatingRules from "./components/OperatingRules";
 import ProcessingBreakdown from "./components/ProcessingBreakdown";
 import UserInspector from "./components/UserInspector";
 import WorkflowMap from "./components/WorkflowMap";
+import {
+  EXTENSION_STATUS_PING,
+  EXTENSION_STATUS_RESPONSE,
+  extensionConnectionStatus,
+  readCachedExtensionVersion
+} from "./extensionStatus";
 
 const INITIAL_QUEUE = "codex_processing";
+const SOURCE_CAPTURE_REQUEST = "SELECTION_REVIEW_1688_CAPTURE_REQUEST";
+const SOURCE_CAPTURE_ACK = "SELECTION_REVIEW_1688_CAPTURE_ACK";
+const OZON_CAPTURE_REQUEST = "SELECTION_REVIEW_OZON_CAPTURE_REQUEST";
+const OZON_CAPTURE_ACK = "SELECTION_REVIEW_OZON_CAPTURE_ACK";
+
+function request1688ExtensionCapture(payload, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => {
+      window.removeEventListener("message", onMessage);
+      resolve({ accepted: false, error: "未检测到本机1688采集扩展" });
+    }, timeoutMs);
+    function onMessage(event) {
+      if (event.source !== window || event.origin !== window.location.origin) return;
+      if (event.data?.type !== SOURCE_CAPTURE_ACK || event.data?.captureId !== payload.captureId) return;
+      window.clearTimeout(timer);
+      window.removeEventListener("message", onMessage);
+      resolve({ accepted: event.data.accepted === true, error: event.data.error || "" });
+    }
+    window.addEventListener("message", onMessage);
+    window.postMessage({ type: SOURCE_CAPTURE_REQUEST, payload }, window.location.origin);
+  });
+}
+
+function requestOzonExtensionCapture(payload, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => {
+      window.removeEventListener("message", onMessage);
+      resolve({ accepted: false, error: "未检测到本机商品采集扩展或扩展尚未重载" });
+    }, timeoutMs);
+    function onMessage(event) {
+      if (event.source !== window || event.origin !== window.location.origin) return;
+      if (event.data?.type !== OZON_CAPTURE_ACK || event.data?.captureId !== payload.captureId) return;
+      window.clearTimeout(timer);
+      window.removeEventListener("message", onMessage);
+      resolve({ accepted: event.data.accepted === true, error: event.data.error || "" });
+    }
+    window.addEventListener("message", onMessage);
+    window.postMessage({ type: OZON_CAPTURE_REQUEST, payload }, window.location.origin);
+  });
+}
 
 export default function App() {
   const [state, setState] = useState({
@@ -29,6 +75,38 @@ export default function App() {
   const [notice, setNotice] = useState(null);
   const [view, setView] = useState("review");
   const [workflowMap, setWorkflowMap] = useState(null);
+  const [extensionStatus, setExtensionStatus] = useState(() => extensionConnectionStatus({
+    cachedVersion: readCachedExtensionVersion()
+  }));
+
+  useEffect(() => {
+    let responseTimer;
+    let liveVersion = "";
+    function ping() {
+      const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      window.postMessage({ type: EXTENSION_STATUS_PING, nonce }, window.location.origin);
+      window.clearTimeout(responseTimer);
+      responseTimer = window.setTimeout(() => {
+        liveVersion = "";
+        setExtensionStatus(extensionConnectionStatus({ cachedVersion: readCachedExtensionVersion() }));
+      }, 1000);
+    }
+    function onMessage(event) {
+      if (event.source !== window || event.origin !== window.location.origin) return;
+      if (event.data?.type !== EXTENSION_STATUS_RESPONSE) return;
+      liveVersion = String(event.data.version || "").trim();
+      window.clearTimeout(responseTimer);
+      setExtensionStatus(extensionConnectionStatus({ liveVersion }));
+    }
+    window.addEventListener("message", onMessage);
+    ping();
+    const interval = window.setInterval(ping, 5000);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      window.clearInterval(interval);
+      window.clearTimeout(responseTimer);
+    };
+  }, []);
 
   const load = useCallback(async (quiet = false) => {
     try {
@@ -105,7 +183,7 @@ export default function App() {
       setSelectedId(result.candidate.id);
       setNotice({
         type: "success",
-        message: `${result.candidate.id} 已保存到执行状态；自动化关闭，等待总控安排`
+        message: `${result.candidate.id} 已保存，并已自动向选品任务派发一次A/B处理；失败后不会自动重试`
       });
       await load(true);
     } catch (error) {
@@ -132,7 +210,7 @@ export default function App() {
       });
       setQueue(result.candidate.workflowStatus);
       setSelectedId(result.candidate.id);
-      setNotice({ type: "success", message: "资料已保存；如此前技术阻塞，仍保持停止并等待总控确认" });
+      setNotice({ type: "success", message: result.dispatch ? "资料已保存，并已自动向选品任务派发一次A/B处理" : "资料已保存；已有任务或停止状态没有被自动重启" });
       await load(true);
     } catch (error) {
       if (error.body?.duplicateId) {
@@ -148,19 +226,20 @@ export default function App() {
     }
   }
 
-  async function resumeSelected(recoveryPath) {
+  async function chooseRecoveryAction(action) {
     if (!selected) return;
     try {
-      const result = await api.resumeCandidate({
-        candidateId: selected.id,
+      const result = await api.chooseRecoveryAction(selected.id, {
         dataRevision: selected.dataRevision,
-        recoveryPath
+        action
       });
       setQueue(result.candidate.workflowStatus);
       setSelectedId(result.candidate.id);
       setNotice({
         type: "success",
-        message: "已确认并向总控派发当前SKU一次；连续自动化仍关闭"
+        message: result.dispatch
+          ? `已按固定处理方式交给${result.dispatch.assigneeTitle || "当前负责人"}；再次真实失败仍会停止`
+          : "已记录为保持停止，系统不会自动重试"
       });
       await load(true);
     } catch (error) {
@@ -183,7 +262,7 @@ export default function App() {
         message:
           payload.decision === "reject"
             ? "已淘汰；不会自动补充新候选"
-            : "已保存到执行状态；当前不会自动领取"
+            : "已保存并自动向选品任务派发一次A/B处理"
       });
       const nextState = await load(true);
       const next = firstInQueue(nextState?.candidates || [], "awaiting_user_direction", sourceFilter, previousId);
@@ -199,7 +278,7 @@ export default function App() {
     }
   }
 
-  async function commentSelected(message, requestReview = true, category = "general") {
+  async function commentSelected(message, requestReview = false, category = "general") {
     if (!selected) return;
     try {
       const result = await api.addComment(selected.id, {
@@ -208,19 +287,12 @@ export default function App() {
         requestReview,
         category
       });
-      if (requestReview) {
-        setQueue("codex_processing");
-        setSourceFilter("all");
-        setSelectedId(result.candidate.id);
-      }
       setNotice({
         type: "success",
         message:
           category === "elimination_feedback"
             ? "淘汰原因已保存，后续自动选品会读取这条避坑条件"
-            : requestReview
-              ? "问题已保存到执行状态；自动化关闭，等待总控安排"
-              : "留言已作为记录保存"
+            : "留言已保存；普通留言不会启动或重试任务"
       });
       await load(true);
     } catch (error) {
@@ -255,13 +327,85 @@ export default function App() {
     return result;
   }
 
-  async function dispatchSelected() {
-    if (!selected) return;
+  async function startSourceCapture(recoverySuggestion = "", mode = "") {
+    if (!selected) return null;
     try {
-      const result = await api.dispatchCandidate(selected.id, { dataRevision: selected.dataRevision });
+      const result = await api.startSourceCapture(selected.id, {
+        dataRevision: selected.dataRevision,
+        recoverySuggestion,
+        ...(mode ? { mode } : {})
+      });
+      setSelectedId(result.candidate.id);
+      const ack = await request1688ExtensionCapture(result.extensionRequest);
+      if (!ack.accepted) {
+        await api.completeSourceCapture(selected.id, {
+          captureId: result.captureId,
+          token: result.extensionRequest.token,
+          dataRevision: result.dataRevision,
+          status: "failed",
+          failureCode: "extension_not_installed",
+          message: ack.error || "Chrome没有收到采集请求",
+          observedAt: new Date().toISOString()
+        });
+        setNotice({ type: "error", message: "1688采集已停止：未检测到本机扩展。没有派发任务。" });
+      } else {
+        setNotice({
+          type: "success",
+          message: mode === "listed_evidence_recovery"
+            ? "已让本机Chrome补采当前已上架商品；原上架记录保持不变，不会自动派发任务"
+            : "已让本机Chrome打开并采集当前1688商品；只执行这一次，失败不会自动重试"
+        });
+      }
+      await load(true);
+      return result;
+    } catch (error) {
+      setNotice({ type: "error", message: error.message });
+      if (error.status === 409) await load(true);
+      return null;
+    }
+  }
+
+  async function startOzonSalesCapture() {
+    if (!selected) return null;
+    try {
+      const result = await api.startOzonSalesCapture(selected.id, { dataRevision: selected.dataRevision });
+      setSelectedId(result.candidate.id);
+      const ack = await requestOzonExtensionCapture(result.extensionRequest);
+      if (!ack.accepted) {
+        await api.completeOzonSalesCapture(selected.id, {
+          captureId: result.captureId,
+          token: result.extensionRequest.token,
+          dataRevision: result.dataRevision,
+          status: "failed",
+          failureCode: "extension_not_installed",
+          message: ack.error || "Chrome没有收到Ozon采集请求",
+          observedAt: new Date().toISOString()
+        });
+        setNotice({ type: "error", message: "Ozon采集已停止：本机扩展未响应。商品业务状态没有改变。" });
+      } else {
+        setNotice({ type: "success", message: "已让本机Chrome只读采集当前Ozon商品一次；不会推进B/C/D/E。" });
+      }
+      await load(true);
+      return result;
+    } catch (error) {
+      setNotice({ type: "error", message: error.message });
+      if (error.status === 409) await load(true);
+      return null;
+    }
+  }
+
+  async function selectSourceCaptureSku(sourceSkuIds) {
+    if (!selected) return null;
+    try {
+      const result = await api.selectSourceCaptureSku(selected.id, {
+        dataRevision: selected.dataRevision,
+        sourceSkuIds
+      });
       setNotice({
         type: "success",
-        message: `已从评审台派发当前SKU一次给${result.dispatch.assigneeTitle || "负责人"}；连续自动化仍关闭`
+        message: result.dispatch
+          ? `已确认${sourceSkuIds.length}个1688 SKU，并且只向选品任务派发当前商品B阶段一次`
+          : `已确认${sourceSkuIds.length}个1688 SKU；证据已保存，原上架记录保持不变且没有自动派发任务`
       });
       await load(true);
       return result;
@@ -293,7 +437,22 @@ export default function App() {
         ...payload,
         dataRevision: selected.dataRevision
       });
-      setNotice({ type: "success", message: "已记录精确生产范围；尚未执行任何店铺写入" });
+      setNotice({ type: "success", message: "已确认精确生产卡并启动当前SKU上架任务" });
+      await Promise.all([load(true), loadWorkflowMap(selected.id)]);
+    } catch (error) {
+      setNotice({ type: "error", message: error.message });
+      throw error;
+    }
+  }
+
+  async function confirmLifecycleProductionAuthorization() {
+    if (!selected) return;
+    try {
+      await api.confirmLifecycleProductionAuthorization(selected.id, {
+        dataRevision: selected.dataRevision,
+        confirmed: true
+      });
+      setNotice({ type: "success", message: "最终商品方案已通过，生产授权已锁定；尚未启动D阶段，也没有店铺写入" });
       await Promise.all([load(true), loadWorkflowMap(selected.id)]);
     } catch (error) {
       setNotice({ type: "error", message: error.message });
@@ -319,6 +478,9 @@ export default function App() {
       <header className="app-header">
         <h1>今日选品评审台</h1>
         <div className="header-actions">
+          <span className={`extension-status ${extensionStatus.code}`} data-testid="extension-status">
+            <i aria-hidden="true" />{extensionStatus.label}
+          </span>
           <button className={`button ${view === "map" ? "primary" : "secondary"}`} onClick={() => setView(view === "map" ? "review" : "map")}>
             {view === "map" ? "返回评审台" : "打开小地图"}
           </button>
@@ -375,8 +537,12 @@ export default function App() {
               onEvaluate={evaluateSelected}
               onComment={commentSelected}
               onMarkListed={markSelectedListed}
-              onResume={resumeSelected}
-              onDispatch={dispatchSelected}
+              onRecoveryAction={chooseRecoveryAction}
+              onStartSourceCapture={startSourceCapture}
+              onStartOzonSalesCapture={startOzonSalesCapture}
+              onSelectSourceCaptureSku={selectSourceCaptureSku}
+              onProductionAuthorization={confirmProductionAuthorization}
+              onLifecycleProductionAuthorization={confirmLifecycleProductionAuthorization}
             />
             <CandidateReview candidate={selected} />
           </div>
@@ -388,9 +554,9 @@ export default function App() {
       <OperatingRules />
 
       <footer className="boundary-footer">
-        <div>A 方向初筛 → B 具体 SKU 利润核算 → C 采购/上架前来源与合规核验；SKU/链接不一致只拦当前 SKU，不淘汰方向。</div>
-        <div>IP/品牌风险需总控确认；确认及 C 阶段权利/合规核验完成前，不得进入待上架或写入店铺。</div>
-        <div>当前商品统一在评审主界面派发；小地图只看流程和留言。普通留言不会修改店铺商品、库存、价格或广告。</div>
+        <div>A销售与供应方案确认 → B具体SKU利润 → 自动进入C1 → C2最终素材 → 生产确认；SKU独立生命周期。</div>
+        <div>精确1688链接、供应SKU、货价、国内运费、采购成本、重量和尺寸在A阶段完成；B通过后自动交给上架任务做C1，不再要求主人点开始。</div>
+        <div>失败立即停止且不自动重试。普通留言不会启动任务；生产写入必须另行确认价格、库存100、素材和发布范围。</div>
       </footer>
       </>
       )}

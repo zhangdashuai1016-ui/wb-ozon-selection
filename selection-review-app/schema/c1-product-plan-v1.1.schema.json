@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "c1-product-plan-v1.1",
+  "title": "C1商品方案输入包 v1.1",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "c1PlanId",
+    "status",
+    "createdAt",
+    "inputRefs",
+    "identity",
+    "inputSnapshots",
+    "externalAccesses",
+    "profitRecalculated",
+    "skuReplaced",
+    "finalSeo",
+    "finalAttributes",
+    "complianceDecision",
+    "generatedAssets",
+    "productionPayload",
+    "factVerificationVersion",
+    "factsVerifiedAt",
+    "exactSkuVerification",
+    "productAttributes",
+    "platformCategory",
+    "schemaSnapshot",
+    "batteryAssessment",
+    "categoryRestrictions",
+    "platformCompliance",
+    "seoTitleDraft",
+    "descriptionDraft",
+    "bulletPointsDraft",
+    "searchKeywordsDraft",
+    "seoEvidenceLayer"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "c1-product-plan-v1.1" },
+    "c1PlanId": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["inputs_ready", "facts_checked", "seo_draft_ready"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "inputRefs": {
+      "type": "object",
+      "required": ["salesSnapshotId", "selectedSupplySnapshotId", "profitModelVersion", "platformSchemaEvidenceId"],
+      "properties": {
+        "salesSnapshotId": { "type": "string", "minLength": 1 },
+        "selectedSupplySnapshotId": { "type": "string", "minLength": 1 },
+        "profitModelVersion": { "type": "string", "pattern": "^profit-v[1-9][0-9]*$" },
+        "platformSchemaEvidenceId": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "identity": {
+      "type": "object",
+      "required": ["parentOpportunityId", "skuPackageId", "supplierOptionId", "supplierSkuId", "variantKey", "targetPlatform", "targetStore"],
+      "properties": {
+        "parentOpportunityId": { "type": "string", "minLength": 1 },
+        "skuPackageId": { "type": "string", "minLength": 1 },
+        "supplierOptionId": { "type": "string", "minLength": 1 },
+        "supplierSkuId": { "type": "string", "minLength": 1 },
+        "variantKey": { "type": "string", "minLength": 1 },
+        "targetPlatform": { "type": "string", "minLength": 1 },
+        "targetStore": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "inputSnapshots": {
+      "type": "object",
+      "required": ["salesSnapshot", "confirmedSupplierSkuSnapshot", "profitModel", "platformSchemaRules"],
+      "properties": {
+        "salesSnapshot": { "type": "object" },
+        "confirmedSupplierSkuSnapshot": { "type": "object" },
+        "profitModel": { "type": "object" },
+        "platformSchemaRules": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "externalAccesses": { "type": "array", "maxItems": 0 },
+    "profitRecalculated": { "const": false },
+    "skuReplaced": { "const": false },
+    "finalSeo": { "type": "null" },
+    "finalAttributes": { "type": "null" },
+    "complianceDecision": { "type": "null" },
+    "generatedAssets": { "type": "null" },
+    "productionPayload": { "type": "null" },
+    "factVerificationVersion": { "type": ["string", "null"], "enum": [null, "c1-fact-verification-v1.1"] },
+    "factsVerifiedAt": { "type": ["string", "null"] },
+    "exactSkuVerification": { "type": ["object", "null"] },
+    "productAttributes": { "type": ["object", "null"] },
+    "platformCategory": { "type": ["object", "null"] },
+    "schemaSnapshot": { "type": ["object", "null"] },
+    "batteryAssessment": { "type": ["object", "null"] },
+    "categoryRestrictions": { "type": ["object", "null"] },
+    "platformCompliance": { "type": ["object", "null"] },
+    "seoTitleDraft": { "type": ["object", "null"] },
+    "descriptionDraft": { "type": ["object", "null"] },
+    "bulletPointsDraft": { "type": ["array", "null"] },
+    "searchKeywordsDraft": { "type": ["object", "null"] },
+    "seoEvidenceLayer": { "type": ["object", "null"] }
+  },
+  "additionalProperties": false
+}

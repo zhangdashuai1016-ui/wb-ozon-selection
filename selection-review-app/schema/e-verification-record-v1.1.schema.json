@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "e-verification-record-v1.1",
+  "title": "E阶段独立验证记录 v1.1",
+  "type": "object",
+  "required": ["schemaVersion", "verificationId", "verificationPath", "sourceRecordType", "sourceRecordId", "outcome", "createdByCurrentRun", "verifiedAt", "platform", "store", "skuPackageId", "supplierSkuId", "platformProductId", "merchantSku", "currentPrice", "currentStock", "imageCount", "moderationStatus", "validationStatus", "saleStatus", "errors", "platformEvidenceRef", "ownerPriceDecision"],
+  "properties": {
+    "schemaVersion": { "const": "e-verification-record-v1.1" },
+    "verificationId": { "type": "string", "minLength": 1 },
+    "verificationPath": { "enum": ["system_created", "external_discovered"] },
+    "sourceRecordType": { "enum": ["ProductionRecord", "ExternalListingRecord"] },
+    "sourceRecordId": { "type": "string", "minLength": 1 },
+    "outcome": { "enum": ["listed_verified", "externally_verified"] },
+    "createdByCurrentRun": { "type": "boolean" },
+    "verifiedAt": { "type": "string", "format": "date-time" },
+    "platform": { "type": "string", "minLength": 1 },
+    "store": { "type": "string", "minLength": 1 },
+    "skuPackageId": { "type": "string", "minLength": 1 },
+    "supplierSkuId": { "type": "string", "minLength": 1 },
+    "platformProductId": { "type": "string", "minLength": 1 },
+    "merchantSku": { "type": "string", "minLength": 1 },
+    "currentPrice": { "type": "object", "required": ["amount", "currency"] },
+    "currentStock": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "const": "unknown" }] },
+    "imageCount": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "const": "unknown" }] },
+    "moderationStatus": { "type": "string", "minLength": 1 },
+    "validationStatus": { "type": "string", "minLength": 1 },
+    "saleStatus": { "type": "string", "minLength": 1 },
+    "errors": { "oneOf": [{ "type": "array" }, { "const": "unknown" }] },
+    "platformEvidenceRef": { "type": "string", "minLength": 1 },
+    "ownerPriceDecision": { "type": "object" }
+  },
+  "additionalProperties": false
+}

@@ -4,6 +4,7 @@ export const WORKFLOW_STATUSES = [
   "awaiting_user_direction",
   "codex_processing",
   "needs_user_data",
+  "listing_preparation",
   "ready_to_list",
   "listed",
   "eliminated"
@@ -13,7 +14,7 @@ export const DEFAULT_PACKAGING_COST_RMB = 1.5;
 export const PURCHASE_CEILING_SCOPE = "purchase_plus_domestic_shipping";
 export const DEFAULT_AUTOMATION_CONCURRENCY_LIMIT = 3;
 export const NO_PROGRESS_TIMEOUT_MINUTES = 15;
-export const PROFIT_POLICY_VERSION = "promotion-list-price-20-25-30-v1";
+export const PROFIT_POLICY_VERSION = "profit-25pct-and-20cny-promotion-v2";
 
 export const PROMOTION_DISCOUNT_SCENARIOS = Object.freeze({
   low: Object.freeze({ key: "low", label: "促销20%", rate: 0.2 }),
@@ -24,7 +25,7 @@ export const PROMOTION_DISCOUNT_SCENARIOS = Object.freeze({
 export const DEFAULT_RULES = {
   selectionFlow: {
     mode: "user_input_first",
-    automationStart: "control_explicit_only",
+    automationStart: "candidate_entry_event_only",
     stages: [
       "A_direction_screening",
       "B_exact_sku_profit_review",
@@ -40,22 +41,23 @@ export const DEFAULT_RULES = {
       },
       B: {
         label: "具体SKU利润核算",
-        inputs: ["productName_or_targetStyle", "purchasePriceRmb_all_in", "packedWeightKg", "dimensionsCm"],
-        sourcePageIsPrerequisite: false
+        inputs: ["confirmedSupplierSku", "actualPurchaseCost", "packedWeightKg", "dimensionsCm"],
+        sourcePageIsPrerequisite: false,
+        supplierConfirmationRequired: true
       },
       C: {
         label: "采购/上架前来源与合规核验",
-        checks: ["exact_source_and_target_sku_match", "rights_and_ip", "compliance", "powered_and_battery", "final_packaging_attributes"],
+        checks: ["confirmed_source_snapshot_inherited", "rights_and_ip", "compliance", "powered_and_battery", "platform_schema", "seo_draft"],
         mismatchDisposition: "block_this_sku_procurement_or_listing_without_eliminating_the_direction",
         unresolvedRiskDisposition: "block_ready_to_list_until_control_confirmation_and_rights_review"
       }
     },
     profitInputs: ["productName", "purchasePriceRmb", "packedWeightKg", "dimensionsCm"],
     sourcePageIsProfitPrerequisite: false,
-    sourcePagePurpose: "仅用于C阶段：精确链接与目标SKU、权利/IP、合规、带电和最终包装属性核验；不参与A方向初筛，也不阻断B利润核算",
+    sourcePagePurpose: "A阶段完成精确1688链接、供应SKU、货价、国内运费、实际采购成本、重量和尺寸采集并由主人确认；B和C只继承冻结证据，不重新寻找供应商",
     unresolvedFeePolicy: "evidence_gap_to_control_not_silent_processing",
     codexCandidateNegativeCeiling: "auto_eliminate_only_when_market_commission_logistics_and_reserves_are_verified",
-    technicalFailurePolicy: "one_evidence_bearing_repair_then_stop_for_control_decision",
+    technicalFailurePolicy: "one_attempt_then_stop_until_user_retry",
     retryPolicy: "no_automatic_or_background_retry_without_control_instruction",
     antiIdleRun: {
       runningRequiredFields: ["runId", "startedAt", "currentStep", "lastProgressAt"],
@@ -65,21 +67,35 @@ export const DEFAULT_RULES = {
       duplicateAttemptScope: "one_attempt_per_candidate_round_evidence_layer_and_target",
       unchangedHealthOrQueueNotification: "silent",
       completionWithoutProgress: "blocked_no_continuous_dispatch",
-      resumePolicy: "control_explicit_only",
+      resumePolicy: "user_comment_and_single_retry_only",
       alertPolicy: "one_deduplicated_control_alert"
     },
-    note: "A方向初筛只看目标平台市场、跨境份额、体量/趋势和价格-物流正空间；B按用户提供的目标款、采购到手总价和实包数据直接算平台利润；C才核精确货源SKU一致性及权利/合规属性。SKU不一致只阻止该SKU采购/上架；IP/品牌风险在A阶段转总控确认，不自动淘汰方向，但未确认且未完成C阶段权利核验不得进入待上架。"
+    note: "A阶段形成销售快照并完成精确供应链接、供应SKU、采购成本、重量尺寸采集和主人确认；B只读取冻结数据包核算利润；B通过后自动进入C1，由上架任务完成合规、Schema和SEO，不再要求主人点击开始上架准备。"
   },
   ozonDandanshu: profitRule("蛋蛋鼠"),
   ozonMiska: profitRule("Miska"),
   wbCrossListing: profitRule("WB"),
   dailyTargets: {
+    combinedProfitPassed: 10,
+    targetMode: "three_store_combined",
     dandanshu: 10,
     miska: 10,
     maximumCodexAdditionsPerStore: 30,
     automationWindow: "08:00-22:00 Asia/Shanghai",
     cadence: "control_explicit_only",
     automaticAuditEnabled: false
+  },
+  listingPreparation: {
+    defaultNewStock: 100,
+    batchEnabled: false,
+    startPolicy: "auto_c1_after_b_passed",
+    productionPolicy: "separate_exact_confirmation"
+  },
+  evidenceReuse: {
+    enabled: true,
+    requiredScopeKeys: ["platform", "store", "category", "salesScheme", "route", "ruleVersion"],
+    reusableKinds: ["commission", "exchange_rate", "logistics_tariff", "schema", "electrical_rule"],
+    skuSpecificKinds: ["packed_measurements", "battery_profile", "source_sku", "material", "brand_ip"]
   },
   purchaseInput: {
     scope: "all_in_including_domestic_shipping",
@@ -129,8 +145,8 @@ function profitRule(storeName) {
     storeName,
     pricingPolicyVersion: PROFIT_POLICY_VERSION,
     minimumUnitProfitRmb: 20,
-    targetMarginRate: 0.15,
-    thresholdPolicy: "either",
+    targetMarginRate: 0.25,
+    thresholdPolicy: "both",
     priceRoundRmb: 1,
     advertisingReserveRate: 0,
     promotionDiscountScenarios: PROMOTION_DISCOUNT_SCENARIOS,
@@ -150,7 +166,7 @@ function promotionEntries(value) {
 
 function thresholdPassedValues(unitProfitRmb, marginRate, rule) {
   return (
-    Number(unitProfitRmb) >= rule.minimumUnitProfitRmb ||
+    Number(unitProfitRmb) >= rule.minimumUnitProfitRmb &&
     Number(marginRate) >= rule.targetMarginRate
   );
 }
@@ -234,7 +250,7 @@ function currentProfitResult({ sellerRevenueRmb, commissionRate, nonPurchaseFixe
     sellerRevenueRmb * (1 - reserveRate - Number(rule.targetMarginRate)) - nonPurchaseFixedRmb
   );
   const maximumAllInPurchaseRmb = roundDownCurrency(
-    Math.max(profitLimitedCeilingRmb, marginLimitedCeilingRmb)
+    Math.min(profitLimitedCeilingRmb, marginLimitedCeilingRmb)
   );
   const hasPurchase = Number.isFinite(purchaseAllInRmb) && purchaseAllInRmb >= 0;
   const unitProfitRmb = hasPurchase
@@ -378,7 +394,7 @@ export function codexAutoEliminationGate(candidate, rules = DEFAULT_RULES) {
   const eligible = evidenceComplete && Number.isFinite(maximum);
   const shouldEliminate = eligible && maximum <= 0;
   const formula = eligible
-    ? `最大采购到手价=max(折后成交收入×(1−佣金−退货−破损)−GUOO−包材−贴标−20, 折后成交收入×(1−佣金−退货−破损−15%)−GUOO−包材−贴标)=${maximum.toFixed(2)}元；促销率只用于反推标价，不再扣一次`
+    ? `最大采购到手价=min(折后成交收入×(1−佣金−退货−破损)−GUOO−包材−贴标−20, 折后成交收入×(1−佣金−退货−破损−25%)−GUOO−包材−贴标)=${maximum.toFixed(2)}元；两项门槛必须同时满足，促销率只用于反推标价`
     : "市场/佣金/物流或费用证据尚未全部验证，暂不执行负上限淘汰";
   return {
     eligible,
@@ -402,7 +418,7 @@ export function businessDate(value = new Date()) {
   return `${valueOf("year")}-${valueOf("month")}-${valueOf("day")}`;
 }
 
-export function validateListingRecord(input = {}) {
+export function validateListingRecord(input = {}, options = {}) {
   const platform = String(input.platform || "").trim().toLowerCase();
   if (!["ozon", "wb"].includes(platform)) {
     throw new Error("请选择已上架平台（Ozon或WB）");
@@ -414,7 +430,7 @@ export function validateListingRecord(input = {}) {
   const productId = String(input.productId || "").trim();
   const merchantSku = String(input.merchantSku || "").trim();
   const productUrl = String(input.productUrl || "").trim();
-  if (!productId && !productUrl) throw new Error("请填写商品ID或链接");
+  if (!productId && !productUrl && options.allowMissingIdentity !== true) throw new Error("请填写商品ID或链接");
   if (productUrl && !/^https?:\/\//i.test(productUrl)) {
     throw new Error("商品链接必须是http或https链接");
   }
@@ -625,7 +641,7 @@ export function stopNoProgressRuns(
       state: "blocked",
       runId: null,
       startedAt: null,
-      currentStep: "已停止：等待总控确认",
+      currentStep: "已停止：等待主人建议",
       lastRunId: stoppedRunId,
       manualHold: true,
       dispatchState: "blocked",
@@ -634,7 +650,7 @@ export function stopNoProgressRuns(
       blockReason: actualRunning
         ? `${timeoutMinutes}分钟没有实质进展，系统已停止本轮任务`
         : "运行字段不完整，系统已停止异常任务",
-      userAction: "请让总控确认是否按一个明确恢复路径重新开始",
+      userAction: "请在UI写明执行建议，再只重试当前SKU一次",
       stoppedAt,
       stopReason: actualRunning ? "no_substantive_progress" : "invalid_running_state",
       controlAlertKey: dedupeKey
@@ -661,8 +677,8 @@ export function processingStatusSummary(candidate, at = new Date(), queueInfo = 
   const labels = {
     running: "运行中 · 有实际任务",
     queued: "排队等待领取",
-    deferred: "已停止 · 等待总控确认",
-    blocked: "需要总控确认",
+    deferred: "已停止 · 等待主人建议",
+    blocked: "已停止 · 等待固定选择",
     idle: "无人运行"
   };
   let key = manualHold || state === "deferred" ? "blocked" : state;
@@ -930,8 +946,7 @@ export function technicalFailureDisposition({
     attemptsToday: Number(attemptsToday),
     readAttempts: failedAttempts,
     recoveryOptions: [
-      "总控明确允许重新开始该SKU并指定一次恢复路径",
-      "用户打开精确链接后提供选中SKU价格与参数截图"
+      "主人在UI选择是否只重试当前阶段一次"
     ]
   };
 }
@@ -965,7 +980,7 @@ export function profitInputStatus(candidate) {
     missing,
     fields: ["productName", "purchasePriceRmb", "packedWeightKg", "dimensionsCm"],
     sourcePageRequired: false,
-    sourcePagePurpose: "仅在C阶段核对精确SKU、权利/IP、合规、带电和最终包装；不阻断B阶段利润核算"
+    sourcePagePurpose: "A阶段确认精确供应链接、SKU、价格、国内运费、采购成本、重量和尺寸；B只读取冻结证据"
   };
 }
 
@@ -996,11 +1011,8 @@ export function approvalGate(candidate, rules = DEFAULT_RULES) {
   const review = candidate.codexReview || {};
   const profit = review.profitCalculation || {};
   const dimensions = candidate.dimensionsCm || {};
-  const rule =
-    candidate.targetStore === "miska" ? rules.ozonMiska : rules.ozonDandanshu;
-  const marketPassed =
-    Number(review.marketEvidence?.comparableCount || 0) >= 5 ||
-    candidate.acceptedTestRisk === true;
+  const rule = storeProfitRule(candidate, rules);
+  const marketPassed = Number(review.marketEvidence?.comparableCount || 0) > 0;
   const electricalScope = candidate.targetStore === "wb" ? "WB/CEL" : "Ozon/GUOO";
   const electrical = electricalGate(candidate.powered, review.electricalAssessment, electricalScope);
   const autoElimination = codexAutoEliminationGate(candidate, rules);
@@ -1011,7 +1023,7 @@ export function approvalGate(candidate, rules = DEFAULT_RULES) {
     [electrical.passed, electrical.blocker],
     [candidate.complianceStatus === "clear", "合规资料不清楚"],
     [candidate.authorizationStatus === "clear", "授权状态不清楚"],
-    [marketPassed, "不足5个同规格市场证据，且用户未明确接受测试风险"],
+    [marketPassed, "尚未取得任何可追溯的当前市场样本"],
     [
       Number(candidate.packedWeightKg) > 0 &&
         Number(dimensions.length) > 0 &&
@@ -1021,10 +1033,11 @@ export function approvalGate(candidate, rules = DEFAULT_RULES) {
     ],
     [
       profitThresholdPassed(profit, rule),
-      `完整利润复算未满足单件利润${rule.minimumUnitProfitRmb}元或利润率${Math.round(rule.targetMarginRate * 100)}%任一门槛`
+      `完整利润复算必须同时满足单件利润≥${rule.minimumUnitProfitRmb}元且利润率≥${Math.round(rule.targetMarginRate * 100)}%`
     ],
     [review.commission?.sourceType === "real", "佣金不是当前真实类目和销售方案数据"],
-    [review.logistics?.sourceType === "real", "物流线路或运费不是当前真实规格数据"]
+    [review.logistics?.sourceType === "real", "物流线路或运费不是当前真实规格数据"],
+    [review.sourceConsistency?.status === "verified", "1688精确货源与目标SKU尚未核验一致"]
   ];
   const profitInputs = profitInputStatus(candidate);
   const directionalProfit = {
@@ -1035,7 +1048,7 @@ export function approvalGate(candidate, rules = DEFAULT_RULES) {
     inputsReady: profitInputs.ready,
     missing: profitInputs.missing.map((item) => item.label),
     sourcePageRequired: false,
-    sourcePagePurpose: "C阶段采购/上架前来源与合规核验；不是A方向初筛或B利润核算门槛"
+    sourcePagePurpose: "A阶段供应方案确认；B不得重新访问供应平台"
   };
   const blockers = checks.filter(([passed]) => !passed).map(([, reason]) => reason);
   if (autoElimination.shouldEliminate) blockers.push(autoElimination.reason);
@@ -1065,9 +1078,45 @@ export function approvalGate(candidate, rules = DEFAULT_RULES) {
   };
 }
 
+export function profitReviewGate(candidate, rules = DEFAULT_RULES) {
+  const review = candidate.codexReview || {};
+  const profit = review.profitCalculation || {};
+  const rule = storeProfitRule(candidate, rules);
+  const input = profitInputStatus(candidate);
+  const promotionGate = profit?.pricingPolicyVersion
+    ? promotionPricingGate(profit, rule)
+    : { passed: false, blockers: ["利润尚未使用当前促销标价规则"] };
+  const commissionExact = review.commission?.sourceType === "real";
+  const commissionEstimated =
+    ["estimated", "user_accepted_estimate"].includes(review.commission?.sourceType) &&
+    (
+      review.commission?.estimateAuthorized === true ||
+      review.commission?.estimated === true && Boolean(review.commission?.acceptedBy) ||
+      candidate.acceptedEstimatedCommission === true
+    );
+  const checks = [
+    [input.ready, `缺B阶段输入：${input.missing.map((item) => item.label).join("、")}`],
+    [Number(review.marketEvidence?.comparableCount || 0) > 0, "尚未取得任何可追溯的当前市场样本"],
+    [Boolean(review.marketEvidence?.checkedAt), "市场证据缺取得时间"],
+    [commissionExact || commissionEstimated, "佣金既不是当前真实证据，也没有该SKU的估算授权"],
+    [review.logistics?.sourceType === "real", "物流线路或运费不是当前真实包装数据"],
+    [directionalProfitThresholdPassed(profit, rule), `B阶段利润必须同时满足单件利润≥${rule.minimumUnitProfitRmb}元且利润率≥${Math.round(rule.targetMarginRate * 100)}%`],
+    [promotionGate.passed, promotionGate.blockers.join("；")]
+  ];
+  const blockers = checks.filter(([passed]) => !passed).map(([, reason]) => reason).filter(Boolean);
+  return {
+    passed: blockers.length === 0,
+    blockers,
+    commissionMode: commissionExact ? "exact" : commissionEstimated ? "estimated" : "missing",
+    exactSourceRequired: true,
+    exactSourceStage: "A_owner_confirmed_before_B"
+  };
+}
+
 export function selectionStage(candidate, rules = DEFAULT_RULES) {
   const profitInputs = profitInputStatus(candidate);
   const gate = approvalGate(candidate, rules);
+  const bGate = profitReviewGate(candidate, rules);
   if (gate.autoElimination?.shouldEliminate && candidate.workflowStatus !== "eliminated") {
     return {
       stage: "auto_eliminate_ready",
@@ -1082,9 +1131,14 @@ export function selectionStage(candidate, rules = DEFAULT_RULES) {
   const profit = gate.profitDirection;
   const sourceConsistency = gate.sourceConsistencyStatus;
   let stage = "pool_intake";
-  if (profitInputs.ready) stage = profit.passed ? "profit_passed_source_pending" : "profit_review";
-  if (sourceConsistency === "mismatch_blocks_this_sku_only" && profit.passed) stage = "profit_passed_source_mismatch";
-  if (sourceConsistency === "verified" && gate.passed) stage = "ready_to_list";
+  if (profitInputs.ready) stage = bGate.passed ? "profit_passed_source_pending" : "profit_review";
+  if (sourceConsistency === "mismatch_blocks_this_sku_only" && bGate.passed) stage = "profit_passed_source_mismatch";
+  if (candidate.workflowStatus === "listing_preparation") stage = "listing_preparation";
+  if (candidate.workflowStatus === "ready_to_list") {
+    stage = candidate.listingPreparation?.status === "prepared" && candidate.cCompletedAt
+      ? "ready_to_list"
+      : "legacy_ready_pending_c";
+  }
   if (candidate.workflowStatus === "eliminated") stage = "eliminated";
   return {
     stage,
@@ -1093,8 +1147,10 @@ export function selectionStage(candidate, rules = DEFAULT_RULES) {
       profit_review: "待做利润核算",
       profit_passed_source_pending: "利润通过 · 来源待复核",
       profit_passed_source_mismatch: "利润通过 · 当前SKU不一致",
+      listing_preparation: "待上架准备",
       auto_eliminate_ready: "证据充分 · 应自动淘汰",
       ready_to_list: "可采购/可上架",
+      legacy_ready_pending_c: "历史待上架 · 需补做C阶段",
       eliminated: "已淘汰"
     }[stage],
     profitDirection: profit,
@@ -1103,10 +1159,14 @@ export function selectionStage(candidate, rules = DEFAULT_RULES) {
     nextAction: stage === "profit_passed_source_mismatch"
       ? "阻止当前SKU采购/上架；重新核对精确货源与目标SKU。方向初筛结论不因此淘汰"
       : stage === "profit_passed_source_pending"
-      ? "完成货源SKU/材质/带电/IP与合规一致性复核后，才可进入可采购/可上架"
+      ? "B阶段通过后自动进入C1；上架任务继承A/B冻结数据，不再要求主人点击开始"
       : stage === "profit_review"
-        ? "先补齐四项用户利润数据或取得当前平台市场与费用证据"
-        : ""
+        ? profit.inputsReady
+          ? bGate.blockers[0] || "取得当前平台市场、佣金、物流与汇率证据后完成B阶段利润核算"
+          : "先补齐采购到手总价、真实打包重量和包装尺寸"
+        : stage === "legacy_ready_pending_c"
+          ? "旧记录缺少当前C阶段完成证据；只保留为历史兼容状态，不恢复旧的人工启动门禁"
+          : ""
   };
 }
 
@@ -1190,7 +1250,7 @@ export function wbAssessmentGate(assessment, candidate, rules = DEFAULT_RULES) {
     [assessment?.logistics?.sourceType === "real", "WB物流不是当前真实线路数据"],
     [
       profitThresholdPassed(profit, rule),
-      "WB完整利润复算未满足20元利润或15%利润率任一门槛"
+      "WB完整利润复算必须同时满足单件利润≥20元且利润率≥25%"
     ]
   ];
   return {
@@ -1253,19 +1313,19 @@ export function dailySummary(candidates, rules = DEFAULT_RULES, date = businessD
     if (queueCounts[candidate.workflowStatus] !== undefined) queueCounts[candidate.workflowStatus] += 1;
   }
   const stores = {};
-  for (const store of ["dandanshu", "miska"]) {
+  for (const store of ["dandanshu", "miska", "wb"]) {
     const target = Number(targets[store] || 10);
     const ready = candidates.filter(
       (candidate) =>
         candidate.targetStore === store &&
-        candidate.workflowStatus === "ready_to_list" &&
+        ["ready_to_list", "listed"].includes(candidate.workflowStatus) &&
         candidate.readyAt &&
         businessDate(candidate.readyAt) === date
     ).length;
     const activePotential = candidates.filter(
       (candidate) =>
         candidate.targetStore === store &&
-        ["awaiting_user_direction", "codex_processing"].includes(candidate.workflowStatus)
+        ["awaiting_user_direction", "codex_processing", "listing_preparation"].includes(candidate.workflowStatus)
     ).length;
     const codexAddedToday = candidates.filter(
       (candidate) =>
@@ -1305,7 +1365,38 @@ export function dailySummary(candidates, rules = DEFAULT_RULES, date = businessD
       userSampleReviewThreshold: Number(directionRule.userSampleReviewThreshold || 0)
     };
   }
-  return { businessDate: date, queueCounts, stores };
+  const bPassed = candidates.filter((candidate) => {
+    const at = candidate.bPassedAt || candidate.reviewedAt;
+    return at && businessDate(at) === date && ["listing_preparation", "ready_to_list", "listed"].includes(candidate.workflowStatus);
+  });
+  const cCompleted = candidates.filter((candidate) => {
+    const at = candidate.cCompletedAt || candidate.readyAt;
+    return at && businessDate(at) === date && ["ready_to_list", "listed"].includes(candidate.workflowStatus);
+  });
+  const estimated = bPassed.filter((candidate) => candidate.codexReview?.commission?.sourceType === "estimated").length;
+  const target = Number(targets.combinedProfitPassed || 10);
+  return {
+    businessDate: date,
+    queueCounts,
+    stores,
+    combined: {
+      target,
+      profitPassed: bPassed.length,
+      exactProfitPassed: bPassed.length - estimated,
+      estimatedProfitPassed: estimated,
+      cCompleted: cCompleted.length,
+      readyToList: candidates.filter((candidate) =>
+        candidate.workflowStatus === "ready_to_list" &&
+        candidate.listingPreparation?.status === "prepared" &&
+        Boolean(candidate.cCompletedAt)
+      ).length,
+      legacyReadyPendingC: candidates.filter((candidate) =>
+        candidate.workflowStatus === "ready_to_list" &&
+        !(candidate.listingPreparation?.status === "prepared" && candidate.cCompletedAt)
+      ).length,
+      remaining: Math.max(0, target - bPassed.length)
+    }
+  };
 }
 
 export function recentAvoidanceFeedback(candidates, limit = 30) {

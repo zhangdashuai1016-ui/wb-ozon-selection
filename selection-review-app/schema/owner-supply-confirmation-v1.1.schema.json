@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-supply-confirmation-v1.1",
+  "title": "OwnerSupplyConfirmation v1.1",
+  "type": "object",
+  "required": [
+    "confirmationVersion",
+    "status",
+    "parentOpportunityId",
+    "sourceOpportunityRevision",
+    "recommendationVersion",
+    "recommendedSupplierOptionId",
+    "selectedRecommendedOption",
+    "supplierOptionId",
+    "supplierSkuId",
+    "variantKey",
+    "confirmedBy",
+    "confirmedAt"
+  ],
+  "properties": {
+    "confirmationVersion": { "const": "owner-supply-confirmation-v1.1" },
+    "status": { "const": "confirmed" },
+    "parentOpportunityId": { "type": "string", "minLength": 1 },
+    "sourceOpportunityRevision": { "type": "integer", "minimum": 0 },
+    "recommendationVersion": { "const": "supplier-recommendation-v1.1" },
+    "recommendedSupplierOptionId": { "type": "string", "minLength": 1 },
+    "selectedRecommendedOption": { "type": "boolean" },
+    "supplierOptionId": { "type": "string", "minLength": 1 },
+    "supplierSkuId": { "type": "string", "minLength": 1 },
+    "variantKey": { "type": "string", "minLength": 1 },
+    "confirmedBy": { "const": "owner" },
+    "confirmedAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

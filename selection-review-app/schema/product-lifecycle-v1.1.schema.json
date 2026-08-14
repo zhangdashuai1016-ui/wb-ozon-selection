@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "product-lifecycle-v1.1",
+  "title": "商品生命周期数据包 v1.1",
+  "oneOf": [
+    { "$ref": "#/$defs/OpportunityPackage" },
+    { "$ref": "#/$defs/SkuLifecyclePackage" }
+  ],
+  "$defs": {
+    "businessResult": {
+      "enum": ["pending", "passed", "rejected", "manual_review", "unknown"]
+    },
+    "technicalStatus": {
+      "enum": ["not_started", "queued", "running", "completed", "data_acquisition_failed", "system_error", "permission_required", "stopped", "unknown"]
+    },
+    "ownerAction": {
+      "enum": ["none", "confirm_direction", "confirm_supplier_option", "provide_supply_data", "review_business_exception", "review_compliance_risk", "confirm_c1_plan", "provide_final_assets", "confirm_final_assets", "authorize_production", "decide_readback_failure", "unknown"]
+    },
+    "audit": {
+      "type": "object",
+      "required": ["createdAt", "updatedAt", "history"],
+      "properties": {
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "history": { "type": "array" }
+      },
+      "additionalProperties": false
+    },
+    "supplierSearch": {
+      "type": "object",
+      "required": ["status", "limits", "searchRounds", "supplierOptionsFound", "consecutiveNoEvidenceRounds", "stopReason", "stoppedAt"],
+      "properties": {
+        "status": { "enum": ["not_started", "running", "completed", "stopped", "unknown"] },
+        "limits": {
+          "type": "object",
+          "required": ["maxSearchRounds", "maxSupplierOptions", "maxConsecutiveNoEvidenceRounds"],
+          "properties": {
+            "maxSearchRounds": { "oneOf": [{ "type": "integer", "minimum": 1 }, { "const": "unknown" }] },
+            "maxSupplierOptions": { "oneOf": [{ "type": "integer", "minimum": 1 }, { "const": "unknown" }] },
+            "maxConsecutiveNoEvidenceRounds": { "oneOf": [{ "type": "integer", "minimum": 1 }, { "const": "unknown" }] }
+          },
+          "additionalProperties": false
+        },
+        "searchRounds": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "const": "unknown" }] },
+        "supplierOptionsFound": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "const": "unknown" }] },
+        "consecutiveNoEvidenceRounds": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "const": "unknown" }] },
+        "stopReason": {
+          "type": ["string", "null"],
+          "enum": [null, "unknown", "enough_qualified_options", "max_search_rounds", "max_supplier_options", "max_consecutive_no_evidence_rounds", "technical_failure", "owner_stop", "scope_completed"]
+        },
+        "stoppedAt": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "profitModel": {
+      "type": "object",
+      "required": ["profitModelVersion", "calculatedAt", "inputSnapshotRefs", "recommendedSalePriceCny", "unitProfitRmb", "profitMargin", "result"],
+      "properties": {
+        "profitModelVersion": { "type": "string", "pattern": "^profit-v[1-9][0-9]*$" },
+        "calculatedAt": { "type": "string", "format": "date-time" },
+        "inputSnapshotRefs": { "type": "array", "items": { "type": "string" } },
+        "recommendedSalePriceCny": { "type": "number" },
+        "unitProfitRmb": { "type": "number" },
+        "profitMargin": { "type": "number" },
+        "result": { "$ref": "#/$defs/businessResult" }
+      },
+      "additionalProperties": true
+    },
+    "readbackPolicy": {
+      "type": "object",
+      "required": ["status", "maxAutomaticAttempts", "automaticAttempts", "maxConsecutiveSameFailure", "consecutiveSameFailureCount", "lastFailureLayer", "stopReason", "stoppedAt"],
+      "properties": {
+        "status": { "enum": ["not_started", "running", "completed", "stopped"] },
+        "maxAutomaticAttempts": { "type": "integer", "minimum": 1 },
+        "automaticAttempts": { "type": "integer", "minimum": 0 },
+        "maxConsecutiveSameFailure": { "type": "integer", "minimum": 1 },
+        "consecutiveSameFailureCount": { "type": "integer", "minimum": 0 },
+        "lastFailureLayer": { "type": ["string", "null"] },
+        "stopReason": {
+          "type": ["string", "null"],
+          "enum": [null, "max_automatic_attempts", "max_consecutive_same_failure", "technical_failure", "permission_required", "owner_stop"]
+        },
+        "stoppedAt": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "OpportunityPackage": {
+      "type": "object",
+      "required": ["schemaVersion", "entityType", "parentOpportunityId", "dataRevision", "directionName", "targetPlatform", "targetStore", "businessPhase", "businessResult", "technicalStatus", "ownerAction", "salesSnapshots", "supplierOptions", "recommendedSupplierOptionId", "confirmedSupplierOptionId", "supplierSearch", "audit"],
+      "properties": {
+        "schemaVersion": { "const": "product-lifecycle-v1.1" },
+        "entityType": { "const": "OpportunityPackage" },
+        "parentOpportunityId": { "type": "string", "minLength": 1 },
+        "dataRevision": { "type": "integer", "minimum": 0 },
+        "directionName": { "type": "string", "minLength": 1 },
+        "targetPlatform": { "type": "string", "minLength": 1 },
+        "targetStore": { "type": "string", "minLength": 1 },
+        "businessPhase": { "enum": ["A", "closed", "unknown"] },
+        "businessResult": { "$ref": "#/$defs/businessResult" },
+        "technicalStatus": { "$ref": "#/$defs/technicalStatus" },
+        "ownerAction": { "$ref": "#/$defs/ownerAction" },
+        "salesSnapshots": { "type": "array" },
+        "supplierOptions": { "type": "array" },
+        "recommendedSupplierOptionId": { "type": ["string", "null"] },
+        "confirmedSupplierOptionId": { "type": ["string", "null"] },
+        "supplierSearch": { "$ref": "#/$defs/supplierSearch" },
+        "historicalProfitModels": { "type": "array" },
+        "legacySource": { "type": "object" },
+        "audit": { "$ref": "#/$defs/audit" }
+      },
+      "additionalProperties": false
+    },
+    "SkuLifecyclePackage": {
+      "type": "object",
+      "required": ["schemaVersion", "entityType", "skuPackageId", "parentOpportunityId", "supplierOptionId", "supplierSkuId", "variantKey", "targetPlatform", "targetStore", "dataRevision", "businessPhase", "businessResult", "technicalStatus", "ownerAction", "inheritedSalesSnapshotRefs", "selectedSupplySnapshot", "skuFacts", "profitModels", "activeProfitModelVersion", "c1ProductPlan", "c2FinalAssets", "productionAuthorization", "productionRecord", "externalListingRecord", "eVerificationRecord", "readbackPolicy", "readbackHistory", "audit"],
+      "properties": {
+        "schemaVersion": { "const": "product-lifecycle-v1.1" },
+        "entityType": { "const": "SkuLifecyclePackage" },
+        "skuPackageId": { "type": "string", "minLength": 1 },
+        "parentOpportunityId": { "type": "string", "minLength": 1 },
+        "supplierOptionId": { "type": "string", "minLength": 1 },
+        "supplierSkuId": { "type": "string", "minLength": 1 },
+        "variantKey": { "type": "string", "minLength": 1 },
+        "targetPlatform": { "type": "string", "minLength": 1 },
+        "targetStore": { "type": "string", "minLength": 1 },
+        "dataRevision": { "type": "integer", "minimum": 0 },
+        "businessPhase": { "enum": ["B", "C1", "C2", "D", "E", "closed", "unknown"] },
+        "businessResult": { "$ref": "#/$defs/businessResult" },
+        "technicalStatus": { "$ref": "#/$defs/technicalStatus" },
+        "ownerAction": { "$ref": "#/$defs/ownerAction" },
+        "inheritedSalesSnapshotRefs": { "type": "array", "items": { "type": "string" } },
+        "selectedSupplySnapshot": { "type": "object" },
+        "skuFacts": { "type": "object" },
+        "profitModels": { "type": "array", "items": { "$ref": "#/$defs/profitModel" } },
+        "activeProfitModelVersion": { "type": ["string", "null"], "pattern": "^profit-v[1-9][0-9]*$" },
+        "c1ProductPlan": { "type": ["object", "null"] },
+        "c2FinalAssets": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["schemaVersion", "status", "assets", "ownerFinalUploadConfirmation", "dReadPolicy", "platformUploads", "productionStarted"],
+              "properties": {
+                "schemaVersion": { "const": "c2-asset-lifecycle-v1.1" },
+                "status": { "enum": ["awaiting_final_uploads", "completed"] },
+                "assets": {
+                  "type": "object",
+                  "required": ["collected", "aiDrafts", "finalUploads"],
+                  "properties": {
+                    "collected": { "type": "array" },
+                    "aiDrafts": { "type": "array" },
+                    "finalUploads": { "type": "array" }
+                  }
+                },
+                "ownerFinalUploadConfirmation": { "type": ["object", "null"] },
+                "dReadPolicy": { "type": "object" },
+                "platformUploads": { "const": 0 },
+                "productionStarted": { "const": false }
+              }
+            }
+          ]
+        },
+        "productionAuthorization": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["schemaVersion", "status", "confirmedBy", "authorizedDataRevision", "lockedScope", "scopeExpansionAllowed", "fieldMutationAllowed", "skuReplacementAllowed", "assetReplacementAllowed", "readPolicy", "productionExecuted", "platformWrites"],
+              "properties": {
+                "schemaVersion": { "const": "production-authorization-v1.1" },
+                "status": { "const": "confirmed" },
+                "confirmedBy": { "const": "owner" },
+                "authorizedDataRevision": { "type": "integer", "minimum": 0 },
+                "lockedScope": { "type": "object" },
+                "scopeExpansionAllowed": { "const": false },
+                "fieldMutationAllowed": { "const": false },
+                "skuReplacementAllowed": { "const": false },
+                "assetReplacementAllowed": { "const": false },
+                "readPolicy": { "const": "authorization_snapshot_only" },
+                "productionExecuted": { "const": false },
+                "platformWrites": { "const": 0 }
+              }
+            }
+          ]
+        },
+        "productionConfirmationCard": { "type": ["object", "null"] },
+        "productionRecord": { "type": ["object", "null"] },
+        "externalListingRecord": { "type": ["object", "null"] },
+        "eVerificationRecord": { "type": ["object", "null"] },
+        "readbackPolicy": { "$ref": "#/$defs/readbackPolicy" },
+        "readbackHistory": { "type": "array" },
+        "audit": { "$ref": "#/$defs/audit" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "final-product-plan-confirmation-card-v1.1",
+  "title": "C阶段最终商品方案确认卡 v1.1",
+  "type": "object",
+  "required": ["schemaVersion", "cardId", "status", "createdAt", "ownerDecision", "decisionOptions", "productInformation", "profitResult", "c1Facts", "seoDraft", "c2Assets", "riskAndUnknowns", "productionBoundary"],
+  "properties": {
+    "schemaVersion": { "const": "final-product-plan-confirmation-card-v1.1" },
+    "cardId": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["awaiting_owner_business_confirmation", "owner_business_approved"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "ownerDecision": { "type": ["object", "null"] },
+    "decisionOptions": {
+      "const": ["approve_for_production_authorization", "return_to_c_stage", "reject_product"]
+    },
+    "productInformation": { "type": "object" },
+    "profitResult": { "type": "object" },
+    "c1Facts": { "type": "object" },
+    "seoDraft": { "type": "object" },
+    "c2Assets": {
+      "type": "object",
+      "required": ["sourceArea", "finalUploads", "ownerFinalUploadConfirmation"],
+      "properties": {
+        "sourceArea": { "const": "assets.finalUploads" },
+        "finalUploads": { "type": "array", "minItems": 1 },
+        "ownerFinalUploadConfirmation": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "riskAndUnknowns": { "type": "object" },
+    "productionBoundary": {
+      "type": "object",
+      "required": ["productionAuthorized", "dStarted", "platformWrites", "requiresSeparateExactAuthorization", "authorizationScopeRequired"],
+      "properties": {
+        "productionAuthorized": { "const": false },
+        "dStarted": { "const": false },
+        "platformWrites": { "const": 0 },
+        "requiresSeparateExactAuthorization": { "const": true },
+        "authorizationScopeRequired": { "type": "array" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

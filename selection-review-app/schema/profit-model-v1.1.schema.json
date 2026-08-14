@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "profit-model-v1.1",
+  "title": "ProfitModel v1.1",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "profitModelVersion",
+    "calculatedAt",
+    "inputSnapshotRefs",
+    "recommendedSalePriceRub",
+    "recommendedSalePriceCny",
+    "sellerSettlementRevenue",
+    "commissionRate",
+    "internationalFreight",
+    "actualPurchaseCost",
+    "otherCosts",
+    "unitProfitRmb",
+    "profitMargin",
+    "thresholdVersion",
+    "thresholds",
+    "result",
+    "executionMode",
+    "externalAccesses",
+    "requestedExistingFields",
+    "formula"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "profit-model-v1.1" },
+    "profitModelVersion": { "type": "string", "pattern": "^profit-v[1-9][0-9]*$" },
+    "calculatedAt": { "type": "string", "format": "date-time" },
+    "inputSnapshotRefs": { "type": "array", "minItems": 5, "maxItems": 5, "items": { "type": "string", "minLength": 1 } },
+    "recommendedSalePriceRub": { "type": "number", "exclusiveMinimum": 0 },
+    "recommendedSalePriceCny": { "type": "number", "exclusiveMinimum": 0 },
+    "sellerSettlementRevenue": { "$ref": "#/$defs/money" },
+    "commissionRate": { "type": "number", "minimum": 0, "exclusiveMaximum": 1 },
+    "internationalFreight": { "$ref": "#/$defs/money" },
+    "actualPurchaseCost": { "$ref": "#/$defs/money" },
+    "otherCosts": { "$ref": "#/$defs/money" },
+    "unitProfitRmb": { "type": "number" },
+    "profitMargin": { "type": "number" },
+    "thresholdVersion": { "const": "profit-threshold-v1.1-25pct-20cny" },
+    "thresholds": {
+      "type": "object",
+      "required": ["minimumProfitMargin", "minimumUnitProfitRmb", "logic"],
+      "properties": {
+        "minimumProfitMargin": { "const": 0.25 },
+        "minimumUnitProfitRmb": { "const": 20 },
+        "logic": { "const": "all" }
+      },
+      "additionalProperties": false
+    },
+    "result": { "enum": ["passed", "rejected"] },
+    "executionMode": { "const": "five_upstream_evidence_sources_only" },
+    "externalAccesses": { "type": "array", "maxItems": 0 },
+    "requestedExistingFields": { "type": "array", "maxItems": 0 },
+    "formula": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "money": {
+      "type": "object",
+      "required": ["amount", "currency", "evidenceRef"],
+      "properties": {
+        "amount": { "type": "number", "minimum": 0 },
+        "currency": { "type": "string", "minLength": 1 },
+        "evidenceRef": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
