@@ -3,6 +3,7 @@ import { collectOzonPage } from "./collector-ozon.js";
 
 const SOURCE_REQUEST_TYPE = "SELECTION_REVIEW_1688_CAPTURE_REQUEST";
 const SALES_REQUEST_TYPE = "SELECTION_REVIEW_OZON_CAPTURE_REQUEST";
+const BACKGROUND_PING = "SELECTION_REVIEW_EXTENSION_BACKGROUND_PING";
 const activeCaptures = new Set();
 
 function canonicalSource(value, expectedOfferId) {
@@ -215,6 +216,10 @@ async function runOzonCapture(payload) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === BACKGROUND_PING) {
+    sendResponse({ accepted: true, version: chrome.runtime.getManifest().version });
+    return false;
+  }
   if (![SOURCE_REQUEST_TYPE, SALES_REQUEST_TYPE].includes(message?.type)) return false;
   const payload = message.payload;
   const isOzon = message.type === SALES_REQUEST_TYPE;

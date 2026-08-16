@@ -2,6 +2,7 @@ import { collectRealOzonSalesSnapshot } from "./sales-snapshot.mjs";
 
 const FAILURE_MESSAGES = Object.freeze({
   extension_not_installed: "未检测到本机商品采集扩展",
+  extension_background_unavailable: "商品采集扩展已安装，但后台暂未响应",
   wrong_product: "Ozon页面商品ID与当前候选不一致",
   site_login_required: "Ozon页面要求先登录",
   site_verification_required: "Ozon页面要求人工完成验证",

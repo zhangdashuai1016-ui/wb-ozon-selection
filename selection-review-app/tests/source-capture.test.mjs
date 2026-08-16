@@ -138,6 +138,7 @@ test("1688 collector accepts a real top-level SKU ID on a single-specification o
 
 test("extension manifest stays limited to 1688, Ozon product pages and the local review app", async () => {
   const manifest = JSON.parse(await readFile(path.join(appDir, "extension", "1688-capture", "manifest.json"), "utf8"));
+  assert.equal(manifest.version, "1.2.1");
   assert.deepEqual(manifest.permissions.sort(), ["scripting", "storage", "tabs"]);
   assert.deepEqual(manifest.host_permissions.sort(), [
     "http://127.0.0.1:4317/*",
@@ -145,4 +146,13 @@ test("extension manifest stays limited to 1688, Ozon product pages and the local
     "https://www.ozon.ru/product/*"
   ]);
   assert.equal(manifest.permissions.includes("cookies"), false);
+});
+
+test("extension status handshake verifies the background worker instead of only the page bridge", async () => {
+  const bridge = await readFile(path.join(appDir, "extension", "1688-capture", "bridge.js"), "utf8");
+  const background = await readFile(path.join(appDir, "extension", "1688-capture", "background.js"), "utf8");
+  assert.match(bridge, /SELECTION_REVIEW_EXTENSION_BACKGROUND_PING/);
+  assert.match(bridge, /backgroundReady/);
+  assert.match(background, /SELECTION_REVIEW_EXTENSION_BACKGROUND_PING/);
+  assert.match(background, /sendResponse\(\{ accepted: true, version:/);
 });

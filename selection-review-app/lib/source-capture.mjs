@@ -46,6 +46,7 @@ export function extract1688OfferId(value) {
 export function sourceCaptureFailureMessage(code, detail = "") {
   const messages = {
     extension_not_installed: "未检测到本机1688采集扩展",
+    extension_background_unavailable: "1688采集扩展已安装，但后台暂未响应",
     site_login_required: "1688页面需要先登录",
     site_verification_required: "1688页面要求完成人机或安全验证",
     wrong_offer: "打开的1688商品与当前候选不是同一个offer",

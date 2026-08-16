@@ -96,6 +96,9 @@ test("one Ozon capture appends a verified SalesSnapshot without changing busines
   t.after(() => child.kill("SIGTERM"));
   await waitForHealth(child, stderr);
 
+  const health = await (await fetch(`${baseUrl}/api/health`)).json();
+  assert.equal(health.captureControl.status, "idle");
+
   const preflight = await fetch(`${baseUrl}/api/candidates/OZON-CAPTURE-1/sales-capture/result`, {
     method: "OPTIONS",
     headers: { Origin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
@@ -109,6 +112,27 @@ test("one Ozon capture appends a verified SalesSnapshot without changing busines
   assert.equal(started.candidate.salesCapture.status, "waiting_extension");
   assert.equal(started.candidate.workflowStatus, "codex_processing");
   assert.equal(started.candidate.processing.state, "blocked");
+
+  const busyState = await (await fetch(`${baseUrl}/api/state`)).json();
+  assert.deepEqual(busyState.captureControl, {
+    status: "busy",
+    label: "正在采集 OZON-CAPTURE-1（ozon）",
+    candidateId: "OZON-CAPTURE-1",
+    captureId: started.captureId,
+    platform: "ozon",
+    captureKind: "sales",
+    startedAt: busyState.captureControl.startedAt,
+    expiresAt: busyState.captureControl.expiresAt
+  });
+
+  const blockedParallel = await post("/api/candidates/OZON-OTHER-1/sales-capture/start", { dataRevision: 1 });
+  assert.equal(blockedParallel.status, 409);
+  const blockedParallelBody = await blockedParallel.json();
+  assert.match(blockedParallelBody.message, /本次没有启动，也不会排队或自动重试/);
+  assert.equal(blockedParallelBody.captureControl.candidateId, "OZON-CAPTURE-1");
+  const storedDuringCapture = JSON.parse(await readFile(dataFile, "utf8"));
+  assert.equal(storedDuringCapture.candidates.find((item) => item.id === "OZON-OTHER-1").dataRevision, 1);
+  assert.equal(storedDuringCapture.candidates.find((item) => item.id === "OZON-OTHER-1").salesCapture, undefined);
 
   const result = await post("/api/candidates/OZON-CAPTURE-1/sales-capture/result", {
     captureId: started.captureId,
@@ -131,6 +155,9 @@ test("one Ozon capture appends a verified SalesSnapshot without changing busines
   assert.equal(snapshot.productId, "4403916892");
   assert.equal(snapshot.sellerType, "unknown");
   assert.equal(snapshot.currentPrice, 2598);
+
+  const idleState = await (await fetch(`${baseUrl}/api/state`)).json();
+  assert.equal(idleState.captureControl.status, "idle");
 
   const stored = JSON.parse(await readFile(dataFile, "utf8"));
   const storedOther = stored.candidates.find((item) => item.id === "OZON-OTHER-1");

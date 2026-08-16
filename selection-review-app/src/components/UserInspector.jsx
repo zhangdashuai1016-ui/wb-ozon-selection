@@ -1131,7 +1131,7 @@ function Activity({ candidate, onComment }) {
   );
 }
 
-function OzonSalesCapturePanel({ candidate, onStart }) {
+function OzonSalesCapturePanel({ candidate, captureControl, onStart }) {
   const capture = candidate.salesCapture || {};
   const marketAssessment = candidate.lifecycleV11?.opportunityPackage?.marketAssessment || null;
   const sampleAssessment = marketAssessment?.sampleSummaries?.find((item) => item.snapshotId === capture.snapshotId) || null;
@@ -1151,6 +1151,7 @@ function OzonSalesCapturePanel({ candidate, onStart }) {
   const canShow = /^https:\/\/(?:www\.)?ozon\.ru\/product\//i.test(candidate.productUrl || "") &&
     ["awaiting_user_direction", "codex_processing", "needs_user_data"].includes(candidate.workflowStatus) &&
     !candidate.lifecycleV11?.skuPackage;
+  const captureBusy = captureControl?.status === "busy";
   const [saving, setSaving] = useState(false);
   if (!canShow) return null;
 
@@ -1199,9 +1200,15 @@ function OzonSalesCapturePanel({ candidate, onStart }) {
             <span>技术状态：{capture.technicalStatus || "未验证"}；商品业务状态未改变。</span>
           </div>
         ) : null}
+        {captureBusy && capture.status !== "waiting_extension" ? (
+          <div className="source-capture-summary capture-busy">
+            <b>商品采集控制正在使用</b>
+            <span>{captureControl.label}；当前商品不会排队，也不会自动重试。</span>
+          </div>
+        ) : null}
         {capture.status !== "waiting_extension" ? (
-          <button className="button primary" disabled={saving} onClick={start}>
-            {saving ? "正在连接Chrome…" : capture.status === "failed" ? "按当前页面重试一次" : "用Chrome采集当前Ozon快照（一次）"}
+          <button className="button primary" disabled={saving || captureBusy} onClick={start}>
+            {saving ? "正在连接Chrome…" : captureBusy ? "其他商品正在采集" : capture.status === "failed" ? "按当前页面重试一次" : "用Chrome采集当前Ozon快照（一次）"}
           </button>
         ) : null}
       </div>
@@ -1209,10 +1216,10 @@ function OzonSalesCapturePanel({ candidate, onStart }) {
   );
 }
 
-export default function UserInspector({ candidate, rules, onUpdate, onEvaluate, onComment, onMarkListed, onRecoveryAction, onStartSourceCapture, onStartOzonSalesCapture, onSelectSourceCaptureSku, onProductionAuthorization, onLifecycleProductionAuthorization }) {
+export default function UserInspector({ candidate, rules, captureControl, onUpdate, onEvaluate, onComment, onMarkListed, onRecoveryAction, onStartSourceCapture, onStartOzonSalesCapture, onSelectSourceCaptureSku, onProductionAuthorization, onLifecycleProductionAuthorization }) {
   return (
     <section className="workflow-region">
-      <OzonSalesCapturePanel candidate={candidate} onStart={onStartOzonSalesCapture} />
+      <OzonSalesCapturePanel candidate={candidate} captureControl={captureControl} onStart={onStartOzonSalesCapture} />
       {candidate.workflowStatus === "awaiting_user_direction" ? <DirectionPanel candidate={candidate} onEvaluate={onEvaluate} /> : null}
       {candidate.workflowStatus === "codex_processing" ? <ProcessingPanel candidate={candidate} onRecoveryAction={onRecoveryAction} /> : null}
       {candidate.workflowStatus === "listing_preparation" ? (

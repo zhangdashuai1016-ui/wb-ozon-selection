@@ -13,8 +13,10 @@ import Phase2ASimulation from "./components/Phase2ASimulation";
 import UserInspector from "./components/UserInspector";
 import WorkflowMap from "./components/WorkflowMap";
 import {
+  EXTENSION_CAPTURE_ACK_TIMEOUT_MS,
   EXTENSION_STATUS_PING,
   EXTENSION_STATUS_RESPONSE,
+  EXTENSION_STATUS_RESPONSE_TIMEOUT_MS,
   extensionConnectionStatus,
   readCachedExtensionVersion
 } from "./extensionStatus";
@@ -25,36 +27,36 @@ const SOURCE_CAPTURE_ACK = "SELECTION_REVIEW_1688_CAPTURE_ACK";
 const OZON_CAPTURE_REQUEST = "SELECTION_REVIEW_OZON_CAPTURE_REQUEST";
 const OZON_CAPTURE_ACK = "SELECTION_REVIEW_OZON_CAPTURE_ACK";
 
-function request1688ExtensionCapture(payload, timeoutMs = 1500) {
+function request1688ExtensionCapture(payload, timeoutMs = EXTENSION_CAPTURE_ACK_TIMEOUT_MS) {
   return new Promise((resolve) => {
     const timer = window.setTimeout(() => {
       window.removeEventListener("message", onMessage);
-      resolve({ accepted: false, error: "未检测到本机1688采集扩展" });
+      resolve({ accepted: false, code: "extension_bridge_unavailable", error: "评审台页面没有收到扩展桥接回应" });
     }, timeoutMs);
     function onMessage(event) {
       if (event.source !== window || event.origin !== window.location.origin) return;
       if (event.data?.type !== SOURCE_CAPTURE_ACK || event.data?.captureId !== payload.captureId) return;
       window.clearTimeout(timer);
       window.removeEventListener("message", onMessage);
-      resolve({ accepted: event.data.accepted === true, error: event.data.error || "" });
+      resolve({ accepted: event.data.accepted === true, code: event.data.code || "", error: event.data.error || "" });
     }
     window.addEventListener("message", onMessage);
     window.postMessage({ type: SOURCE_CAPTURE_REQUEST, payload }, window.location.origin);
   });
 }
 
-function requestOzonExtensionCapture(payload, timeoutMs = 1500) {
+function requestOzonExtensionCapture(payload, timeoutMs = EXTENSION_CAPTURE_ACK_TIMEOUT_MS) {
   return new Promise((resolve) => {
     const timer = window.setTimeout(() => {
       window.removeEventListener("message", onMessage);
-      resolve({ accepted: false, error: "未检测到本机商品采集扩展或扩展尚未重载" });
+      resolve({ accepted: false, code: "extension_bridge_unavailable", error: "评审台页面没有收到扩展桥接回应" });
     }, timeoutMs);
     function onMessage(event) {
       if (event.source !== window || event.origin !== window.location.origin) return;
       if (event.data?.type !== OZON_CAPTURE_ACK || event.data?.captureId !== payload.captureId) return;
       window.clearTimeout(timer);
       window.removeEventListener("message", onMessage);
-      resolve({ accepted: event.data.accepted === true, error: event.data.error || "" });
+      resolve({ accepted: event.data.accepted === true, code: event.data.code || "", error: event.data.error || "" });
     }
     window.addEventListener("message", onMessage);
     window.postMessage({ type: OZON_CAPTURE_REQUEST, payload }, window.location.origin);
@@ -66,7 +68,8 @@ export default function App() {
     candidates: [],
     meta: null,
     rules: null,
-    summary: null
+    summary: null,
+    captureControl: { status: "idle", label: "商品采集控制空闲" }
   });
   const [selectedId, setSelectedId] = useState("");
   const [queue, setQueue] = useState(INITIAL_QUEUE);
@@ -83,25 +86,31 @@ export default function App() {
   useEffect(() => {
     let responseTimer;
     let liveVersion = "";
+    let pendingNonce = "";
     function ping() {
       const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      pendingNonce = nonce;
       window.postMessage({ type: EXTENSION_STATUS_PING, nonce }, window.location.origin);
       window.clearTimeout(responseTimer);
       responseTimer = window.setTimeout(() => {
         liveVersion = "";
         setExtensionStatus(extensionConnectionStatus({ cachedVersion: readCachedExtensionVersion() }));
-      }, 1000);
+      }, EXTENSION_STATUS_RESPONSE_TIMEOUT_MS);
     }
     function onMessage(event) {
       if (event.source !== window || event.origin !== window.location.origin) return;
       if (event.data?.type !== EXTENSION_STATUS_RESPONSE) return;
+      if (event.data?.nonce !== pendingNonce) return;
       liveVersion = String(event.data.version || "").trim();
       window.clearTimeout(responseTimer);
-      setExtensionStatus(extensionConnectionStatus({ liveVersion }));
+      setExtensionStatus(extensionConnectionStatus({
+        liveVersion,
+        backgroundReady: event.data.backgroundReady === true
+      }));
     }
     window.addEventListener("message", onMessage);
     ping();
-    const interval = window.setInterval(ping, 5000);
+    const interval = window.setInterval(ping, 10000);
     return () => {
       window.removeEventListener("message", onMessage);
       window.clearInterval(interval);
@@ -339,16 +348,24 @@ export default function App() {
       setSelectedId(result.candidate.id);
       const ack = await request1688ExtensionCapture(result.extensionRequest);
       if (!ack.accepted) {
+        const failureCode = ack.code === "background_unavailable"
+          ? "extension_background_unavailable"
+          : "extension_not_installed";
         await api.completeSourceCapture(selected.id, {
           captureId: result.captureId,
           token: result.extensionRequest.token,
           dataRevision: result.dataRevision,
           status: "failed",
-          failureCode: "extension_not_installed",
+          failureCode,
           message: ack.error || "Chrome没有收到采集请求",
           observedAt: new Date().toISOString()
         });
-        setNotice({ type: "error", message: "1688采集已停止：未检测到本机扩展。没有派发任务。" });
+        setNotice({
+          type: "error",
+          message: failureCode === "extension_background_unavailable"
+            ? "1688采集已停止：插件已安装，但后台没有响应。系统会继续自动检查，不需要反复重新加载。"
+            : "1688采集已停止：评审台页面没有检测到扩展桥接。没有派发任务。"
+        });
       } else {
         setNotice({
           type: "success",
@@ -373,16 +390,24 @@ export default function App() {
       setSelectedId(result.candidate.id);
       const ack = await requestOzonExtensionCapture(result.extensionRequest);
       if (!ack.accepted) {
+        const failureCode = ack.code === "background_unavailable"
+          ? "extension_background_unavailable"
+          : "extension_not_installed";
         await api.completeOzonSalesCapture(selected.id, {
           captureId: result.captureId,
           token: result.extensionRequest.token,
           dataRevision: result.dataRevision,
           status: "failed",
-          failureCode: "extension_not_installed",
+          failureCode,
           message: ack.error || "Chrome没有收到Ozon采集请求",
           observedAt: new Date().toISOString()
         });
-        setNotice({ type: "error", message: "Ozon采集已停止：本机扩展未响应。商品业务状态没有改变。" });
+        setNotice({
+          type: "error",
+          message: failureCode === "extension_background_unavailable"
+            ? "Ozon采集已停止：插件已安装，但后台没有响应。系统会继续自动检查，不需要反复重新加载。"
+            : "Ozon采集已停止：评审台页面没有检测到扩展桥接。商品业务状态没有改变。"
+        });
       } else {
         setNotice({ type: "success", message: "已让本机Chrome只读采集当前Ozon商品一次；不会推进B/C/D/E。" });
       }
@@ -482,6 +507,9 @@ export default function App() {
           <span className={`extension-status ${extensionStatus.code}`} data-testid="extension-status">
             <i aria-hidden="true" />{extensionStatus.label}
           </span>
+          <span className={`capture-control-status ${state.captureControl?.status || "idle"}`} data-testid="capture-control-status">
+            <i aria-hidden="true" />{state.captureControl?.label || "商品采集控制状态未取得"}
+          </span>
           <button className={`button ${view === "phase2a" ? "primary" : "secondary"}`} onClick={() => setView(view === "phase2a" ? "review" : "phase2a")}>
             {view === "phase2a" ? "返回评审台" : "第2A模拟验收"}
           </button>
@@ -539,6 +567,7 @@ export default function App() {
             <UserInspector
               candidate={selected}
               rules={state.rules}
+              captureControl={state.captureControl}
               onUpdate={updateSelected}
               onEvaluate={evaluateSelected}
               onComment={commentSelected}

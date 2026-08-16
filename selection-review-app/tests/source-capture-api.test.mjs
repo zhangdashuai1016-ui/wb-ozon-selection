@@ -146,6 +146,10 @@ test("旧1688 C入口不再派发，已上架证据恢复仍保持只读", async
   assert.equal(listedSession.candidate.workflowStatus, "listed");
   assert.deepEqual(listedSession.candidate.listingRecord, listedRecordBefore);
   assert.equal(listedSession.candidate.sourceCapture.mode, "listed_evidence_recovery");
+  state = await (await fetch(`${baseUrl}/api/state`)).json();
+  assert.equal(state.captureControl.status, "busy");
+  assert.equal(state.captureControl.candidateId, "LISTED-RECOVERY");
+  assert.equal(state.captureControl.platform, "1688");
 
   const listedResult = await post("/api/candidates/LISTED-RECOVERY/source-capture/result", {
     captureId: listedSession.captureId,
@@ -161,6 +165,8 @@ test("旧1688 C入口不再派发，已上架证据恢复仍保持只读", async
   assert.equal(listedCaptured.candidate.workflowStatus, "listed");
   assert.equal(listedCaptured.candidate.sourceCapture.status, "needs_sku_selection");
   assert.equal(listedCaptured.dispatch, null);
+  state = await (await fetch(`${baseUrl}/api/state`)).json();
+  assert.equal(state.captureControl.status, "idle");
 
   const listedSelection = await post("/api/candidates/LISTED-RECOVERY/source-capture/select-sku", {
     dataRevision: listedCaptured.candidate.dataRevision,

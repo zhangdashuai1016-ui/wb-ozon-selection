@@ -1,15 +1,20 @@
-export const EXPECTED_EXTENSION_VERSION = "1.2.0";
+export const EXPECTED_EXTENSION_VERSION = "1.2.1";
 export const EXTENSION_STATUS_PING = "SELECTION_REVIEW_EXTENSION_STATUS_PING";
 export const EXTENSION_STATUS_RESPONSE = "SELECTION_REVIEW_EXTENSION_STATUS_RESPONSE";
 export const EXTENSION_LAST_SEEN_KEY = "selection-review-extension-last-seen";
+export const EXTENSION_CAPTURE_ACK_TIMEOUT_MS = 8000;
+export const EXTENSION_STATUS_RESPONSE_TIMEOUT_MS = 5000;
 
-export function extensionConnectionStatus({ liveVersion = "", cachedVersion = "" } = {}) {
+export function extensionConnectionStatus({ liveVersion = "", cachedVersion = "", backgroundReady = false } = {}) {
   const live = String(liveVersion || "").trim();
   const cached = String(cachedVersion || "").trim();
   if (live) {
-    return live === EXPECTED_EXTENSION_VERSION
-      ? { code: "connected", label: `插件已连接 · v${live}` }
-      : { code: "reload_required", label: `插件代码已更新 · 请重新加载（当前v${live}，需要v${EXPECTED_EXTENSION_VERSION}）` };
+    if (live !== EXPECTED_EXTENSION_VERSION) {
+      return { code: "reload_required", label: `插件代码已更新 · 请重新加载（当前v${live}，需要v${EXPECTED_EXTENSION_VERSION}）` };
+    }
+    return backgroundReady
+      ? { code: "connected", label: `插件已连接 · 后台可用 · v${live}` }
+      : { code: "background_unavailable", label: `插件已安装 · 后台暂未响应 · 系统会自动重连（v${live}）` };
   }
   if (cached === EXPECTED_EXTENSION_VERSION) {
     return { code: "page_refresh_required", label: "插件已安装 · 当前页面需要刷新" };

@@ -4,23 +4,37 @@ const ROUTES = Object.freeze({
 });
 const STATUS_PING = "SELECTION_REVIEW_EXTENSION_STATUS_PING";
 const STATUS_RESPONSE = "SELECTION_REVIEW_EXTENSION_STATUS_RESPONSE";
+const BACKGROUND_PING = "SELECTION_REVIEW_EXTENSION_BACKGROUND_PING";
 const LAST_SEEN_KEY = "selection-review-extension-last-seen";
 const version = chrome.runtime.getManifest().version;
 
-function publishStatus(nonce = "") {
+async function readBackgroundStatus() {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: BACKGROUND_PING });
+    return {
+      backgroundReady: response?.accepted === true,
+      backgroundError: response?.accepted === true ? "" : "插件后台没有确认可用状态"
+    };
+  } catch (error) {
+    return { backgroundReady: false, backgroundError: String(error?.message || error) };
+  }
+}
+
+async function publishStatus(nonce = "") {
+  const background = await readBackgroundStatus();
   try {
     window.localStorage.setItem(LAST_SEEN_KEY, JSON.stringify({ version, seenAt: new Date().toISOString() }));
   } catch {}
-  window.postMessage({ type: STATUS_RESPONSE, version, nonce }, window.location.origin);
+  window.postMessage({ type: STATUS_RESPONSE, version, nonce, ...background }, window.location.origin);
 }
 
-publishStatus();
+void publishStatus();
 
 window.addEventListener("message", async (event) => {
   if (event.source !== window || event.origin !== "http://127.0.0.1:4317") return;
   const message = event.data;
   if (message?.type === STATUS_PING) {
-    publishStatus(String(message.nonce || ""));
+    await publishStatus(String(message.nonce || ""));
     return;
   }
   const ackType = message && ROUTES[message.type];
@@ -33,13 +47,14 @@ window.addEventListener("message", async (event) => {
       payload: message.payload
     });
   } catch (error) {
-    response = { accepted: false, error: String(error?.message || error) };
+    response = { accepted: false, code: "background_unavailable", error: String(error?.message || error) };
   }
 
   window.postMessage({
     type: ackType,
     captureId: message.payload.captureId,
     accepted: response?.accepted === true,
+    code: response?.code || "",
     error: response?.error || ""
   }, window.location.origin);
 });

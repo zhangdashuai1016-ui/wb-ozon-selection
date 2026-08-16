@@ -33,18 +33,22 @@ a svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-widt
 }
 .app-header h1 { margin: 0; color: var(--green); font-size: clamp(25px, 2.2vw, 34px); line-height: 1; letter-spacing: -.04em; }
 .header-actions { display: flex; align-items: center; gap: 9px; }
-.extension-status {
+.extension-status, .capture-control-status {
   min-height: 34px; padding: 0 11px; border: 1px solid var(--line-dark); border-radius: 999px;
   display: inline-flex; align-items: center; gap: 7px; color: var(--muted); background: #fff;
   font-size: 12px; font-weight: 700; white-space: nowrap;
 }
-.extension-status i { width: 8px; height: 8px; border-radius: 50%; background: #9aa39f; }
+.extension-status i, .capture-control-status i { width: 8px; height: 8px; border-radius: 50%; background: #9aa39f; }
 .extension-status.connected { color: var(--green); border-color: #b9d7ca; background: var(--green-soft); }
 .extension-status.connected i { background: var(--green-2); }
-.extension-status.page_refresh_required, .extension-status.reload_required { color: var(--amber); border-color: #efd19d; background: var(--amber-soft); }
-.extension-status.page_refresh_required i, .extension-status.reload_required i { background: #d58b1f; }
+.extension-status.page_refresh_required, .extension-status.reload_required, .extension-status.background_unavailable { color: var(--amber); border-color: #efd19d; background: var(--amber-soft); }
+.extension-status.page_refresh_required i, .extension-status.reload_required i, .extension-status.background_unavailable i { background: #d58b1f; }
 .extension-status.disconnected { color: var(--red); border-color: #ebc5c2; background: var(--red-soft); }
 .extension-status.disconnected i { background: var(--red); }
+.capture-control-status.idle { color: var(--green); border-color: #b9d7ca; background: var(--green-soft); }
+.capture-control-status.idle i { background: var(--green-2); }
+.capture-control-status.busy { color: var(--amber); border-color: #efd19d; background: var(--amber-soft); }
+.capture-control-status.busy i { background: #d58b1f; }
 .button {
   min-height: 42px; padding: 0 17px; border: 1px solid transparent; border-radius: 9px;
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
@@ -246,8 +250,8 @@ a svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-widt
 .source-capture-summary { margin-top: 13px; padding: 12px 14px; border: 1px solid #bad9cc; border-radius: 10px; background: #f3faf7; display: grid; gap: 5px; }
 .source-capture-summary b { color: var(--green-2); font-size: 11px; }
 .source-capture-summary span { color: #43524b; font-size: 10px; line-height: 1.55; }
-.source-capture-summary.capture-failed { border-color: #e1bd78; background: var(--amber-soft); }
-.source-capture-summary.capture-failed b { color: var(--amber); }
+.source-capture-summary.capture-failed, .source-capture-summary.capture-busy { border-color: #e1bd78; background: var(--amber-soft); }
+.source-capture-summary.capture-failed b, .source-capture-summary.capture-busy b { color: var(--amber); }
 
 .phase2a-page { display: grid; gap: 18px; padding: 22px 28px 36px; }
 .phase2a-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 22px 24px; border: 1px solid #bad9cc; border-radius: 18px; background: #f5fbf8; }
@@ -611,7 +615,7 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
   .app-header h1 { font-size: 22px; }
   .add-button { width: 42px; min-height: 42px; padding: 0; font-size: 0; }
   .header-actions { gap: 6px; }
-  .extension-status { max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
+  .extension-status, .capture-control-status { max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
   .header-actions > .secondary, .header-actions > .primary { padding: 0 10px; font-size: 10px; }
   .daily-progress { margin: 0; min-height: 70px; border-width: 0 0 1px; border-radius: 0; grid-template-columns: 1fr 1fr; padding: 10px 16px; }
   .store-progress { gap: 8px; padding: 0 12px 0 0; }

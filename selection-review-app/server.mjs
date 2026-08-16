@@ -146,6 +146,52 @@ const salesCaptureSessions = new Map();
 const dispatchDeliveriesInFlight = new Set();
 const SOURCE_CAPTURE_TTL_MS = 3 * 60 * 1000;
 
+function purgeExpiredCaptureSessions(timestamp = Date.now()) {
+  for (const sessions of [sourceCaptureSessions, salesCaptureSessions]) {
+    for (const [id, session] of sessions.entries()) {
+      if (session.expiresAt <= timestamp || session.consumedAt) sessions.delete(id);
+    }
+  }
+}
+
+function captureControlSnapshot(timestamp = Date.now()) {
+  purgeExpiredCaptureSessions(timestamp);
+  const active = [
+    ...[...sourceCaptureSessions.values()].map((session) => ({ ...session, platform: "1688", captureKind: "supplier" })),
+    ...[...salesCaptureSessions.values()].map((session) => ({ ...session, platform: "ozon", captureKind: "sales" }))
+  ].sort((left, right) => left.createdAt - right.createdAt)[0];
+  if (!active) {
+    return {
+      status: "idle",
+      label: "商品采集控制空闲",
+      candidateId: null,
+      captureId: null,
+      platform: null,
+      captureKind: null,
+      startedAt: null,
+      expiresAt: null
+    };
+  }
+  return {
+    status: "busy",
+    label: `正在采集 ${active.candidateId}（${active.platform}）`,
+    candidateId: active.candidateId,
+    captureId: active.captureId,
+    platform: active.platform,
+    captureKind: active.captureKind,
+    startedAt: new Date(active.createdAt).toISOString(),
+    expiresAt: new Date(active.expiresAt).toISOString()
+  };
+}
+
+function ensureCaptureControlAvailable(candidateId) {
+  const control = captureControlSnapshot();
+  if (control.status !== "busy") return;
+  throw httpError(409, `商品采集控制正由 ${control.candidateId} 使用；本次没有启动，也不会排队或自动重试`, {
+    captureControl: control
+  });
+}
+
 function currentProfitRule(persisted, current) {
   return {
     ...current,
@@ -276,10 +322,7 @@ function validCaptureToken(expected, provided) {
 }
 
 function captureSession(candidateId, captureId = "") {
-  const timestamp = Date.now();
-  for (const [id, session] of sourceCaptureSessions.entries()) {
-    if (session.expiresAt <= timestamp || session.consumedAt) sourceCaptureSessions.delete(id);
-  }
+  purgeExpiredCaptureSessions();
   if (captureId) return sourceCaptureSessions.get(captureId) || null;
   return [...sourceCaptureSessions.values()].find((session) => session.candidateId === candidateId) || null;
 }
@@ -305,10 +348,7 @@ function captureSessionPublic(session) {
 }
 
 function salesCaptureSession(candidateId, captureId = "") {
-  const timestamp = Date.now();
-  for (const [id, session] of salesCaptureSessions.entries()) {
-    if (session.expiresAt <= timestamp || session.consumedAt) salesCaptureSessions.delete(id);
-  }
+  purgeExpiredCaptureSessions();
   if (captureId) return salesCaptureSessions.get(captureId) || null;
   return [...salesCaptureSessions.values()].find((session) => session.candidateId === candidateId) || null;
 }
@@ -336,6 +376,7 @@ function salesCaptureTechnicalStatus(code) {
   if (["site_login_required", "site_verification_required", "permission_required", "extension_not_installed"].includes(code)) {
     return "permission_required";
   }
+  if (code === "extension_background_unavailable") return "system_error";
   if (["wrong_product", "structured_data_unavailable", "precise_price_missing", "invalid_capture"].includes(code)) {
     return "data_unavailable";
   }
@@ -1487,6 +1528,7 @@ function responseState(data) {
   return {
     meta: data.meta,
     rules,
+    captureControl: captureControlSnapshot(),
     summary: {
       ...dailySummary(data.candidates, rules),
       dispatch: {
@@ -1590,6 +1632,7 @@ async function handleApi(req, res, pathname) {
       service: "selection-review-app",
       version: 2,
       dataVersion: data.meta.version,
+      captureControl: captureControlSnapshot(),
       checkedAt: now()
     });
   }
@@ -1888,6 +1931,7 @@ async function handleApi(req, res, pathname) {
       if (!current) throw httpError(404, "候选不存在");
       return json(res, 200, { candidate: publicCandidate(current, data.rules), ...salesCaptureSessionPublic(existing) });
     }
+    ensureCaptureControlAvailable(candidateId);
 
     const session = {
       captureId: `OSC-${randomUUID()}`,
@@ -1900,41 +1944,47 @@ async function handleApi(req, res, pathname) {
       createdAt: Date.now(),
       expiresAt: Date.now() + SOURCE_CAPTURE_TTL_MS
     };
-    const candidate = await mutateData((data) => {
-      const current = data.candidates.find((item) => item.id === candidateId);
-      if (!current) throw httpError(404, "候选不存在");
-      if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后再采集Ozon");
-      if (!["awaiting_user_direction", "codex_processing", "needs_user_data"].includes(current.workflowStatus)) {
-        throw httpError(409, "Ozon销售快照只允许在A/B研究阶段采集");
-      }
-      if (current.lifecycleV11?.skuPackage) throw httpError(409, "当前商品已进入SKU生命周期，不能回到A阶段重新采集");
-      if (activeDispatchForCandidate(data, current.id)) throw httpError(409, "当前SKU已有任务正在等待或运行");
-      const productId = extractOzonProductId(current.productUrl);
-      const productUrl = canonicalOzonProductUrl(current.productUrl, productId);
-      if (!productId || !productUrl) throw httpError(422, "当前销售端不是可识别的Ozon精确商品链接");
-      const timestamp = now();
-      session.expectedProductId = productId;
-      session.productUrl = String(current.productUrl);
-      current.salesCapture = {
-        captureId: session.captureId,
-        platform: "ozon",
-        status: "waiting_extension",
-        technicalStatus: "running",
-        productId,
-        productUrl: session.productUrl,
-        startedAt: timestamp,
-        businessStateEffect: "unchanged",
-        retryAttempted: false,
-        writeOccurred: false
-      };
-      current.dataRevision = Number(current.dataRevision || 0) + 1;
-      session.dataRevision = current.dataRevision;
-      current.updatedAt = timestamp;
-      current.lastModifiedBy = "user";
-      addHistory(current, "user", "ozonSalesCaptureStarted", "主人从评审台启动当前商品的一次性Ozon销售快照采集；不推进业务阶段", timestamp);
-      return publicCandidate(current, data.rules);
-    });
     salesCaptureSessions.set(session.captureId, session);
+    let candidate;
+    try {
+      candidate = await mutateData((data) => {
+        const current = data.candidates.find((item) => item.id === candidateId);
+        if (!current) throw httpError(404, "候选不存在");
+        if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后再采集Ozon");
+        if (!["awaiting_user_direction", "codex_processing", "needs_user_data"].includes(current.workflowStatus)) {
+          throw httpError(409, "Ozon销售快照只允许在A/B研究阶段采集");
+        }
+        if (current.lifecycleV11?.skuPackage) throw httpError(409, "当前商品已进入SKU生命周期，不能回到A阶段重新采集");
+        if (activeDispatchForCandidate(data, current.id)) throw httpError(409, "当前SKU已有任务正在等待或运行");
+        const productId = extractOzonProductId(current.productUrl);
+        const productUrl = canonicalOzonProductUrl(current.productUrl, productId);
+        if (!productId || !productUrl) throw httpError(422, "当前销售端不是可识别的Ozon精确商品链接");
+        const timestamp = now();
+        session.expectedProductId = productId;
+        session.productUrl = String(current.productUrl);
+        current.salesCapture = {
+          captureId: session.captureId,
+          platform: "ozon",
+          status: "waiting_extension",
+          technicalStatus: "running",
+          productId,
+          productUrl: session.productUrl,
+          startedAt: timestamp,
+          businessStateEffect: "unchanged",
+          retryAttempted: false,
+          writeOccurred: false
+        };
+        current.dataRevision = Number(current.dataRevision || 0) + 1;
+        session.dataRevision = current.dataRevision;
+        current.updatedAt = timestamp;
+        current.lastModifiedBy = "user";
+        addHistory(current, "user", "ozonSalesCaptureStarted", "主人从评审台启动当前商品的一次性Ozon销售快照采集；不推进业务阶段", timestamp);
+        return publicCandidate(current, data.rules);
+      });
+    } catch (error) {
+      salesCaptureSessions.delete(session.captureId);
+      throw error;
+    }
     return json(res, 201, { candidate, ...salesCaptureSessionPublic(session) });
   }
 
@@ -2079,6 +2129,7 @@ async function handleApi(req, res, pathname) {
       if (!current) throw httpError(404, "候选不存在");
       return json(res, 200, { candidate: publicCandidate(current, data.rules), ...captureSessionPublic(existing) });
     }
+    ensureCaptureControlAvailable(candidateId);
 
     const session = {
       captureId: `SC-${randomUUID()}`,
@@ -2093,55 +2144,61 @@ async function handleApi(req, res, pathname) {
       recoverySuggestion: String(input.recoverySuggestion || "").trim().slice(0, 1500),
       mode: input.mode === "listed_evidence_recovery" ? "listed_evidence_recovery" : "listing_preparation"
     };
-    const candidate = await mutateData((data) => {
-      const current = data.candidates.find((item) => item.id === candidateId);
-      if (!current) throw httpError(404, "候选不存在");
-      if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后再采集1688");
-      if (!sourceCaptureAllowed(current, session.mode)) throw httpError(409, "当前商品状态不能启动1688采集");
-      if (activeDispatchForCandidate(data, current.id)) throw httpError(409, "当前SKU已有任务正在等待或运行");
-      const offerId = extract1688OfferId(current.sourceUrl);
-      if (!offerId) throw httpError(422, "当前货源不是可识别的1688精确商品链接");
-      const timestamp = now();
-      session.expectedOfferId = offerId;
-      session.sourceUrl = `https://detail.1688.com/offer/${offerId}.html`;
-      current.sourceCapture = {
-        captureId: session.captureId,
-        status: "waiting_extension",
-        offerId,
-        sourceUrl: session.sourceUrl,
-        mode: session.mode,
-        startedAt: timestamp,
-        writeOccurred: false
-      };
-      if (session.mode !== "listed_evidence_recovery") {
-        current.workflowStatus = "listing_preparation";
-        current.listingPreparation = {
-          ...(current.listingPreparation || {}),
-          status: "capturing_source",
-          sourceCaptureId: session.captureId,
-          requestedAt: timestamp,
-          requestedBy: "user"
-        };
-        current.listingHandoff = {
-          ...(current.listingHandoff || {}),
-          state: "capturing_source",
-          owner: "listing_task",
-          runId: null,
-          currentStep: "等待本机Chrome扩展读取当前1688商品",
-          blockReason: null,
-          defaultStock: 100
-        };
-      }
-      current.dataRevision = Number(current.dataRevision || 0) + 1;
-      session.dataRevision = current.dataRevision;
-      current.updatedAt = timestamp;
-      current.lastModifiedBy = "user";
-      addHistory(current, "user", session.mode === "listed_evidence_recovery" ? "listedSourceCaptureStarted" : "sourceCaptureStarted", session.mode === "listed_evidence_recovery"
-        ? "主人为已上架商品启动一次性1688只读补采；原上架记录保持不变，尚未派发任务"
-        : "主人从评审台启动当前SKU的一次性1688只读采集；尚未派发任务", timestamp);
-      return publicCandidate(current, data.rules);
-    });
     sourceCaptureSessions.set(session.captureId, session);
+    let candidate;
+    try {
+      candidate = await mutateData((data) => {
+        const current = data.candidates.find((item) => item.id === candidateId);
+        if (!current) throw httpError(404, "候选不存在");
+        if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后再采集1688");
+        if (!sourceCaptureAllowed(current, session.mode)) throw httpError(409, "当前商品状态不能启动1688采集");
+        if (activeDispatchForCandidate(data, current.id)) throw httpError(409, "当前SKU已有任务正在等待或运行");
+        const offerId = extract1688OfferId(current.sourceUrl);
+        if (!offerId) throw httpError(422, "当前货源不是可识别的1688精确商品链接");
+        const timestamp = now();
+        session.expectedOfferId = offerId;
+        session.sourceUrl = `https://detail.1688.com/offer/${offerId}.html`;
+        current.sourceCapture = {
+          captureId: session.captureId,
+          status: "waiting_extension",
+          offerId,
+          sourceUrl: session.sourceUrl,
+          mode: session.mode,
+          startedAt: timestamp,
+          writeOccurred: false
+        };
+        if (session.mode !== "listed_evidence_recovery") {
+          current.workflowStatus = "listing_preparation";
+          current.listingPreparation = {
+            ...(current.listingPreparation || {}),
+            status: "capturing_source",
+            sourceCaptureId: session.captureId,
+            requestedAt: timestamp,
+            requestedBy: "user"
+          };
+          current.listingHandoff = {
+            ...(current.listingHandoff || {}),
+            state: "capturing_source",
+            owner: "listing_task",
+            runId: null,
+            currentStep: "等待本机Chrome扩展读取当前1688商品",
+            blockReason: null,
+            defaultStock: 100
+          };
+        }
+        current.dataRevision = Number(current.dataRevision || 0) + 1;
+        session.dataRevision = current.dataRevision;
+        current.updatedAt = timestamp;
+        current.lastModifiedBy = "user";
+        addHistory(current, "user", session.mode === "listed_evidence_recovery" ? "listedSourceCaptureStarted" : "sourceCaptureStarted", session.mode === "listed_evidence_recovery"
+          ? "主人为已上架商品启动一次性1688只读补采；原上架记录保持不变，尚未派发任务"
+          : "主人从评审台启动当前SKU的一次性1688只读采集；尚未派发任务", timestamp);
+        return publicCandidate(current, data.rules);
+      });
+    } catch (error) {
+      sourceCaptureSessions.delete(session.captureId);
+      throw error;
+    }
     return json(res, 201, { candidate, ...captureSessionPublic(session) });
   }
 
