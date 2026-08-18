@@ -590,6 +590,34 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 .rule-grid p { margin: 0; padding: 10px; border-radius: 8px; background: #f7f9f8; color: #56625d; font-size: 11px; line-height: 1.55; }
 .rule-grid strong { display: block; color: #26312c; font-size: 12px; }
 
+.lifecycle-entry-preview {
+  margin-top: 14px;
+  border: 1px solid #cbded6;
+  border-radius: 14px;
+  background: #fbfdfc;
+  overflow: hidden;
+}
+.lifecycle-entry-preview > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid #dce9e3;
+}
+.lifecycle-entry-preview h3 { margin: 3px 0 0; font-size: 17px; }
+.lifecycle-entry-preview header small { color: var(--muted); }
+.lifecycle-entry-preview header > strong { color: var(--green-2); font-size: 13px; }
+.lifecycle-entry-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.lifecycle-entry-grid > div { min-height: 84px; padding: 14px 18px; border-right: 1px solid #e2ece8; border-bottom: 1px solid #e2ece8; }
+.lifecycle-entry-grid > div:nth-child(2n) { border-right: 0; }
+.lifecycle-entry-grid span, .lifecycle-entry-grid small { display: block; color: var(--muted); font-size: 10px; }
+.lifecycle-entry-grid strong { display: block; margin: 6px 0 4px; font-size: 13px; }
+.lifecycle-entry-gaps { padding: 15px 18px 17px; }
+.lifecycle-entry-gaps > strong { color: #8c5a13; }
+.lifecycle-entry-gaps ul { margin: 10px 0; padding-left: 18px; color: #53615b; font-size: 11px; line-height: 1.65; }
+.lifecycle-entry-gaps p { margin: 8px 0 0; color: var(--muted); font-size: 11px; }
+
 @media (max-width: 940px) {
   .daily-progress { margin: 0 16px; }
   .queue-tabs { padding: 0 12px; overflow-x: auto; display: flex; }
@@ -639,6 +667,9 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
   .product-overview h2 { font-size: 22px; }
   .overview-grid { margin-top: 18px; grid-template-columns: 1fr; }
   .lifecycle-status-grid { grid-template-columns: 1fr 1fr; }
+  .lifecycle-entry-preview > header { flex-direction: column; }
+  .lifecycle-entry-grid { grid-template-columns: 1fr; }
+  .lifecycle-entry-grid > div { border-right: 0; }
   .workflow-region { padding: 0 16px 14px; }
   .workflow-card { padding: 17px; }
   .processing-card { gap: 14px; }

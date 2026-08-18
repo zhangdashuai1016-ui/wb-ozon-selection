@@ -138,8 +138,8 @@ test("1688 collector accepts a real top-level SKU ID on a single-specification o
 
 test("extension manifest stays limited to 1688, Ozon product pages and the local review app", async () => {
   const manifest = JSON.parse(await readFile(path.join(appDir, "extension", "1688-capture", "manifest.json"), "utf8"));
-  assert.equal(manifest.version, "1.2.1");
-  assert.deepEqual(manifest.permissions.sort(), ["scripting", "storage", "tabs"]);
+  assert.equal(manifest.version, "1.2.2");
+  assert.deepEqual(manifest.permissions.sort(), ["alarms", "scripting", "storage", "tabs"]);
   assert.deepEqual(manifest.host_permissions.sort(), [
     "http://127.0.0.1:4317/*",
     "https://detail.1688.com/offer/*",
@@ -155,4 +155,8 @@ test("extension status handshake verifies the background worker instead of only 
   assert.match(bridge, /backgroundReady/);
   assert.match(background, /SELECTION_REVIEW_EXTENSION_BACKGROUND_PING/);
   assert.match(background, /sendResponse\(\{ accepted: true, version:/);
+  assert.match(background, /\/api\/extension\/heartbeat/);
+  assert.match(background, /selection-review-extension-heartbeat/);
+  assert.match(background, /periodInMinutes: 0\.5/);
+  assert.match(bridge, /setInterval\(\(\) => void publishStatus\(\), 10000\)/);
 });

@@ -178,23 +178,34 @@ test("profitModelVersion is mandatory, unique and strictly increasing", () => {
   assert.ok(result.errors.some((item) => item.path.endsWith("profitModelVersion") && /重复|递增/.test(item.message)));
 });
 
-test("profit margin uses recommended sale price and passed requires both frozen thresholds", () => {
+test("profit margin uses recommended sale price and current pass requires either frozen threshold", () => {
   const wrongFormula = validateSkuLifecyclePackage(sku({
     profitModels: [profitModel("profit-v1", { profitMargin: 0.5 })],
     activeProfitModelVersion: "profit-v1"
   }));
   assert.ok(wrongFormula.errors.some((item) => item.path.endsWith("profitMargin") && /建议成交价/.test(item.message)));
 
-  const onlyOneThreshold = validateSkuLifecyclePackage(sku({
+  const neitherThreshold = validateSkuLifecyclePackage(sku({
     profitModels: [profitModel("profit-v1", {
       recommendedSalePriceCny: 100,
-      unitProfitRmb: 19,
-      profitMargin: 0.19,
+      unitProfitRmb: 14,
+      profitMargin: 0.14,
       result: "passed"
     })],
     activeProfitModelVersion: "profit-v1"
   }));
-  assert.ok(onlyOneThreshold.errors.some((item) => item.path.endsWith("result") && /同时满足/.test(item.message)));
+  assert.ok(neitherThreshold.errors.some((item) => item.path.endsWith("result") && /任一项/.test(item.message)));
+
+  const marginOnly = validateSkuLifecyclePackage(sku({
+    profitModels: [profitModel("profit-v1", {
+      recommendedSalePriceCny: 100,
+      unitProfitRmb: 15,
+      profitMargin: 0.15,
+      result: "passed"
+    })],
+    activeProfitModelVersion: "profit-v1"
+  }));
+  assert.equal(marginOnly.valid, true);
 });
 
 test("appendProfitModelVersion preserves prior profit evidence without mutation", () => {

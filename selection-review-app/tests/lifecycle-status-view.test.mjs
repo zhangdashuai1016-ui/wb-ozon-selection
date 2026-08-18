@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
-  mapPhase4SingleSkuLifecycle,
+  mapLifecycleStatus,
   withTechnicalFailureDisplay
 } from "../src/lifecycleStatusView.js";
 
@@ -12,10 +12,11 @@ async function currentCandidate(id = "CX-20260803-010") {
   return document.candidates.find((item) => item.id === id);
 }
 
-test("CX-20260803-010 renders the current four lifecycle states", async () => {
+test("a stored SKU lifecycle package renders all four current state lines", async () => {
   const candidate = await currentCandidate();
-  const status = mapPhase4SingleSkuLifecycle(candidate);
+  const status = mapLifecycleStatus(candidate);
   assert.equal(status.available, true);
+  assert.equal(status.sourceEntityType, "SkuLifecyclePackage");
   assert.equal(status.businessPhase, candidate.lifecycleV11.skuPackage.businessPhase);
   assert.equal(status.businessResult, candidate.lifecycleV11.skuPackage.businessResult);
   assert.equal(status.technicalStatus, candidate.lifecycleV11.skuPackage.technicalStatus);
@@ -26,7 +27,7 @@ test("CX-20260803-010 renders the current four lifecycle states", async () => {
 
 test("technical failure changes only the technical line and never becomes product failure", async () => {
   const candidate = await currentCandidate();
-  const completed = mapPhase4SingleSkuLifecycle(candidate);
+  const completed = mapLifecycleStatus(candidate);
   const failed = withTechnicalFailureDisplay(completed, {
     technicalStatus: "data_acquisition_failed",
     failureLayer: "ozon_snapshot_reader"
@@ -39,16 +40,30 @@ test("technical failure changes only the technical line and never becomes produc
   assert.equal(failed.failureLayer, "ozon_snapshot_reader");
 });
 
-test("the lifecycle display mapping is limited to the approved single SKU and requires a package", async () => {
+test("lifecycle display is no longer tied to a candidate ID and still requires a package", async () => {
   const candidate = await currentCandidate();
-  assert.equal(mapPhase4SingleSkuLifecycle({ ...candidate, id: "OTHER" }).available, false);
-  assert.equal(mapPhase4SingleSkuLifecycle({ ...candidate, lifecycleV11: null }).reason, "lifecycle_package_missing");
+  const anotherSku = mapLifecycleStatus({ ...candidate, id: "OTHER-LIFECYCLE-SKU" });
+  assert.equal(anotherSku.available, true);
+  assert.equal(anotherSku.sourceCandidateId, "OTHER-LIFECYCLE-SKU");
+  assert.equal(mapLifecycleStatus({ ...candidate, lifecycleV11: null }).reason, "lifecycle_package_missing");
+});
+
+test("an OpportunityPackage-only candidate renders its four lines without upgrading unknown to A", async () => {
+  const candidate = await currentCandidate("CX-20260802-014");
+  const status = mapLifecycleStatus(candidate);
+  assert.equal(status.available, true);
+  assert.equal(status.sourceEntityType, "OpportunityPackage");
+  assert.equal(status.businessPhase, candidate.lifecycleV11.opportunityPackage.businessPhase);
+  assert.equal(status.businessResult, candidate.lifecycleV11.opportunityPackage.businessResult);
+  assert.equal(status.technicalStatus, candidate.lifecycleV11.opportunityPackage.technicalStatus);
+  assert.equal(status.ownerAction, candidate.lifecycleV11.opportunityPackage.ownerAction);
+  assert.match(status.explanation, /unknown保持未确认/);
 });
 
 test("display mapping does not mutate the shared candidate object", async () => {
   const candidate = await currentCandidate();
   const before = JSON.stringify(candidate);
-  const status = mapPhase4SingleSkuLifecycle(candidate);
+  const status = mapLifecycleStatus(candidate);
   withTechnicalFailureDisplay(status);
   assert.equal(JSON.stringify(candidate), before);
 });

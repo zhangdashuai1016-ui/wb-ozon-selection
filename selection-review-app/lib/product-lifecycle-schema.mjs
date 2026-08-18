@@ -1,8 +1,10 @@
 import { validateAMarketAssessment } from "./market-sample-policy.mjs";
 
 export const PRODUCT_LIFECYCLE_SCHEMA_VERSION = "product-lifecycle-v1.1";
-export const MINIMUM_PROFIT_MARGIN = 0.25;
+export const MINIMUM_PROFIT_MARGIN = 0.15;
 export const MINIMUM_UNIT_PROFIT_RMB = 20;
+export const CURRENT_PROFIT_THRESHOLD_VERSION = "profit-threshold-v1.2-15pct-or-20cny";
+export const LEGACY_PROFIT_THRESHOLD_VERSION = "profit-threshold-v1.1-25pct-20cny";
 
 export const ENTITY_TYPES = Object.freeze({
   OPPORTUNITY: "OpportunityPackage",
@@ -243,11 +245,14 @@ function validateProfitModels(pkg, errors) {
       if (Math.abs(model.profitMargin - expectedMargin) > 0.0001) {
         push(errors, `${path}.profitMargin`, "必须等于单件利润除以建议成交价人民币");
       }
-      const thresholdPassed =
-        model.unitProfitRmb >= MINIMUM_UNIT_PROFIT_RMB &&
-        model.profitMargin >= MINIMUM_PROFIT_MARGIN;
+      const legacyThreshold = model.thresholdVersion === LEGACY_PROFIT_THRESHOLD_VERSION;
+      const thresholdPassed = legacyThreshold
+        ? model.unitProfitRmb >= 20 && model.profitMargin >= 0.25
+        : model.unitProfitRmb >= MINIMUM_UNIT_PROFIT_RMB || model.profitMargin >= MINIMUM_PROFIT_MARGIN;
       if (model.result === "passed" && !thresholdPassed) {
-        push(errors, `${path}.result`, "通过必须同时满足利润率25%和单件利润20元");
+        push(errors, `${path}.result`, legacyThreshold
+          ? "历史利润版本通过必须同时满足利润率25%和单件利润20元"
+          : "当前利润版本通过必须满足单件利润20元或利润率15%中的任一项");
       }
       if (model.result === "rejected" && thresholdPassed) {
         push(errors, `${path}.result`, "达到统一利润门槛时不得标记为淘汰");

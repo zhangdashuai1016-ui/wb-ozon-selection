@@ -1,6 +1,4 @@
 import {
-  MINIMUM_PROFIT_MARGIN,
-  MINIMUM_UNIT_PROFIT_RMB,
   assertValidLifecyclePackage,
   validateLifecycleTransition,
   validateOpportunityPackage
@@ -203,12 +201,8 @@ export function createC1ProductPlan({
   );
   if (!activeProfitModel) throw new Error("C1_GATE_REJECTED: 缺少当前B利润模型");
   assertValidProfitModel(activeProfitModel);
-  if (
-    activeProfitModel.result !== "passed" ||
-    activeProfitModel.profitMargin < MINIMUM_PROFIT_MARGIN ||
-    activeProfitModel.unitProfitRmb < MINIMUM_UNIT_PROFIT_RMB
-  ) {
-    throw new Error("C1_GATE_REJECTED: 利润率和单件利润未同时通过统一门槛");
+  if (activeProfitModel.result !== "passed") {
+    throw new Error("C1_GATE_REJECTED: 单件利润20元或利润率15%均未通过");
   }
 
   const [salesSnapshotId, selectedSupplySnapshotId] = activeProfitModel.inputSnapshotRefs;

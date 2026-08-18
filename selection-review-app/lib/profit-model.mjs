@@ -1,4 +1,6 @@
 import {
+  CURRENT_PROFIT_THRESHOLD_VERSION,
+  LEGACY_PROFIT_THRESHOLD_VERSION,
   MINIMUM_PROFIT_MARGIN,
   MINIMUM_UNIT_PROFIT_RMB,
   appendProfitModelVersion,
@@ -8,7 +10,19 @@ import {
 import { resolveBMarketPrice } from "./market-sample-policy.mjs";
 
 export const PROFIT_MODEL_SCHEMA_VERSION = "profit-model-v1.1";
-export const PROFIT_THRESHOLD_VERSION = "profit-threshold-v1.1-25pct-20cny";
+export const PROFIT_THRESHOLD_VERSION = CURRENT_PROFIT_THRESHOLD_VERSION;
+
+const PROFIT_THRESHOLD_POLICIES = Object.freeze({
+  [CURRENT_PROFIT_THRESHOLD_VERSION]: Object.freeze({ minimumProfitMargin: 0.15, minimumUnitProfitRmb: 20, logic: "any" }),
+  [LEGACY_PROFIT_THRESHOLD_VERSION]: Object.freeze({ minimumProfitMargin: 0.25, minimumUnitProfitRmb: 20, logic: "all" })
+});
+
+function thresholdPassed(unitProfitRmb, profitMargin, policy) {
+  if (policy.logic === "all") {
+    return unitProfitRmb >= policy.minimumUnitProfitRmb && profitMargin >= policy.minimumProfitMargin;
+  }
+  return unitProfitRmb >= policy.minimumUnitProfitRmb || profitMargin >= policy.minimumProfitMargin;
+}
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -100,9 +114,16 @@ export function validateProfitModel(model) {
   validateMoneyObject(model.internationalFreight, "internationalFreight", errors);
   validateMoneyObject(model.actualPurchaseCost, "actualPurchaseCost", errors);
   validateMoneyObject(model.otherCosts, "otherCosts", errors);
-  if (model.thresholdVersion !== PROFIT_THRESHOLD_VERSION) errors.push({ path: "thresholdVersion", message: `必须是${PROFIT_THRESHOLD_VERSION}` });
-  if (!isObject(model.thresholds) || model.thresholds.minimumProfitMargin !== MINIMUM_PROFIT_MARGIN || model.thresholds.minimumUnitProfitRmb !== MINIMUM_UNIT_PROFIT_RMB || model.thresholds.logic !== "all") {
-    errors.push({ path: "thresholds", message: "必须使用利润率25%且单件利润20元的统一门槛" });
+  if (model.priceConversion !== undefined) {
+    if (!isObject(model.priceConversion) || !finite(model.priceConversion.rubPerCny) || model.priceConversion.rubPerCny <= 0 ||
+        !nonEmptyString(model.priceConversion.evidenceRef) || !isoDateTime(model.priceConversion.checkedAt)) {
+      errors.push({ path: "priceConversion", message: "必须保存有效汇率、证据引用和核验时间" });
+    }
+  }
+  const thresholdPolicy = PROFIT_THRESHOLD_POLICIES[model.thresholdVersion];
+  if (!thresholdPolicy) errors.push({ path: "thresholdVersion", message: "必须使用已发布的利润门槛版本" });
+  if (!isObject(model.thresholds) || !thresholdPolicy || model.thresholds.minimumProfitMargin !== thresholdPolicy.minimumProfitMargin || model.thresholds.minimumUnitProfitRmb !== thresholdPolicy.minimumUnitProfitRmb || model.thresholds.logic !== thresholdPolicy.logic) {
+    errors.push({ path: "thresholds", message: "利润门槛参数必须与thresholdVersion完全一致" });
   }
   if (!Array.isArray(model.externalAccesses) || model.externalAccesses.length !== 0) errors.push({ path: "externalAccesses", message: "B阶段不得访问外部平台" });
   if (!Array.isArray(model.requestedExistingFields) || model.requestedExistingFields.length !== 0) errors.push({ path: "requestedExistingFields", message: "不得重新询问已有字段" });
@@ -113,7 +134,7 @@ export function validateProfitModel(model) {
   if (finite(model.unitProfitRmb) && finite(model.recommendedSalePriceCny) && finite(model.profitMargin)) {
     const expected = roundRate(model.unitProfitRmb / model.recommendedSalePriceCny);
     if (Math.abs(model.profitMargin - expected) > 0.0001) errors.push({ path: "profitMargin", message: "必须等于单件利润除以建议成交价人民币" });
-    const passed = model.unitProfitRmb >= MINIMUM_UNIT_PROFIT_RMB && model.profitMargin >= MINIMUM_PROFIT_MARGIN;
+    const passed = thresholdPolicy ? thresholdPassed(model.unitProfitRmb, model.profitMargin, thresholdPolicy) : false;
     if (model.result !== (passed ? "passed" : "rejected")) errors.push({ path: "result", message: "结果与统一利润门槛不一致" });
   }
   return { valid: errors.length === 0, errors };
@@ -185,7 +206,7 @@ export function runSkuProfitModel({
   const totalOtherCosts = roundMoney(packagingRmb + labelRmb + fixedOtherRmb + variableOtherCosts);
   const unitProfitRmb = roundMoney(settlementAmount - internationalFreightAmount - actualPurchaseCostAmount - totalOtherCosts);
   const profitMargin = roundRate(unitProfitRmb / recommendedSalePriceCny);
-  const result = profitMargin >= MINIMUM_PROFIT_MARGIN && unitProfitRmb >= MINIMUM_UNIT_PROFIT_RMB ? "passed" : "rejected";
+  const result = unitProfitRmb >= MINIMUM_UNIT_PROFIT_RMB || profitMargin >= MINIMUM_PROFIT_MARGIN ? "passed" : "rejected";
 
   const model = {
     schemaVersion: PROFIT_MODEL_SCHEMA_VERSION,
@@ -205,6 +226,11 @@ export function runSkuProfitModel({
     containsLocalRuBackground: resolvedMarket.assessment.containsLocalRuBackground,
     recommendedSalePriceRub,
     recommendedSalePriceCny,
+    priceConversion: {
+      rubPerCny,
+      evidenceRef: exchangeEvidenceId,
+      checkedAt: calculatedAt
+    },
     sellerSettlementRevenue: {
       amount: settlementAmount,
       currency: "CNY",
@@ -242,7 +268,7 @@ export function runSkuProfitModel({
     thresholds: {
       minimumProfitMargin: MINIMUM_PROFIT_MARGIN,
       minimumUnitProfitRmb: MINIMUM_UNIT_PROFIT_RMB,
-      logic: "all"
+      logic: "any"
     },
     result,
     executionMode: "five_upstream_evidence_sources_only",

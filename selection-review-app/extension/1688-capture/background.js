@@ -4,7 +4,34 @@ import { collectOzonPage } from "./collector-ozon.js";
 const SOURCE_REQUEST_TYPE = "SELECTION_REVIEW_1688_CAPTURE_REQUEST";
 const SALES_REQUEST_TYPE = "SELECTION_REVIEW_OZON_CAPTURE_REQUEST";
 const BACKGROUND_PING = "SELECTION_REVIEW_EXTENSION_BACKGROUND_PING";
+const HEARTBEAT_URL = "http://127.0.0.1:4317/api/extension/heartbeat";
+const HEARTBEAT_ALARM = "selection-review-extension-heartbeat";
 const activeCaptures = new Set();
+
+async function reportHeartbeat() {
+  const response = await fetch(HEARTBEAT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      version: chrome.runtime.getManifest().version,
+      backgroundReady: true,
+      observedAt: new Date().toISOString()
+    })
+  });
+  if (!response.ok) throw new Error(`评审台心跳返回${response.status}`);
+}
+
+function reportHeartbeatQuietly() {
+  void reportHeartbeat().catch(() => {});
+}
+
+chrome.alarms.create(HEARTBEAT_ALARM, { periodInMinutes: 0.5 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === HEARTBEAT_ALARM) reportHeartbeatQuietly();
+});
+chrome.runtime.onInstalled.addListener(reportHeartbeatQuietly);
+chrome.runtime.onStartup.addListener(reportHeartbeatQuietly);
+reportHeartbeatQuietly();
 
 function canonicalSource(value, expectedOfferId) {
   try {
@@ -217,6 +244,7 @@ async function runOzonCapture(payload) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === BACKGROUND_PING) {
+    void reportHeartbeat().catch(() => undefined);
     sendResponse({ accepted: true, version: chrome.runtime.getManifest().version });
     return false;
   }

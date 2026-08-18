@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
   "name": "今日选品评审台 · 商品只读采集器",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "仅在主人从本机评审台点击后，读取当前1688或Ozon商品页的结构化证据并回传到127.0.0.1:4317。",
   "permissions": [
+    "alarms",
     "scripting",
     "tabs",
     "storage"

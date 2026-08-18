@@ -14,7 +14,7 @@ export const DEFAULT_PACKAGING_COST_RMB = 1.5;
 export const PURCHASE_CEILING_SCOPE = "purchase_plus_domestic_shipping";
 export const DEFAULT_AUTOMATION_CONCURRENCY_LIMIT = 3;
 export const NO_PROGRESS_TIMEOUT_MINUTES = 15;
-export const PROFIT_POLICY_VERSION = "profit-25pct-and-20cny-promotion-v2";
+export const PROFIT_POLICY_VERSION = "profit-15pct-or-20cny-promotion-v3";
 
 export const PROMOTION_DISCOUNT_SCENARIOS = Object.freeze({
   low: Object.freeze({ key: "low", label: "促销20%", rate: 0.2 }),
@@ -52,7 +52,7 @@ export const DEFAULT_RULES = {
         unresolvedRiskDisposition: "block_ready_to_list_until_control_confirmation_and_rights_review"
       }
     },
-    profitInputs: ["productName", "purchasePriceRmb", "packedWeightKg", "dimensionsCm"],
+    profitInputs: ["confirmedSupplierSku", "actualPurchaseCost", "packedWeightKg", "dimensionsCm"],
     sourcePageIsProfitPrerequisite: false,
     sourcePagePurpose: "A阶段完成精确1688链接、供应SKU、货价、国内运费、实际采购成本、重量和尺寸采集并由主人确认；B和C只继承冻结证据，不重新寻找供应商",
     unresolvedFeePolicy: "evidence_gap_to_control_not_silent_processing",
@@ -99,8 +99,9 @@ export const DEFAULT_RULES = {
   },
   purchaseInput: {
     scope: "all_in_including_domestic_shipping",
-    domesticShippingRmb: 0,
-    note: "用户填写的采购价固定为货价加国内运费的到手总成本；不得拆分或再次询问国内运费。"
+    domesticShippingRmb: null,
+    componentPolicy: "legacy_all_in_cost_keeps_goods_price_and_domestic_freight_unknown",
+    note: "采购到手总价包含货价和国内运费；若历史记录只有到手总价，货价与国内运费组成均保持未确认，不得把未确认运费写成0或再次扣除。"
   },
   selectionDirections: {
     dandanshu: {
@@ -145,8 +146,8 @@ function profitRule(storeName) {
     storeName,
     pricingPolicyVersion: PROFIT_POLICY_VERSION,
     minimumUnitProfitRmb: 20,
-    targetMarginRate: 0.25,
-    thresholdPolicy: "both",
+    targetMarginRate: 0.15,
+    thresholdPolicy: "either",
     priceRoundRmb: 1,
     advertisingReserveRate: 0,
     promotionDiscountScenarios: PROMOTION_DISCOUNT_SCENARIOS,
@@ -165,10 +166,9 @@ function promotionEntries(value) {
 }
 
 function thresholdPassedValues(unitProfitRmb, marginRate, rule) {
-  return (
-    Number(unitProfitRmb) >= rule.minimumUnitProfitRmb &&
-    Number(marginRate) >= rule.targetMarginRate
-  );
+  const unitPassed = Number(unitProfitRmb) >= rule.minimumUnitProfitRmb;
+  const marginPassed = Number(marginRate) >= rule.targetMarginRate;
+  return rule.thresholdPolicy === "both" ? unitPassed && marginPassed : unitPassed || marginPassed;
 }
 
 function profitThresholdPassed(profit, rule) {
@@ -250,7 +250,9 @@ function currentProfitResult({ sellerRevenueRmb, commissionRate, nonPurchaseFixe
     sellerRevenueRmb * (1 - reserveRate - Number(rule.targetMarginRate)) - nonPurchaseFixedRmb
   );
   const maximumAllInPurchaseRmb = roundDownCurrency(
-    Math.min(profitLimitedCeilingRmb, marginLimitedCeilingRmb)
+    rule.thresholdPolicy === "both"
+      ? Math.min(profitLimitedCeilingRmb, marginLimitedCeilingRmb)
+      : Math.max(profitLimitedCeilingRmb, marginLimitedCeilingRmb)
   );
   const hasPurchase = Number.isFinite(purchaseAllInRmb) && purchaseAllInRmb >= 0;
   const unitProfitRmb = hasPurchase
@@ -394,7 +396,7 @@ export function codexAutoEliminationGate(candidate, rules = DEFAULT_RULES) {
   const eligible = evidenceComplete && Number.isFinite(maximum);
   const shouldEliminate = eligible && maximum <= 0;
   const formula = eligible
-    ? `最大采购到手价=min(折后成交收入×(1−佣金−退货−破损)−GUOO−包材−贴标−20, 折后成交收入×(1−佣金−退货−破损−25%)−GUOO−包材−贴标)=${maximum.toFixed(2)}元；两项门槛必须同时满足，促销率只用于反推标价`
+    ? `最大采购到手价=max(折后成交收入×(1−佣金−退货−破损)−GUOO−包材−贴标−20, 折后成交收入×(1−佣金−退货−破损−15%)−GUOO−包材−贴标)=${maximum.toFixed(2)}元；利润20元或利润率15%满足一项即可，促销率只用于反推标价`
     : "市场/佣金/物流或费用证据尚未全部验证，暂不执行负上限淘汰";
   return {
     eligible,
@@ -1033,7 +1035,7 @@ export function approvalGate(candidate, rules = DEFAULT_RULES) {
     ],
     [
       profitThresholdPassed(profit, rule),
-      `完整利润复算必须同时满足单件利润≥${rule.minimumUnitProfitRmb}元且利润率≥${Math.round(rule.targetMarginRate * 100)}%`
+      `完整利润复算必须满足单件利润≥${rule.minimumUnitProfitRmb}元或利润率≥${Math.round(rule.targetMarginRate * 100)}%中的任一项`
     ],
     [review.commission?.sourceType === "real", "佣金不是当前真实类目和销售方案数据"],
     [review.logistics?.sourceType === "real", "物流线路或运费不是当前真实规格数据"],
@@ -1100,7 +1102,7 @@ export function profitReviewGate(candidate, rules = DEFAULT_RULES) {
     [Boolean(review.marketEvidence?.checkedAt), "市场证据缺取得时间"],
     [commissionExact || commissionEstimated, "佣金既不是当前真实证据，也没有该SKU的估算授权"],
     [review.logistics?.sourceType === "real", "物流线路或运费不是当前真实包装数据"],
-    [directionalProfitThresholdPassed(profit, rule), `B阶段利润必须同时满足单件利润≥${rule.minimumUnitProfitRmb}元且利润率≥${Math.round(rule.targetMarginRate * 100)}%`],
+    [directionalProfitThresholdPassed(profit, rule), `B阶段利润必须满足单件利润≥${rule.minimumUnitProfitRmb}元或利润率≥${Math.round(rule.targetMarginRate * 100)}%中的任一项`],
     [promotionGate.passed, promotionGate.blockers.join("；")]
   ];
   const blockers = checks.filter(([passed]) => !passed).map(([, reason]) => reason).filter(Boolean);
@@ -1250,7 +1252,7 @@ export function wbAssessmentGate(assessment, candidate, rules = DEFAULT_RULES) {
     [assessment?.logistics?.sourceType === "real", "WB物流不是当前真实线路数据"],
     [
       profitThresholdPassed(profit, rule),
-      "WB完整利润复算必须同时满足单件利润≥20元且利润率≥25%"
+      "WB完整利润复算必须满足单件利润≥20元或利润率≥15%中的任一项"
     ]
   ];
   return {

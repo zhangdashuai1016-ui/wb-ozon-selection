@@ -29,6 +29,8 @@ async function publishStatus(nonce = "") {
 }
 
 void publishStatus();
+const statusInterval = window.setInterval(() => void publishStatus(), 10000);
+window.addEventListener("pagehide", () => window.clearInterval(statusInterval), { once: true });
 
 window.addEventListener("message", async (event) => {
   if (event.source !== window || event.origin !== "http://127.0.0.1:4317") return;

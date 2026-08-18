@@ -375,7 +375,7 @@ test("only auditable new evidence or a real step change renews progress", () => 
   }, "2026-08-04T05:56:00.000Z"), /没有实质变化/);
 });
 
-test("purchase ceiling uses the stricter limit so profit and margin both pass", () => {
+test("purchase ceiling uses the larger limit because profit or margin may pass", () => {
   const candidate = {
     targetStore: "dandanshu",
     purchaseCeiling: {
@@ -399,8 +399,8 @@ test("purchase ceiling uses the stricter limit so profit and margin both pass", 
   const result = purchaseCeilingSummary(candidate, DEFAULT_RULES);
   assert.equal(result.status, "verified");
   assert.equal(result.profitLimitedCeilingRmb, 89);
-  assert.equal(result.marginLimitedCeilingRmb, 59);
-  assert.equal(result.maximumAllInPurchaseRmb, 59);
+  assert.equal(result.marginLimitedCeilingRmb, 79);
+  assert.equal(result.maximumAllInPurchaseRmb, 89);
 });
 
 test("current promotion policy keeps profit on discounted transaction price and only reverse-calculates list prices", () => {
@@ -430,7 +430,7 @@ test("current promotion policy keeps profit on discounted transaction price and 
   assert.equal(result.advertisingReserveRate, 0);
   assert.equal(result.unitProfitRmb, 79);
   assert.equal(result.marginRate, 0.395);
-  assert.equal(result.maximumAllInPurchaseRmb, 59);
+  assert.equal(result.maximumAllInPurchaseRmb, 89);
   assert.deepEqual(result.promotionPricing.map((item) => item.key), ["low", "base", "high"]);
   assert.deepEqual(result.promotionPricing.map((item) => item.suggestedListPriceRmb), [250, 266.67, 285.71]);
   assert.equal(result.policyUpdatePending, false);
@@ -500,7 +500,7 @@ test("direction-stage estimate gives a sourcing interval without pretending fina
     }
   }, DEFAULT_RULES);
   assert.equal(result.status, "estimated");
-  assert.equal(result.maximumAllInPurchaseRmb, 195.1);
+  assert.equal(result.maximumAllInPurchaseRmb, 317.86);
   assert.equal(result.estimateOnly, true);
 });
 
@@ -540,17 +540,18 @@ test("Asia/Shanghai business date crosses UTC day correctly", () => {
   assert.equal(businessDate("2026-07-31T16:30:00.000Z"), "2026-08-01");
 });
 
-test("strict Ozon gate requires both 20 RMB profit and 25 percent margin", () => {
+test("Ozon gate accepts either 20 RMB profit or 15 percent margin", () => {
   assert.equal(approvalGate(passingCandidate(), DEFAULT_RULES).passed, true);
   const marginOnly = passingCandidate();
   marginOnly.codexReview.profitCalculation.unitProfitRmb = 19.99;
-  assert.equal(approvalGate(marginOnly, DEFAULT_RULES).passed, false);
+  marginOnly.codexReview.profitCalculation.marginRate = 0.15;
+  assert.equal(approvalGate(marginOnly, DEFAULT_RULES).passed, true);
   const profitOnly = passingCandidate();
-  profitOnly.codexReview.profitCalculation.marginRate = 0.249;
-  assert.equal(approvalGate(profitOnly, DEFAULT_RULES).passed, false);
+  profitOnly.codexReview.profitCalculation.marginRate = 0.149;
+  assert.equal(approvalGate(profitOnly, DEFAULT_RULES).passed, true);
   const belowBoth = passingCandidate();
   belowBoth.codexReview.profitCalculation.unitProfitRmb = 19.99;
-  belowBoth.codexReview.profitCalculation.marginRate = 0.249;
+  belowBoth.codexReview.profitCalculation.marginRate = 0.149;
   assert.equal(approvalGate(belowBoth, DEFAULT_RULES).passed, false);
   const fakeCommission = passingCandidate();
   fakeCommission.codexReview.commission.sourceType = "reference";
@@ -654,6 +655,14 @@ test("required inputs report exact user-fillable fields", () => {
     "dimensionsCm"
   ]);
   assert.equal(DEFAULT_RULES.purchaseInput.scope, "all_in_including_domestic_shipping");
+  assert.equal(DEFAULT_RULES.purchaseInput.domesticShippingRmb, null);
+  assert.equal(DEFAULT_RULES.listingPreparation.startPolicy, "auto_c1_after_b_passed");
+  assert.deepEqual(DEFAULT_RULES.selectionFlow.profitInputs, [
+    "confirmedSupplierSku",
+    "actualPurchaseCost",
+    "packedWeightKg",
+    "dimensionsCm"
+  ]);
 });
 
 test("B inputs do not require a source page, while legacy directional profit does not pass the current gate", () => {
@@ -844,7 +853,7 @@ test("a run with no substantive progress for 15 minutes is blocked once instead 
   assert.deepEqual(recoverStaleProcessing(candidates, new Date("2026-08-01T04:00:00.000Z")), []);
 });
 
-test("WB suitable badge requires its own evidence and both profit thresholds", () => {
+test("WB suitable badge requires its own evidence and either profit threshold", () => {
   const candidate = passingCandidate();
   const assessment = {
     status: "suitable",
@@ -874,10 +883,12 @@ test("WB suitable badge requires its own evidence and both profit thresholds", (
     }
   };
   assert.equal(wbAssessmentGate(assessment, candidate, DEFAULT_RULES).passed, true);
-  assessment.profitCalculation.marginRate = 0.249;
-  assert.equal(wbAssessmentGate(assessment, candidate, DEFAULT_RULES).passed, false);
-  assessment.profitCalculation.marginRate = 0.26;
+  assessment.profitCalculation.marginRate = 0.149;
+  assert.equal(wbAssessmentGate(assessment, candidate, DEFAULT_RULES).passed, true);
   assessment.profitCalculation.unitProfitRmb = 19.99;
+  assessment.profitCalculation.marginRate = 0.15;
+  assert.equal(wbAssessmentGate(assessment, candidate, DEFAULT_RULES).passed, true);
+  assessment.profitCalculation.marginRate = 0.149;
   assert.equal(wbAssessmentGate(assessment, candidate, DEFAULT_RULES).passed, false);
 });
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { STORE_LABELS } from "../constants";
+import { salesCaptureFailurePresentation } from "../extensionStatus";
 import { wbPresentation } from "../wbPresentation";
 import { MessageIcon } from "./Icons";
 
@@ -29,43 +30,9 @@ function formFromCandidate(candidate) {
 function DirectionPanel({ candidate, onEvaluate }) {
   const [reason, setReason] = useState(candidate.userEvaluation?.reason || "");
   const [saving, setSaving] = useState("");
-  const dimensions = candidate.dimensionsCm || {};
-  const includedPurchasePrice =
-    candidate.purchasePriceRmb === null || candidate.purchasePriceRmb === undefined
-      ? ""
-      : Number(candidate.purchasePriceRmb);
-  const [showProfitInputs, setShowProfitInputs] = useState(false);
-  const [profitInputs, setProfitInputs] = useState({
-    productName: candidate.productName && !/^(用户添加的待识别商品|Codex新增候选|待确认方向)$/i.test(candidate.productName)
-      ? candidate.productName
-      : "",
-    sourceUrl: candidate.sourceUrl || "",
-    purchasePriceRmb: includedPurchasePrice,
-    packedWeightKg: candidate.packedWeightKg ?? "",
-    length: dimensions.length ?? "",
-    width: dimensions.width ?? "",
-    height: dimensions.height ?? ""
-  });
 
   useEffect(() => {
-    const nextDimensions = candidate.dimensionsCm || {};
-    const nextIncludedPurchasePrice =
-      candidate.purchasePriceRmb === null || candidate.purchasePriceRmb === undefined
-        ? ""
-        : Number(candidate.purchasePriceRmb);
     setReason(candidate.userEvaluation?.reason || "");
-    setShowProfitInputs(false);
-    setProfitInputs({
-      productName: candidate.productName && !/^(用户添加的待识别商品|Codex新增候选|待确认方向)$/i.test(candidate.productName)
-        ? candidate.productName
-        : "",
-      sourceUrl: candidate.sourceUrl || "",
-      purchasePriceRmb: nextIncludedPurchasePrice,
-      packedWeightKg: candidate.packedWeightKg ?? "",
-      length: nextDimensions.length ?? "",
-      width: nextDimensions.width ?? "",
-      height: nextDimensions.height ?? ""
-    });
   }, [candidate.id, candidate.dataRevision]);
 
   async function decide(decision) {
@@ -77,44 +44,15 @@ function DirectionPanel({ candidate, onEvaluate }) {
     }
   }
 
-  function updateProfitInput(field, value) {
-    setProfitInputs((current) => ({ ...current, [field]: value }));
-  }
-
-  async function submitProfitCheck(event) {
-    event.preventDefault();
-    setSaving("unsure");
-    try {
-      await onEvaluate({
-        decision: "unsure",
-        reason,
-        candidateData: {
-          productName: profitInputs.productName.trim(),
-          ...(profitInputs.sourceUrl.trim() ? { sourceUrl: profitInputs.sourceUrl.trim() } : {}),
-          purchasePriceRmb: Number(profitInputs.purchasePriceRmb),
-          domesticShippingRmb: 0,
-          packedWeightKg: Number(profitInputs.packedWeightKg),
-          dimensionsCm: {
-            length: Number(profitInputs.length),
-            width: Number(profitInputs.width),
-            height: Number(profitInputs.height)
-          }
-        }
-      });
-    } finally {
-      setSaving("");
-    }
-  }
-
   return (
     <section className="workflow-card direction-card">
       <div>
         <h3>只需判断方向</h3>
-        <p>不行会立即淘汰；可做或待确认都由Codex继续核算利润和风险。</p>
+        <p>不行会立即淘汰；确认方向后先完成A阶段供应方案与精确SKU确认，不会从这里跳过A直接计算B利润。</p>
       </div>
       {candidate.sourceReview?.status === "mismatch" ? (
         <div className="source-review-notice">
-          <strong>C阶段来源不一致（只拦当前SKU，不是方向淘汰）</strong>
+          <strong>历史来源不一致记录（只拦当前SKU，不是方向淘汰）</strong>
           <span>{candidate.sourceReview.reason}</span>
           <small>{candidate.sourceReview.nextAction}</small>
         </div>
@@ -130,41 +68,8 @@ function DirectionPanel({ candidate, onEvaluate }) {
       <div className="direction-actions">
         <button className="decision viable" disabled={Boolean(saving)} onClick={() => decide("viable")}>{saving === "viable" ? "提交中…" : "可做"}</button>
         <button className="decision reject" disabled={Boolean(saving)} onClick={() => decide("reject")}>{saving === "reject" ? "淘汰中…" : "不行"}</button>
-        <button className="decision unsure" disabled={Boolean(saving)} onClick={() => setShowProfitInputs(true)}>待确认 · 看利润</button>
       </div>
-      {showProfitInputs ? (
-        <form className="direction-profit-form" onSubmit={submitProfitCheck}>
-          <div className="direction-profit-heading">
-            <strong>填完直接交给Codex算利润</strong>
-            <span>先填明确SKU/款式、含邮采购总价、打包重量和包装尺寸；货源链接后续复核</span>
-          </div>
-          <label className="span-2">
-            明确目标SKU/款式
-            <input required type="text" value={profitInputs.productName} onChange={(event) => updateProfitInput("productName", event.target.value)} placeholder="例如：木质机械火车 320片套装" />
-          </label>
-          <label className="span-2">
-            货源链接（可选，后续做一致性复核）
-            <input type="url" value={profitInputs.sourceUrl} onChange={(event) => updateProfitInput("sourceUrl", event.target.value)} placeholder="现在没有也不阻断利润核算" />
-            <small>1688页面读取不是A方向初筛或B利润核算前置；C阶段采购/上架前才核对精确SKU、权利/IP、合规、带电与最终包装。不一致只拦当前SKU。</small>
-          </label>
-          <label>
-            采购价（含国内邮费，RMB）
-            <input required type="text" inputMode="decimal" value={profitInputs.purchasePriceRmb} onChange={(event) => updateProfitInput("purchasePriceRmb", event.target.value)} />
-            <small>这里填你实际付给供应商的含邮总价；系统将国内运费记为0元，避免重复计费。</small>
-          </label>
-          <label>打包重量（kg）<input required type="text" inputMode="decimal" value={profitInputs.packedWeightKg} onChange={(event) => updateProfitInput("packedWeightKg", event.target.value)} /></label>
-          <fieldset className="dimensions span-2">
-            <legend>包装长宽高（cm）</legend>
-            {["length", "width", "height"].map((field, index) => (
-              <input key={field} required aria-label={["长", "宽", "高"][index]} placeholder={["长", "宽", "高"][index]} type="text" inputMode="decimal" value={profitInputs[field]} onChange={(event) => updateProfitInput(field, event.target.value)} />
-            ))}
-          </fieldset>
-          <div className="direction-profit-actions span-2">
-            <button type="button" className="button secondary" onClick={() => setShowProfitInputs(false)}>取消</button>
-            <button className="button primary" disabled={Boolean(saving)}>{saving === "unsure" ? "提交中…" : "提交并计算利润"}</button>
-          </div>
-        </form>
-      ) : null}
+      <small>精确供应链接、具体供应SKU、货价、国内运费、到手总价、重量和尺寸统一在新版A确认卡中完成；主人确认后系统才自动进入B。</small>
     </section>
   );
 }
@@ -453,7 +358,8 @@ function WbNotSuitableDetails({ candidate, rules }) {
     damageLossReserveRate: 0.05,
     labelCostRmb: 1.5,
     minimumUnitProfitRmb: 20,
-    targetMarginRate: 0.25
+    targetMarginRate: 0.15,
+    thresholdPolicy: "either"
   };
   const sellerRevenue = numeric(profit.targetPriceRmb);
   const purchase = numeric(candidate.purchasePriceRmb);
@@ -502,7 +408,7 @@ function WbNotSuitableDetails({ candidate, rules }) {
           </p>
         ) : <p>当前存在未取得项，不能生成数值代入结果。</p>}
         <p>利润率 = 单件利润 ÷ WB卖家收入 × 100%{calculatedMargin !== null ? ` = ${(calculatedMargin * 100).toFixed(2)}%` : ""}</p>
-        <p className="wb-threshold">通过门槛：单件利润≥{rule.minimumUnitProfitRmb} RMB，且利润率≥{Math.round(rule.targetMarginRate * 100)}%，两项必须同时满足。</p>
+        <p className="wb-threshold">通过门槛：单件利润≥{rule.minimumUnitProfitRmb} RMB，或利润率≥{Math.round(rule.targetMarginRate * 100)}%，满足任一项即可。</p>
       </div>
       {promotionPricing.length ? <PromotionPricingTable scenarios={promotionPricing} /> : <p className="legacy-profit-note">历史利润模型未按当前促销口径重算。</p>}
       {profit.stressScenario ? <p className="wb-stress">压力/补充情景：{profit.stressScenario}</p> : null}
@@ -593,6 +499,38 @@ function ListingPreparationPanel({ candidate, onRecoveryAction, onCapture, onSel
   const finalCard = lifecycleSku?.productionConfirmationCard || null;
   const productionScope = lifecycleSku?.productionAuthorization?.lockedScope || null;
   const localFinalAssets = (productionScope?.finalUploads || []).some((asset) => !/^https:\/\//i.test(asset.assetRef || ""));
+  const supplierFactSummary = (c1Plan?.productAttributes?.supplierAttributes || [])
+    .filter((item) => item?.fact?.verificationStatus === "confirmed")
+    .map((item) => `${item.fieldKey}：${String(item.fact.value)}`)
+    .join(" · ");
+  const materialFact = c1Plan?.productAttributes?.material;
+  const batteryFact = c1Plan?.batteryAssessment?.assessment;
+  const productionPriceConversion = activeProfit?.priceConversion || null;
+  const productionAuthorizationInput = finalCard && activeProfit && productionPriceConversion ? {
+    cardId: finalCard.cardId,
+    buyerTargetPrice: { amount: activeProfit.recommendedSalePriceRub, currency: "RUB" },
+    platformWritePrice: { amount: activeProfit.recommendedSalePriceCny, currency: "CNY" },
+    priceConversion: productionPriceConversion,
+    publishScope: "create_draft_only",
+    exclusions: [
+      "no_publish_or_activation",
+      "no_moderation_submission",
+      "no_promotion_change",
+      "no_advertising_change",
+      "no_warehouse_or_logistics_change",
+      "no_other_sku_write"
+    ],
+    allowedWriteFields: [
+      "create_product",
+      "title",
+      "attributes",
+      "price",
+      "stock",
+      "assets.finalUploads",
+      "publish_scope"
+    ],
+    note: "主人在最终商品方案卡确认：仅创建草稿，不发布、不送审、不启售。"
+  } : null;
   const [selectedSkuIds, setSelectedSkuIds] = useState([]);
   const [saving, setSaving] = useState(false);
 
@@ -612,7 +550,7 @@ function ListingPreparationPanel({ candidate, onRecoveryAction, onCapture, onSel
     try {
       if (action === "capture") await onCapture("");
       else if (action === "select-sku") await onSelectSku(selectedSkuIds);
-      else if (action === "authorize-production") await onLifecycleProductionAuthorization();
+      else if (action === "authorize-production") await onLifecycleProductionAuthorization(productionAuthorizationInput);
       else await onRecoveryAction(action);
     } finally {
       setSaving(false);
@@ -652,7 +590,7 @@ function ListingPreparationPanel({ candidate, onRecoveryAction, onCapture, onSel
           <div className="capability-receipt lifecycle-c1-receipt">
             <b>新版生命周期 · C1已完成</b>
             <span>精确SKU：{lifecycleSku.supplierSkuId} · 当前阶段：{lifecycleSku.businessPhase} · 技术状态：{lifecycleSku.technicalStatus}</span>
-            <span>商品事实：无品牌 · DVP · {lifecycle?.ownerFactConfirmation?.pieceCount || "?"}件 · 机械发条 · 非电无电池</span>
+            <span>商品事实：{supplierFactSummary || "供应属性未完整确认"}{materialFact?.verificationStatus === "confirmed" ? ` · 材质：${String(materialFact.value)}` : " · 材质：unknown"}{batteryFact?.verificationStatus === "confirmed" ? ` · 电池：${String(batteryFact.value)}` : " · 电池：unknown"}</span>
             {activeProfit ? <span>建议成交价：{activeProfit.recommendedSalePriceRub} RUB · 单件利润 ¥{activeProfit.unitProfitRmb} · 利润率 {(activeProfit.profitMargin * 100).toFixed(2)}%</span> : null}
             {c1Plan?.seoTitleDraft?.text ? <span>俄语标题草稿：{c1Plan.seoTitleDraft.text}</span> : null}
             <span>关键词证据：当前冻结事实词，无搜索量声明，Seerfar 0点；草稿仍待主人审阅。</span>
@@ -664,7 +602,7 @@ function ListingPreparationPanel({ candidate, onRecoveryAction, onCapture, onSel
                 <span>精确SKU：{finalCard.productInformation?.sku?.value?.supplierSkuId} · 建议售价：{finalCard.profitResult?.recommendedSalePrice?.value?.rub} RUB</span>
                 <span>利润：¥{finalCard.profitResult?.unitProfitRmb?.value} · 利润率 {(Number(finalCard.profitResult?.profitMargin?.value || 0) * 100).toFixed(2)}%</span>
                 <span>最终上传顺序：{(finalCard.c2Assets?.finalUploads || []).map((asset) => asset.fileName || asset.assetId).join(" → ")}</span>
-                {finalCard.riskAndUnknowns?.marketReferenceMismatch ? <span>风险：A阶段价格参考为320片，当前精确供应SKU为282件；只作为有限市场参考。</span> : null}
+                {finalCard.riskAndUnknowns?.marketReferenceMismatch ? <span>风险：销售端参考商品与当前精确供应SKU存在规格差异；请以确认卡中保存的差异证据为准。</span> : null}
                 {lifecycleSku.productionAuthorization ? (
                   <>
                     <span>买家目标成交价：{productionScope?.buyerTargetPrice?.amount ?? finalCard.profitResult?.recommendedSalePrice?.value?.rub} {productionScope?.buyerTargetPrice?.currency || "RUB"}</span>
@@ -674,8 +612,9 @@ function ListingPreparationPanel({ candidate, onRecoveryAction, onCapture, onSel
                   </>
                 ) : (
                   <>
-                    <small>通过后只生成“仅创建草稿”的锁定授权，不派发上架任务，也不创建Ozon商品。</small>
-                    <button className="button primary" disabled={saving} onClick={() => run("authorize-production")}>{saving ? "正在锁定…" : "通过并生成生产授权"}</button>
+                    <span>授权将锁定：买家目标价 {activeProfit?.recommendedSalePriceRub ?? "未取得"} RUB · 后台写入价 {activeProfit?.recommendedSalePriceCny ?? "未取得"} CNY · 库存100 · 当前finalUploads · 仅创建草稿。</span>
+                    <small>{productionAuthorizationInput ? "通过后只生成锁定授权，不派发、不创建商品、不产生店铺写入。" : "当前利润版本缺少汇率证据，不能生成准确生产授权。"}</small>
+                    <button className="button primary" disabled={saving || !productionAuthorizationInput} onClick={() => run("authorize-production")}>{saving ? "正在锁定…" : "通过并生成生产授权"}</button>
                   </>
                 )}
               </div>
@@ -1131,8 +1070,9 @@ function Activity({ candidate, onComment }) {
   );
 }
 
-function OzonSalesCapturePanel({ candidate, captureControl, onStart }) {
+function OzonSalesCapturePanel({ candidate, captureControl, extensionStatus, onStart }) {
   const capture = candidate.salesCapture || {};
+  const failedPresentation = salesCaptureFailurePresentation(capture, extensionStatus);
   const marketAssessment = candidate.lifecycleV11?.opportunityPackage?.marketAssessment || null;
   const sampleAssessment = marketAssessment?.sampleSummaries?.find((item) => item.snapshotId === capture.snapshotId) || null;
   const sellerLabels = {
@@ -1195,8 +1135,11 @@ function OzonSalesCapturePanel({ candidate, captureControl, onStart }) {
         ) : null}
         {capture.status === "failed" ? (
           <div className="source-capture-summary capture-failed">
-            <b>Ozon采集已停止</b>
-            <span>{capture.reason || "未取得结构化销售快照"}</span>
+            <b>{failedPresentation.heading}</b>
+            <span>{failedPresentation.reason}</span>
+            {failedPresentation.observedAt ? <span>失败记录时间：{new Date(failedPresentation.observedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}</span> : null}
+            <span>{failedPresentation.currentExtension}</span>
+            <span>{failedPresentation.explanation}</span>
             <span>技术状态：{capture.technicalStatus || "未验证"}；商品业务状态未改变。</span>
           </div>
         ) : null}
@@ -1216,10 +1159,10 @@ function OzonSalesCapturePanel({ candidate, captureControl, onStart }) {
   );
 }
 
-export default function UserInspector({ candidate, rules, captureControl, onUpdate, onEvaluate, onComment, onMarkListed, onRecoveryAction, onStartSourceCapture, onStartOzonSalesCapture, onSelectSourceCaptureSku, onProductionAuthorization, onLifecycleProductionAuthorization }) {
+export default function UserInspector({ candidate, rules, captureControl, extensionStatus, onUpdate, onEvaluate, onComment, onMarkListed, onRecoveryAction, onStartSourceCapture, onStartOzonSalesCapture, onSelectSourceCaptureSku, onProductionAuthorization, onLifecycleProductionAuthorization }) {
   return (
     <section className="workflow-region">
-      <OzonSalesCapturePanel candidate={candidate} captureControl={captureControl} onStart={onStartOzonSalesCapture} />
+      <OzonSalesCapturePanel candidate={candidate} captureControl={captureControl} extensionStatus={extensionStatus} onStart={onStartOzonSalesCapture} />
       {candidate.workflowStatus === "awaiting_user_direction" ? <DirectionPanel candidate={candidate} onEvaluate={onEvaluate} /> : null}
       {candidate.workflowStatus === "codex_processing" ? <ProcessingPanel candidate={candidate} onRecoveryAction={onRecoveryAction} /> : null}
       {candidate.workflowStatus === "listing_preparation" ? (

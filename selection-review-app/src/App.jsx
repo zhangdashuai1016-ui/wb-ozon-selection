@@ -69,6 +69,7 @@ export default function App() {
     meta: null,
     rules: null,
     summary: null,
+    extensionHeartbeat: null,
     captureControl: { status: "idle", label: "商品采集控制空闲" }
   });
   const [selectedId, setSelectedId] = useState("");
@@ -82,6 +83,15 @@ export default function App() {
   const [extensionStatus, setExtensionStatus] = useState(() => extensionConnectionStatus({
     cachedVersion: readCachedExtensionVersion()
   }));
+  const effectiveExtensionStatus = useMemo(() => {
+    if (["connected", "background_unavailable", "reload_required"].includes(extensionStatus.code)) {
+      return extensionStatus;
+    }
+    return extensionConnectionStatus({
+      cachedVersion: readCachedExtensionVersion(),
+      serverHeartbeat: state.extensionHeartbeat
+    });
+  }, [extensionStatus, state.extensionHeartbeat]);
 
   useEffect(() => {
     let responseTimer;
@@ -471,10 +481,11 @@ export default function App() {
     }
   }
 
-  async function confirmLifecycleProductionAuthorization() {
+  async function confirmLifecycleProductionAuthorization(payload) {
     if (!selected) return;
     try {
       await api.confirmLifecycleProductionAuthorization(selected.id, {
+        ...payload,
         dataRevision: selected.dataRevision,
         confirmed: true
       });
@@ -504,8 +515,8 @@ export default function App() {
       <header className="app-header">
         <h1>今日选品评审台</h1>
         <div className="header-actions">
-          <span className={`extension-status ${extensionStatus.code}`} data-testid="extension-status">
-            <i aria-hidden="true" />{extensionStatus.label}
+          <span className={`extension-status ${effectiveExtensionStatus.code}`} data-testid="extension-status">
+            <i aria-hidden="true" />{effectiveExtensionStatus.label}
           </span>
           <span className={`capture-control-status ${state.captureControl?.status || "idle"}`} data-testid="capture-control-status">
             <i aria-hidden="true" />{state.captureControl?.label || "商品采集控制状态未取得"}
@@ -568,6 +579,7 @@ export default function App() {
               candidate={selected}
               rules={state.rules}
               captureControl={state.captureControl}
+              extensionStatus={effectiveExtensionStatus}
               onUpdate={updateSelected}
               onEvaluate={evaluateSelected}
               onComment={commentSelected}

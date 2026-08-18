@@ -140,6 +140,11 @@ test("CX-20260803-010 produces the complete frozen ProfitModel from five upstrea
 
   assert.equal(model.recommendedSalePriceRub, 1831);
   assert.equal(model.recommendedSalePriceCny, 151.78);
+  assert.deepEqual(model.priceConversion, {
+    rubPerCny: 12.0637,
+    evidenceRef: "fx:cbr:2026-08-07:RUB-CNY",
+    checkedAt: "2026-08-12T12:20:00.000Z"
+  });
   assert.deepEqual(model.sellerSettlementRevenue, {
     amount: 130.53,
     currency: "CNY",
@@ -153,6 +158,11 @@ test("CX-20260803-010 produces the complete frozen ProfitModel from five upstrea
   assert.equal(model.unitProfitRmb, 44.95);
   assert.equal(model.profitMargin, 0.2962);
   assert.equal(model.thresholdVersion, PROFIT_THRESHOLD_VERSION);
+  assert.deepEqual(model.thresholds, {
+    minimumProfitMargin: 0.15,
+    minimumUnitProfitRmb: 20,
+    logic: "any"
+  });
   assert.equal(model.result, "passed");
   assert.equal(model.marketAssessmentRef, "a-market:CX-20260803-010:test");
   assert.deepEqual(model.marketSampleRefs, ["legacy-sales:CX-20260803-010"]);
@@ -160,7 +170,7 @@ test("CX-20260803-010 produces the complete frozen ProfitModel from five upstrea
   assert.deepEqual(validateProfitModel(model), { valid: true, errors: [] });
 });
 
-test("B uses AND threshold logic and remains in B after calculation", async () => {
+test("B uses OR threshold logic and remains in B after calculation", async () => {
   const inputs = await preparedInputs();
   const passed = runSkuProfitModel(inputs);
   assert.equal(passed.skuPackage.businessPhase, "B");
@@ -174,9 +184,47 @@ test("B uses AND threshold logic and remains in B after calculation", async () =
   const lowProfit = await preparedInputs();
   lowProfit.platformFeeEvidence.otherCosts.fixedOtherRmb = 30;
   const rejected = runSkuProfitModel(lowProfit);
-  assert.ok(rejected.profitModel.profitMargin < 0.25 || rejected.profitModel.unitProfitRmb < 20);
+  assert.ok(rejected.profitModel.profitMargin < 0.15 && rejected.profitModel.unitProfitRmb < 20);
   assert.equal(rejected.profitModel.result, "rejected");
   assert.equal(rejected.skuPackage.businessPhase, "B");
+});
+
+test("current threshold passes when either unit profit or profit margin reaches the minimum", async () => {
+  const inputs = await preparedInputs();
+  const base = runSkuProfitModel(inputs).profitModel;
+
+  const profitOnly = structuredClone(base);
+  profitOnly.unitProfitRmb = 20;
+  profitOnly.profitMargin = 0.1318;
+  profitOnly.result = "passed";
+  assert.deepEqual(validateProfitModel(profitOnly), { valid: true, errors: [] });
+
+  const marginOnly = structuredClone(base);
+  marginOnly.recommendedSalePriceCny = 100;
+  marginOnly.unitProfitRmb = 15;
+  marginOnly.profitMargin = 0.15;
+  marginOnly.result = "passed";
+  assert.deepEqual(validateProfitModel(marginOnly), { valid: true, errors: [] });
+
+  const neither = structuredClone(base);
+  neither.recommendedSalePriceCny = 100;
+  neither.unitProfitRmb = 14.99;
+  neither.profitMargin = 0.1499;
+  neither.result = "rejected";
+  assert.deepEqual(validateProfitModel(neither), { valid: true, errors: [] });
+});
+
+test("historical 25-percent-and-20-yuan models remain valid and are not rewritten", async () => {
+  const candidate = await currentCandidate();
+  const historical = candidate.lifecycle?.skuPackage?.profitModels?.[0]
+    || candidate.productLifecycle?.skuPackage?.profitModels?.[0]
+    || candidate.lifecycleV11?.skuPackage?.profitModels?.[0];
+  assert.ok(historical, "expected historical ProfitModel fixture");
+  const before = structuredClone(historical);
+  assert.equal(historical.thresholdVersion, "profit-threshold-v1.1-25pct-20cny");
+  const validation = validateProfitModel(historical);
+  assert.equal(validation.errors.some((item) => ["thresholdVersion", "thresholds", "result"].includes(item.path)), false);
+  assert.deepEqual(historical, before);
 });
 
 test("B makes zero external calls and never asks for existing fields", async () => {

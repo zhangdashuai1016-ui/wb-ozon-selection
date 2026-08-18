@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import {
   EXPECTED_EXTENSION_VERSION,
   EXTENSION_CAPTURE_ACK_TIMEOUT_MS,
-  extensionConnectionStatus
+  extensionConnectionStatus,
+  salesCaptureFailurePresentation
 } from "../src/extensionStatus.js";
 
 test("extension handshake exposes bridge and background state separately", () => {
@@ -14,6 +15,39 @@ test("extension handshake exposes bridge and background state separately", () =>
   assert.equal(extensionConnectionStatus({ liveVersion: EXPECTED_EXTENSION_VERSION, backgroundReady: false }).code, "background_unavailable");
   assert.equal(extensionConnectionStatus({ cachedVersion: EXPECTED_EXTENSION_VERSION }).code, "page_refresh_required");
   assert.equal(extensionConnectionStatus({ liveVersion: "1.1.0" }).code, "reload_required");
+  assert.deepEqual(extensionConnectionStatus({
+    serverHeartbeat: {
+      fresh: true,
+      version: EXPECTED_EXTENSION_VERSION,
+      backgroundReady: true
+    }
+  }), {
+    code: "connected",
+    label: `插件已连接 · 后台可用 · v${EXPECTED_EXTENSION_VERSION}`
+  });
+  assert.equal(extensionConnectionStatus({
+    serverHeartbeat: {
+      fresh: false,
+      version: EXPECTED_EXTENSION_VERSION,
+      backgroundReady: true
+    }
+  }).code, "page_refresh_required");
   assert.equal(extensionConnectionStatus({}).code, "disconnected");
   assert.equal(EXTENSION_CAPTURE_ACK_TIMEOUT_MS, 8000);
+});
+
+test("historical sales capture failure is separated from the current extension status", () => {
+  const presentation = salesCaptureFailurePresentation({
+    reason: "未检测到本机商品采集扩展或扩展尚未重载",
+    observedAt: "2026-08-16T01:00:00.000Z"
+  }, {
+    code: "connected",
+    label: `插件已连接 · 后台可用 · v${EXPECTED_EXTENSION_VERSION}`
+  });
+
+  assert.equal(presentation.heading, "上一次Ozon采集已停止");
+  assert.match(presentation.reason, /^上次失败原因：/);
+  assert.equal(presentation.observedAt, "2026-08-16T01:00:00.000Z");
+  assert.equal(presentation.currentExtension, `当前插件状态：插件已连接 · 后台可用 · v${EXPECTED_EXTENSION_VERSION}`);
+  assert.match(presentation.explanation, /历史结果/);
 });

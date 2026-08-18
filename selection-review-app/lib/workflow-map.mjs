@@ -16,6 +16,10 @@ export const RECOVERABLE_TERMINAL_DISPATCH_STATES = new Set([
   "responded_unverified"
 ]);
 
+export function isDisabledLegacyCDispatch(dispatch) {
+  return dispatch?.nodeId === "M07" && dispatch?.assigneeRole === "selection_task";
+}
+
 export const TASK_ROUTE_DEFAULTS = {
   selection_task: {
     role: "selection_task",
@@ -170,7 +174,11 @@ function completedNodeIds(candidate, activeNodeId) {
 export function activeDispatchForCandidate(data, candidateId) {
   return [...(data.dispatches || [])]
     .reverse()
-    .find((item) => item.candidateId === candidateId && ACTIVE_DISPATCH_STATES.has(item.status)) || null;
+    .find((item) =>
+      item.candidateId === candidateId &&
+      ACTIVE_DISPATCH_STATES.has(item.status) &&
+      !isDisabledLegacyCDispatch(item)
+    ) || null;
 }
 
 export function latestDispatchForCandidate(data, candidateId) {
@@ -187,7 +195,11 @@ export function collaborationSummary(data, baseSummary) {
   const latestByCandidate = new Map();
   for (const dispatch of data.dispatches || []) {
     if (dispatch.candidateId) latestByCandidate.set(dispatch.candidateId, dispatch);
-    if (dispatch.candidateId && ACTIVE_DISPATCH_STATES.has(dispatch.status)) {
+    if (
+      dispatch.candidateId &&
+      ACTIVE_DISPATCH_STATES.has(dispatch.status) &&
+      !isDisabledLegacyCDispatch(dispatch)
+    ) {
       activeByCandidate.set(dispatch.candidateId, dispatch);
     }
   }

@@ -194,7 +194,7 @@ export function runBProfitModel({
     actualPurchaseCost - logisticsRmb - packagingRmb - labelRmb - otherCostRmb
   );
   const profitMargin = roundRate(unitProfitRmb / recommendedSalePriceCny);
-  const result = unitProfitRmb >= MINIMUM_UNIT_PROFIT_RMB && profitMargin >= MINIMUM_PROFIT_MARGIN
+  const result = unitProfitRmb >= MINIMUM_UNIT_PROFIT_RMB || profitMargin >= MINIMUM_PROFIT_MARGIN
     ? "passed"
     : "rejected";
   const version = `profit-v${skuPackage.profitModels.length + 1}`;

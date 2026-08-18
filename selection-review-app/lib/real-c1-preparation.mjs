@@ -519,3 +519,9 @@ export function finalizeReal13CForOwnerCard({
     correctedProductName: corrected.productName
   });
 }
+/**
+ * 历史火车SKU专属适配器。
+ * 只保留旧数据审计和既有单元测试；服务端默认关闭对应legacy路由。
+ * 新版商品必须使用 lifecycle-c-stage.mjs 的通用C1/C2流程。
+ */
+export const LEGACY_FIRE_TRAIN_ADAPTER = true;

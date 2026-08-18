@@ -52,7 +52,7 @@ export default function AddCandidateModal({ open, onClose, onSave }) {
       await onSave({
         ...form,
         purchasePriceRmb: optionalNumber(form.purchasePriceRmb),
-        domesticShippingRmb: 0,
+        domesticShippingRmb: null,
         packagingCostRmb: 1.5,
         complianceStatus: "clear",
         authorizationStatus: "clear",
@@ -139,7 +139,7 @@ export default function AddCandidateModal({ open, onClose, onSave }) {
               <label>
                 采购到手总价（含国内运费，RMB）
                 <input type="text" inputMode="decimal" value={form.purchasePriceRmb} onChange={(e) => update("purchasePriceRmb", e.target.value)} />
-                <small>固定按货价＋国内运费的实际到手总成本填写；系统不会再拆分询问国内运费。</small>
+                <small>填写实际到手总成本；如果不知道货价与国内运费各是多少，两项组成保持未确认，不会把运费冒充为0，也不会重复扣费。</small>
               </label>
               <label>
                 MOQ

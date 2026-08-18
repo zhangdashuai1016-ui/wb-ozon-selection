@@ -43,8 +43,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  completeLifecycleC1: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/complete`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   confirmLifecycleFinalAssets: (candidateId, payload) =>
-    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/final-assets`, {
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c2/final-assets`, {
       method: "POST",
       body: JSON.stringify(payload)
     }),

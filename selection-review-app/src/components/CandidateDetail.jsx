@@ -7,6 +7,7 @@ import {
 } from "../constants";
 import { ExternalIcon } from "./Icons";
 import LifecycleStatusCard from "./LifecycleStatusCard";
+import LifecycleEntryPreview from "./LifecycleEntryPreview";
 import StatusBadge from "./StatusBadge";
 
 function Link({ href, children }) {
@@ -60,6 +61,7 @@ export default function CandidateDetail({ candidate }) {
           </div>
           {candidate.notes ? <p className="product-note">{candidate.notes}</p> : null}
           <LifecycleStatusCard candidate={candidate} />
+          <LifecycleEntryPreview preview={candidate.lifecycleEntryPreview} />
           {candidate.selectionStage ? (
             <div className={`selection-stage stage-${candidate.selectionStage.stage}`}>
               <strong>{candidate.selectionStage.label}</strong>

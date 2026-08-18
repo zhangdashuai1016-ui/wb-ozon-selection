@@ -36,6 +36,16 @@
     "marketSampleRefs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
     "recommendedSalePriceRub": { "type": "number", "exclusiveMinimum": 0 },
     "recommendedSalePriceCny": { "type": "number", "exclusiveMinimum": 0 },
+    "priceConversion": {
+      "type": "object",
+      "required": ["rubPerCny", "evidenceRef", "checkedAt"],
+      "properties": {
+        "rubPerCny": { "type": "number", "exclusiveMinimum": 0 },
+        "evidenceRef": { "type": "string", "minLength": 1 },
+        "checkedAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
     "sellerSettlementRevenue": { "$ref": "#/$defs/money" },
     "commissionRate": { "type": "number", "minimum": 0, "exclusiveMaximum": 1 },
     "internationalFreight": { "$ref": "#/$defs/money" },
@@ -43,14 +53,14 @@
     "otherCosts": { "$ref": "#/$defs/money" },
     "unitProfitRmb": { "type": "number" },
     "profitMargin": { "type": "number" },
-    "thresholdVersion": { "const": "profit-threshold-v1.1-25pct-20cny" },
+    "thresholdVersion": { "enum": ["profit-threshold-v1.1-25pct-20cny", "profit-threshold-v1.2-15pct-or-20cny"] },
     "thresholds": {
       "type": "object",
       "required": ["minimumProfitMargin", "minimumUnitProfitRmb", "logic"],
       "properties": {
-        "minimumProfitMargin": { "const": 0.25 },
+        "minimumProfitMargin": { "enum": [0.15, 0.25] },
         "minimumUnitProfitRmb": { "const": 20 },
-        "logic": { "const": "all" }
+        "logic": { "enum": ["any", "all"] }
       },
       "additionalProperties": false
     },
@@ -60,6 +70,36 @@
     "requestedExistingFields": { "type": "array", "maxItems": 0 },
     "formula": { "type": "string", "minLength": 1 }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "thresholdVersion": { "const": "profit-threshold-v1.1-25pct-20cny" } } },
+      "then": {
+        "properties": {
+          "thresholds": {
+            "properties": {
+              "minimumProfitMargin": { "const": 0.25 },
+              "minimumUnitProfitRmb": { "const": 20 },
+              "logic": { "const": "all" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "thresholdVersion": { "const": "profit-threshold-v1.2-15pct-or-20cny" } } },
+      "then": {
+        "properties": {
+          "thresholds": {
+            "properties": {
+              "minimumProfitMargin": { "const": 0.15 },
+              "minimumUnitProfitRmb": { "const": 20 },
+              "logic": { "const": "any" }
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "money": {
       "type": "object",

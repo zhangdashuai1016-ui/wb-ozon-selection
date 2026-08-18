@@ -33,7 +33,17 @@ function candidate(id, lifecycle = false) {
     history: [],
     createdAt: "2026-08-14T00:00:00.000Z",
     updatedAt: "2026-08-14T00:00:00.000Z",
-    ...(lifecycle ? { lifecycleV11: { opportunityPackage: { parentOpportunityId: `opportunity:${id}` } } } : {})
+    ...(lifecycle ? {
+      lifecycleV11: { opportunityPackage: { parentOpportunityId: `opportunity:${id}` } },
+      sourceCapture: {
+        captureId: "SC-LEGACY",
+        status: "needs_sku_selection",
+        mode: "listing_preparation",
+        offerId: "712421624571",
+        sourceUrl: "https://detail.1688.com/offer/712421624571.html",
+        skuChoices: [{ sourceSkuId: "SKU-LEGACY", attributes: { 款式: "旧规格" } }]
+      }
+    } : {})
   };
 }
 
@@ -66,8 +76,29 @@ test("2A模拟接口零持久化，旧C入口明确拒绝且awaiting_user_start�
   const dataFile = path.join(directory, "candidates.json");
   await writeFile(dataFile, JSON.stringify({
     meta: { version: 2, title: "test", updatedAt: "2026-08-14T00:00:00.000Z", automationStarted: false },
-    rules: {},
-    candidates: [candidate("LEGACY-AWAITING"), candidate("LIFECYCLE-NEW", true)]
+    rules: {
+      selectionFlow: {
+        profitInputs: ["productName", "purchasePriceRmb"],
+        sourcePagePurpose: "旧规则：精确货源只在C阶段核验"
+      },
+      listingPreparation: { startPolicy: "single_sku_user_button" },
+      purchaseInput: { domesticShippingRmb: 0, note: "旧规则：未知运费按0" },
+      ozonDandanshu: { minimumUnitProfitRmb: 20, targetMarginRate: 0.25, thresholdPolicy: "both" },
+      ozonMiska: { minimumUnitProfitRmb: 20, targetMarginRate: 0.25, thresholdPolicy: "both" },
+      wbCrossListing: { minimumUnitProfitRmb: 20, targetMarginRate: 0.25, thresholdPolicy: "both" }
+    },
+    candidates: [candidate("LEGACY-AWAITING"), candidate("LIFECYCLE-NEW", true)],
+    dispatches: [{
+      id: "D-LEGACY-C",
+      candidateId: "LEGACY-AWAITING",
+      dataRevision: 1,
+      nodeId: "M07",
+      scope: "candidate",
+      assigneeRole: "selection_task",
+      assigneeTitle: "选品",
+      status: "queued",
+      message: "旧C阶段错误派发"
+    }]
   }));
   const before = await readFile(dataFile);
 
@@ -89,7 +120,28 @@ test("2A模拟接口零持久化，旧C入口明确拒绝且awaiting_user_start�
 
   const initialState = await (await fetch(`${baseUrl}/api/state`)).json();
   assert.equal(initialState.candidates.length, 2);
-  assert.equal(initialState.candidates.find((item) => item.id === "LEGACY-AWAITING").listingHandoff.state, "awaiting_user_start");
+  assert.deepEqual(initialState.rules.selectionFlow.profitInputs, [
+    "confirmedSupplierSku",
+    "actualPurchaseCost",
+    "packedWeightKg",
+    "dimensionsCm"
+  ]);
+  assert.match(initialState.rules.selectionFlow.sourcePagePurpose, /^A阶段完成精确1688链接/);
+  assert.equal(initialState.rules.listingPreparation.startPolicy, "auto_c1_after_b_passed");
+  assert.equal(initialState.rules.purchaseInput.domesticShippingRmb, null);
+  assert.equal(
+    initialState.rules.purchaseInput.componentPolicy,
+    "legacy_all_in_cost_keeps_goods_price_and_domestic_freight_unknown"
+  );
+  for (const key of ["ozonDandanshu", "ozonMiska", "wbCrossListing"]) {
+    assert.equal(initialState.rules[key].minimumUnitProfitRmb, 20);
+    assert.equal(initialState.rules[key].targetMarginRate, 0.15);
+    assert.equal(initialState.rules[key].thresholdPolicy, "either");
+  }
+  const legacyAwaiting = initialState.candidates.find((item) => item.id === "LEGACY-AWAITING");
+  assert.equal(legacyAwaiting.listingHandoff.state, "awaiting_user_start");
+  assert.equal(legacyAwaiting.activeDispatch, null);
+  assert.equal(legacyAwaiting.latestDispatch.status, "legacy_disabled");
 
   for (const id of ["LEGACY-AWAITING", "LIFECYCLE-NEW"]) {
     const response = await post(`/api/candidates/${id}/start-listing-preparation`, { dataRevision: 1 });
@@ -101,12 +153,37 @@ test("2A模拟接口零持久化，旧C入口明确拒绝且awaiting_user_start�
   assert.equal(capture.status, 409);
   assert.match((await capture.json()).message, /不会创建旧C阶段派发/);
 
+  const oldSkuSelection = await post("/api/candidates/LIFECYCLE-NEW/source-capture/select-sku", {
+    dataRevision: 1,
+    sourceSkuIds: ["SKU-LEGACY"]
+  });
+  assert.equal(oldSkuSelection.status, 409);
+  assert.match((await oldSkuSelection.json()).message, /只保留历史读取/);
+
+  const oldDispatch = await post("/api/candidates/LIFECYCLE-NEW/dispatch", { dataRevision: 1 });
+  assert.equal(oldDispatch.status, 409);
+  assert.match((await oldDispatch.json()).message, /不能使用旧通用派发入口/);
+
+  const oldClaim = await post("/api/dispatches/D-LEGACY-C/claim", {
+    runId: "legacy-run",
+    currentStep: "尝试领取旧C"
+  });
+  assert.equal(oldClaim.status, 409);
+  assert.match((await oldClaim.json()).message, /只保留为历史记录/);
+
   const oldEvaluation = await post("/api/candidates/LIFECYCLE-NEW/user-evaluation", {
     dataRevision: 1,
     decision: "viable"
   });
   assert.equal(oldEvaluation.status, 409);
   assert.match((await oldEvaluation.json()).message, /新版生命周期商品不能使用旧方向确认入口/);
+
+  const oldReview = await post("/api/candidates/LIFECYCLE-NEW/codex-review", {
+    dataRevision: 1,
+    decision: "approved"
+  });
+  assert.equal(oldReview.status, 409);
+  assert.match((await oldReview.json()).message, /不能使用旧B审核入口/);
 
   const demoCard = await (await fetch(`${baseUrl}/api/simulations/phase-2a`)).json();
   assert.equal(demoCard.card.isSimulation, true);
@@ -131,4 +208,13 @@ test("2A模拟接口零持久化，旧C入口明确拒绝且awaiting_user_start�
   assert.equal(finalState.meta.automationStarted, false);
   assert.equal(finalState.candidates.length, 2);
   assert.equal(finalState.candidates.every((item) => item.activeDispatch === null), true);
+});
+
+test("旧方向卡不再提供绕过A确认直接算利润的入口", async () => {
+  const source = await readFile(path.join(appDir, "src", "components", "UserInspector.jsx"), "utf8");
+  assert.doesNotMatch(source, /待确认 · 看利润/);
+  assert.doesNotMatch(source, /提交并计算利润/);
+  assert.doesNotMatch(source, /系统将国内运费记为0/);
+  assert.match(source, /新版A确认卡/);
+  assert.match(source, /主人确认后系统才自动进入B/);
 });

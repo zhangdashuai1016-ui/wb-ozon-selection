@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   LIFECYCLE_STATUS_LABELS,
-  mapPhase4SingleSkuLifecycle,
+  mapLifecycleStatus,
   withTechnicalFailureDisplay
 } from "../lifecycleStatusView";
 
@@ -18,7 +18,7 @@ function displayedValue(key, value) {
 
 export default function LifecycleStatusCard({ candidate }) {
   const [failurePreview, setFailurePreview] = useState(false);
-  const baseStatus = useMemo(() => mapPhase4SingleSkuLifecycle(candidate), [candidate]);
+  const baseStatus = useMemo(() => mapLifecycleStatus(candidate), [candidate]);
   if (!baseStatus.available) return null;
 
   const status = failurePreview ? withTechnicalFailureDisplay(baseStatus) : baseStatus;
@@ -26,7 +26,7 @@ export default function LifecycleStatusCard({ candidate }) {
     <section className={`lifecycle-status-card${failurePreview ? " technical-failure-preview" : ""}`} aria-label="新版生命周期状态">
       <header>
         <div>
-          <small>product-lifecycle-v1.1 · 当前SKU真实状态</small>
+          <small>product-lifecycle-v1.1 · {baseStatus.sourceEntityType === "SkuLifecyclePackage" ? "当前SKU真实状态" : "当前商品方向真实状态"}</small>
           <h3>四条状态线</h3>
         </div>
         <span>来源修订 {status.sourceDataRevision}</span>
