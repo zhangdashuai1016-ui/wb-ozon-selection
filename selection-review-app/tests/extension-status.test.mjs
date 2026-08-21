@@ -14,7 +14,10 @@ test("extension handshake exposes bridge and background state separately", () =>
   });
   assert.equal(extensionConnectionStatus({ liveVersion: EXPECTED_EXTENSION_VERSION, backgroundReady: false }).code, "background_unavailable");
   assert.equal(extensionConnectionStatus({ cachedVersion: EXPECTED_EXTENSION_VERSION }).code, "page_refresh_required");
-  assert.equal(extensionConnectionStatus({ liveVersion: "1.1.0" }).code, "reload_required");
+  assert.deepEqual(extensionConnectionStatus({ liveVersion: "1.2.6", backgroundReady: true }), {
+    code: "reload_required",
+    label: "插件代码已更新 · 请重新加载（当前v1.2.6，需要v1.2.7）"
+  });
   assert.deepEqual(extensionConnectionStatus({
     serverHeartbeat: {
       fresh: true,

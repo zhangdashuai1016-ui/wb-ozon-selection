@@ -49,11 +49,13 @@ test("lifecycle display is no longer tied to a candidate ID and still requires a
 });
 
 test("an OpportunityPackage-only candidate renders its four lines without upgrading unknown to A", async () => {
-  const candidate = await currentCandidate("CX-20260802-014");
+  const candidate = structuredClone(await currentCandidate("CX-20260802-014"));
+  delete candidate.lifecycleV11.skuPackage;
+  candidate.lifecycleV11.opportunityPackage.businessPhase = "unknown";
   const status = mapLifecycleStatus(candidate);
   assert.equal(status.available, true);
   assert.equal(status.sourceEntityType, "OpportunityPackage");
-  assert.equal(status.businessPhase, candidate.lifecycleV11.opportunityPackage.businessPhase);
+  assert.equal(status.businessPhase, "unknown");
   assert.equal(status.businessResult, candidate.lifecycleV11.opportunityPackage.businessResult);
   assert.equal(status.technicalStatus, candidate.lifecycleV11.opportunityPackage.technicalStatus);
   assert.equal(status.ownerAction, candidate.lifecycleV11.opportunityPackage.ownerAction);

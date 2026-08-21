@@ -104,8 +104,8 @@ test("real C1 keeps exact costs and owner facts without inventing direct 1688 pr
   assert.equal(fields.get("brand"), "Нет бренда");
   assert.equal(fields.get("piece_count"), 320);
   assert.equal(profit.recommendedSalePriceRub, 1831);
-  assert.equal(profit.unitProfitRmb, 44.95);
-  assert.equal(profit.profitMargin, 0.2962);
+  assert.equal(profit.unitProfitRmb, 41.92);
+  assert.equal(profit.profitMargin, 0.2762);
   assert.equal(profit.result, "passed");
 });
 

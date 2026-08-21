@@ -1,0 +1,222 @@
+export function detailOfferId(value) {
+  try {
+    const url = new URL(String(value || ""));
+    if (url.protocol !== "https:" || url.hostname !== "detail.1688.com" || url.username || url.password || url.port) return "";
+    return url.pathname.match(/^\/offer\/(\d+)\.html$/)?.[1] || "";
+  } catch {
+    return "";
+  }
+}
+
+const LOGIN_HOSTS = new Set(["login.1688.com", "passport.1688.com"]);
+const VERIFICATION_HOSTS = new Set(["sec.1688.com", "punish.1688.com"]);
+
+function is1688Host(host) {
+  return host === "1688.com" || host.endsWith(".1688.com");
+}
+
+/**
+ * 将跳转结果压缩成固定枚举。返回值不包含完整URL、路径内容、查询参数或跳转令牌。
+ */
+export function classify1688NavigationOutcome(value, options = {}) {
+  const navigationStage = ["redirect_observed", "page_complete", "timeout"].includes(options.navigationStage)
+    ? options.navigationStage
+    : "redirect_observed";
+  const expectedOfferId = /^\d+$/.test(String(options.expectedOfferId || ""))
+    ? String(options.expectedOfferId)
+    : "";
+  try {
+    const url = new URL(String(value || ""));
+    const host = url.hostname.toLowerCase();
+    const pathname = url.pathname.toLowerCase();
+    const observedOfferId = detailOfferId(url.href);
+    if (observedOfferId) {
+      return {
+        finalHostClass: "detail_1688",
+        finalPathType: "offer_detail",
+        redirectClassification: expectedOfferId && expectedOfferId !== observedOfferId
+          ? "different_offer"
+          : "allowed_detail",
+        navigationStage,
+        observedOfferId
+      };
+    }
+    if (is1688Host(host) && (LOGIN_HOSTS.has(host) || /(?:^|\/)(?:login|signin|passport)(?:\/|$)/.test(pathname))) {
+      return {
+        finalHostClass: "login_1688",
+        finalPathType: "login",
+        redirectClassification: "login_required",
+        navigationStage,
+        observedOfferId: null
+      };
+    }
+    if (is1688Host(host) && (VERIFICATION_HOSTS.has(host) || /(?:captcha|verify|verification|punish|security)/.test(pathname))) {
+      return {
+        finalHostClass: "verification_1688",
+        finalPathType: "verification",
+        redirectClassification: "verification_required",
+        navigationStage,
+        observedOfferId: null
+      };
+    }
+    if (host === "m.1688.com" || host.endsWith(".m.1688.com")) {
+      return {
+        finalHostClass: "mobile_1688",
+        finalPathType: pathname.includes("/offer/") ? "mobile_offer" : "other",
+        redirectClassification: "mobile_page",
+        navigationStage,
+        observedOfferId: null
+      };
+    }
+    if (is1688Host(host)) {
+      const isIntermediate = host === "qr.1688.com" || pathname === "/" || pathname === "";
+      return {
+        finalHostClass: "other_1688",
+        finalPathType: isIntermediate ? "redirect_intermediate" : "other",
+        redirectClassification: isIntermediate ? "intermediate_page" : "non_whitelisted_destination",
+        navigationStage,
+        observedOfferId: null
+      };
+    }
+    return {
+      finalHostClass: "external",
+      finalPathType: "other",
+      redirectClassification: "non_whitelisted_destination",
+      navigationStage,
+      observedOfferId: null
+    };
+  } catch {
+    return {
+      finalHostClass: "invalid",
+      finalPathType: "other",
+      redirectClassification: "non_whitelisted_destination",
+      navigationStage,
+      observedOfferId: null
+    };
+  }
+}
+
+/**
+ * Chrome 在导航未完成时可能同时提供旧的 url 与新的 pendingUrl。
+ * 这里优先读取仍在加载的 pendingUrl；返回的原始地址只在扩展内存中使用，
+ * 绝不能写入评审台或失败记录。
+ */
+export function observed1688TabAddress(tab) {
+  if (!tab || typeof tab !== "object") {
+    return { value: "", tabObservation: "tab_unavailable" };
+  }
+  const currentUrl = typeof tab.url === "string" ? tab.url : "";
+  const pendingUrl = typeof tab.pendingUrl === "string" ? tab.pendingUrl : "";
+  if (tab.status !== "complete" && pendingUrl) {
+    return { value: pendingUrl, tabObservation: "pending_url" };
+  }
+  if (currentUrl && currentUrl !== "about:blank") {
+    return { value: currentUrl, tabObservation: "current_url" };
+  }
+  if (pendingUrl) {
+    return { value: pendingUrl, tabObservation: "pending_url" };
+  }
+  return { value: "", tabObservation: "address_unavailable" };
+}
+
+const SAFE_REDIRECT_CLASSIFICATIONS = new Set([
+  "allowed_detail",
+  "login_required",
+  "verification_required",
+  "mobile_page",
+  "intermediate_page",
+  "non_whitelisted_destination",
+  "different_offer",
+  "detail_load_timeout",
+  "tab_unavailable",
+  "address_unavailable"
+]);
+
+/**
+ * 为超时收口生成固定枚举诊断。完整URL、查询参数和令牌不会进入返回值。
+ */
+export function classify1688TimeoutOutcome(tab, expectedOfferId = "", lastDiagnostics = null) {
+  const observation = observed1688TabAddress(tab);
+  const lastObservedClassification = SAFE_REDIRECT_CLASSIFICATIONS.has(lastDiagnostics?.redirectClassification)
+    ? lastDiagnostics.redirectClassification
+    : null;
+  if (!observation.value) {
+    const tabUnavailable = observation.tabObservation === "tab_unavailable";
+    return {
+      finalHostClass: "invalid",
+      finalPathType: "other",
+      redirectClassification: tabUnavailable ? "tab_unavailable" : "address_unavailable",
+      navigationStage: "timeout",
+      observedOfferId: null,
+      tabObservation: observation.tabObservation,
+      lastObservedClassification
+    };
+  }
+  const diagnostics = classify1688NavigationOutcome(observation.value, {
+    expectedOfferId,
+    navigationStage: "timeout"
+  });
+  return {
+    ...diagnostics,
+    redirectClassification: diagnostics.redirectClassification === "allowed_detail"
+      ? "detail_load_timeout"
+      : diagnostics.redirectClassification,
+    tabObservation: observation.tabObservation,
+    lastObservedClassification
+  };
+}
+
+/**
+ * 只把仍在加载中的已知跳转状态视为“继续等待”。移动版 offer 可能只是
+ * qr 短链到桌面详情页之间的中间地址；页面完成或超时后仍停在移动页时，
+ * 必须由调用方按失败收口，不能在移动页采集或自动改写链接。
+ */
+export function shouldWaitFor1688Destination(diagnostics, tabStatus = "loading") {
+  if (!diagnostics || typeof diagnostics !== "object") return false;
+  const expectedIntermediate = diagnostics.finalHostClass === "other_1688" &&
+    diagnostics.finalPathType === "redirect_intermediate";
+  const waitingForAllowedDetail = diagnostics.redirectClassification === "allowed_detail" &&
+    tabStatus !== "complete";
+  const waitingForMobileOfferRedirect = diagnostics.finalHostClass === "mobile_1688" &&
+    diagnostics.finalPathType === "mobile_offer" &&
+    diagnostics.navigationStage === "redirect_observed" &&
+    tabStatus !== "complete";
+  return expectedIntermediate || waitingForAllowedDetail || waitingForMobileOfferRedirect;
+}
+
+export function classify1688Source(value) {
+  try {
+    const url = new URL(String(value || ""));
+    if (url.protocol !== "https:" || url.username || url.password || url.port) return null;
+    const offerId = detailOfferId(url.href);
+    if (offerId) {
+      return { type: "detail", sourceUrl: `https://detail.1688.com/offer/${offerId}.html`, offerId };
+    }
+    if (url.hostname !== "qr.1688.com") return null;
+    const token = url.pathname.match(/^\/s\/([A-Za-z0-9_-]{1,160})\/?$/)?.[1] || "";
+    return token ? { type: "short", sourceUrl: `https://qr.1688.com/s/${token}`, offerId: "" } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function validateResolved1688Source(originalSource, finalUrl, expectedOfferId = "") {
+  const original = classify1688Source(originalSource);
+  const resolvedOfferId = detailOfferId(finalUrl);
+  if (!original || !resolvedOfferId) return null;
+  if (original.type === "detail" && original.offerId !== resolvedOfferId) return null;
+  if (expectedOfferId && String(expectedOfferId) !== resolvedOfferId) return null;
+  return {
+    offerId: resolvedOfferId,
+    sourceUrl: `https://detail.1688.com/offer/${resolvedOfferId}.html`
+  };
+}
+
+export function isAllowed1688NavigationHost(value) {
+  try {
+    const host = new URL(String(value || "")).hostname;
+    return host === "qr.1688.com" || host === "detail.1688.com";
+  } catch {
+    return false;
+  }
+}

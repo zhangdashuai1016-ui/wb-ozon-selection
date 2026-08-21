@@ -1,3 +1,10 @@
+import {
+  GLOBAL_DAMAGE_LOSS_RESERVE_RATE,
+  GLOBAL_LABEL_FEE_PER_ORDER_CNY,
+  GLOBAL_PRICING_POLICY_VERSION,
+  GLOBAL_WITHDRAWAL_FEE_RATE,
+} from "./global-pricing-policy.mjs";
+
 export const TIME_ZONE = "Asia/Shanghai";
 
 export const WORKFLOW_STATUSES = [
@@ -14,7 +21,7 @@ export const DEFAULT_PACKAGING_COST_RMB = 1.5;
 export const PURCHASE_CEILING_SCOPE = "purchase_plus_domestic_shipping";
 export const DEFAULT_AUTOMATION_CONCURRENCY_LIMIT = 3;
 export const NO_PROGRESS_TIMEOUT_MINUTES = 15;
-export const PROFIT_POLICY_VERSION = "profit-15pct-or-20cny-promotion-v3";
+export const PROFIT_POLICY_VERSION = GLOBAL_PRICING_POLICY_VERSION;
 
 export const PROMOTION_DISCOUNT_SCENARIOS = Object.freeze({
   low: Object.freeze({ key: "low", label: "促销20%", rate: 0.2 }),
@@ -153,9 +160,11 @@ function profitRule(storeName) {
     promotionDiscountScenarios: PROMOTION_DISCOUNT_SCENARIOS,
     decisionPromotionScenario: "base",
     returnOpsReserveRate: 0.05,
-    damageLossReserveRate: 0.05,
-    labelCostRmb: 1.5,
-    note: "默认自然流量，广告成本为0；20%/25%/30%仅是促销折扣空间。若市场价是折后成交价，利润从该成交价计算，建议标价=折后成交价÷(1−促销率)，绝不再扣促销率。采购到手总价（已含国内运费）、包材、国际物流、佣金、退货运营、破损丢失和贴标必须完整计入。"
+    damageLossReserveRate: GLOBAL_DAMAGE_LOSS_RESERVE_RATE,
+    withdrawalFeeRate: GLOBAL_WITHDRAWAL_FEE_RATE,
+    labelCostRmb: GLOBAL_LABEL_FEE_PER_ORDER_CNY,
+    fixedOtherRmb: 0,
+    note: "使用全局Ozon/WB定价Skill的source-market-fit口径：先反推盈亏、15%利润率和20元利润价格线，再与A阶段市场目标价比较；项目门槛仍为利润≥20元或利润率≥15%满足任一项。贴单费按每单1.5元，破损丢失按成交收入5%，提现费按成交收入2%，均只计一次。"
   };
 }
 
@@ -242,7 +251,8 @@ function currentProfitResult({ sellerRevenueRmb, commissionRate, nonPurchaseFixe
     commissionRate +
     Number(rule.advertisingReserveRate || 0) +
     Number(rule.returnOpsReserveRate) +
-    Number(rule.damageLossReserveRate);
+    Number(rule.damageLossReserveRate) +
+    Number(rule.withdrawalFeeRate);
   const profitLimitedCeilingRmb = roundDownCurrency(
     sellerRevenueRmb * (1 - reserveRate) - nonPurchaseFixedRmb - Number(rule.minimumUnitProfitRmb)
   );
@@ -364,6 +374,7 @@ export function purchaseCeilingSummary(candidate, rules = DEFAULT_RULES) {
     pricingPolicyVersion: rule.pricingPolicyVersion,
     policyUpdatePending: false,
     advertisingReserveRate: 0,
+    withdrawalFeeRate: rule.withdrawalFeeRate,
     promotionPricing,
     decisionPromotionScenario: rule.decisionPromotionScenario,
     reserveRate: result.reserveRate,

@@ -53,6 +53,12 @@ function createTestInputs(candidate, opportunityPackage) {
       advertisingReserveRate: candidate.codexReview.completeCost.advertisingReserveRate,
       returnReserveRate: candidate.codexReview.completeCost.returnOpsReserveRate,
       damageReserveRate: candidate.codexReview.completeCost.damageLossReserveRate,
+      withdrawalFeeRate: 0.02,
+      targetMarginRate: 0.15,
+      minimumUnitProfitRmb: 20,
+      priceIncrementCny: 1,
+      thresholdLogic: "any",
+      pricingPolicyVersion: "ozon-wb-global-pricing-2026-08-21-v3-project-or-threshold-v1",
       otherCostRmb: 0
     },
     exchangeRateEvidence: {
@@ -142,8 +148,9 @@ test("B independently generates the frozen v1.1 profit output from four upstream
 
   assert.equal(result.profitModel.recommendedSalePriceCny, 151.78);
   assert.equal(result.profitModel.sellerRevenueAfterCommissionCny, 130.53);
-  assert.equal(result.profitModel.unitProfitRmb, 47.48);
-  assert.equal(result.profitModel.profitMargin, 0.3128);
+  assert.equal(result.profitModel.unitProfitRmb, 44.45);
+  assert.equal(result.profitModel.profitMargin, 0.2929);
+  assert.equal(result.profitModel.priceFloors.qualifyingFloorCny, 116);
   assert.equal(result.profitModel.result, "passed");
   assert.equal(result.profitModel.profitModelVersion, "profit-v1");
 });

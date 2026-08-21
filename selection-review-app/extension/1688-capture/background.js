@@ -1,5 +1,15 @@
 import { collect1688Page } from "./collector.js";
 import { collectOzonPage } from "./collector-ozon.js";
+import {
+  classify1688TimeoutOutcome,
+  classify1688NavigationOutcome,
+  classify1688Source,
+  detailOfferId,
+  shouldWaitFor1688Destination,
+  observed1688TabAddress,
+  validateResolved1688Source
+} from "./source-routing.js";
+import { captureRequestErrorMessage, validateSupplierCaptureRequest } from "./capture-request.js";
 
 const SOURCE_REQUEST_TYPE = "SELECTION_REVIEW_1688_CAPTURE_REQUEST";
 const SALES_REQUEST_TYPE = "SELECTION_REVIEW_OZON_CAPTURE_REQUEST";
@@ -19,6 +29,26 @@ async function reportHeartbeat() {
     })
   });
   if (!response.ok) throw new Error(`评审台心跳返回${response.status}`);
+  const body = await response.json().catch(() => ({}));
+  const payload = body?.captureJob;
+  if (payload && !activeCaptures.has(payload.captureId)) {
+    const validation = validateSupplierCaptureRequest({
+      payload,
+      manifestVersion: chrome.runtime.getManifest().version
+    });
+    if (!validation.ok) {
+      if (payload.captureId && payload.token && payload.candidateId && Number.isInteger(payload.dataRevision)) {
+        await report(payload, {
+          status: "failed",
+          failureCode: validation.code,
+          observedAt: new Date().toISOString()
+        }).catch(() => undefined);
+      }
+      return body;
+    }
+    void runCapture(payload);
+  }
+  return body;
 }
 
 function reportHeartbeatQuietly() {
@@ -32,23 +62,6 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.runtime.onInstalled.addListener(reportHeartbeatQuietly);
 chrome.runtime.onStartup.addListener(reportHeartbeatQuietly);
 reportHeartbeatQuietly();
-
-function canonicalSource(value, expectedOfferId) {
-  try {
-    const url = new URL(String(value || ""));
-    const offerId = url.hostname === "detail.1688.com" ? url.pathname.match(/^\/offer\/(\d+)\.html$/)?.[1] : "";
-    if (!offerId || offerId !== String(expectedOfferId)) return null;
-    return `https://detail.1688.com/offer/${offerId}.html`;
-  } catch {
-    return null;
-  }
-}
-
-function validRequest(payload) {
-  if (!payload || typeof payload !== "object") return false;
-  if (!payload.captureId || !payload.token || !payload.candidateId || !Number.isInteger(payload.dataRevision)) return false;
-  return Boolean(canonicalSource(payload.sourceUrl, payload.expectedOfferId));
-}
 
 function ozonProductId(value) {
   try {
@@ -77,21 +90,68 @@ function validOzonRequest(payload) {
   return Boolean(canonicalOzonSource(payload.productUrl, payload.expectedProductId));
 }
 
-function waitForTab(tabId, timeoutMs = 15000, label = "页面") {
+function waitFor1688Destination(tabId, originalSource, expectedOfferId, timeoutMs = 15000) {
   return new Promise(async (resolve, reject) => {
-    const existing = await chrome.tabs.get(tabId).catch(() => null);
-    if (existing?.status === "complete") return resolve(existing);
-    const timer = setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(listener);
-      reject(Object.assign(new Error(`等待${label}加载超时`), { code: "timeout" }));
-    }, timeoutMs);
-    const listener = (updatedId, changeInfo, tab) => {
-      if (updatedId !== tabId || changeInfo.status !== "complete") return;
+    let settled = false;
+    let lastDiagnostics = null;
+    const stopWithFailure = (code, diagnostics) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       chrome.tabs.onUpdated.removeListener(listener);
-      resolve(tab);
+      reject(Object.assign(new Error("1688短链没有落到授权的商品详情页"), {
+        code,
+        failureDiagnostics: diagnostics
+      }));
+    };
+    const inspect = (tab, stage) => {
+      const observation = observed1688TabAddress(tab);
+      const observedUrl = observation.value;
+      if (!observedUrl) return false;
+      const diagnostics = {
+        ...classify1688NavigationOutcome(observedUrl, {
+          expectedOfferId,
+          navigationStage: stage
+        }),
+        tabObservation: observation.tabObservation,
+        lastObservedClassification: lastDiagnostics?.redirectClassification || null
+      };
+      lastDiagnostics = diagnostics;
+      const resolved = validateResolved1688Source(originalSource, observedUrl, expectedOfferId);
+      if (resolved && tab?.status === "complete") {
+        settled = true;
+        clearTimeout(timer);
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve({ tab, ...resolved });
+        return true;
+      }
+      if (diagnostics.redirectClassification === "different_offer") {
+        stopWithFailure("wrong_offer", diagnostics);
+        return true;
+      }
+      if (shouldWaitFor1688Destination(diagnostics, tab?.status)) return false;
+      const failureCode = diagnostics.redirectClassification === "login_required"
+        ? "site_login_required"
+        : diagnostics.redirectClassification === "verification_required"
+          ? "site_verification_required"
+          : "short_link_resolution_failed";
+      stopWithFailure(failureCode, diagnostics);
+      return true;
+    };
+    const timer = setTimeout(async () => {
+      if (settled) return;
+      const current = await chrome.tabs.get(tabId).catch(() => null);
+      const diagnostics = classify1688TimeoutOutcome(current, expectedOfferId, lastDiagnostics);
+      stopWithFailure("short_link_resolution_failed", diagnostics);
+    }, timeoutMs);
+    const listener = (updatedId, changeInfo, tab) => {
+      if (updatedId !== tabId || settled) return;
+      inspect(tab, changeInfo.status === "complete" || tab?.status === "complete" ? "page_complete" : "redirect_observed");
     };
     chrome.tabs.onUpdated.addListener(listener);
+    const existing = await chrome.tabs.get(tabId).catch(() => null);
+    if (settled) return;
+    if (inspect(existing, existing?.status === "complete" ? "page_complete" : "redirect_observed")) return;
   });
 }
 
@@ -155,39 +215,40 @@ async function runCapture(payload) {
   await chrome.storage.session.set({ [`capture:${payload.captureId}`]: { candidateId: payload.candidateId, startedAt: Date.now() } }).catch(() => undefined);
   let tabId = null;
   try {
-    const sourceUrl = canonicalSource(payload.sourceUrl, payload.expectedOfferId);
-    if (!sourceUrl) throw Object.assign(new Error("1688链接与候选不一致"), { code: "wrong_offer" });
-    const matching = (await chrome.tabs.query({ url: "https://detail.1688.com/offer/*" }))
-      .find((tab) => canonicalSource(tab.url, payload.expectedOfferId));
+    const source = classify1688Source(payload.sourceUrl);
+    if (!source) throw Object.assign(new Error("1688链接不在允许范围内"), { code: "wrong_offer" });
+    const matching = source.type === "detail"
+      ? (await chrome.tabs.query({ url: "https://detail.1688.com/offer/*" }))
+        .find((tab) => detailOfferId(tab.url) === source.offerId)
+      : null;
     const tab = matching
-      ? await chrome.tabs.update(matching.id, { active: true, url: sourceUrl })
-      : await chrome.tabs.create({ url: sourceUrl, active: true });
+      ? await chrome.tabs.update(matching.id, { active: true, url: source.sourceUrl })
+      : await chrome.tabs.create({ url: source.sourceUrl, active: true });
     tabId = tab.id;
-    await waitForTab(tabId, 15000, "1688页面");
+    const resolved = await waitFor1688Destination(tabId, source.sourceUrl, payload.expectedOfferId, 15000);
     const execution = await chrome.scripting.executeScript({
       target: { tabId },
       world: "MAIN",
       func: collect1688Page,
-      args: [String(payload.expectedOfferId)]
+      args: [resolved.offerId]
     });
     const collected = execution?.[0]?.result;
     if (!collected || typeof collected !== "object") throw Object.assign(new Error("页面没有返回采集结果"), { code: "structured_data_unavailable" });
     const accepted = await report(payload, collected.status === "captured"
-      ? { status: "captured", evidence: collected.evidence }
+      ? { status: "captured", resolvedSourceUrl: resolved.sourceUrl, evidence: collected.evidence }
       : {
           status: "failed",
           failureCode: collected.failureCode || "structured_data_unavailable",
-          message: collected.message || "1688采集失败",
           observedAt: new Date().toISOString()
         });
-    if (["verified", "needs_sku_selection"].includes(accepted?.candidate?.sourceCapture?.status) && tabId) {
+    if (["verified", "needs_sku_selection", "captured_waiting_owner_selection"].includes(accepted?.candidate?.sourceCapture?.status) && tabId) {
       await chrome.tabs.remove(tabId).catch(() => undefined);
     }
   } catch (error) {
     await report(payload, {
       status: "failed",
       failureCode: error?.code || "structured_data_unavailable",
-      message: String(error?.message || error),
+      ...(error?.failureDiagnostics ? { failureDiagnostics: error.failureDiagnostics } : {}),
       observedAt: new Date().toISOString()
     }).catch(() => undefined);
   } finally {
@@ -251,9 +312,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (![SOURCE_REQUEST_TYPE, SALES_REQUEST_TYPE].includes(message?.type)) return false;
   const payload = message.payload;
   const isOzon = message.type === SALES_REQUEST_TYPE;
-  const requestValid = isOzon ? validOzonRequest(payload) : validRequest(payload);
-  if (!sender?.url?.startsWith("http://127.0.0.1:4317/") || !requestValid) {
-    sendResponse({ accepted: false, error: "采集请求来源或内容无效" });
+  if (!sender?.url?.startsWith("http://127.0.0.1:4317/")) {
+    sendResponse({ accepted: false, code: "request_origin_invalid", error: "采集请求不是来自本机评审台" });
+    return false;
+  }
+  const sourceValidation = isOzon ? null : validateSupplierCaptureRequest({
+    payload,
+    senderUrl: sender.url,
+    manifestVersion: chrome.runtime.getManifest().version
+  });
+  if ((!isOzon && !sourceValidation.ok) || (isOzon && !validOzonRequest(payload))) {
+    const code = isOzon ? "ozon_request_invalid" : sourceValidation.code;
+    sendResponse({
+      accepted: false,
+      code,
+      error: isOzon ? "Ozon采集请求缺少必要字段或商品身份不一致" : captureRequestErrorMessage(code)
+    });
     return false;
   }
   if (activeCaptures.has(payload.captureId)) {

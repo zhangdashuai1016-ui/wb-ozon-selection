@@ -12,6 +12,7 @@ import { createC2AssetLifecycle, confirmFinalUploads } from "./c2-asset-lifecycl
 import { createFinalProductPlanConfirmationCard } from "./final-product-plan-confirmation-card.mjs";
 import { assertValidLifecyclePackage } from "./product-lifecycle-schema.mjs";
 import { assessAStageMarket } from "./market-sample-policy.mjs";
+import { DEFAULT_RULES } from "./workflow.mjs";
 
 export const REAL_C1_PREPARATION_VERSION = "real-c1-preparation-v1.1";
 
@@ -300,6 +301,11 @@ export function prepareRealC1ForFinalAssets({ candidate, ownerFactConfirmation, 
     createdAt: preparedAt
   });
   const cost = candidate.codexReview.completeCost;
+  const pricingRule = candidate.targetStore === "miska"
+    ? DEFAULT_RULES.ozonMiska
+    : candidate.targetPlatform === "WB"
+      ? DEFAULT_RULES.wbCrossListing
+      : DEFAULT_RULES.ozonDandanshu;
   const profitResult = runSkuProfitModel({
     opportunityPackage: confirmed.opportunityPackage,
     skuPackage,
@@ -313,11 +319,17 @@ export function prepareRealC1ForFinalAssets({ candidate, ownerFactConfirmation, 
       sourceType: evidence.cStage.commission.sourceType,
       otherCosts: {
         packagingRmb: candidate.packagingCostRmb,
-        labelRmb: cost.labelRmb,
+        labelRmb: pricingRule.labelCostRmb,
         fixedOtherRmb: 0,
         advertisingRate: cost.advertisingReserveRate,
         returnReserveRate: cost.returnOpsReserveRate,
-        damageReserveRate: cost.damageLossReserveRate
+        damageReserveRate: pricingRule.damageLossReserveRate,
+        withdrawalFeeRate: pricingRule.withdrawalFeeRate,
+        targetMarginRate: pricingRule.targetMarginRate,
+        minimumUnitProfitRmb: pricingRule.minimumUnitProfitRmb,
+        priceIncrementCny: pricingRule.priceRoundRmb,
+        thresholdLogic: pricingRule.thresholdPolicy === "either" ? "any" : "all",
+        pricingPolicyVersion: pricingRule.pricingPolicyVersion
       }
     },
     logisticsEvidence: {

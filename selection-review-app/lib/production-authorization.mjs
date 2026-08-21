@@ -166,6 +166,9 @@ export function createProductionAuthorization({
     throw new Error("PRODUCTION_AUTHORIZATION_GATE_REJECTED: 已存在授权或生产记录");
   }
   validateOwnerApproval(ownerDecision, sourceCard);
+  if (sourceCard.riskAndUnknowns?.materialRisks?.includes("exact_commission_required_before_production")) {
+    throw new Error("PRODUCTION_AUTHORIZATION_GATE_REJECTED: B阶段使用估算佣金，C阶段尚未补取当前精确佣金");
+  }
   if (!isoDateTime(confirmedAt)) throw new Error("PRODUCTION_AUTHORIZATION_INPUT_GAP: 确认时间无效");
   if (!validMoney(buyerTargetPrice)) throw new Error("PRODUCTION_AUTHORIZATION_INPUT_GAP: 必须确认买家目标成交价和币种");
   if (!validMoney(platformWritePrice)) throw new Error("PRODUCTION_AUTHORIZATION_INPUT_GAP: 必须确认店铺后台实际写入价和币种");

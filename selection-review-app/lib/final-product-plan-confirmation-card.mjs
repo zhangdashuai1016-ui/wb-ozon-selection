@@ -170,6 +170,7 @@ export function createFinalProductPlanConfirmationCard({ skuPackage, createdAt }
     platformCompliance: c1.platformCompliance
   });
   const materialRisks = [
+    profit.commissionMode === "estimated" ? "exact_commission_required_before_production" : null,
     c1.batteryAssessment?.assessment?.value === "unknown" ? "battery_status_unknown" : null,
     c1.categoryRestrictions?.restrictions?.value === "unknown" ? "category_restrictions_unknown" : null,
     c1.platformCompliance?.assessment?.value === "unknown" ? "platform_compliance_unknown" : null,
@@ -205,7 +206,8 @@ export function createFinalProductPlanConfirmationCard({ skuPackage, createdAt }
       recommendedSalePrice: sourceValue({ rub: profit.recommendedSalePriceRub, cny: profit.recommendedSalePriceCny }, [profit.profitModelVersion]),
       unitProfitRmb: sourceValue(profit.unitProfitRmb, [profit.profitModelVersion]),
       profitMargin: sourceValue(profit.profitMargin, [profit.profitModelVersion]),
-      result: sourceValue(profit.result, [profit.profitModelVersion])
+      result: sourceValue(profit.result, [profit.profitModelVersion]),
+      commissionMode: sourceValue(profit.commissionMode || "exact", [profit.profitModelVersion])
     },
     c1Facts: {
       exactSku: structuredClone(c1.exactSkuVerification),

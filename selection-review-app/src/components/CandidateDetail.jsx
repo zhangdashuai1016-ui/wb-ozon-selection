@@ -8,6 +8,7 @@ import {
 import { ExternalIcon } from "./Icons";
 import LifecycleStatusCard from "./LifecycleStatusCard";
 import LifecycleEntryPreview from "./LifecycleEntryPreview";
+import RealAConfirmationCard from "./RealAConfirmationCard";
 import StatusBadge from "./StatusBadge";
 
 function Link({ href, children }) {
@@ -28,7 +29,7 @@ function ReviewList({ items }) {
   return <ul className="compact-list">{items.map((item) => <li key={typeof item === "string" ? item : item.label}>{typeof item === "string" ? item : item.label}</li>)}</ul>;
 }
 
-export default function CandidateDetail({ candidate }) {
+export default function CandidateDetail({ candidate, onRealAConfirm, realAConfirming = false }) {
   const dimensions = candidate.dimensionsCm || {};
   return (
     <main className="candidate-detail">
@@ -62,6 +63,14 @@ export default function CandidateDetail({ candidate }) {
           {candidate.notes ? <p className="product-note">{candidate.notes}</p> : null}
           <LifecycleStatusCard candidate={candidate} />
           <LifecycleEntryPreview preview={candidate.lifecycleEntryPreview} />
+          {candidate.realAConfirmationCard ? (
+            <RealAConfirmationCard
+              key={`${candidate.id}:${candidate.realAConfirmationCard.sourceDataRevision}`}
+              card={candidate.realAConfirmationCard}
+              onSubmit={onRealAConfirm}
+              disabled={realAConfirming}
+            />
+          ) : null}
           {candidate.selectionStage ? (
             <div className={`selection-stage stage-${candidate.selectionStage.stage}`}>
               <strong>{candidate.selectionStage.label}</strong>

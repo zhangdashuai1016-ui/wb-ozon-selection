@@ -111,6 +111,15 @@ export async function collect1688Page(expectedOfferId) {
     return { value: null, source: null };
   };
 
+  const explicitScalarField = (entries, positiveOnly = false) => {
+    for (const [source, value] of entries) {
+      if (value === null || value === undefined || value === "" || typeof value === "object") continue;
+      const parsed = numberFrom(value);
+      if (parsed !== null && (!positiveOnly || parsed > 0)) return { value: parsed, source };
+    }
+    return { value: null, source: null };
+  };
+
   const rawSkuEntries = [];
   const addEntries = (value, source) => {
     if (Array.isArray(value)) value.forEach((item, index) => rawSkuEntries.push({ item, fallbackId: "", source: `${source}[${index}]` }));
@@ -287,6 +296,21 @@ export async function collect1688Page(expectedOfferId) {
   ].map(([value, source]) => [limitText(value, 800).replace(/\s*[-_|]\s*阿里巴巴.*$/i, "").trim(), source])
     .filter(([value]) => value);
   const titleChoice = rawTitleCandidates.find(([value]) => !/(?:有限责任公司|有限公司|个体工商户|经营部)$/.test(value)) || rawTitleCandidates[0] || ["", null];
+  const pageProductPrice = explicitScalarField([
+    ["offerBaseInfo.offerPrice", offerBaseInfo?.offerPrice],
+    ["offerBaseInfo.price", offerBaseInfo?.price],
+    ["tradeModel.offerPrice", tradeModel?.offerPrice],
+    ["tradeModel.unitPrice", tradeModel?.unitPrice],
+    ["tradeModel.currentPrice", tradeModel?.currentPrice]
+  ], true);
+  const pageDomesticFreight = explicitScalarField([
+    ["tradeModel.freightPrice", tradeModel?.freightPrice],
+    ["tradeModel.postFee", tradeModel?.postFee],
+    ["tradeModel.freight", tradeModel?.freight],
+    ["freightModel.freightPrice", root?.freightModel?.freightPrice],
+    ["freightModel.postFee", root?.freightModel?.postFee],
+    ["freightModel.price", root?.freightModel?.price]
+  ]);
 
   return {
     status: "captured",
@@ -299,6 +323,12 @@ export async function collect1688Page(expectedOfferId) {
       offerIdSource: structuredOfferId ? "offerBaseInfo.offerId" : "location.pathname",
       pageSelectedSkuId: pageSelectedSkuId || null,
       priceRanges,
+      pageFields: {
+        unitProductPriceCny: pageProductPrice.value,
+        unitProductPriceSource: pageProductPrice.source,
+        unitDomesticFreightCny: pageDomesticFreight.value,
+        unitDomesticFreightSource: pageDomesticFreight.source
+      },
       supplierAttributes,
       skus
     }

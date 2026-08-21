@@ -25,14 +25,15 @@ test("CX-20260802-014 produces a read-only real lifecycle entry preview without 
   assert.equal(preview.readOnly, true);
   assert.equal(preview.available, true);
   assert.equal(preview.sourceCandidateId, "CX-20260802-014");
-  assert.equal(preview.sourceDataRevision, 20);
+  assert.equal(preview.sourceDataRevision, candidate.dataRevision);
   assert.equal(preview.opportunityPackage.parentOpportunityId, candidate.id);
   assert.equal(preview.salesEvidence.schemaValid, true);
   assert.equal(preview.salesEvidence.currentPrice, 1462);
   assert.equal(preview.salesEvidence.currency, "RUB");
   assert.equal(preview.salesEvidence.sellerType, "unknown");
   assert.equal(preview.salesEvidence.businessUseStatus, "pending_a_review");
-  assert.equal(preview.supplierEvidence.sourceUrl, "https://qr.1688.com/s/7OnLCakq");
+  assert.equal(preview.supplierEvidence.sourceUrl, "https://detail.1688.com/offer/876240928352.html");
+  assert.equal(candidate.sourceCapture.originalSourceUrl, "https://qr.1688.com/s/7OnLCakq");
   assert.equal(preview.supplierEvidence.supplierSkuId, null);
   assert.equal(preview.supplierEvidence.unitProductPrice, null);
   assert.equal(preview.supplierEvidence.unitDomesticFreight, null);

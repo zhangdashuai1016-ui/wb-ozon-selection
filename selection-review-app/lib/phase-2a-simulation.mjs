@@ -365,7 +365,13 @@ export function runPhase2AConfirmation(input, options = {}) {
         fixedOtherRmb: 0,
         advertisingRate: 0,
         returnReserveRate: 0.05,
-        damageReserveRate: 0.05
+        damageReserveRate: 0.05,
+        withdrawalFeeRate: 0.02,
+        targetMarginRate: 0.15,
+        minimumUnitProfitRmb: 20,
+        priceIncrementCny: 1,
+        thresholdLogic: "any",
+        pricingPolicyVersion: "ozon-wb-global-pricing-2026-08-21-v3-project-or-threshold-v1"
       }
     },
     logisticsEvidence: {

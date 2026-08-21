@@ -140,7 +140,13 @@ async function phase7PassedState({ sellerType = "cross_border_cn" } = {}) {
         fixedOtherRmb: 0,
         advertisingRate: 0,
         returnReserveRate: 0.05,
-        damageReserveRate: 0.05
+        damageReserveRate: 0.05,
+        withdrawalFeeRate: 0.02,
+        targetMarginRate: 0.15,
+        minimumUnitProfitRmb: 20,
+        priceIncrementCny: 1,
+        thresholdLogic: "any",
+        pricingPolicyVersion: "ozon-wb-global-pricing-2026-08-21-v3-project-or-threshold-v1"
       }
     },
     logisticsEvidence: {
@@ -855,8 +861,8 @@ test("11 creates one complete owner-facing final product plan confirmation card"
   assert.equal(card.productInformation.targetPlatform.value.platform, "ozon");
   assert.equal(card.productInformation.targetPlatform.value.store, "dandanshu");
   assert.equal(card.profitResult.recommendedSalePrice.value.rub, 1831);
-  assert.equal(card.profitResult.unitProfitRmb.value, 44.95);
-  assert.equal(card.profitResult.profitMargin.value, 0.2962);
+  assert.equal(card.profitResult.unitProfitRmb.value, 41.92);
+  assert.equal(card.profitResult.profitMargin.value, 0.2762);
   assert.deepEqual(validateFinalProductPlanConfirmationCard(card), { valid: true, errors: [] });
 });
 
@@ -1019,6 +1025,23 @@ test("12 requires the owner to approve the exact card and never auto-authorizes"
   }), /OWNER_CONFIRMATION_REQUIRED/);
   assert.equal(phase11.skuPackage.productionAuthorization, null);
   assert.equal(phase11.confirmationCard.ownerDecision, null);
+});
+
+test("12 blocks production while the active B result still uses an estimated commission", async () => {
+  const phase11 = await phase11ConfirmationCardState();
+  const blocked = structuredClone(phase11.skuPackage);
+  blocked.productionConfirmationCard.riskAndUnknowns.materialRisks.push("exact_commission_required_before_production");
+  blocked.productionConfirmationCard.riskAndUnknowns.status = "owner_review_required";
+  assert.throws(() => createProductionAuthorization({
+    skuPackage: blocked,
+    ownerDecision: ownerProductionApproval(blocked.productionConfirmationCard.cardId),
+    buyerTargetPrice: { amount: 1831, currency: "RUB" },
+    platformWritePrice: { amount: 151.78, currency: "CNY" },
+    priceConversion: { rubPerCny: 12.0637, evidenceRef: "fx:cbr:test", checkedAt: "2026-08-12T13:30:00.000Z" },
+    publishScope: "create_draft_only",
+    exclusions: [],
+    confirmedAt: "2026-08-12T13:30:00.000Z"
+  }), /C阶段尚未补取当前精确佣金/);
 });
 
 test("12 locks SKU, title, attributes, price, stock, final assets and authorization scope against later source changes", async () => {

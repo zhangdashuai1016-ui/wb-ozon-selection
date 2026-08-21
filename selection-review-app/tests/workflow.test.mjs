@@ -398,9 +398,9 @@ test("purchase ceiling uses the larger limit because profit or margin may pass",
   };
   const result = purchaseCeilingSummary(candidate, DEFAULT_RULES);
   assert.equal(result.status, "verified");
-  assert.equal(result.profitLimitedCeilingRmb, 89);
-  assert.equal(result.marginLimitedCeilingRmb, 79);
-  assert.equal(result.maximumAllInPurchaseRmb, 89);
+  assert.equal(result.profitLimitedCeilingRmb, 85);
+  assert.equal(result.marginLimitedCeilingRmb, 75);
+  assert.equal(result.maximumAllInPurchaseRmb, 85);
 });
 
 test("current promotion policy keeps profit on discounted transaction price and only reverse-calculates list prices", () => {
@@ -428,9 +428,9 @@ test("current promotion policy keeps profit on discounted transaction price and 
   const result = purchaseCeilingSummary(candidate, DEFAULT_RULES);
   assert.equal(result.status, "verified");
   assert.equal(result.advertisingReserveRate, 0);
-  assert.equal(result.unitProfitRmb, 79);
-  assert.equal(result.marginRate, 0.395);
-  assert.equal(result.maximumAllInPurchaseRmb, 89);
+  assert.equal(result.unitProfitRmb, 75);
+  assert.equal(result.marginRate, 0.375);
+  assert.equal(result.maximumAllInPurchaseRmb, 85);
   assert.deepEqual(result.promotionPricing.map((item) => item.key), ["low", "base", "high"]);
   assert.deepEqual(result.promotionPricing.map((item) => item.suggestedListPriceRmb), [250, 266.67, 285.71]);
   assert.equal(result.policyUpdatePending, false);
@@ -500,7 +500,7 @@ test("direction-stage estimate gives a sourcing interval without pretending fina
     }
   }, DEFAULT_RULES);
   assert.equal(result.status, "estimated");
-  assert.equal(result.maximumAllInPurchaseRmb, 317.86);
+  assert.equal(result.maximumAllInPurchaseRmb, 306.44);
   assert.equal(result.estimateOnly, true);
 });
 

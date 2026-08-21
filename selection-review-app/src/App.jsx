@@ -246,6 +246,32 @@ export default function App() {
     }
   }
 
+  async function confirmRealAStage(payload) {
+    if (!selected) return;
+    try {
+      const result = await api.confirmRealAStage(selected.id, {
+        ...payload,
+        dataRevision: selected.dataRevision
+      });
+      setQueue(result.candidate.workflowStatus);
+      setSelectedId(result.candidate.id);
+      setNotice({
+        type: "success",
+        message: payload.decision === "reject"
+          ? "A阶段已淘汰当前商品；未启动B或任何平台操作"
+          : result.status === "supplier_capture_job_queued"
+            ? "A阶段供应链接已保存；单候选采集作业等待插件后台自动领取，无需额外点击采集"
+          : result.candidate.lifecycleV11?.skuPackage?.businessPhase === "C1"
+            ? "A确认已原子保存，B已自动通过并创建C1；无需再次点击开始上架准备"
+            : "A确认已原子保存，B已自动计算；当前商品未进入C1"
+      });
+      await load(true);
+    } catch (error) {
+      setNotice({ type: "error", message: error.message });
+      if (error.status === 409) await load(true);
+    }
+  }
+
   async function chooseRecoveryAction(action) {
     if (!selected) return;
     try {
@@ -574,7 +600,7 @@ export default function App() {
         />
         {selected ? (
           <div className="review-pane">
-            <CandidateDetail candidate={selected} />
+            <CandidateDetail candidate={selected} onRealAConfirm={confirmRealAStage} />
             <UserInspector
               candidate={selected}
               rules={state.rules}

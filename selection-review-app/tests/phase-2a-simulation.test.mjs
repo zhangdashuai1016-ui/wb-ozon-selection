@@ -37,8 +37,8 @@ test("2A一张A确认卡同时锁定方向、供应链接、SKU、价格运费�
   assert.equal(summary.recommendedSalePriceRub, 1831);
   assert.equal(summary.suggestedListPricesRub.length, 3);
   assert.equal(summary.actualPurchaseCostCny, 41);
-  assert.equal(summary.unitProfitRmb, 44.95);
-  assert.equal(summary.profitMargin, 0.2962);
+  assert.equal(summary.unitProfitRmb, 41.92);
+  assert.equal(summary.profitMargin, 0.2762);
   assert.equal(summary.formulaCheck, summary.unitProfitRmb);
   assert.equal(result.sharedCandidatesAffected, 0);
   assert.equal(result.realTaskDispatches, 0);

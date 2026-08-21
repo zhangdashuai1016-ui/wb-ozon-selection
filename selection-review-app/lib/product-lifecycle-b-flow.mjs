@@ -7,6 +7,13 @@ import {
   validateOpportunityPackage
 } from "./product-lifecycle-schema.mjs";
 import { resolveBMarketPrice } from "./market-sample-policy.mjs";
+import {
+  GLOBAL_DAMAGE_LOSS_RESERVE_RATE,
+  GLOBAL_LABEL_FEE_PER_ORDER_CNY,
+  GLOBAL_PRICING_POLICY_VERSION,
+  GLOBAL_WITHDRAWAL_FEE_RATE,
+  calculateProjectSourceMarketFit,
+} from "./global-pricing-policy.mjs";
 
 export const B_FLOW_VERSION = "single-sku-b-flow-v1";
 
@@ -180,14 +187,38 @@ export function runBProfitModel({
   const advertisingReserveRate = requireNumber(fees.advertisingReserveRate, "广告预留率", { nonNegative: true });
   const returnReserveRate = requireNumber(fees.returnReserveRate, "退货运营预留率", { nonNegative: true });
   const damageReserveRate = requireNumber(fees.damageReserveRate, "破损丢失预留率", { nonNegative: true });
+  const withdrawalFeeRate = requireNumber(fees.withdrawalFeeRate, "提现费率", { nonNegative: true });
+  const targetMarginRate = requireNumber(fees.targetMarginRate, "目标利润率", { nonNegative: true });
+  const minimumUnitProfitRmb = requireNumber(fees.minimumUnitProfitRmb, "最低单件利润", { nonNegative: true });
+  const priceIncrementCny = requireNumber(fees.priceIncrementCny, "售价步进", { positive: true });
   const otherCostRmb = requireNumber(fees.otherCostRmb, "其他成本", { nonNegative: true });
-  const totalVariableRate = commissionRate + advertisingReserveRate + returnReserveRate + damageReserveRate;
+  if (fees.thresholdLogic !== "any" || fees.pricingPolicyVersion !== GLOBAL_PRICING_POLICY_VERSION) {
+    throw new Error("B_INPUT_GAP: 定价政策或利润门槛不是当前项目版本");
+  }
+  if (labelRmb !== GLOBAL_LABEL_FEE_PER_ORDER_CNY || damageReserveRate !== GLOBAL_DAMAGE_LOSS_RESERVE_RATE || withdrawalFeeRate !== GLOBAL_WITHDRAWAL_FEE_RATE) {
+    throw new Error("B_INPUT_GAP: 全局贴单、破损丢失或提现费政策不一致");
+  }
+  const totalVariableRate = commissionRate + advertisingReserveRate + returnReserveRate + damageReserveRate + withdrawalFeeRate;
   if (totalVariableRate >= 1) throw new Error("B_INPUT_GAP: 费率合计必须小于100%");
 
   const fx = requireObject(exchangeRateEvidence, "汇率证据");
   const exchangeRateEvidenceId = requireString(fx.evidenceId, "汇率证据ID");
   const rubPerCny = requireNumber(fx.rubPerCny, "RUB/CNY汇率", { positive: true });
   const recommendedSalePriceCny = roundMoney(marketPriceRub / rubPerCny);
+  const pricing = calculateProjectSourceMarketFit({
+    marketReferencePriceCny: recommendedSalePriceCny,
+    actualPurchaseCostCny: actualPurchaseCost,
+    packagingCostCny: packagingRmb,
+    internationalFreightPerOrderCny: logisticsRmb,
+    fixedOtherCostCny: otherCostRmb,
+    commissionRate,
+    advertisingRate: advertisingReserveRate,
+    returnOperationsRate: returnReserveRate,
+    targetMarginRate,
+    minimumUnitProfitCny: minimumUnitProfitRmb,
+    priceIncrementCny,
+    marketSampleCount: resolvedMarket.assessment.primarySampleIds.length,
+  });
   const sellerRevenueAfterCommissionCny = roundMoney(recommendedSalePriceCny * (1 - commissionRate));
   const unitProfitRmb = roundMoney(
     recommendedSalePriceCny * (1 - totalVariableRate) -
@@ -212,6 +243,15 @@ export function runBProfitModel({
     marketSellerTypesUsed: structuredClone(resolvedMarket.assessment.sellerTypesUsed),
     marketConfidence: resolvedMarket.assessment.confidence,
     containsLocalRuBackground: resolvedMarket.assessment.containsLocalRuBackground,
+    pricingPolicyVersion: pricing.pricingPolicyVersion,
+    pricingMode: pricing.pricingMode,
+    priceFloors: structuredClone(pricing.priceFloors),
+    marketFit: structuredClone(pricing.marketFit),
+    costScope: {
+      fixedCosts: structuredClone(pricing.fixedCosts),
+      variableRates: structuredClone(pricing.variableRates),
+      logisticsQuoteBasis: "per_order",
+    },
     recommendedSalePriceCny,
     unitProfitRmb,
     profitMargin,
@@ -233,10 +273,11 @@ export function runBProfitModel({
         advertisingReserveRate,
         returnReserveRate,
         damageReserveRate,
+        withdrawalFeeRate,
         sourceRef: feeEvidenceId
       }
     },
-    formula: "建议成交价CNY=销售快照RUB÷RUB/CNY；利润=建议成交价×(1-佣金-广告预留-退货预留-破损预留)-采购到手价-国际物流-包装-贴标-其他成本；利润率=利润÷建议成交价"
+    formula: "先按全局定价Skill反推价格线，再用A阶段市场目标价计算利润；利润=成交价×(1-佣金-广告-退货运营-破损丢失-提现费)-采购到手价-整单国际物流-包装-每单贴单费-其他固定成本。"
   };
 
   const next = appendProfitModelVersion(skuPackage, model);

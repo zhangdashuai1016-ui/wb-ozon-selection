@@ -102,6 +102,30 @@ export function validateSalesSnapshot(snapshot) {
   if (!(snapshot.categoryPath === UNKNOWN || nonEmptyString(snapshot.categoryPath))) {
     push(errors, "categoryPath", "必须是非空字符串或unknown");
   }
+  if (snapshot.platformCategoryEvidence !== undefined) {
+    const category = snapshot.platformCategoryEvidence;
+    if (!isObject(category)) {
+      push(errors, "platformCategoryEvidence", "必须是对象");
+    } else {
+      if (category.status !== "verified") push(errors, "platformCategoryEvidence.status", "必须是verified");
+      if (!Number.isInteger(category.descriptionCategoryId) || category.descriptionCategoryId <= 0) {
+        push(errors, "platformCategoryEvidence.descriptionCategoryId", "必须是准确正整数");
+      }
+      if (!Number.isInteger(category.typeId) || category.typeId <= 0) {
+        push(errors, "platformCategoryEvidence.typeId", "必须是准确正整数");
+      }
+      if (!nonEmptyString(category.categoryToken)) push(errors, "platformCategoryEvidence.categoryToken", "必须是稳定类目token");
+      if (category.sourceSnapshotId !== snapshot.snapshotId) {
+        push(errors, "platformCategoryEvidence.sourceSnapshotId", "必须指向当前销售快照");
+      }
+      if (!Array.isArray(category.sourceEvidenceRefs) ||
+          category.sourceEvidenceRefs.length < 2 ||
+          category.sourceEvidenceRefs.some((item) => !nonEmptyString(item))) {
+        push(errors, "platformCategoryEvidence.sourceEvidenceRefs", "必须同时保留佣金和Schema证据引用");
+      }
+      if (!isoDateTime(category.verifiedAt)) push(errors, "platformCategoryEvidence.verifiedAt", "必须有有效核验时间");
+    }
+  }
   if (!isObject(snapshot.attributes)) push(errors, "attributes", "必须是对象");
   if (!isoDateTime(snapshot.collectedAt)) push(errors, "collectedAt", "必须是有效时间");
   if (!nonEmptyString(snapshot.evidenceRef)) push(errors, "evidenceRef", "必须是非空字符串");

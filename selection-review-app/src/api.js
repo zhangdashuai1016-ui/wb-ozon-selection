@@ -20,6 +20,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  confirmRealAStage: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/a-confirm`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   getState: () => request("/api/state"),
   getWorkflowMap: (candidateId = "") =>
     request(`/api/workflow-map${candidateId ? `?candidateId=${encodeURIComponent(candidateId)}` : ""}`),

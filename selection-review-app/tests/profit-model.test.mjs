@@ -14,6 +14,7 @@ import {
   runSkuProfitModel,
   validateProfitModel
 } from "../lib/profit-model.mjs";
+import { GLOBAL_PRICING_POLICY_VERSION } from "../lib/global-pricing-policy.mjs";
 import { validateSkuLifecyclePackage } from "../lib/product-lifecycle-schema.mjs";
 import { attachPassedMarketAssessment } from "./helpers/market-assessment-fixture.mjs";
 
@@ -114,7 +115,13 @@ async function preparedInputs() {
         fixedOtherRmb: 0,
         advertisingRate: 0,
         returnReserveRate: 0.05,
-        damageReserveRate: 0.05
+        damageReserveRate: 0.05,
+        withdrawalFeeRate: 0.02,
+        targetMarginRate: 0.15,
+        minimumUnitProfitRmb: 20,
+        priceIncrementCny: 1,
+        thresholdLogic: "any",
+        pricingPolicyVersion: GLOBAL_PRICING_POLICY_VERSION
       }
     },
     logisticsEvidence: {
@@ -154,9 +161,21 @@ test("CX-20260803-010 produces the complete frozen ProfitModel from five upstrea
   assert.equal(model.commissionRate, 0.14);
   assert.equal(model.internationalFreight.amount, 26.4);
   assert.equal(model.actualPurchaseCost.amount, 41);
-  assert.equal(model.otherCosts.amount, 18.18);
-  assert.equal(model.unitProfitRmb, 44.95);
-  assert.equal(model.profitMargin, 0.2962);
+  assert.equal(model.otherCosts.amount, 21.21);
+  assert.equal(model.unitProfitRmb, 41.92);
+  assert.equal(model.profitMargin, 0.2762);
+  assert.equal(model.pricingMode, "source-market-fit");
+  assert.deepEqual(model.priceFloors, {
+    breakEvenPriceCny: 95.14,
+    marginFloorCny: 119.32,
+    minimumProfitFloorCny: 122.16,
+    qualifyingFloorCny: 120,
+    qualifyingLogic: "any",
+    priceIncrementCny: 1
+  });
+  assert.equal(model.marketFit.status, "fits_market");
+  assert.equal(model.marketFit.headroomCny, 31.78);
+  assert.equal(model.marketFit.comparableCountIsHardGate, false);
   assert.equal(model.thresholdVersion, PROFIT_THRESHOLD_VERSION);
   assert.deepEqual(model.thresholds, {
     minimumProfitMargin: 0.15,
@@ -187,6 +206,21 @@ test("B uses OR threshold logic and remains in B after calculation", async () =>
   assert.ok(rejected.profitModel.profitMargin < 0.15 && rejected.profitModel.unitProfitRmb < 20);
   assert.equal(rejected.profitModel.result, "rejected");
   assert.equal(rejected.skuPackage.businessPhase, "B");
+});
+
+test("B preserves an authorized estimated commission and requires an exact C-stage replacement", async () => {
+  const inputs = await preparedInputs();
+  inputs.platformFeeEvidence.commissionRate = 0.2;
+  inputs.platformFeeEvidence.commissionEvidenceMode = "estimated";
+  inputs.platformFeeEvidence.estimateAuthorized = true;
+  const result = runSkuProfitModel(inputs);
+  assert.equal(result.profitModel.commissionRate, 0.2);
+  assert.equal(result.profitModel.commissionMode, "estimated");
+  assert.equal(result.profitModel.exactCommissionRequiredAtC, true);
+
+  const unauthorized = await preparedInputs();
+  unauthorized.platformFeeEvidence.commissionEvidenceMode = "estimated";
+  assert.throws(() => runSkuProfitModel(unauthorized), /估算佣金缺少当前SKU主人授权/);
 });
 
 test("current threshold passes when either unit profit or profit margin reaches the minimum", async () => {

@@ -63,6 +63,21 @@ function listedRecoveryCandidate() {
   };
 }
 
+function aSupplierCandidate(id = "A-SUPPLIER") {
+  return {
+    ...candidate(id, "无电复古缝纫机造型手摇机械音乐盒"),
+    sourceUrl: "https://qr.1688.com/s/7OnLCakq",
+    workflowStatus: "codex_processing",
+    listingPreparation: undefined,
+    listingHandoff: undefined,
+    lifecycleV11: {
+      status: "opportunity_sales_snapshot_captured",
+      opportunityPackage: { schemaVersion: "product-lifecycle-v1.1", entityType: "OpportunityPackage" },
+      platformWrites: 0
+    }
+  };
+}
+
 async function waitForHealth(child, stderr) {
   for (let attempt = 0; attempt < 50; attempt += 1) {
     if (child.exitCode !== null) throw new Error(`测试服务提前退出：${stderr.join("")}`);
@@ -92,6 +107,12 @@ function capturedEvidence(skus) {
     titleSource: "offerBaseInfo",
     offerIdSource: "offerBaseInfo.offerId",
     priceRanges: [{ minimumQuantity: 2, priceCny: 39, source: "tradeModel.offerPriceRanges" }],
+    pageFields: {
+      unitProductPriceCny: null,
+      unitProductPriceSource: null,
+      unitDomesticFreightCny: null,
+      unitDomesticFreightSource: null
+    },
     supplierAttributes: { 材质: "木质" },
     skus
   };
@@ -104,7 +125,7 @@ test("旧1688 C入口不再派发，已上架证据恢复仍保持只读", async
   await writeFile(dataFile, JSON.stringify({
     meta: { version: 2, title: "test", updatedAt: "2026-08-11T00:00:00.000Z", automationStarted: false },
     rules: {},
-    candidates: [candidate("CAPTURE-1"), originalOther, candidate("AMBIG-1", "木质火车"), listedRecoveryCandidate(), candidate("UNTOUCHED-1", "未触碰商品50片")]
+    candidates: [candidate("CAPTURE-1"), originalOther, candidate("AMBIG-1", "木质火车"), listedRecoveryCandidate(), aSupplierCandidate(), aSupplierCandidate("A-FAILURE"), candidate("UNTOUCHED-1", "未触碰商品50片")]
   }));
 
   const child = spawn(process.execPath, [path.join(appDir, "server.mjs"), "--api-only"], {
@@ -133,6 +154,15 @@ test("旧1688 C入口不再派发，已上架证据恢复仍保持只读", async
   const start = await post("/api/candidates/CAPTURE-1/source-capture/start", { dataRevision: 1 });
   assert.equal(start.status, 409);
   assert.match((await start.json()).message, /不会创建旧C阶段派发/);
+
+  const aStart = await post("/api/candidates/A-SUPPLIER/source-capture/start", {
+    dataRevision: 1,
+    mode: "a_supplier_capture"
+  });
+  assert.equal(aStart.status, 409);
+  const aStartBody = await aStart.json();
+  assert.equal(aStartBody.code, "manual_a_supplier_capture_retired");
+  assert.match(aStartBody.message, /服务端会建立单候选作业/);
 
   let state = await (await fetch(`${baseUrl}/api/state`)).json();
   const listedRecovery = state.candidates.find((item) => item.id === "LISTED-RECOVERY");
@@ -186,10 +216,13 @@ test("旧1688 C入口不再派发，已上架证据恢复仍保持只读", async
   assert.equal(persisted.dispatches.filter((item) => item.candidateId === "OTHER-1").length, 0);
   assert.equal(persisted.dispatches.filter((item) => item.candidateId === "AMBIG-1").length, 0);
   assert.equal(persisted.dispatches.filter((item) => item.candidateId === "LISTED-RECOVERY").length, 0);
+  assert.equal(persisted.dispatches.filter((item) => item.candidateId === "A-SUPPLIER").length, 0);
+  assert.equal(persisted.dispatches.filter((item) => item.candidateId === "A-FAILURE").length, 0);
   const persistedListed = persisted.candidates.find((item) => item.id === "LISTED-RECOVERY");
   assert.equal(persistedListed.workflowStatus, "listed");
   assert.deepEqual(persistedListed.listingRecord, listedRecordBefore);
   const persistedOther = persisted.candidates.find((item) => item.id === "OTHER-1");
+  assert.deepEqual(persistedOther, originalOther);
   assert.equal(persistedOther.sourceCapture, undefined);
   const untouched = persisted.candidates.find((item) => item.id === "UNTOUCHED-1");
   assert.equal(untouched.dataRevision, 1);

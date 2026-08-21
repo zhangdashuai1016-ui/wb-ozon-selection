@@ -55,6 +55,33 @@
       ]
     },
     "categoryPath": { "type": "string", "minLength": 1 },
+    "platformCategoryEvidence": {
+      "type": "object",
+      "required": [
+        "status",
+        "descriptionCategoryId",
+        "typeId",
+        "categoryToken",
+        "sourceSnapshotId",
+        "sourceEvidenceRefs",
+        "verifiedAt"
+      ],
+      "properties": {
+        "status": { "const": "verified" },
+        "descriptionCategoryId": { "type": "integer", "minimum": 1 },
+        "typeId": { "type": "integer", "minimum": 1 },
+        "categoryToken": { "type": "string", "pattern": "^ozon:[0-9]+:[0-9]+$" },
+        "sourceProductId": { "type": ["string", "null"] },
+        "sourceSnapshotId": { "type": "string", "minLength": 1 },
+        "sourceEvidenceRefs": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "verifiedAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
     "attributes": { "type": "object" },
     "collectedAt": { "type": "string", "format": "date-time" },
     "evidenceRef": { "type": "string", "minLength": 1 },

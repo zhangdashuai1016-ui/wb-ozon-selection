@@ -66,6 +66,48 @@ test("mock Ozon data generates a complete immutable SalesSnapshot", () => {
   assert.deepEqual(validateSalesSnapshot(snapshot), { valid: true, errors: [] });
 });
 
+test("verified competitor category identity can be frozen on a SalesSnapshot", () => {
+  const snapshot = collectMockOzonSalesSnapshot(mockFixture());
+  const enriched = {
+    ...snapshot,
+    attributes: {
+      ...snapshot.attributes,
+      description_category_id: 17028743,
+      type_id: 971097529
+    },
+    platformCategoryEvidence: {
+      status: "verified",
+      descriptionCategoryId: 17028743,
+      typeId: 971097529,
+      categoryToken: "ozon:17028743:971097529",
+      sourceProductId: "10001",
+      sourceSnapshotId: snapshot.snapshotId,
+      sourceEvidenceRefs: ["commission:test", "schema:test"],
+      verifiedAt: "2026-08-12T13:05:00.000Z"
+    }
+  };
+  assert.deepEqual(validateSalesSnapshot(enriched), { valid: true, errors: [] });
+});
+
+test("competitor category identity is rejected when commission and Schema evidence is incomplete", () => {
+  const snapshot = collectMockOzonSalesSnapshot(mockFixture());
+  const result = validateSalesSnapshot({
+    ...snapshot,
+    platformCategoryEvidence: {
+      status: "verified",
+      descriptionCategoryId: 17028743,
+      typeId: 971097529,
+      categoryToken: "ozon:17028743:971097529",
+      sourceSnapshotId: "another-snapshot",
+      sourceEvidenceRefs: ["commission-only"],
+      verifiedAt: "2026-08-12T13:05:00.000Z"
+    }
+  });
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((item) => item.path === "platformCategoryEvidence.sourceSnapshotId"));
+  assert.ok(result.errors.some((item) => item.path === "platformCategoryEvidence.sourceEvidenceRefs"));
+});
+
 test("all required acceptance fields are present in the published JSON Schema", async () => {
   const url = new URL("../schema/sales-snapshot-v1.1.schema.json", import.meta.url);
   const schema = JSON.parse(await readFile(url, "utf8"));

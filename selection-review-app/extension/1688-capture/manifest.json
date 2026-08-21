@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "今日选品评审台 · 商品只读采集器",
-  "version": "1.2.2",
-  "description": "仅在主人从本机评审台点击后，读取当前1688或Ozon商品页的结构化证据并回传到127.0.0.1:4317。",
+  "version": "1.2.7",
+  "description": "仅领取本机评审台明确建立的单候选只读作业，读取1688或Ozon商品页结构化证据并回传到127.0.0.1:4317。",
   "permissions": [
     "alarms",
     "scripting",
@@ -10,6 +10,7 @@
     "storage"
   ],
   "host_permissions": [
+    "https://qr.1688.com/s/*",
     "https://detail.1688.com/offer/*",
     "https://www.ozon.ru/product/*",
     "http://127.0.0.1:4317/*"

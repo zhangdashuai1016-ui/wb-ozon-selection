@@ -3,6 +3,7 @@ import { STORE_LABELS } from "../constants";
 import { salesCaptureFailurePresentation } from "../extensionStatus";
 import { wbPresentation } from "../wbPresentation";
 import { MessageIcon } from "./Icons";
+import { evaluatePostLaunchObservation, POST_LAUNCH_THRESHOLDS } from "../../lib/post-launch-observation.mjs";
 
 function optionalNumber(value) {
   return value === "" ? null : Number(value);
@@ -591,7 +592,8 @@ function ListingPreparationPanel({ candidate, onRecoveryAction, onCapture, onSel
             <b>新版生命周期 · C1已完成</b>
             <span>精确SKU：{lifecycleSku.supplierSkuId} · 当前阶段：{lifecycleSku.businessPhase} · 技术状态：{lifecycleSku.technicalStatus}</span>
             <span>商品事实：{supplierFactSummary || "供应属性未完整确认"}{materialFact?.verificationStatus === "confirmed" ? ` · 材质：${String(materialFact.value)}` : " · 材质：unknown"}{batteryFact?.verificationStatus === "confirmed" ? ` · 电池：${String(batteryFact.value)}` : " · 电池：unknown"}</span>
-            {activeProfit ? <span>建议成交价：{activeProfit.recommendedSalePriceRub} RUB · 单件利润 ¥{activeProfit.unitProfitRmb} · 利润率 {(activeProfit.profitMargin * 100).toFixed(2)}%</span> : null}
+            {activeProfit ? <span>市场目标成交价：{activeProfit.recommendedSalePriceRub} RUB · 单件利润 ¥{activeProfit.unitProfitRmb} · 利润率 {(activeProfit.profitMargin * 100).toFixed(2)}%</span> : null}
+            {activeProfit?.priceFloors ? <span>成本反推合格底线：¥{activeProfit.priceFloors.qualifyingFloorCny} · 盈亏线 ¥{activeProfit.priceFloors.breakEvenPriceCny} · 市场余量 ¥{activeProfit.marketFit?.headroomCny}</span> : null}
             {c1Plan?.seoTitleDraft?.text ? <span>俄语标题草稿：{c1Plan.seoTitleDraft.text}</span> : null}
             <span>关键词证据：当前冻结事实词，无搜索量声明，Seerfar 0点；草稿仍待主人审阅。</span>
             <span>最终素材：{c2Assets?.assets?.finalUploads?.length || 0}个 · 生产授权：{lifecycleSku.productionAuthorization ? "已生成" : "未生成"} · 平台写入：0</span>
@@ -852,6 +854,11 @@ function ReadyPanel({ candidate, rules, onMarkListed, onProductionAuthorization 
 
 function ListedPanel({ candidate, onCapture, onSelectSku }) {
   const record = candidate.listingRecord || {};
+  const observation = evaluatePostLaunchObservation({
+    listedAt: candidate.listedAt || record.confirmedAt,
+    ...(candidate.postLaunchMetrics || {}),
+    stableForSale: candidate.postLaunchMetrics?.stableForSale,
+  });
   const sourceCapture = candidate.sourceCapture || {};
   const automatic = record.method === "automatic_readback";
   const listedRecoveryAllowed = record.stateOnly === true &&
@@ -917,6 +924,19 @@ function ListedPanel({ candidate, onCapture, onSelectSku }) {
           <p className="readback-evidence">主人最终价格决定：保留 {record.ownerPriceDecision.price.amount} {record.ownerPriceDecision.price.currency}</p>
         ) : null}
         {automatic && record.readback?.checkedAt ? <p className="readback-evidence">最近回读：{new Date(record.readback.checkedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })} · {record.readback.evidenceRef}</p> : null}
+        <aside className={`post-launch-observation status-${observation.status}`}>
+          <div className="post-launch-observation-heading">
+            <b>上架后选品表现</b>
+            <span>{observation.days === null ? "尚未计时" : `第 ${observation.days} 天`}</span>
+          </div>
+          <strong>{observation.label}</strong>
+          <ol>
+            <li>上架满 {POST_LAUNCH_THRESHOLDS.firstReviewDay} 天，访客少于 {POST_LAUNCH_THRESHOLDS.insufficientTrafficVisitors}：只说明流量不足，不判选品失败。</li>
+            <li>{POST_LAUNCH_THRESHOLDS.engagementVisitorsMin}–{POST_LAUNCH_THRESHOLDS.engagementVisitorsMax} 个相关访客仍零加购：检查主图、价格、配送和产品吸引力。</li>
+            <li>稳定在售 {POST_LAUNCH_THRESHOLDS.failureReviewDayMin}–{POST_LAUNCH_THRESHOLDS.failureReviewDayMax} 天，累计超过 {POST_LAUNCH_THRESHOLDS.failureVisitors} 个相关访客仍零订单：本轮测试失败。</li>
+          </ol>
+          {!observation.metricsComplete ? <small>当前没有把访客、加购、订单缺口写成零；接入真实平台指标后才自动判断。</small> : null}
+        </aside>
         {record.productUrl ? <a href={record.productUrl} target="_blank" rel="noreferrer">打开已上架商品</a> : null}
         {sourceCapture.status === "waiting_extension" && sourceCapture.mode === "listed_evidence_recovery" ? (
           <div className="source-capture-summary">
