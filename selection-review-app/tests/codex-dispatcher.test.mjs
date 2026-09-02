@@ -76,7 +76,7 @@ test("dispatch payload carries the exact SKU revision without callback or tokeni
 
 test("C-stage dispatch goes to listing with inherited inputs, capture evidence, and explicit skill items", async () => {
   const requests = [];
-  const dispatcher = new CodexDispatcher({ enabled: false });
+  const dispatcher = new CodexDispatcher({ enabled: false, pathExists: () => true });
   dispatcher.inspectRoute = async () => ({ status: "idle" });
   dispatcher.request = async (method, params) => {
     requests.push({ method, params });
@@ -116,6 +116,34 @@ test("C-stage dispatch goes to listing with inherited inputs, capture evidence, 
   assert.match(inputs[0].text, /采购到手总价、真实打包重量、尺寸、目标店铺和精确1688链接均为前期已填写的继承输入/);
   assert.match(inputs[0].text, /不得重新打开1688/);
   assert.match(inputs[0].text, /CAP-ONE/);
+});
+
+test("C-stage dispatch stops before turn start when a required skill is missing", async () => {
+  const requests = [];
+  const dispatcher = new CodexDispatcher({ enabled: false, pathExists: () => false });
+  dispatcher.inspectRoute = async () => ({ status: "idle" });
+  dispatcher.request = async (method) => {
+    requests.push(method);
+    return {};
+  };
+
+  await assert.rejects(
+    dispatcher.deliver(
+      {
+        id: "D-C-MISSING-SKILL",
+        scope: "candidate",
+        candidateId: candidate.id,
+        assigneeRole: "listing_task",
+        dataRevision: candidate.dataRevision,
+        message: "只做当前SKU的C阶段"
+      },
+      { threadId: "listing-thread", projectPath: "/project" },
+      { id: "M07", title: "C阶段SKU、来源与合规" },
+      candidate
+    ),
+    /本轮必需Skill不存在：ozon-wb-pricing/u
+  );
+  assert.deepEqual(requests, ["thread/resume"]);
 });
 
 test("structured dispatch output is parsed without a reverse callback", () => {

@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    name: Static checks and pure tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: "true"
+      SELECTION_REVIEW_AUTO_DELIVER: "off"
+      SELECTION_REVIEW_CODEX_DISPATCH: "off"
+    defaults:
+      run:
+        working-directory: selection-review-app
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.19.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: selection-review-app/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --strict-peer-dependencies
+
+      - name: Check JavaScript syntax
+        env:
+          NODE_OPTIONS: "--throw-deprecation"
+        run: >-
+          find . -type f \( -name '*.js' -o -name '*.mjs' \)
+          -not -path './node_modules/*' -print0
+          | xargs -0 -n 1 node --check
+
+      - name: Run self-contained tests without API processes
+        env:
+          NODE_OPTIONS: "--throw-deprecation"
+        run: pnpm test:ci
+
+      - name: Build application
+        env:
+          NODE_OPTIONS: "--throw-deprecation"
+        run: pnpm build
+
+      - name: Check server entrypoint syntax
+        env:
+          NODE_OPTIONS: "--throw-deprecation"
+        run: node --check server.mjs

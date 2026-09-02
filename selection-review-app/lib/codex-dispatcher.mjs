@@ -196,10 +196,16 @@ export function dispatchCapabilityPlan(node, candidate) {
 }
 
 export class CodexDispatcher {
-  constructor({ onEvent, enabled = true, codexBin = process.env.SELECTION_REVIEW_CODEX_BIN || DEFAULT_CODEX_BIN } = {}) {
+  constructor({
+    onEvent,
+    enabled = true,
+    codexBin = process.env.SELECTION_REVIEW_CODEX_BIN || DEFAULT_CODEX_BIN,
+    pathExists = fs.existsSync
+  } = {}) {
     this.onEvent = onEvent || (() => undefined);
     this.enabled = enabled && process.env.SELECTION_REVIEW_CODEX_DISPATCH !== "off";
     this.codexBin = codexBin;
+    this.pathExists = pathExists;
     this.process = null;
     this.buffer = "";
     this.nextId = 1;
@@ -222,7 +228,7 @@ export class CodexDispatcher {
 
   async ensureStarted() {
     if (!this.enabled) throw new Error("Codex一次性派发已在当前运行环境关闭");
-    if (!fs.existsSync(this.codexBin)) throw new Error(`找不到Codex本机程序：${this.codexBin}`);
+    if (!this.pathExists(this.codexBin)) throw new Error(`找不到Codex本机程序：${this.codexBin}`);
     if (this.process && this.process.exitCode === null && this.initialized) return;
     if (this.initializing) return this.initializing;
 
@@ -537,7 +543,7 @@ export class CodexDispatcher {
     }
     const requiredSkills = requiredSkillsForDispatch(node, candidate);
     for (const skill of requiredSkills) {
-      if (!fs.existsSync(skill.path)) throw new Error(`本轮必需Skill不存在：${skill.name}`);
+      if (!this.pathExists(skill.path)) throw new Error(`本轮必需Skill不存在：${skill.name}`);
     }
     const skillMention = requiredSkills.map((skill) => `$${skill.name}`).join(" ");
     const prompt = this.buildPrompt({ ...dispatch, requiredSkills }, node, candidate);
