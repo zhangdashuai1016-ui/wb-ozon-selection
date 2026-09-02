@@ -1,17 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { createMusicBoxCandidate } from "./helpers/legacy-candidate-fixture.mjs";
 import { runRealAConfirmationToBAndC1 } from "../lib/real-a-b-c1-flow.mjs";
 import { buildRealAConfirmationCard } from "../lib/real-a-confirmation-card.mjs";
 
-const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const confirmedAt = "2026-08-18T02:00:00.000Z";
 
 async function candidate() {
-  const document = JSON.parse(await readFile(path.join(appDir, "data", "candidates.json"), "utf8"));
-  const value = structuredClone(document.candidates.find((item) => item.id === "CX-20260802-014"));
+  const value = createMusicBoxCandidate();
   delete value.lifecycleV11;
   value.workflowStatus = "codex_processing";
   value.listingHandoff = null;

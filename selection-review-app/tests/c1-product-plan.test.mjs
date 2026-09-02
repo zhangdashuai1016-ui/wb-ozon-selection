@@ -45,14 +45,12 @@ import {
   validateProductionAuthorization
 } from "../lib/production-authorization.mjs";
 import { attachPassedMarketAssessment } from "./helpers/market-assessment-fixture.mjs";
+import { createTrainCandidate } from "./helpers/legacy-candidate-fixture.mjs";
 
-const TEST_PRODUCT_ID = "CX-20260803-010";
 const VARIANT = "规格:豪华小火车";
 
 async function phase7PassedState({ sellerType = "cross_border_cn" } = {}) {
-  const url = new URL("../data/candidates.json", import.meta.url);
-  const document = JSON.parse(await readFile(url, "utf8"));
-  const candidate = document.candidates.find((item) => item.id === TEST_PRODUCT_ID);
+  const candidate = createTrainCandidate({ lifecycle: false });
   const opportunity = structuredClone(adaptLegacyCandidateToOpportunity(candidate));
   opportunity.salesSnapshots[0].platform = "ozon";
   opportunity.salesSnapshots[0].sellerType = sellerType;

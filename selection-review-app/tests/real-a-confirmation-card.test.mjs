@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createMusicBoxCandidate } from "./helpers/legacy-candidate-fixture.mjs";
 import {
   buildRealAConfirmationCard,
   validateRealAConfirmationSubmission
@@ -11,8 +12,7 @@ import {
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 async function candidate() {
-  const document = JSON.parse(await readFile(path.join(appDir, "data", "candidates.json"), "utf8"));
-  return structuredClone(document.candidates.find((item) => item.id === "CX-20260802-014"));
+  return createMusicBoxCandidate();
 }
 
 function validSubmission(card) {

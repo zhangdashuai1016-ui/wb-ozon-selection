@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { createLegacyCandidateDocument } from "./helpers/legacy-candidate-fixture.mjs";
 import {
   HISTORICAL_UNVERSIONED_PROFIT,
   LEGACY_ADAPTER_MODE,
@@ -12,11 +12,10 @@ import {
 import { validateOpportunityPackage } from "../lib/product-lifecycle-schema.mjs";
 
 async function currentDocument() {
-  const url = new URL("../data/candidates.json", import.meta.url);
-  return JSON.parse(await readFile(url, "utf8"));
+  return createLegacyCandidateDocument();
 }
 
-test("all 52 legacy candidates produce one valid read-only OpportunityPackage each", async () => {
+test("all 52 synthetic legacy candidates produce one valid read-only OpportunityPackage each", async () => {
   const source = await currentDocument();
   const before = JSON.stringify(source);
   const adapted = adaptLegacyCandidatesDocument(source);

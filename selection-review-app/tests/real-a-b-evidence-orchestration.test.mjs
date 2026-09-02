@@ -1,18 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { createMusicBoxCandidate } from "./helpers/legacy-candidate-fixture.mjs";
 
 import { runRealAConfirmationWithSystemEvidence } from "../lib/real-a-b-evidence-orchestration.mjs";
 import { GLOBAL_PRICING_POLICY_VERSION } from "../lib/global-pricing-policy.mjs";
 
-const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const confirmedAt = "2026-08-18T09:00:00.000Z";
 
 async function sourceCandidate() {
-  const data = JSON.parse(await readFile(path.join(appDir, "data", "candidates.json"), "utf8"));
-  const candidate = structuredClone(data.candidates.find((item) => item.id === "CX-20260802-014"));
+  const candidate = createMusicBoxCandidate();
   delete candidate.lifecycleV11;
   candidate.workflowStatus = "codex_processing";
   candidate.listingHandoff = null;

@@ -1,67 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { createTrainCandidate, createAuthorizedTrainCandidate } from "./helpers/legacy-candidate-fixture.mjs";
 import { finalizeReal13CForOwnerCard } from "../lib/real-c1-preparation.mjs";
 import { validateSkuLifecyclePackage } from "../lib/product-lifecycle-schema.mjs";
 import {
   createProductionAuthorization,
-  reviseProductionAuthorizationPriceSemantics,
   validateProductionAuthorization
 } from "../lib/production-authorization.mjs";
 import { createProductionPlan, fingerprintProductionPlan } from "../lib/production-plan.mjs";
 import { executeSingleSkuDraftCreation } from "../lib/draft-production-execution.mjs";
 
 async function fixtureCandidate() {
-  const document = JSON.parse(await readFile(new URL("../data/candidates.json", import.meta.url), "utf8"));
-  return structuredClone(document.candidates.find((item) => item.id === "CX-20260803-010"));
-}
-
-function ownerFinalState(candidate) {
-  const sku = candidate.lifecycleV11?.skuPackage;
-  if (sku?.activeProfitModelVersion === "profit-v2" && sku?.productionConfirmationCard) {
-    return { lifecycle: structuredClone(candidate.lifecycleV11), confirmationCard: structuredClone(sku.productionConfirmationCard) };
-  }
-  return null;
-}
-
-function priceSafeLifecycle(lifecycle) {
-  const next = structuredClone(lifecycle);
-  const sku = next?.skuPackage;
-  const authorization = sku?.productionAuthorization;
-  if (!authorization || authorization.lockedScope?.platformWritePrice) return next;
-  const repaired = reviseProductionAuthorizationPriceSemantics({
-    skuPackage: sku,
-    buyerTargetPrice: { amount: authorization.lockedScope.recommendedPrice.rub, currency: "RUB" },
-    platformWritePrice: { amount: authorization.lockedScope.recommendedPrice.cny, currency: "CNY" },
-    priceConversion: {
-      rubPerCny: 12.0637,
-      evidenceRef: "fx:cbr:2026-08-07:RUB-CNY",
-      checkedAt: "2026-08-07T00:00:00.000Z"
-    },
-    repairedAt: "2026-08-13T08:00:00.000Z"
-  });
-  return { ...next, skuPackage: repaired.skuPackage };
+  return createTrainCandidate({ returnOpsReserveRate: 0.03 });
 }
 
 test("13C owner correction appends profit-v2, completes C2 and creates a no-write confirmation card", async () => {
   const candidate = await fixtureCandidate();
-  const alreadyFinal = ownerFinalState(candidate);
-  if (alreadyFinal) {
-    const safeLifecycle = priceSafeLifecycle(alreadyFinal.lifecycle);
-    const sku = safeLifecycle.skuPackage;
-    assert.equal(sku.activeProfitModelVersion, "profit-v2");
-    assert.equal(sku.c2FinalAssets.status, "completed");
-    if (sku.productionAuthorization) {
-      assert.equal(sku.productionConfirmationCard.status, "owner_business_approved");
-      assert.ok(["create_draft_only", "create_and_allow_validation_moderation"].includes(sku.productionAuthorization.lockedScope.publishScope));
-      assert.deepEqual(validateProductionAuthorization(sku.productionAuthorization), { valid: true, errors: [] });
-    } else {
-      assert.equal(sku.productionConfirmationCard.status, "awaiting_owner_business_confirmation");
-    }
-    assert.equal(sku.productionRecord, null);
-    assert.deepEqual(validateSkuLifecyclePackage(sku), { valid: true, errors: [] });
-    return;
-  }
+  assert.equal(candidate.lifecycleV11.skuPackage.activeProfitModelVersion, "profit-v1");
+  assert.equal(candidate.lifecycleV11.skuPackage.productionAuthorization, null);
   const beforeProfit = structuredClone(candidate.lifecycleV11.skuPackage.profitModels[0]);
   const files = ["09-成品图-俄文.png", "01-成品图-俄文.png", "05-成品图-俄文.png", "详情-01.jpg"];
   const result = finalizeReal13CForOwnerCard({
@@ -115,19 +71,8 @@ test("13C owner correction appends profit-v2, completes C2 and creates a no-writ
 
 test("owner approval locks CX-20260803-010 for draft-only production without starting D", async () => {
   const candidate = await fixtureCandidate();
-  const current = ownerFinalState(candidate);
-  if (current?.lifecycle.skuPackage.productionAuthorization) {
-    const safeLifecycle = priceSafeLifecycle(current.lifecycle);
-    const existing = safeLifecycle.skuPackage.productionAuthorization;
-    assert.deepEqual(validateProductionAuthorization(existing), { valid: true, errors: [] });
-    assert.ok(["create_draft_only", "create_and_allow_validation_moderation"].includes(existing.lockedScope.publishScope));
-    assert.equal(existing.lockedScope.stock, 100);
-    assert.equal(existing.productionExecuted, false);
-    assert.equal(existing.platformWrites, 0);
-    assert.equal(safeLifecycle.skuPackage.productionRecord, null);
-    return;
-  }
-  const finalized = current || finalizeReal13CForOwnerCard({
+  assert.equal(candidate.lifecycleV11.skuPackage.productionAuthorization, null);
+  const finalized = finalizeReal13CForOwnerCard({
     candidate,
     ownerFactConfirmation: {
       brandDecision: "no_brand",
@@ -184,11 +129,11 @@ test("owner approval locks CX-20260803-010 for draft-only production without sta
   assert.equal(result.skuPackage.businessPhase, "C2");
 });
 
-test("current CX-20260803-010 authorization can form an exact five-image stock-100 draft contract without external writes", async () => {
-  const candidate = await fixtureCandidate();
-  const lifecycle = priceSafeLifecycle(candidate.lifecycleV11);
+test("synthetic CX-20260803-010 authorization forms an exact five-image stock-100 draft contract without external writes", async () => {
+  const candidate = createAuthorizedTrainCandidate();
+  const lifecycle = candidate.lifecycleV11;
   const authorization = lifecycle?.skuPackage?.productionAuthorization;
-  assert.ok(authorization, "current real production authorization is required");
+  assert.ok(authorization, "synthetic production authorization is required");
   const plan = createProductionPlan({ productionAuthorization: authorization, createdAt: "2026-08-13T00:30:00.000Z" });
   assert.ok(["create_draft_only", "create_and_allow_validation_moderation"].includes(plan.publishScope));
   assert.equal(plan.stock, 100);

@@ -17,14 +17,12 @@ import {
 import { GLOBAL_PRICING_POLICY_VERSION } from "../lib/global-pricing-policy.mjs";
 import { validateSkuLifecyclePackage } from "../lib/product-lifecycle-schema.mjs";
 import { attachPassedMarketAssessment } from "./helpers/market-assessment-fixture.mjs";
+import { createTrainCandidate } from "./helpers/legacy-candidate-fixture.mjs";
 
-const TEST_PRODUCT_ID = "CX-20260803-010";
 const VARIANT = "规格:豪华小火车";
 
 async function currentCandidate() {
-  const url = new URL("../data/candidates.json", import.meta.url);
-  const document = JSON.parse(await readFile(url, "utf8"));
-  return document.candidates.find((item) => item.id === TEST_PRODUCT_ID);
+  return createTrainCandidate();
 }
 
 async function preparedInputs() {
@@ -248,15 +246,16 @@ test("current threshold passes when either unit profit or profit margin reaches 
   assert.deepEqual(validateProfitModel(neither), { valid: true, errors: [] });
 });
 
-test("historical 25-percent-and-20-yuan models remain valid and are not rewritten", async () => {
+test("synthetic historical 25-percent-and-20-yuan model remains valid and is not rewritten", async () => {
   const candidate = await currentCandidate();
-  const historical = candidate.lifecycle?.skuPackage?.profitModels?.[0]
-    || candidate.productLifecycle?.skuPackage?.profitModels?.[0]
-    || candidate.lifecycleV11?.skuPackage?.profitModels?.[0];
+  const historical = structuredClone(candidate.lifecycleV11.skuPackage.profitModels[0]);
+  historical.thresholdVersion = "profit-threshold-v1.1-25pct-20cny";
+  historical.thresholds = { minimumProfitMargin: 0.25, minimumUnitProfitRmb: 20, logic: "all" };
   assert.ok(historical, "expected historical ProfitModel fixture");
   const before = structuredClone(historical);
   assert.equal(historical.thresholdVersion, "profit-threshold-v1.1-25pct-20cny");
   const validation = validateProfitModel(historical);
+  assert.deepEqual(validation, { valid: true, errors: [] });
   assert.equal(validation.errors.some((item) => ["thresholdVersion", "thresholds", "result"].includes(item.path)), false);
   assert.deepEqual(historical, before);
 });
