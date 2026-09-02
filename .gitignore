@@ -1,5 +1,17 @@
 .DS_Store
 
+# Local environment files and private key material; examples must use placeholders
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
 # Local tool caches and dependency/build output
 /.playwright-cli/
 /.pnpm-store/
