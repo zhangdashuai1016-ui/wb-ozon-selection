@@ -1,0 +1,16 @@
+export const API_PROCESS_TESTS = Object.freeze([
+  "collaboration-api.test.mjs",
+  "dispatch-api.test.mjs",
+  "dispatch-delivery-integration.test.mjs",
+  "extension-heartbeat-api.test.mjs",
+  "lifecycle-c-stage-generic-api.test.mjs",
+  "lifecycle-e-readback-generic-api.test.mjs",
+  "ozon-sales-capture-api.test.mjs",
+  "phase-2a-api-guards.test.mjs",
+  "real-a-b-c1-api.test.mjs",
+  "recovery-classification.test.mjs",
+  "source-capture-api.test.mjs",
+  "source-capture-job-api.test.mjs",
+  "source-capture-restart-reconciliation.test.mjs",
+  "structured-dispatch-integration.test.mjs",
+]);

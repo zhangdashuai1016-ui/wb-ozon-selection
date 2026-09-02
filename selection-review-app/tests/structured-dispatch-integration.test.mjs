@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const projectDir = path.resolve(appDir, "..");
@@ -32,13 +33,16 @@ test("structured App Server result is applied without the task calling back to 4
     resultJson: JSON.stringify({ decision: "eliminated", reason: "测试证据明确不满足利润门" }),
     evidenceSummary: "结构化审核结果"
   });
-  await writeFile(fakeCodex, `#!${process.execPath}\nlet buffer = "";\nconst send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");\nprocess.stdin.setEncoding("utf8");\nprocess.stdin.on("data", (chunk) => {\n  buffer += chunk;\n  let at = buffer.indexOf("\\n");\n  while (at >= 0) {\n    const line = buffer.slice(0, at).trim();\n    buffer = buffer.slice(at + 1);\n    if (line) {\n      const message = JSON.parse(line);\n      if (message.id && message.method === "initialize") send({ id: message.id, result: {} });\n      else if (message.id && message.method === "thread/read") send({ id: message.id, result: { thread: { id: message.params.threadId, name: "选品", cwd: ${JSON.stringify(projectDir)}, status: { type: "idle" } } } });\n      else if (message.id && message.method === "thread/resume") send({ id: message.id, result: { thread: { id: message.params.threadId, name: "选品" } } });\n      else if (message.id && message.method === "turn/start") {\n        send({ id: message.id, result: { turn: { id: "turn-structured-001", status: "inProgress", items: [] } } });\n        setTimeout(() => {\n          send({ method: "item/completed", params: { turnId: "turn-structured-001", item: { type: "agentMessage", text: ${JSON.stringify(structured)} } } });\n          send({ method: "turn/completed", params: { turn: { id: "turn-structured-001", status: "completed", error: null } } });\n        }, 100);\n      }\n    }\n    at = buffer.indexOf("\\n");\n  }\n});\n`);
+  await writeFile(fakeCodex, `#!${process.execPath}\nlet buffer = "";\nconst send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");\nprocess.stdin.setEncoding("utf8");\nprocess.stdin.on("data", (chunk) => {\n  buffer += chunk;\n  let at = buffer.indexOf("\\n");\n  while (at >= 0) {\n    const line = buffer.slice(0, at).trim();\n    buffer = buffer.slice(at + 1);\n    if (line) {\n      const message = JSON.parse(line);\n      if (message.id && message.method === "initialize") send({ id: message.id, result: {} });\n      else if (message.id && message.method === "thread/read") send({ id: message.id, result: { thread: { id: message.params.threadId, name: "选品", cwd: ${JSON.stringify(projectDir)}, status: { type: "idle" } } } });\n      else if (message.id && message.method === "thread/resume") send({ id: message.id, result: { thread: { id: message.params.threadId, name: "选品" } } });\n      else if (message.id && message.method === "turn/start") {\n        send({ id: message.id, result: { turn: { id: "turn-structured-001", status: "inProgress", items: [] } } });\n        setTimeout(() => {\n          send({ method: "item/completed", params: { turnId: "turn-structured-001", item: { type: "agentMessage", text: ${JSON.stringify(structured)} } } });\n          send({ method: "turn/completed", params: { turn: { id: "turn-structured-001", status: "completed", error: null } } });\n        }, 100);\n      } else if (message.id) send({ id: message.id, error: { code: -32601, message: "Unsupported test protocol method" } });\n    }\n    at = buffer.indexOf("\\n");\n  }\n});\n`);
   await chmod(fakeCodex, 0o755);
   await writeFile(fakeCodexRunner, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(fakeCodex)} "$@"\n`);
   await chmod(fakeCodexRunner, 0o755);
   await writeFile(dataFile, JSON.stringify({
     meta: { version: 2, title: "test", updatedAt: "2026-08-11T00:00:00.000Z", automationStarted: false },
     rules: {},
+    taskRoutes: {
+      selection_task: { role: "selection_task", title: "选品", threadId: "selection-thread", projectPath: projectDir }
+    },
     candidates: [{
       id: "STRUCTURED-1",
       source: "user",
@@ -70,13 +74,14 @@ test("structured App Server result is applied without the task calling back to 4
       SELECTION_REVIEW_DATA_FILE: dataFile,
       SELECTION_REVIEW_API_PORT: String(port),
       SELECTION_REVIEW_CODEX_BIN: fakeCodexRunner,
+      SELECTION_REVIEW_CODEX_DISPATCH: "on",
       SELECTION_REVIEW_AUTO_DELIVER: "on"
     },
     stdio: ["ignore", "ignore", "pipe"]
   });
   const stderr = [];
   child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
-  t.after(() => child.kill("SIGTERM"));
+  t.after(() => stopApiProcess(child));
 
   await waitFor(async () => (await fetch(`${baseUrl}/api/health`)).ok, `测试服务未启动：${stderr.join("")}`);
   const response = await fetch(`${baseUrl}/api/candidates/STRUCTURED-1/dispatch`, {

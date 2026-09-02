@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = 20000 + (process.pid % 30000);
@@ -141,7 +142,7 @@ test("旧1688 C入口不再派发，已上架证据恢复仍保持只读", async
   });
   const stderr = [];
   child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
-  t.after(() => child.kill("SIGTERM"));
+  t.after(() => stopApiProcess(child));
   await waitForHealth(child, stderr);
 
   const preflight = await fetch(`${baseUrl}/api/candidates/CAPTURE-1/source-capture/result`, {

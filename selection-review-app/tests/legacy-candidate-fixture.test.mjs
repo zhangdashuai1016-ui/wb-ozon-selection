@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { validateOpportunityPackage, validateSkuLifecyclePackage } from "../lib/product-lifecycle-schema.mjs";
-import { createTrainCandidate, createMusicBoxCandidate, createLegacyCandidateDocument, createAuthorizedTrainCandidate } from "./helpers/legacy-candidate-fixture.mjs";
+import { validateEVerificationRecord, validateExternalListingRecord } from "../lib/e-stage-readback.mjs";
+import { buildLifecycleBExplicitOtherCosts } from "../lib/lifecycle-b-evidence-runtime.mjs";
+import { DEFAULT_RULES } from "../lib/workflow.mjs";
+import { createTrainCandidate, createMusicBoxCandidate, createLegacyCandidateDocument, createAuthorizedTrainCandidate, createGenericCStageCandidate, createVerifiedGenericCandidate } from "./helpers/legacy-candidate-fixture.mjs";
 
 test("synthetic candidate factories produce fresh, schema-valid lifecycle inputs", () => {
   const first = createTrainCandidate();
@@ -26,6 +29,32 @@ test("synthetic legacy document explicitly represents unknown, processing, rejec
   assert.ok(document.candidates.some((candidate) => candidate.codexReview?.profitCalculation));
 });
 
+test("synthetic A-to-B candidate supplies explicit packaging cost before evidence preparation", () => {
+  const candidate = createMusicBoxCandidate();
+  // candidateProfitRule in the server selects this rule for dandanshu; importing
+  // the server here would start a service, so exercise the pure cost boundary.
+  assert.equal(candidate.targetStore, "dandanshu");
+  const rule = DEFAULT_RULES.ozonDandanshu;
+  const costs = buildLifecycleBExplicitOtherCosts(candidate, rule);
+  assert.deepEqual(costs, {
+    packagingRmb: 1.5,
+    labelRmb: 1.5,
+    fixedOtherRmb: 0,
+    advertisingRate: 0,
+    returnReserveRate: 0.05,
+    damageReserveRate: 0.05,
+    withdrawalFeeRate: 0.02,
+    targetMarginRate: 0.15,
+    minimumUnitProfitRmb: 20,
+    priceIncrementCny: 1,
+    thresholdLogic: "any",
+    pricingPolicyVersion: "ozon-wb-global-pricing-2026-08-21-v3-project-or-threshold-v1"
+  });
+  delete candidate.packagingCostRmb;
+  assert.throws(() => buildLifecycleBExplicitOtherCosts(candidate, rule), /B_EVIDENCE_COST_POLICY_INCOMPLETE/);
+  assert.equal(createMusicBoxCandidate().packagingCostRmb, 1.5);
+});
+
 test("synthetic final-assets authorization preserves the unexecuted five-image contract", () => {
   const candidate = createAuthorizedTrainCandidate();
   const sku = candidate.lifecycleV11.skuPackage;
@@ -37,4 +66,44 @@ test("synthetic final-assets authorization preserves the unexecuted five-image c
   assert.equal(sku.productionAuthorization.productionExecuted, false);
   assert.equal(sku.productionAuthorization.platformWrites, 0);
   assert.equal(sku.productionRecord, null);
+});
+
+test("synthetic generic C-stage baseline is valid and contains no frozen train SKU facts", () => {
+  const candidate = createGenericCStageCandidate();
+  const { opportunityPackage, skuPackage } = candidate.lifecycleV11;
+  assert.deepEqual(validateOpportunityPackage(opportunityPackage), { valid: true, errors: [] });
+  assert.deepEqual(validateSkuLifecyclePackage(skuPackage), { valid: true, errors: [] });
+  assert.equal(candidate.id, "GENERIC-NON-TRAIN-001");
+  assert.equal(skuPackage.supplierSkuId, "SINK-ORGANIZER-BLUE");
+  assert.equal(skuPackage.businessPhase, "B");
+  assert.equal(skuPackage.businessResult, "passed");
+  assert.equal(opportunityPackage.salesSnapshots[0].currentPrice, 1200);
+  assert.equal(skuPackage.profitModels[0].recommendedSalePriceRub, 1200);
+  assert.equal(skuPackage.productionAuthorization, null);
+  assert.equal(skuPackage.productionRecord, null);
+  assert.equal(candidate.lifecycleV11.platformWrites, 0);
+  for (const forbidden of ["CX-20260803-010", "4993364145574", "豪华小火车", "Паровоз", "DVP", "282"]) {
+    assert.equal(JSON.stringify(skuPackage).includes(forbidden), false, forbidden);
+  }
+  skuPackage.skuFacts.material = "test-mutation";
+  assert.equal(createGenericCStageCandidate().lifecycleV11.skuPackage.skuFacts.material, "silicone");
+});
+
+test("synthetic E idempotency baseline is a valid observation record, not a production execution", () => {
+  const candidate = createVerifiedGenericCandidate();
+  const sku = candidate.lifecycleV11.skuPackage;
+  assert.equal(candidate.id, "GENERIC-LIFECYCLE-E-READBACK");
+  assert.deepEqual(validateSkuLifecyclePackage(sku), { valid: true, errors: [] });
+  assert.deepEqual(validateExternalListingRecord(sku.externalListingRecord), { valid: true, errors: [] });
+  assert.deepEqual(validateEVerificationRecord(sku.eVerificationRecord), { valid: true, errors: [] });
+  assert.equal(sku.eVerificationRecord.sourceRecordId, sku.externalListingRecord.externalListingRecordId);
+  assert.equal(sku.eVerificationRecord.skuPackageId, sku.skuPackageId);
+  assert.equal(sku.eVerificationRecord.createdByCurrentRun, false);
+  assert.equal(sku.eVerificationRecord.verificationPath, "external_discovered");
+  assert.equal(sku.productionRecord, null);
+  assert.equal(sku.productionAuthorization.productionExecuted, false);
+  assert.equal(candidate.lifecycleV11.platformWrites, 0);
+  assert.deepEqual(sku.productionAuthorization, createAuthorizedTrainCandidate().lifecycleV11.skuPackage.productionAuthorization);
+  sku.eVerificationRecord.platformProductId = "test-mutation";
+  assert.equal(createVerifiedGenericCandidate().lifecycleV11.skuPackage.eVerificationRecord.platformProductId, "TEST-EXTERNALLY-VERIFIED-001");
 });
