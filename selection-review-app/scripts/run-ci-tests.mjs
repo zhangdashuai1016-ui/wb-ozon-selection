@@ -24,21 +24,6 @@ const apiProcessTests = new Set([
   "structured-dispatch-integration.test.mjs",
 ]);
 
-const liveCandidateFixtureTests = new Set([
-  "c1-product-plan.test.mjs",
-  "legacy-candidate-adapter.test.mjs",
-  "lifecycle-status-view.test.mjs",
-  "profit-model.test.mjs",
-  "real-13c-final-assets.test.mjs",
-  "real-a-b-c1-flow.test.mjs",
-  "real-a-b-evidence-orchestration.test.mjs",
-  "real-a-confirmation-card.test.mjs",
-  "real-c1-preparation.test.mjs",
-  "real-lifecycle-entry-preview.test.mjs",
-  "single-sku-b-flow.test.mjs",
-  "supplier-selection-flow.test.mjs",
-]);
-
 const temporaryCandidateFixtureTests = new Set([
   "atomic-json-persistence.test.mjs",
 ]);
@@ -75,13 +60,10 @@ const testFiles = testDirectoryEntries
   .sort();
 const knownTests = new Set(testFiles);
 
-assertDisjoint(apiProcessTests, liveCandidateFixtureTests, "CI_TEST_CLASSIFICATION_OVERLAP");
 assertDisjoint(apiProcessTests, temporaryCandidateFixtureTests, "CI_TEST_CLASSIFICATION_OVERLAP");
-assertDisjoint(liveCandidateFixtureTests, temporaryCandidateFixtureTests, "CI_TEST_CLASSIFICATION_OVERLAP");
 
 for (const file of [
   ...apiProcessTests,
-  ...liveCandidateFixtureTests,
   ...temporaryCandidateFixtureTests,
 ]) {
   assert(knownTests.has(file), `CI_TEST_CLASSIFICATION_FILE_MISSING:${file}`);
@@ -92,11 +74,6 @@ for (const file of apiProcessTests) {
   assert(source.includes("server.mjs"), `CI_API_PROCESS_MARKER_MISSING:${file}`);
 }
 
-for (const file of liveCandidateFixtureTests) {
-  const source = await readFile(path.join(testsDirectory, file), "utf8");
-  assert(source.includes("candidates.json"), `CI_LIVE_FIXTURE_MARKER_MISSING:${file}`);
-}
-
 for (const file of temporaryCandidateFixtureTests) {
   const source = await readFile(path.join(testsDirectory, file), "utf8");
   assert(source.includes("mkdtemp"), `CI_TEMP_FIXTURE_BOUNDARY_MISSING:${file}`);
@@ -105,7 +82,7 @@ for (const file of temporaryCandidateFixtureTests) {
 
 const selectedTests = [];
 for (const file of testFiles) {
-  if (apiProcessTests.has(file) || liveCandidateFixtureTests.has(file)) {
+  if (apiProcessTests.has(file)) {
     continue;
   }
 
@@ -123,8 +100,7 @@ assert(selectedTests.length > 0, "CI_SELF_CONTAINED_TESTS_EMPTY");
 
 console.log(
   `Running ${selectedTests.length} self-contained test files; `
-    + `excluding ${apiProcessTests.size} API-process and `
-    + `${liveCandidateFixtureTests.size} live-fixture files.`,
+    + `excluding ${apiProcessTests.size} API-process files.`,
 );
 
 const result = spawnSync(process.execPath, ["--test", ...selectedTests], {
