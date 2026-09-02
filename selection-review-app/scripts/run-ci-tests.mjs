@@ -3,26 +3,12 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertSelfContainedTestSource } from "./ci-test-policy.mjs";
+import { API_PROCESS_TESTS } from "./ci-test-suites.mjs";
 
 const appDirectory = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const testsDirectory = path.join(appDirectory, "tests");
 
-const apiProcessTests = new Set([
-  "collaboration-api.test.mjs",
-  "dispatch-api.test.mjs",
-  "dispatch-delivery-integration.test.mjs",
-  "extension-heartbeat-api.test.mjs",
-  "lifecycle-c-stage-generic-api.test.mjs",
-  "lifecycle-e-readback-generic-api.test.mjs",
-  "ozon-sales-capture-api.test.mjs",
-  "phase-2a-api-guards.test.mjs",
-  "real-a-b-c1-api.test.mjs",
-  "recovery-classification.test.mjs",
-  "source-capture-api.test.mjs",
-  "source-capture-job-api.test.mjs",
-  "source-capture-restart-reconciliation.test.mjs",
-  "structured-dispatch-integration.test.mjs",
-]);
+const apiProcessTests = new Set(API_PROCESS_TESTS);
 
 const temporaryCandidateFixtureTests = new Set([
   "atomic-json-persistence.test.mjs",

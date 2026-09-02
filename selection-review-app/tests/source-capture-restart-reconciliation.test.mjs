@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const firstPort = 51000 + (process.pid % 7000);
@@ -93,7 +94,7 @@ async function startServer(t, dataFile, port) {
     stdio: ["ignore", "ignore", "pipe"]
   });
   child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
-  t.after(() => child.kill("SIGTERM"));
+  t.after(() => stopApiProcess(child));
   const baseUrl = `http://127.0.0.1:${port}`;
   await waitForHealth(child, baseUrl, stderr);
   return { child, baseUrl };

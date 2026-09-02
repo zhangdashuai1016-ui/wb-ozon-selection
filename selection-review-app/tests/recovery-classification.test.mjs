@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = 43923;
@@ -89,7 +90,7 @@ test("stopped backlog is classified without asking for handwritten advice", asyn
   });
   const stderr = [];
   child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
-  t.after(() => child.kill("SIGTERM"));
+  t.after(() => stopApiProcess(child));
   await waitFor(async () => (await fetch(`${baseUrl}/api/health`)).ok, `测试服务未启动：${stderr.join("")}`);
 
   const preview = await (await fetch(`${baseUrl}/api/control/reconcile-stopped`, {

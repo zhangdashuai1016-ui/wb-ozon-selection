@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = 27000 + (process.pid % 20000);
@@ -146,7 +147,7 @@ test("A确认动作建立唯一作业，心跳只领一次并原子回传真实S
   });
   const stderr = [];
   child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
-  t.after(() => child.kill("SIGTERM"));
+  t.after(() => stopApiProcess(child));
   await waitForHealth(child, stderr);
 
   const beforeNoJob = await readFile(dataFile, "utf8");

@@ -5,6 +5,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { DEFAULT_RULES } from "../lib/workflow.mjs";
+import { createVerifiedGenericCandidate } from "./helpers/legacy-candidate-fixture.mjs";
+import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = 33000 + (process.pid % 20000);
@@ -23,14 +26,11 @@ async function waitForHealth(child, stderr) {
 }
 
 test("E回读入口对任意已验证生命周期SKU保持幂等，不再绑定火车候选ID", async (t) => {
-  const source = JSON.parse(await readFile(path.join(appDir, "data", "candidates.json"), "utf8"));
-  const reference = source.candidates.find((item) => item.lifecycleV11?.skuPackage?.eVerificationRecord);
-  assert.ok(reference, "测试基线需要一条已经完成E验证的生命周期SKU");
-
-  const candidate = structuredClone(reference);
-  candidate.id = "GENERIC-LIFECYCLE-E-READBACK";
+  const candidate = createVerifiedGenericCandidate();
+  assert.ok(candidate.lifecycleV11.skuPackage.eVerificationRecord, "合成基线必须包含已验证生命周期记录");
   const data = {
-    ...source,
+    meta: { version: 2, title: "generic-e-readback-test", updatedAt: "2026-08-17T10:00:00.000Z", automationStarted: false },
+    rules: structuredClone(DEFAULT_RULES),
     candidates: [candidate],
     dispatches: []
   };
@@ -51,7 +51,7 @@ test("E回读入口对任意已验证生命周期SKU保持幂等，不再绑定�
   });
   const stderr = [];
   child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
-  t.after(() => child.kill("SIGTERM"));
+  t.after(() => stopApiProcess(child));
   await waitForHealth(child, stderr);
 
   const verification = candidate.lifecycleV11.skuPackage.eVerificationRecord;

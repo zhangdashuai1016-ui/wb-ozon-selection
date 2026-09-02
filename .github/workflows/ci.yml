@@ -72,3 +72,50 @@ jobs:
         env:
           NODE_OPTIONS: "--throw-deprecation"
         run: node --check server.mjs
+
+  api:
+    name: Isolated API integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: selection-review-app
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.19.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: selection-review-app/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --strict-peer-dependencies
+
+      - name: Prepare official Node.js test image
+        run: docker pull node:24-bookworm-slim
+
+      - name: Run API tests with loopback-only networking and no host credentials
+        run: |
+          docker run --rm --init --network none --user node \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --read-only --pids-limit 128 --memory 2g --cpus 2 \
+            --tmpfs /tmp:rw,exec,nosuid,nodev,size=256m \
+            --tmpfs /home/node:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=16m \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/selection-review-app,target=/workspace/selection-review-app,readonly" \
+            --workdir /workspace/selection-review-app \
+            --entrypoint /usr/bin/env node:24-bookworm-slim -i \
+            PATH=/usr/local/bin:/usr/bin:/bin CI=true GITHUB_ACTIONS=true \
+            CI_API_TESTS=isolated-container NODE_OPTIONS=--throw-deprecation \
+            SELECTION_REVIEW_AUTO_DELIVER=off SELECTION_REVIEW_CODEX_DISPATCH=off \
+            node scripts/run-ci-api-tests.mjs

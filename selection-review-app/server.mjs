@@ -52,6 +52,7 @@ import {
 } from "./lib/workflow-map.mjs";
 import {
   CodexDispatcher,
+  createDispatchSkillCatalog,
   dispatchCandidateSnapshot,
   dispatchCapabilityPlan,
   requiredSkillsForDispatch
@@ -129,6 +130,9 @@ const automationConcurrencyLimit = Math.min(
   Math.max(1, Number(process.env.SELECTION_REVIEW_CONCURRENCY_LIMIT || DEFAULT_AUTOMATION_CONCURRENCY_LIMIT))
 );
 const explicitDispatchDeliveryEnabled = process.env.SELECTION_REVIEW_AUTO_DELIVER !== "off";
+const dispatchSkillCatalog = createDispatchSkillCatalog({
+  directory: process.env.SELECTION_REVIEW_DISPATCH_SKILLS_DIR
+});
 // Historical fire-train adapters are retained for audit/unit tests only.
 // They must never be re-enabled from the production review-app runtime.
 const legacyFireTrainAdapterEnabled = false;
@@ -1169,7 +1173,10 @@ async function handleDispatcherEvent(event) {
   });
 }
 
-const codexDispatcher = new CodexDispatcher({ onEvent: (event) => handleDispatcherEvent(event) });
+const codexDispatcher = new CodexDispatcher({
+  onEvent: (event) => handleDispatcherEvent(event),
+  skillCatalog: dispatchSkillCatalog
+});
 
 async function deliverDispatch(dispatchId) {
   if (dispatchDeliveriesInFlight.has(dispatchId)) return null;
@@ -1403,8 +1410,8 @@ function createDispatchRecord(data, { node, scope, candidate = null, message, co
   if (duplicate) throw httpError(409, "该节点已有一次工作正在等待或执行，不能重复派发", { dispatchId: duplicate.id });
   const timestamp = now();
   const reusableEvidencePacks = candidate ? attachReusableEvidence(data, candidate) : [];
-  const capabilityPlan = candidate ? dispatchCapabilityPlan(node, candidate) : null;
-  const requiredSkills = candidate ? requiredSkillsForDispatch(node, candidate) : [];
+  const capabilityPlan = candidate ? dispatchCapabilityPlan(node, candidate, dispatchSkillCatalog) : null;
+  const requiredSkills = candidate ? requiredSkillsForDispatch(node, candidate, dispatchSkillCatalog) : [];
   const dispatch = {
     id: `D-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     scope,

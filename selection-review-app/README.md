@@ -102,8 +102,14 @@ C1自动开始只授权当前SKU的上架前只读核验，不授权创建商品
 
 ## 开发检查
 
+纯测试不启动 HTTP 服务；API 集成测试会启动临时服务，两者分别运行：
+
 ```bash
-node --test tests/*.test.mjs
+node scripts/run-ci-tests.mjs
 node node_modules/vite/bin/vite.js build
 node --check server.mjs
 ```
+
+GitHub 的 `Isolated API integration tests` 检查运行其余 14 个 API 测试文件。它只使用合成候选、临时文件和假派发程序，在无外网、非 root、代码只读的独立容器内运行；仅允许容器内回环 HTTP，不加载凭据或调用真实业务服务。`node scripts/run-ci-api-tests.mjs` 只接受该隔离环境，不是本机启动入口。服务退出失败或超时会使测试失败。
+
+派发所需能力文件可通过 `SELECTION_REVIEW_DISPATCH_SKILLS_DIR` 指定绝对目录；每项仍使用固定的 `<能力名称>/SKILL.md` 路径，并在派发前检查文件存在。未设置时保留原默认目录。API 测试将此目录指向临时合成文件，不读取个人能力目录。

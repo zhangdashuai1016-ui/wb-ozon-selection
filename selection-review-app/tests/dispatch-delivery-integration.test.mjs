@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const projectDir = path.resolve(appDir, "..");
@@ -25,13 +26,16 @@ test("server marks a dispatch running only after turn/start returns a real turn 
   const dataFile = path.join(directory, "candidates.json");
   const fakeCodex = path.join(directory, "fake-codex.mjs");
   const fakeCodexRunner = path.join(directory, "fake-codex");
-  await writeFile(fakeCodex, `#!${process.execPath}\nlet buffer = "";\nconst send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");\nprocess.stdin.setEncoding("utf8");\nprocess.stdin.on("data", (chunk) => {\n  buffer += chunk;\n  let at = buffer.indexOf("\\n");\n  while (at >= 0) {\n    const line = buffer.slice(0, at).trim();\n    buffer = buffer.slice(at + 1);\n    if (line) {\n      const message = JSON.parse(line);\n      if (message.id && message.method === "initialize") send({ id: message.id, result: {} });\n      else if (message.id && message.method === "thread/read") send({ id: message.id, result: { thread: { id: message.params.threadId, name: "选品", cwd: ${JSON.stringify(projectDir)}, status: { type: "idle" } } } });\n      else if (message.id && message.method === "thread/resume") send({ id: message.id, result: { thread: { id: message.params.threadId, name: "选品" } } });\n      else if (message.id && message.method === "turn/start") send({ id: message.id, result: { turn: { id: "turn-integration-001", status: "inProgress", items: [] } } });\n    }\n    at = buffer.indexOf("\\n");\n  }\n});\n`);
+  await writeFile(fakeCodex, `#!${process.execPath}\nlet buffer = "";\nconst send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");\nprocess.stdin.setEncoding("utf8");\nprocess.stdin.on("data", (chunk) => {\n  buffer += chunk;\n  let at = buffer.indexOf("\\n");\n  while (at >= 0) {\n    const line = buffer.slice(0, at).trim();\n    buffer = buffer.slice(at + 1);\n    if (line) {\n      const message = JSON.parse(line);\n      if (message.id && message.method === "initialize") send({ id: message.id, result: {} });\n      else if (message.id && message.method === "thread/read") send({ id: message.id, result: { thread: { id: message.params.threadId, name: "选品", cwd: ${JSON.stringify(projectDir)}, status: { type: "idle" } } } });\n      else if (message.id && message.method === "thread/resume") send({ id: message.id, result: { thread: { id: message.params.threadId, name: "选品" } } });\n      else if (message.id && message.method === "turn/start") send({ id: message.id, result: { turn: { id: "turn-integration-001", status: "inProgress", items: [] } } });\n      else if (message.id) send({ id: message.id, error: { code: -32601, message: "Unsupported test protocol method" } });\n    }\n    at = buffer.indexOf("\\n");\n  }\n});\n`);
   await chmod(fakeCodex, 0o755);
   await writeFile(fakeCodexRunner, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(fakeCodex)} "$@"\n`);
   await chmod(fakeCodexRunner, 0o755);
   await writeFile(dataFile, JSON.stringify({
     meta: { version: 2, title: "test", updatedAt: "2026-08-07T00:00:00.000Z", automationStarted: false },
     rules: {},
+    taskRoutes: {
+      selection_task: { role: "selection_task", title: "选品", threadId: "selection-thread", projectPath: projectDir }
+    },
     candidates: [{
       id: "REAL-TURN-1",
       source: "user",
@@ -65,13 +69,14 @@ test("server marks a dispatch running only after turn/start returns a real turn 
       SELECTION_REVIEW_DATA_FILE: dataFile,
       SELECTION_REVIEW_API_PORT: String(port),
       SELECTION_REVIEW_CODEX_BIN: fakeCodexRunner,
+      SELECTION_REVIEW_CODEX_DISPATCH: "on",
       SELECTION_REVIEW_AUTO_DELIVER: "on"
     },
     stdio: ["ignore", "ignore", "pipe"]
   });
   const stderr = [];
   child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
-  t.after(() => child.kill("SIGTERM"));
+  t.after(() => stopApiProcess(child));
 
   await waitFor(async () => (await fetch(`${baseUrl}/api/health`)).ok, `测试服务未启动：${stderr.join("")}`);
   const response = await fetch(`${baseUrl}/api/candidates/REAL-TURN-1/dispatch`, {
@@ -100,7 +105,13 @@ test("a blocked selection assignee does not starve an idle listing assignee at s
   const fakeCodexRunner = path.join(directory, "fake-codex");
   const parallelPort = 43922;
   const parallelBaseUrl = `http://127.0.0.1:${parallelPort}`;
-  await writeFile(fakeCodex, `#!${process.execPath}\nlet buffer = "";\nconst send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");\nprocess.stdin.setEncoding("utf8");\nprocess.stdin.on("data", (chunk) => {\n  buffer += chunk;\n  let at = buffer.indexOf("\\n");\n  while (at >= 0) {\n    const line = buffer.slice(0, at).trim();\n    buffer = buffer.slice(at + 1);\n    if (line) {\n      const message = JSON.parse(line);\n      const threadId = message.params?.threadId;\n      if (message.id && message.method === "initialize") send({ id: message.id, result: {} });\n      else if (message.id && message.method === "thread/read") {\n        const selection = threadId === "selection-thread";\n        send({ id: message.id, result: { thread: { id: threadId, name: selection ? "选品" : "上架", cwd: ${JSON.stringify(projectDir)}, status: { type: selection ? "active" : "idle" } } } });\n      } else if (message.id && message.method === "thread/resume" && threadId !== "selection-thread") {\n        send({ id: message.id, result: { thread: { id: threadId, name: "上架" } } });\n      } else if (message.id && message.method === "turn/start") {\n        send({ id: message.id, result: { turn: { id: "turn-listing-parallel", status: "inProgress", items: [] } } });\n      }\n    }\n    at = buffer.indexOf("\\n");\n  }\n});\n`);
+  const skillsDirectory = path.join(directory, "skills");
+  for (const name of ["ozon-wb-pricing", "optimize-ecommerce-seo"]) {
+    const skillDirectory = path.join(skillsDirectory, name);
+    await mkdir(skillDirectory, { recursive: true });
+    await writeFile(path.join(skillDirectory, "SKILL.md"), "Synthetic integration fixture only; no business execution.\n");
+  }
+  await writeFile(fakeCodex, `#!${process.execPath}\nimport assert from "node:assert/strict";\nimport { readFileSync } from "node:fs";\nimport path from "node:path";\nlet buffer = "";\nconst send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");\nprocess.stdin.setEncoding("utf8");\nprocess.stdin.on("data", (chunk) => {\n  buffer += chunk;\n  let at = buffer.indexOf("\\n");\n  while (at >= 0) {\n    const line = buffer.slice(0, at).trim();\n    buffer = buffer.slice(at + 1);\n    if (line) {\n      const message = JSON.parse(line);\n      const threadId = message.params?.threadId;\n      if (message.id && message.method === "initialize") send({ id: message.id, result: {} });\n      else if (message.id && message.method === "thread/read") {\n        const selection = threadId === "selection-thread";\n        send({ id: message.id, result: { thread: { id: threadId, name: selection ? "选品" : "上架", cwd: ${JSON.stringify(projectDir)}, status: { type: selection ? "active" : "idle" } } } });\n      } else if (message.id && message.method === "thread/resume") {\n        send({ id: message.id, result: { thread: { id: threadId, name: threadId === "selection-thread" ? "选品" : "上架" } } });\n      } else if (message.id && message.method === "turn/start") {\n        const skills = message.params.input.filter((item) => item.type === "skill");\n        assert.deepEqual(skills.map((item) => item.name), ["ozon-wb-pricing", "optimize-ecommerce-seo"]);\n        for (const skill of skills) {\n          assert.equal(skill.path, path.join(${JSON.stringify(skillsDirectory)}, skill.name, "SKILL.md"));\n          assert.equal(readFileSync(skill.path, "utf8"), "Synthetic integration fixture only; no business execution.\\n");\n        }\n        send({ id: message.id, result: { turn: { id: "turn-listing-parallel", status: "inProgress", items: [] } } });\n      } else if (message.id) send({ id: message.id, error: { code: -32601, message: "Unsupported test protocol method" } });\n    }\n    at = buffer.indexOf("\\n");\n  }\n});\n`);
   await chmod(fakeCodex, 0o755);
   await writeFile(fakeCodexRunner, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(fakeCodex)} "$@"\n`);
   await chmod(fakeCodexRunner, 0o755);
@@ -177,13 +188,15 @@ test("a blocked selection assignee does not starve an idle listing assignee at s
       SELECTION_REVIEW_DATA_FILE: dataFile,
       SELECTION_REVIEW_API_PORT: String(parallelPort),
       SELECTION_REVIEW_CODEX_BIN: fakeCodexRunner,
+      SELECTION_REVIEW_CODEX_DISPATCH: "on",
+      SELECTION_REVIEW_DISPATCH_SKILLS_DIR: skillsDirectory,
       SELECTION_REVIEW_AUTO_DELIVER: "on"
     },
     stdio: ["ignore", "ignore", "pipe"]
   });
   const stderr = [];
   child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
-  t.after(() => child.kill("SIGTERM"));
+  t.after(() => stopApiProcess(child));
 
   await waitFor(async () => (await fetch(`${parallelBaseUrl}/api/health`)).ok, `测试服务未启动：${stderr.join("")}`);
   const state = await waitFor(async () => {
