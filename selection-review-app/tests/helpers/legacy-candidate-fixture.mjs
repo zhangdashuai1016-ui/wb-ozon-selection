@@ -294,6 +294,7 @@ export function createMusicBoxCandidate() {
     sourceUrl: "https://detail.1688.com/offer/876240928352.html",
     purchasePriceRmb: 17.3,
     expectedPriceRub: 1462,
+    packagingCostRmb: 1.5,
     packedWeightKg: 0.4,
     dimensionsCm: { length: 12, width: 12, height: 7 },
     sourceCapture: { captureId: "test-capture-music-box", status: "verified", originalSourceUrl: "https://qr.1688.com/s/7OnLCakq", sourceUrl: "https://detail.1688.com/offer/876240928352.html", offerId: "876240928352", observedAt, selectedSkus: [] },

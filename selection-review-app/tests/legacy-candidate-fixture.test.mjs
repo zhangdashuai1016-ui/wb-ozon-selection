@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { validateOpportunityPackage, validateSkuLifecyclePackage } from "../lib/product-lifecycle-schema.mjs";
 import { validateEVerificationRecord, validateExternalListingRecord } from "../lib/e-stage-readback.mjs";
+import { buildLifecycleBExplicitOtherCosts } from "../lib/lifecycle-b-evidence-runtime.mjs";
+import { DEFAULT_RULES } from "../lib/workflow.mjs";
 import { createTrainCandidate, createMusicBoxCandidate, createLegacyCandidateDocument, createAuthorizedTrainCandidate, createGenericCStageCandidate, createVerifiedGenericCandidate } from "./helpers/legacy-candidate-fixture.mjs";
 
 test("synthetic candidate factories produce fresh, schema-valid lifecycle inputs", () => {
@@ -25,6 +27,32 @@ test("synthetic legacy document explicitly represents unknown, processing, rejec
   assert.ok(document.candidates.some((candidate) => candidate.workflowStatus === "codex_processing"));
   assert.ok(document.candidates.some((candidate) => candidate.workflowStatus === "eliminated"));
   assert.ok(document.candidates.some((candidate) => candidate.codexReview?.profitCalculation));
+});
+
+test("synthetic A-to-B candidate supplies explicit packaging cost before evidence preparation", () => {
+  const candidate = createMusicBoxCandidate();
+  // candidateProfitRule in the server selects this rule for dandanshu; importing
+  // the server here would start a service, so exercise the pure cost boundary.
+  assert.equal(candidate.targetStore, "dandanshu");
+  const rule = DEFAULT_RULES.ozonDandanshu;
+  const costs = buildLifecycleBExplicitOtherCosts(candidate, rule);
+  assert.deepEqual(costs, {
+    packagingRmb: 1.5,
+    labelRmb: 1.5,
+    fixedOtherRmb: 0,
+    advertisingRate: 0,
+    returnReserveRate: 0.05,
+    damageReserveRate: 0.05,
+    withdrawalFeeRate: 0.02,
+    targetMarginRate: 0.15,
+    minimumUnitProfitRmb: 20,
+    priceIncrementCny: 1,
+    thresholdLogic: "any",
+    pricingPolicyVersion: "ozon-wb-global-pricing-2026-08-21-v3-project-or-threshold-v1"
+  });
+  delete candidate.packagingCostRmb;
+  assert.throws(() => buildLifecycleBExplicitOtherCosts(candidate, rule), /B_EVIDENCE_COST_POLICY_INCOMPLETE/);
+  assert.equal(createMusicBoxCandidate().packagingCostRmb, 1.5);
 });
 
 test("synthetic final-assets authorization preserves the unexecuted five-image contract", () => {
