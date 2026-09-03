@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "software-job-v1.schema.json",
+  "title": "Software job envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "strictRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^(?=.{1,256}$)(?!.*[\\u0000-\\u001f\\s?#@=&\\\\])(?!(?:[Ff][Ii][Ll][Ee]:|[Hh][Tt][Tt][Pp][Ss]?:|/|\\\\|[A-Za-z]:[\\\\/]))(?!.*//)[A-Za-z0-9][A-Za-z0-9._:~-]*$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "storeRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stableStoreId", "platformStoreId", "mappingVersion"],
+      "properties": {
+        "stableStoreId": { "$ref": "#/$defs/strictRef" },
+        "platformStoreId": { "$ref": "#/$defs/strictRef" },
+        "mappingVersion": { "$ref": "#/$defs/strictRef" }
+      }
+    },
+    "stableAssetHosts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(?=.{1,253}$)(?!-)(?!.*(?:^|\\.)(?:localhost|local|localdomain|lan|home|internal)$)(?:[a-z0-9-]+\\.)+[a-z]{2,63}$"
+      }
+    },
+    "c2StableAssetTransportScopeBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "candidateId", "skuPackageId", "sourceRevision", "resultRevision", "platform", "storeRef",
+        "supplierSkuId", "variantKey", "sideEffectScope", "authorizationRef", "credentialAlias", "inputFingerprint",
+        "stagedAssetManifestFingerprint", "ownerStagingConfirmationRef", "allowedStableAssetHosts"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "software-job-scope-v1" },
+        "candidateId": { "$ref": "#/$defs/strictRef" },
+        "skuPackageId": { "$ref": "#/$defs/strictRef" },
+        "sourceRevision": { "type": "integer", "minimum": 0 },
+        "resultRevision": { "type": "integer", "minimum": 1 },
+        "platform": { "$ref": "#/$defs/strictRef" },
+        "storeRef": { "$ref": "#/$defs/storeRef" },
+        "supplierSkuId": { "$ref": "#/$defs/strictRef" },
+        "variantKey": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "sideEffectScope": { "const": "c2_stable_asset_transport" },
+        "authorizationRef": { "$ref": "#/$defs/strictRef" },
+        "credentialAlias": { "$ref": "#/$defs/strictRef" },
+        "inputFingerprint": { "$ref": "#/$defs/sha256" },
+        "stagedAssetManifestFingerprint": { "$ref": "#/$defs/sha256" },
+        "ownerStagingConfirmationRef": { "$ref": "#/$defs/strictRef" },
+        "allowedStableAssetHosts": { "$ref": "#/$defs/stableAssetHosts" }
+      }
+    },
+    "c1PaidKeywordEvidenceScopeBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "candidateId", "skuPackageId", "sourceRevision", "resultRevision", "platform", "targetStore",
+        "supplierSkuId", "variantKey", "sideEffectScope", "authorizationRef", "credentialAlias", "inputFingerprint",
+        "planningEvidenceFingerprint", "runtimeInputFingerprint", "seerfarRequestFingerprint", "salesSnapshotFingerprint",
+        "supplySnapshotFingerprint", "profitModelFingerprint", "c1FactsFingerprint", "pointBudgetEvidenceRef",
+        "quotaEvidenceRef", "pointsAuthorized", "provider"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "software-job-scope-v1" },
+        "candidateId": { "$ref": "#/$defs/strictRef" },
+        "skuPackageId": { "$ref": "#/$defs/strictRef" },
+        "sourceRevision": { "type": "integer", "minimum": 0 },
+        "resultRevision": { "type": "integer", "minimum": 1 },
+        "platform": { "$ref": "#/$defs/strictRef" },
+        "targetStore": { "$ref": "#/$defs/strictRef" },
+        "supplierSkuId": { "$ref": "#/$defs/strictRef" },
+        "variantKey": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "sideEffectScope": { "const": "c1_paid_keyword_evidence" },
+        "authorizationRef": { "$ref": "#/$defs/strictRef" },
+        "credentialAlias": { "$ref": "#/$defs/strictRef" },
+        "inputFingerprint": { "$ref": "#/$defs/sha256" },
+        "planningEvidenceFingerprint": { "$ref": "#/$defs/sha256" },
+        "runtimeInputFingerprint": { "$ref": "#/$defs/sha256" },
+        "seerfarRequestFingerprint": { "$ref": "#/$defs/sha256" },
+        "salesSnapshotFingerprint": { "$ref": "#/$defs/sha256" },
+        "supplySnapshotFingerprint": { "$ref": "#/$defs/sha256" },
+        "profitModelFingerprint": { "$ref": "#/$defs/sha256" },
+        "c1FactsFingerprint": { "$ref": "#/$defs/sha256" },
+        "pointBudgetEvidenceRef": { "$ref": "#/$defs/strictRef" },
+        "quotaEvidenceRef": { "$ref": "#/$defs/strictRef" },
+        "pointsAuthorized": { "const": 15 },
+        "provider": { "const": "seerfar_open_api" }
+      }
+    }
+  },
+  "required": [
+    "schemaVersion", "jobId", "candidateId", "skuPackageId", "revision", "jobType", "status",
+    "createdAt", "startedAt", "lastProgressAt", "completedAt", "requestedByUserId", "ownerUserId",
+    "requiredCapabilities", "workerId", "workerVersion", "workerCapabilitiesSnapshot", "leaseId", "leaseExpiresAt", "attempt", "idempotencyKey",
+    "externalRequestState", "externalRequestRef", "progressRef", "resultRef", "resultEnvelope",
+    "failureClass", "automaticRetryAllowed", "admissionDecision", "scopeBinding"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "software-job-v1" },
+    "jobId": { "$ref": "#/$defs/strictRef" },
+    "candidateId": { "$ref": "#/$defs/strictRef" },
+    "skuPackageId": { "$ref": "#/$defs/strictRef" },
+    "revision": { "type": "integer", "minimum": 0 },
+    "jobType": { "enum": ["c2_stable_asset_transport", "c1_paid_keyword_evidence"] },
+    "status": { "enum": ["queued", "claimed", "waiting_platform", "completed", "failed", "unknown_outcome"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "startedAt": { "type": ["string", "null"], "format": "date-time" },
+    "lastProgressAt": { "type": ["string", "null"], "format": "date-time" },
+    "completedAt": { "type": ["string", "null"], "format": "date-time" },
+    "requestedByUserId": { "$ref": "#/$defs/strictRef" },
+    "ownerUserId": { "$ref": "#/$defs/strictRef" },
+    "requiredCapabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": ["chrome", "ozon-login", "wb-login", "1688-login", "seerfar-browser", "company-vpn", "file-upload", "image-processing", "stable-asset-transport", "seerfar-open-api"]
+      }
+    },
+    "workerId": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/strictRef" }] },
+    "workerVersion": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/strictRef" }] },
+    "workerCapabilitiesSnapshot": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": ["chrome", "ozon-login", "wb-login", "1688-login", "seerfar-browser", "company-vpn", "file-upload", "image-processing", "stable-asset-transport", "seerfar-open-api"]
+      }
+    },
+    "leaseId": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/strictRef" }] },
+    "leaseExpiresAt": { "type": ["string", "null"], "format": "date-time" },
+    "attempt": { "enum": [0, 1] },
+    "idempotencyKey": { "$ref": "#/$defs/strictRef" },
+    "externalRequestState": { "enum": ["not_sent", "in_flight", "failed", "unknown_outcome", "succeeded"] },
+    "externalRequestRef": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/strictRef" }] },
+    "progressRef": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/strictRef" }] },
+    "resultRef": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/strictRef" }] },
+    "resultEnvelope": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "software-job-admission-v1.schema.json#/$defs/softwareJobResultEnvelope" }
+      ]
+    },
+    "failureClass": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/strictRef" }] },
+    "automaticRetryAllowed": { "const": false },
+    "admissionDecision": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "software-job-admission-v1.schema.json#/$defs/softwareJobAdmissionDecision" }
+      ]
+    },
+    "scopeBinding": {
+      "oneOf": [
+        { "$ref": "#/$defs/c2StableAssetTransportScopeBinding" },
+        { "$ref": "#/$defs/c1PaidKeywordEvidenceScopeBinding" }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "failed" }, "externalRequestState": { "const": "succeeded" } },
+        "required": ["status", "externalRequestState"]
+      },
+      "then": {
+        "properties": {
+          "jobType": { "const": "c1_paid_keyword_evidence" },
+          "failureClass": { "const": "c1-paid-keyword-local-preparation-failed" },
+          "resultRef": { "type": "null" },
+          "resultEnvelope": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "jobType": { "const": "c2_stable_asset_transport" } }, "required": ["jobType"] },
+      "then": {
+        "properties": {
+          "requiredCapabilities": { "const": ["stable-asset-transport"] },
+          "scopeBinding": { "$ref": "#/$defs/c2StableAssetTransportScopeBinding" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "jobType": { "const": "c1_paid_keyword_evidence" } }, "required": ["jobType"] },
+      "then": {
+        "properties": {
+          "requiredCapabilities": { "const": ["seerfar-open-api"] },
+          "scopeBinding": { "$ref": "#/$defs/c1PaidKeywordEvidenceScopeBinding" }
+        }
+      }
+    }
+  ]
+}

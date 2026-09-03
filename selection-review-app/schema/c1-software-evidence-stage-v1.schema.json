@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "c1-software-evidence-stage-v1",
+  "title": "C1软件证据冻结包 v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "candidateId", "sourceCandidateRevision", "skuPackageId", "supplierSkuId",
+    "sourceSkuRevision", "stagedAt", "frozenSeoRules", "k3KeywordEvidenceSnapshot", "k3CurrentBinding",
+    "frozenComplexityDecision", "preparedInputFingerprint", "executionPolicy", "downstream", "evidenceFingerprint"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "c1-software-evidence-stage-v1" },
+    "candidateId": { "type": "string", "minLength": 1 },
+    "sourceCandidateRevision": { "type": "integer", "minimum": 0 },
+    "skuPackageId": { "type": "string", "minLength": 1 },
+    "supplierSkuId": { "type": "string", "minLength": 1 },
+    "sourceSkuRevision": { "type": "integer", "minimum": 0 },
+    "stagedAt": { "type": "string", "format": "date-time" },
+    "frozenSeoRules": { "type": "object" },
+    "k3KeywordEvidenceSnapshot": { "type": "object" },
+    "k3CurrentBinding": { "type": "object" },
+    "frozenComplexityDecision": { "type": ["object", "null"] },
+    "preparedInputFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "executionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attemptLimit", "automaticRetry", "automaticModelFallback", "codexDispatches", "platformAccesses", "platformWrites"],
+      "properties": {
+        "attemptLimit": { "const": 1 },
+        "automaticRetry": { "const": false },
+        "automaticModelFallback": { "const": false },
+        "codexDispatches": { "const": 0 },
+        "platformAccesses": { "const": 0 },
+        "platformWrites": { "const": 0 }
+      }
+    },
+    "downstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["aiStarted", "c2Started", "productionStarted", "eReadbackStarted"],
+      "properties": {
+        "aiStarted": { "const": false },
+        "c2Started": { "const": false },
+        "productionStarted": { "const": false },
+        "eReadbackStarted": { "const": false }
+      }
+    },
+    "evidenceFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}

@@ -11,15 +11,14 @@ import {
   validateOwnerSupplyConfirmation
 } from "../lib/supplier-selection-flow.mjs";
 import { validateSkuLifecyclePackage } from "../lib/product-lifecycle-schema.mjs";
-import { createTrainCandidate } from "./helpers/legacy-candidate-fixture.mjs";
 
 const TEST_PRODUCT_ID = "CX-20260803-010";
 const VARIANT = "片数:320片";
 
 async function testCandidate() {
-  const candidate = createTrainCandidate({ lifecycle: false });
-  delete candidate.salesSnapshotsV11;
-  return candidate;
+  const url = new URL("../data/candidates.json", import.meta.url);
+  const document = JSON.parse(await readFile(url, "utf8"));
+  return document.candidates.find((item) => item.id === TEST_PRODUCT_ID);
 }
 
 function supplierOption({

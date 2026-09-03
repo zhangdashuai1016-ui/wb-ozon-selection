@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "c1-k3-keyword-adapter-v1",
+  "title": "C1 K3关键词快照适配结果 v1",
+  "type": "object",
+  "required": ["schemaVersion", "status", "adaptedAt", "identity", "sourceSnapshot", "sourceFingerprints", "keywordEvidence", "gaps", "executionEvidence", "downstream"],
+  "properties": {
+    "schemaVersion": { "const": "c1-k3-keyword-adapter-v1" },
+    "status": { "enum": ["ready", "not_ready"] },
+    "adaptedAt": { "type": "string", "format": "date-time" },
+    "identity": { "type": "object" },
+    "sourceSnapshot": { "type": ["object", "null"] },
+    "sourceFingerprints": { "type": "object" },
+    "keywordEvidence": { "type": ["object", "null"] },
+    "gaps": { "type": "array", "items": { "type": "object" } },
+    "executionEvidence": {
+      "type": "object",
+      "required": ["externalAccesses", "seerfarCalls", "aiCalls", "codexDispatches", "platformWrites"],
+      "properties": {
+        "externalAccesses": { "type": "array", "maxItems": 0 },
+        "seerfarCalls": { "const": 0 },
+        "aiCalls": { "const": 0 },
+        "codexDispatches": { "const": 0 },
+        "platformWrites": { "const": 0 }
+      },
+      "additionalProperties": false
+    },
+    "downstream": {
+      "type": "object",
+      "required": ["c2Started", "productionStarted", "eReadbackStarted"],
+      "properties": {
+        "c2Started": { "const": false },
+        "productionStarted": { "const": false },
+        "eReadbackStarted": { "const": false }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

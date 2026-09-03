@@ -1,0 +1,293 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "software-job-admission-v1.schema.json",
+  "title": "Software job admission contracts v1",
+  "$defs": {
+    "strictRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^(?=.{1,256}$)(?!.*[\\u0000-\\u001f\\s?#@=&\\\\])(?!(?:[Ff][Ii][Ll][Ee]:|[Hh][Tt][Tt][Pp][Ss]?:|/|\\\\|[A-Za-z]:[\\\\/]))(?!.*//)[A-Za-z0-9][A-Za-z0-9._:~-]*$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "storeRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stableStoreId", "platformStoreId", "mappingVersion"],
+      "properties": {
+        "stableStoreId": { "$ref": "#/$defs/strictRef" },
+        "platformStoreId": { "$ref": "#/$defs/strictRef" },
+        "mappingVersion": { "$ref": "#/$defs/strictRef" }
+      }
+    },
+    "stableAssetHosts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(?=.{1,253}$)(?!-)(?!.*(?:^|\\.)(?:localhost|local|localdomain|lan|home|internal)$)(?:[a-z0-9-]+\\.)+[a-z]{2,63}$"
+      }
+    },
+    "c2StableAssetTransportAuthorizationRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": { "useCount": { "const": 0 } },
+            "required": ["useCount"]
+          },
+          "then": {
+            "properties": {
+              "consumedByJobId": { "type": "null" },
+              "consumedAt": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "useCount": { "const": 1 } },
+            "required": ["useCount"]
+          },
+          "then": {
+            "properties": {
+              "consumedByJobId": { "$ref": "#/$defs/strictRef" },
+              "consumedAt": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      ],
+      "required": [
+        "schemaVersion", "authorizationId", "status", "action", "candidateId", "skuPackageId",
+        "sourceRevision", "resultRevision", "platform", "storeRef", "supplierSkuId", "variantKey",
+        "sideEffectScope", "stagedAssetManifestFingerprint", "ownerStagingConfirmationRef",
+        "allowedStableAssetHosts", "authorizedByUserId", "authorizedAt", "expiresAt",
+        "maxUses", "useCount", "consumedByJobId", "consumedAt"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "software-job-authorization-record-v1" },
+        "authorizationId": { "$ref": "#/$defs/strictRef" },
+        "status": { "const": "active" },
+        "action": { "const": "c2_stable_asset_transport" },
+        "candidateId": { "$ref": "#/$defs/strictRef" },
+        "skuPackageId": { "$ref": "#/$defs/strictRef" },
+        "sourceRevision": { "type": "integer", "minimum": 0 },
+        "resultRevision": { "type": "integer", "minimum": 1 },
+        "platform": { "$ref": "#/$defs/strictRef" },
+        "storeRef": { "$ref": "#/$defs/storeRef" },
+        "supplierSkuId": { "$ref": "#/$defs/strictRef" },
+        "variantKey": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "sideEffectScope": { "const": "c2_stable_asset_transport" },
+        "stagedAssetManifestFingerprint": { "$ref": "#/$defs/sha256" },
+        "ownerStagingConfirmationRef": { "$ref": "#/$defs/strictRef" },
+        "allowedStableAssetHosts": { "$ref": "#/$defs/stableAssetHosts" },
+        "authorizedByUserId": { "$ref": "#/$defs/strictRef" },
+        "authorizedAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": ["string", "null"], "format": "date-time" },
+        "maxUses": { "const": 1 },
+        "useCount": { "enum": [0, 1] },
+        "consumedByJobId": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/strictRef" }] },
+        "consumedAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "c1PaidKeywordEvidenceAuthorizationRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": { "properties": { "useCount": { "const": 0 } }, "required": ["useCount"] },
+          "then": { "properties": { "consumedByJobId": { "type": "null" }, "consumedAt": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "useCount": { "const": 1 } }, "required": ["useCount"] },
+          "then": { "properties": { "consumedByJobId": { "$ref": "#/$defs/strictRef" }, "consumedAt": { "type": "string", "format": "date-time" } } }
+        }
+      ],
+      "required": [
+        "schemaVersion", "authorizationId", "status", "action", "authorizationSubject", "candidateId", "skuPackageId",
+        "sourceRevision", "resultRevision", "platform", "targetStore", "supplierSkuId", "variantKey",
+        "sideEffectScope", "provider", "credentialAlias", "inputFingerprint", "planningEvidenceFingerprint",
+        "runtimeInputFingerprint", "seerfarRequestFingerprint", "salesSnapshotFingerprint", "supplySnapshotFingerprint",
+        "profitModelFingerprint", "c1FactsFingerprint", "pointBudgetEvidenceRef", "quotaEvidenceRef",
+        "pointsAuthorized", "authorizedByUserId", "authorizedAt", "expiresAt", "maxUses", "useCount",
+        "consumedByJobId", "consumedAt"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "software-job-authorization-record-v1" },
+        "authorizationId": { "$ref": "#/$defs/strictRef" },
+        "status": { "const": "active" },
+        "action": { "const": "c1_paid_keyword_evidence" },
+        "authorizationSubject": { "const": "c1_paid_keyword_evidence:seerfar_open_api_once" },
+        "candidateId": { "$ref": "#/$defs/strictRef" },
+        "skuPackageId": { "$ref": "#/$defs/strictRef" },
+        "sourceRevision": { "type": "integer", "minimum": 0 },
+        "resultRevision": { "type": "integer", "minimum": 1 },
+        "platform": { "$ref": "#/$defs/strictRef" },
+        "targetStore": { "$ref": "#/$defs/strictRef" },
+        "supplierSkuId": { "$ref": "#/$defs/strictRef" },
+        "variantKey": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "sideEffectScope": { "const": "c1_paid_keyword_evidence" },
+        "provider": { "const": "seerfar_open_api" },
+        "credentialAlias": { "$ref": "#/$defs/strictRef" },
+        "inputFingerprint": { "$ref": "#/$defs/sha256" },
+        "planningEvidenceFingerprint": { "$ref": "#/$defs/sha256" },
+        "runtimeInputFingerprint": { "$ref": "#/$defs/sha256" },
+        "seerfarRequestFingerprint": { "$ref": "#/$defs/sha256" },
+        "salesSnapshotFingerprint": { "$ref": "#/$defs/sha256" },
+        "supplySnapshotFingerprint": { "$ref": "#/$defs/sha256" },
+        "profitModelFingerprint": { "$ref": "#/$defs/sha256" },
+        "c1FactsFingerprint": { "$ref": "#/$defs/sha256" },
+        "pointBudgetEvidenceRef": { "$ref": "#/$defs/strictRef" },
+        "quotaEvidenceRef": { "$ref": "#/$defs/strictRef" },
+        "pointsAuthorized": { "const": 15 },
+        "authorizedByUserId": { "$ref": "#/$defs/strictRef" },
+        "authorizedAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": ["string", "null"], "format": "date-time" },
+        "maxUses": { "const": 1 },
+        "useCount": { "enum": [0, 1] },
+        "consumedByJobId": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/strictRef" }] },
+        "consumedAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "softwareJobAuthorizationRecord": {
+      "oneOf": [
+        { "$ref": "#/$defs/c2StableAssetTransportAuthorizationRecord" },
+        { "$ref": "#/$defs/c1PaidKeywordEvidenceAuthorizationRecord" }
+      ]
+    },
+    "c2StableAssetTransportCredentialBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "bindingId", "credentialAlias", "status", "provider", "platform",
+        "storeRef", "sideEffectScope", "allowedStableAssetHosts", "allowedWorkerIds",
+        "redaction", "boundAt", "expiresAt"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "software-job-credential-binding-v1" },
+        "bindingId": { "$ref": "#/$defs/strictRef" },
+        "credentialAlias": { "$ref": "#/$defs/strictRef" },
+        "status": { "const": "active" },
+        "provider": { "$ref": "#/$defs/strictRef" },
+        "platform": { "$ref": "#/$defs/strictRef" },
+        "storeRef": { "$ref": "#/$defs/storeRef" },
+        "sideEffectScope": { "const": "c2_stable_asset_transport" },
+        "allowedStableAssetHosts": { "$ref": "#/$defs/stableAssetHosts" },
+        "allowedWorkerIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/strictRef" }
+        },
+        "redaction": { "const": "credential_alias_only" },
+        "boundAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "c1PaidKeywordEvidenceCredentialBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "bindingId", "credentialAlias", "status", "provider", "platform",
+        "targetStore", "sideEffectScope", "candidateId", "skuPackageId", "sourceRevision",
+        "resultRevision", "inputFingerprint", "planningEvidenceFingerprint", "runtimeInputFingerprint",
+        "seerfarRequestFingerprint", "allowedWorkerIds", "redaction", "boundAt", "expiresAt"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "software-job-credential-binding-v1" },
+        "bindingId": { "$ref": "#/$defs/strictRef" },
+        "credentialAlias": { "$ref": "#/$defs/strictRef" },
+        "status": { "const": "active" },
+        "provider": { "const": "seerfar_open_api" },
+        "platform": { "$ref": "#/$defs/strictRef" },
+        "targetStore": { "$ref": "#/$defs/strictRef" },
+        "sideEffectScope": { "const": "c1_paid_keyword_evidence" },
+        "candidateId": { "$ref": "#/$defs/strictRef" },
+        "skuPackageId": { "$ref": "#/$defs/strictRef" },
+        "sourceRevision": { "type": "integer", "minimum": 0 },
+        "resultRevision": { "type": "integer", "minimum": 1 },
+        "inputFingerprint": { "$ref": "#/$defs/sha256" },
+        "planningEvidenceFingerprint": { "$ref": "#/$defs/sha256" },
+        "runtimeInputFingerprint": { "$ref": "#/$defs/sha256" },
+        "seerfarRequestFingerprint": { "$ref": "#/$defs/sha256" },
+        "allowedWorkerIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/strictRef" }
+        },
+        "redaction": { "const": "credential_alias_only" },
+        "boundAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "softwareJobCredentialBinding": {
+      "oneOf": [
+        { "$ref": "#/$defs/c2StableAssetTransportCredentialBinding" },
+        { "$ref": "#/$defs/c1PaidKeywordEvidenceCredentialBinding" }
+      ]
+    },
+    "softwareJobAdmissionDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "admissionId", "jobId", "candidateId", "skuPackageId", "revision",
+        "jobType", "normalizedScopeKey", "authorizationRef", "authorizationFingerprint",
+        "credentialBindingRef", "credentialAlias", "credentialBindingFingerprint", "phase", "observedAt"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "software-job-admission-v1" },
+        "admissionId": { "$ref": "#/$defs/strictRef" },
+        "jobId": { "$ref": "#/$defs/strictRef" },
+        "candidateId": { "$ref": "#/$defs/strictRef" },
+        "skuPackageId": { "$ref": "#/$defs/strictRef" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "jobType": { "$ref": "#/$defs/strictRef" },
+        "normalizedScopeKey": { "$ref": "#/$defs/strictRef" },
+        "authorizationRef": { "$ref": "#/$defs/strictRef" },
+        "authorizationFingerprint": { "$ref": "#/$defs/sha256" },
+        "credentialBindingRef": { "$ref": "#/$defs/strictRef" },
+        "credentialAlias": { "$ref": "#/$defs/strictRef" },
+        "credentialBindingFingerprint": { "$ref": "#/$defs/sha256" },
+        "phase": { "enum": ["enqueue_before_candidate_commit", "enqueue_current", "claim", "external_request"] },
+        "observedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "softwareJobResultEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "resultRef", "jobId", "jobType", "candidateId", "skuPackageId",
+        "revision", "workerId", "leaseId", "externalRequestRef", "externalRequestState",
+        "payloadKind", "payload", "payloadFingerprint", "applicationDisposition", "recordedAt"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "software-job-result-envelope-v1" },
+        "resultRef": { "$ref": "#/$defs/strictRef" },
+        "jobId": { "$ref": "#/$defs/strictRef" },
+        "jobType": { "$ref": "#/$defs/strictRef" },
+        "candidateId": { "$ref": "#/$defs/strictRef" },
+        "skuPackageId": { "$ref": "#/$defs/strictRef" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "workerId": { "$ref": "#/$defs/strictRef" },
+        "leaseId": { "$ref": "#/$defs/strictRef" },
+        "externalRequestRef": { "$ref": "#/$defs/strictRef" },
+        "externalRequestState": { "const": "succeeded" },
+        "payloadKind": { "$ref": "#/$defs/strictRef" },
+        "payload": { "type": "object" },
+        "payloadFingerprint": { "$ref": "#/$defs/sha256" },
+        "applicationDisposition": {
+          "enum": ["applied", "revision_conflict_not_applied", "result_recorded_no_candidate_mutation"]
+        },
+        "recordedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = 31000 + (process.pid % 20000);
@@ -116,7 +115,7 @@ test("2A模拟接口零持久化，旧C入口明确拒绝且awaiting_user_start�
   });
   const stderr = [];
   child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
-  t.after(() => stopApiProcess(child));
+  t.after(() => child.kill("SIGTERM"));
   await waitForHealth(child, stderr);
 
   const initialState = await (await fetch(`${baseUrl}/api/state`)).json();

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "c1-keyword-evidence-ready-event-v1.schema.json",
+  "title": "C1 Keyword Evidence Ready Event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "eventType",
+    "actorType",
+    "candidateId",
+    "dataRevision",
+    "skuPackageId",
+    "keywordEvidenceStatus",
+    "runtimeInputFingerprint",
+    "runtimeInput",
+    "createdAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "c1-keyword-evidence-ready-event-v1" },
+    "eventId": { "type": "string", "minLength": 1 },
+    "eventType": { "const": "k1_k2_frozen_evidence_ready" },
+    "actorType": { "const": "software" },
+    "candidateId": { "type": "string", "minLength": 1 },
+    "dataRevision": { "type": "integer", "minimum": 0 },
+    "skuPackageId": { "type": "string", "minLength": 1 },
+    "keywordEvidenceStatus": { "const": "ready" },
+    "runtimeInputFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "runtimeInput": { "$ref": "c1-fact-keyword-runtime-input-v1.schema.json" },
+    "createdAt": { "type": "string", "format": "date-time" }
+  }
+}

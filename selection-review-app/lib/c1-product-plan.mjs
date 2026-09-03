@@ -511,6 +511,7 @@ export function verifyC1ProductFacts({ skuPackage, verifiedAt }) {
     evidenceId: sourcedFact(schema.evidenceId, [factPath(schemaRoot, "evidenceId")]),
     schemaRevision: sourcedFact(schema.schemaRevision, [factPath(schemaRoot, "schemaRevision")]),
     requiredFields: sourcedFact(schema.requiredFields, [factPath(schemaRoot, "requiredFields")]),
+    writeBindings: sourcedFact(schema.writeBindings, [factPath(schemaRoot, "writeBindings")], "schema_write_bindings_not_present_in_frozen_schema"),
     collectedAt: sourcedFact(schema.collectedAt, [factPath(schemaRoot, "collectedAt")])
   };
   plan.batteryAssessment = {

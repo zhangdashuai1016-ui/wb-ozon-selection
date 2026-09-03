@@ -7,6 +7,71 @@
     { "$ref": "#/$defs/SkuLifecyclePackage" }
   ],
   "$defs": {
+    "g1Identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "candidateId", "skuPackageId", "platform", "storeRef", "supplierSkuId",
+        "merchantSku", "warehouseRef", "credentialAlias", "platformProductId"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "g1-identity-v1" },
+        "candidateId": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined", "not_applicable"] } },
+        "skuPackageId": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined", "not_applicable"] } },
+        "platform": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined", "not_applicable"] } },
+        "storeRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stableStoreId", "platformStoreId", "mappingVersion"],
+          "properties": {
+            "stableStoreId": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined", "not_applicable"] } },
+            "platformStoreId": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined", "not_applicable"] } },
+            "mappingVersion": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined", "not_applicable"] } }
+          }
+        },
+        "supplierSkuId": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined", "not_applicable"] } },
+        "merchantSku": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined"] } },
+        "warehouseRef": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined"] } },
+        "credentialAlias": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined"] } },
+        "platformProductId": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined"] } }
+      }
+    },
+    "c2DHandoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "handoffId", "status", "candidateId", "skuPackageId", "identity", "variantKey",
+        "productionAuthorizationId", "ownerDecisionId", "sourcePreparationFingerprint",
+        "sourceFinalCardInputFingerprint", "sourceCandidateRevision", "resultCandidateRevision",
+        "sourceSkuRevision", "resultSkuRevision", "createdAt", "uniqueOwner", "productionPlanCreated",
+        "executionIntentCreated", "softwareJobCreated", "dWritePermissionGranted", "externalRequests", "platformWrites"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "c2-d-handoff-v1" },
+        "handoffId": { "type": "string", "minLength": 1 },
+        "status": { "const": "awaiting_explicit_d_start" },
+        "candidateId": { "type": "string", "minLength": 1 },
+        "skuPackageId": { "type": "string", "minLength": 1 },
+        "identity": { "$ref": "#/$defs/g1Identity" },
+        "variantKey": { "type": "string", "minLength": 1 },
+        "productionAuthorizationId": { "type": "string", "minLength": 1 },
+        "ownerDecisionId": { "type": "string", "minLength": 1 },
+        "sourcePreparationFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "sourceFinalCardInputFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "sourceCandidateRevision": { "type": "integer", "minimum": 0 },
+        "resultCandidateRevision": { "type": "integer", "minimum": 1 },
+        "sourceSkuRevision": { "type": "integer", "minimum": 0 },
+        "resultSkuRevision": { "type": "integer", "minimum": 1 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "uniqueOwner": { "const": "d_software" },
+        "productionPlanCreated": { "const": false },
+        "executionIntentCreated": { "const": false },
+        "softwareJobCreated": { "const": false },
+        "dWritePermissionGranted": { "const": false },
+        "externalRequests": { "const": 0 },
+        "platformWrites": { "const": 0 }
+      }
+    },
     "businessResult": {
       "enum": ["pending", "passed", "rejected", "manual_review", "unknown"]
     },
@@ -118,7 +183,7 @@
     },
     "SkuLifecyclePackage": {
       "type": "object",
-      "required": ["schemaVersion", "entityType", "skuPackageId", "parentOpportunityId", "supplierOptionId", "supplierSkuId", "variantKey", "targetPlatform", "targetStore", "dataRevision", "businessPhase", "businessResult", "technicalStatus", "ownerAction", "inheritedSalesSnapshotRefs", "selectedSupplySnapshot", "skuFacts", "profitModels", "activeProfitModelVersion", "c1ProductPlan", "c2FinalAssets", "productionAuthorization", "productionRecord", "externalListingRecord", "eVerificationRecord", "readbackPolicy", "readbackHistory", "audit"],
+      "required": ["schemaVersion", "entityType", "skuPackageId", "parentOpportunityId", "supplierOptionId", "supplierSkuId", "variantKey", "targetPlatform", "targetStore", "g1Identity", "dataRevision", "businessPhase", "businessResult", "technicalStatus", "ownerAction", "inheritedSalesSnapshotRefs", "selectedSupplySnapshot", "skuFacts", "profitModels", "activeProfitModelVersion", "c1ProductPlan", "c2FinalAssets", "productionAuthorization", "productionRecord", "externalListingRecord", "eVerificationRecord", "readbackPolicy", "readbackHistory", "audit"],
       "properties": {
         "schemaVersion": { "const": "product-lifecycle-v1.1" },
         "entityType": { "const": "SkuLifecyclePackage" },
@@ -129,6 +194,7 @@
         "variantKey": { "type": "string", "minLength": 1 },
         "targetPlatform": { "type": "string", "minLength": 1 },
         "targetStore": { "type": "string", "minLength": 1 },
+        "g1Identity": { "$ref": "#/$defs/g1Identity" },
         "dataRevision": { "type": "integer", "minimum": 0 },
         "businessPhase": { "enum": ["B", "C1", "C2", "D", "E", "closed", "unknown"] },
         "businessResult": { "$ref": "#/$defs/businessResult" },
@@ -169,27 +235,33 @@
         "productionAuthorization": {
           "oneOf": [
             { "type": "null" },
+            { "$ref": "production-authorization-v1.1" }
+          ]
+        },
+        "dHandoff": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/c2DHandoff" }
+          ]
+        },
+        "productionConfirmationCard": { "type": ["object", "null"] },
+        "dAssetTransport": {
+          "oneOf": [
+            { "type": "null" },
             {
               "type": "object",
-              "required": ["schemaVersion", "status", "confirmedBy", "authorizedDataRevision", "lockedScope", "scopeExpansionAllowed", "fieldMutationAllowed", "skuReplacementAllowed", "assetReplacementAllowed", "readPolicy", "productionExecuted", "platformWrites"],
+              "required": ["schemaVersion", "status", "intent", "assetTransport", "automaticRetry", "platformWrites"],
               "properties": {
-                "schemaVersion": { "const": "production-authorization-v1.1" },
-                "status": { "const": "confirmed" },
-                "confirmedBy": { "const": "owner" },
-                "authorizedDataRevision": { "type": "integer", "minimum": 0 },
-                "lockedScope": { "type": "object" },
-                "scopeExpansionAllowed": { "const": false },
-                "fieldMutationAllowed": { "const": false },
-                "skuReplacementAllowed": { "const": false },
-                "assetReplacementAllowed": { "const": false },
-                "readPolicy": { "const": "authorization_snapshot_only" },
-                "productionExecuted": { "const": false },
+                "schemaVersion": { "const": "aliyun-oss-d-asset-state-v1" },
+                "status": { "enum": ["in_flight", "verified", "unknown_outcome"] },
+                "intent": { "type": "object" },
+                "assetTransport": { "type": ["object", "null"] },
+                "automaticRetry": { "const": false },
                 "platformWrites": { "const": 0 }
               }
             }
           ]
         },
-        "productionConfirmationCard": { "type": ["object", "null"] },
         "productionRecord": { "type": ["object", "null"] },
         "externalListingRecord": { "type": ["object", "null"] },
         "eVerificationRecord": { "type": ["object", "null"] },
@@ -197,6 +269,16 @@
         "readbackHistory": { "type": "array" },
         "audit": { "$ref": "#/$defs/audit" }
       },
+      "allOf": [
+        {
+          "if": { "properties": { "productionAuthorization": { "type": "object" } }, "required": ["productionAuthorization"] },
+          "then": { "required": ["dHandoff"], "properties": { "dHandoff": { "$ref": "#/$defs/c2DHandoff" } } }
+        },
+        {
+          "if": { "properties": { "dHandoff": { "type": "object" } }, "required": ["dHandoff"] },
+          "then": { "properties": { "productionAuthorization": { "$ref": "production-authorization-v1.1" } } }
+        }
+      ],
       "additionalProperties": false
     }
   }

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "e-system-readback-v1",
+  "title": "系统创建商品E独立回读结果 v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "status", "outcome", "verifiedAt", "sourceProductionRecordId", "gaps", "observation", "eVerificationRecord", "automaticRetry", "platformWrites"],
+  "properties": {
+    "schemaVersion": { "const": "e-system-readback-v1" },
+    "status": { "enum": ["verified", "not_verified"] },
+    "outcome": { "enum": ["listed_verified", null] },
+    "verifiedAt": { "type": "string", "format": "date-time" },
+    "sourceProductionRecordId": { "type": "string", "minLength": 1 },
+    "gaps": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "observation": { "type": "object" },
+    "eVerificationRecord": { "type": ["object", "null"] },
+    "automaticRetry": { "const": false },
+    "platformWrites": { "const": 0 }
+  }
+}

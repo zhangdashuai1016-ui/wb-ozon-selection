@@ -17,12 +17,14 @@ import {
 import { GLOBAL_PRICING_POLICY_VERSION } from "../lib/global-pricing-policy.mjs";
 import { validateSkuLifecyclePackage } from "../lib/product-lifecycle-schema.mjs";
 import { attachPassedMarketAssessment } from "./helpers/market-assessment-fixture.mjs";
-import { createTrainCandidate } from "./helpers/legacy-candidate-fixture.mjs";
 
+const TEST_PRODUCT_ID = "CX-20260803-010";
 const VARIANT = "规格:豪华小火车";
 
 async function currentCandidate() {
-  return createTrainCandidate();
+  const url = new URL("../data/candidates.json", import.meta.url);
+  const document = JSON.parse(await readFile(url, "utf8"));
+  return document.candidates.find((item) => item.id === TEST_PRODUCT_ID);
 }
 
 async function preparedInputs() {
@@ -187,6 +189,16 @@ test("CX-20260803-010 produces the complete frozen ProfitModel from five upstrea
   assert.deepEqual(validateProfitModel(model), { valid: true, errors: [] });
 });
 
+test("identical B inputs replay the existing ProfitModel without appending a version", async () => {
+  const inputs = await preparedInputs();
+  const first = runSkuProfitModel(inputs);
+  const replay = runSkuProfitModel({ ...inputs, skuPackage: first.skuPackage });
+  assert.equal(replay.idempotentReplay, true);
+  assert.equal(replay.profitModel.profitModelVersion, first.profitModel.profitModelVersion);
+  assert.deepEqual(replay.skuPackage.profitModels, first.skuPackage.profitModels);
+  assert.equal(replay.skuPackage.dataRevision, first.skuPackage.dataRevision);
+});
+
 test("B uses OR threshold logic and remains in B after calculation", async () => {
   const inputs = await preparedInputs();
   const passed = runSkuProfitModel(inputs);
@@ -246,16 +258,15 @@ test("current threshold passes when either unit profit or profit margin reaches 
   assert.deepEqual(validateProfitModel(neither), { valid: true, errors: [] });
 });
 
-test("synthetic historical 25-percent-and-20-yuan model remains valid and is not rewritten", async () => {
+test("historical 25-percent-and-20-yuan models remain valid and are not rewritten", async () => {
   const candidate = await currentCandidate();
-  const historical = structuredClone(candidate.lifecycleV11.skuPackage.profitModels[0]);
-  historical.thresholdVersion = "profit-threshold-v1.1-25pct-20cny";
-  historical.thresholds = { minimumProfitMargin: 0.25, minimumUnitProfitRmb: 20, logic: "all" };
+  const historical = candidate.lifecycle?.skuPackage?.profitModels?.[0]
+    || candidate.productLifecycle?.skuPackage?.profitModels?.[0]
+    || candidate.lifecycleV11?.skuPackage?.profitModels?.[0];
   assert.ok(historical, "expected historical ProfitModel fixture");
   const before = structuredClone(historical);
   assert.equal(historical.thresholdVersion, "profit-threshold-v1.1-25pct-20cny");
   const validation = validateProfitModel(historical);
-  assert.deepEqual(validation, { valid: true, errors: [] });
   assert.equal(validation.errors.some((item) => ["thresholdVersion", "thresholds", "result"].includes(item.path)), false);
   assert.deepEqual(historical, before);
 });

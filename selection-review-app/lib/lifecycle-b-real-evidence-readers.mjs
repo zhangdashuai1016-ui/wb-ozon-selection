@@ -2,8 +2,6 @@ import { readCurrentGuooTariff } from "./guoo-tariff-reader.mjs";
 import { createLifecycleBEvidenceProviderRegistry } from "./lifecycle-b-evidence-providers.mjs";
 import { readCurrentCbrExchangeRate } from "./official-fx-reader.mjs";
 
-const DEFAULT_OZON_SERVICE_URL = "http://127.0.0.1:4173";
-
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -73,7 +71,7 @@ async function postOzonEvidence({ request, kind, fetchImpl, ozonServiceUrl }) {
 
 export function createLifecycleBRealEvidenceReaders({
   fetchImpl = globalThis.fetch,
-  ozonServiceUrl = DEFAULT_OZON_SERVICE_URL,
+  ozonServiceUrl,
   guooFilePath,
   cbrSourceUrl,
   otherCosts,
@@ -82,6 +80,7 @@ export function createLifecycleBRealEvidenceReaders({
 } = {}) {
   const explicitOtherCosts = assertExplicitCostPolicy(otherCosts);
   const authorizedEstimate = normalizeCommissionEstimate(commissionEstimate);
+  if (!ozonServiceUrl) throw new Error("B_EVIDENCE_OZON_SERVICE_URL_REQUIRED: Ozon证据连接器地址必须由运行配置提供");
   const schemaCache = new Map();
   const readSchema = async (request) => {
     const key = JSON.stringify({

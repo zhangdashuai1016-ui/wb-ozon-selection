@@ -129,6 +129,23 @@ export default function RealAConfirmationCard({ card, onSubmit, disabled = false
         ) : <span>没有有效销售快照，不能确认进入B。</span>}
       </div>
 
+      <section className="real-a-ai-assist" aria-label="A阶段AI辅助判断">
+        <b>Terra辅助整理</b>
+        {sales?.terraAssist ? (
+          <>
+            <span>{sales.terraAssist.output?.summary || "已生成结构化辅助草稿"}</span>
+            <small>模型 {sales.terraAssist.modelVersion} · 仅供参考，不覆盖页面价格、标题、类目或卖家身份。</small>
+          </>
+        ) : card.aiAssist?.status === "failed" ? (
+          <>
+            <span>AI整理已停止：{card.aiAssist.failure?.message || "技术失败"}</span>
+            <small>商品业务结论未改变；没有换Sol，也没有自动重试。</small>
+          </>
+        ) : (
+          <span>销售快照保存后由软件调用Terra一次；尚未生成辅助草稿。</span>
+        )}
+      </section>
+
       <section className="real-a-supplier-capture" aria-label="A阶段1688供应采集">
         <header>
           <div>
@@ -284,7 +301,7 @@ export default function RealAConfirmationCard({ card, onSubmit, disabled = false
 
       <div className="real-a-actions">
         <button className="button secondary" type="button" disabled={disabled || !onSubmit || captureInProgress} onClick={() => submit("reject")}>淘汰商品</button>
-        <button className="button primary" type="button" disabled={disabled || !onSubmit || captureInProgress} onClick={() => submit("confirm")}>
+        <button className="button primary" type="button" disabled={disabled || !onSubmit || captureInProgress || card.blockedByException} onClick={() => submit("confirm")}>
           {captureReady ? "一次确认并进入B" : "保存A卡并等待插件自动采集"}
         </button>
       </div>

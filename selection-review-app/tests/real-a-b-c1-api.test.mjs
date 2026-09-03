@@ -5,9 +5,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { DEFAULT_RULES } from "../lib/workflow.mjs";
-import { createMusicBoxCandidate } from "./helpers/legacy-candidate-fixture.mjs";
-import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = 37000 + (process.pid % 20000);
@@ -156,7 +153,8 @@ async function post(pathname, body) {
 }
 
 test("真实A确认API在隔离数据中原子保存B结果和唯一C1交接", async (t) => {
-  const candidate = markSupplierCaptureReady(createMusicBoxCandidate());
+  const source = JSON.parse(await readFile(path.join(appDir, "data", "candidates.json"), "utf8"));
+  const candidate = markSupplierCaptureReady(structuredClone(source.candidates.find((item) => item.id === "CX-20260802-014")));
   delete candidate.lifecycleV11;
   candidate.workflowStatus = "codex_processing";
   candidate.listingHandoff = null;
@@ -166,8 +164,8 @@ test("真实A确认API在隔离数据中原子保存B结果和唯一C1交接", a
   };
   candidate.processing = { state: "idle", manualHold: false };
   const fixture = {
-    meta: { version: 2, title: "a-b-c1-api-test", updatedAt: "2026-08-17T10:00:00.000Z", automationStarted: false },
-    rules: structuredClone(DEFAULT_RULES),
+    ...source,
+    meta: { ...source.meta, automationStarted: false },
     candidates: [candidate],
     evidencePacks: evidencePacks(),
     dispatches: [],
@@ -183,13 +181,12 @@ test("真实A确认API在隔离数据中原子保存B结果和唯一C1交接", a
       ...process.env,
       SELECTION_REVIEW_DATA_FILE: dataFile,
       SELECTION_REVIEW_API_PORT: String(port),
-      SELECTION_REVIEW_AUTO_DELIVER: "off",
-      SELECTION_REVIEW_CODEX_DISPATCH: "off"
+      SELECTION_REVIEW_AUTO_DELIVER: "off"
     },
     stdio: ["ignore", "ignore", "pipe"]
   });
   child.stderr.on("data", (chunk) => stderr.push(chunk.toString()));
-  t.after(() => stopApiProcess(child));
+  t.after(() => child.kill("SIGTERM"));
   await waitForHealth(child, stderr);
 
   const untraceableCommission = await post("/api/evidence-packs", {
@@ -275,8 +272,13 @@ test("真实A确认API在隔离数据中原子保存B结果和唯一C1交接", a
   assert.equal(first.body.candidate.lifecycleEvidenceContextV11.category, "ozon:17028743:971097529");
   assert.equal(first.body.candidate.lifecycleV11.skuPackage.profitModels[0].internationalFreight.amount, 18);
 
-  const repeated = await post(`/api/candidates/${candidate.id}/lifecycle/a-confirm`, payload(candidate));
-  assert.equal(repeated.response.status, 409);
+  const beforeReplay = await readFile(dataFile, "utf8");
+  const replayInput = payload(candidate);
+  replayInput.dataRevision = first.body.candidate.dataRevision;
+  const repeated = await post(`/api/candidates/${candidate.id}/lifecycle/a-confirm`, replayInput);
+  assert.equal(repeated.response.status, 200, JSON.stringify(repeated.body));
+  assert.equal(repeated.body.candidate.dataRevision, first.body.candidate.dataRevision);
+  assert.equal(await readFile(dataFile, "utf8"), beforeReplay, "幂等重放不得改共享数据字节");
   const persisted = JSON.parse(await readFile(dataFile, "utf8"));
   const saved = persisted.candidates[0];
   assert.equal(saved.lifecycleV11.c1Handoffs.length, 1);
@@ -286,7 +288,8 @@ test("真实A确认API在隔离数据中原子保存B结果和唯一C1交接", a
 });
 
 test("真实A确认API缺系统证据时不修改隔离候选", async (t) => {
-  const candidate = markSupplierCaptureReady(createMusicBoxCandidate());
+  const source = JSON.parse(await readFile(path.join(appDir, "data", "candidates.json"), "utf8"));
+  const candidate = markSupplierCaptureReady(structuredClone(source.candidates.find((item) => item.id === "CX-20260802-014")));
   delete candidate.lifecycleV11;
   candidate.workflowStatus = "codex_processing";
   candidate.listingHandoff = null;
@@ -296,8 +299,8 @@ test("真实A确认API缺系统证据时不修改隔离候选", async (t) => {
   };
   candidate.processing = { state: "idle", manualHold: false };
   const fixture = {
-    meta: { version: 2, title: "a-b-c1-api-test", updatedAt: "2026-08-17T10:00:00.000Z", automationStarted: false },
-    rules: structuredClone(DEFAULT_RULES),
+    ...source,
+    meta: { ...source.meta, automationStarted: false },
     candidates: [candidate],
     evidencePacks: evidencePacks().slice(0, 1),
     dispatches: [],
@@ -317,13 +320,12 @@ test("真实A确认API缺系统证据时不修改隔离候选", async (t) => {
       SELECTION_REVIEW_DATA_FILE: dataFile,
       SELECTION_REVIEW_API_PORT: String(localPort),
       SELECTION_REVIEW_AUTO_DELIVER: "off",
-      SELECTION_REVIEW_CODEX_DISPATCH: "off",
       SELECTION_REVIEW_OZON_EVIDENCE_SERVICE_URL: "http://127.0.0.1:1"
     },
     stdio: ["ignore", "ignore", "pipe"]
   });
   child.stderr.on("data", (chunk) => stderr.push(chunk.toString()));
-  t.after(() => stopApiProcess(child));
+  t.after(() => child.kill("SIGTERM"));
   for (let attempt = 0; attempt < 80; attempt += 1) {
     try {
       const response = await fetch(`${localBaseUrl}/api/health`);

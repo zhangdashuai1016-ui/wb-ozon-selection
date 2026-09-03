@@ -32,12 +32,14 @@ function httpJson(body, status = 200) {
 
 test("GUOO row selection matches one exact route and keeps the tariff cells", () => {
   const rows = [];
-  rows[15] = { 2: "Small\n(小件)", 3: "GUOO Express Small PUDO\nGUOO Express Small Courier", 4: "空运", 6: "50.5元/千克+17.97元/票", 7: "0.001-2KG", 11: 50.5, 12: 17.97 };
+  rows[15] = { 2: "Small\n(小件)", 3: "GUOO Express Small PUDO\nGUOO Express Small Courier", 4: "空运", 6: "50.5元/千克+17.97元/票", 7: "0.001-2KG", 8: "1501-7000₽", 9: "三边之和不超150CM，单边不超60CM", 11: 50.5, 12: 17.97 };
   rows[17] = { 3: "GUOO Economy Small PUDO\nGUOO Economy Small Courier", 4: "陆运", 6: "28.1元/千克+17.97元/票", 11: 28.1, 12: 17.97 };
   const selected = selectGuooTariffRow(rows, "GUOO Economy Small");
   assert.equal(selected.rowNumber, 17);
   assert.equal(selected.productType, "Small\n(小件)");
   assert.equal(selected.weightLimit, "0.001-2KG");
+  assert.equal(selected.declaredValueLimit, "1501-7000₽");
+  assert.equal(selected.sizeLimit, "三边之和不超150CM，单边不超60CM");
   assert.equal(selected.row[11], 28.1);
 });
 
@@ -90,6 +92,7 @@ test("CBR reader returns current official RUB/CNY and stops on another pair", as
 test("real provider registry keeps Ozon credentials outside 4317 and merges only explicit project cost policy", async () => {
   const calls = [];
   const registry = createLifecycleBRealEvidenceProviderRegistry({
+    ozonServiceUrl: "http://127.0.0.1:4173",
     otherCosts: {
       packagingRmb: 1.5,
       labelRmb: 1.5,
@@ -137,6 +140,7 @@ test("real provider registry keeps Ozon credentials outside 4317 and merges only
 test("owner-authorized estimate resolves the exact category once and remains marked estimated", async () => {
   const calls = [];
   const registry = createLifecycleBRealEvidenceProviderRegistry({
+    ozonServiceUrl: "http://127.0.0.1:4173",
     otherCosts: {
       packagingRmb: 1.5,
       labelRmb: 1.5,

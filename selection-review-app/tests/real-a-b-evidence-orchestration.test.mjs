@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createMusicBoxCandidate } from "./helpers/legacy-candidate-fixture.mjs";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { runRealAConfirmationWithSystemEvidence } from "../lib/real-a-b-evidence-orchestration.mjs";
 import { GLOBAL_PRICING_POLICY_VERSION } from "../lib/global-pricing-policy.mjs";
 
+const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const confirmedAt = "2026-08-18T09:00:00.000Z";
 
 async function sourceCandidate() {
-  const candidate = createMusicBoxCandidate();
+  const data = JSON.parse(await readFile(path.join(appDir, "data", "candidates.json"), "utf8"));
+  const candidate = structuredClone(data.candidates.find((item) => item.id === "CX-20260802-014"));
   delete candidate.lifecycleV11;
   candidate.workflowStatus = "codex_processing";
   candidate.listingHandoff = null;
@@ -189,4 +193,61 @@ test("主人选择淘汰或提交无效时不会调用任何系统证据提供�
     }),
     /REAL_A_CONFIRMATION_INVALID/
   );
+});
+
+test("已落盘的同一A/B结果重放时不再调用证据提供器或创建第二个C1", async () => {
+  const candidate = await sourceCandidate();
+  const input = confirmation(candidate);
+  const providers = Object.fromEntries(["commission", "logistics_tariff", "exchange_rate", "schema"].map((kind) => [
+    kind,
+    async (request) => ({
+      id: `orchestration:replay:${kind}`,
+      kind,
+      status: "active",
+      scope: request.scope,
+      checkedAt: confirmedAt,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      sourceType: "isolated_test",
+      sourceRef: `fixture:orchestration:replay:${kind}`,
+      evidenceData: evidenceData(kind)
+    })
+  ]));
+  const first = await runRealAConfirmationWithSystemEvidence({
+    candidate,
+    submission: input,
+    evidencePacks: [],
+    providers,
+    confirmedAt,
+    guooFilePath: "/tmp/GUOO产品资费测算表【2026.7.20更新】.xlsx"
+  });
+  const persisted = structuredClone(candidate);
+  persisted.dataRevision += 1;
+  persisted.lifecycleEvidenceContextV11 = structuredClone(first.evidenceContext);
+  persisted.lifecycleV11 = {
+    aConfirmationReceipt: {
+      receiptId: first.result.confirmationReceiptId,
+      sourceCandidateRevision: first.result.sourceCandidateRevision
+    },
+    opportunityPackage: structuredClone(first.result.opportunityPackage),
+    ownerSupplyConfirmation: structuredClone(first.result.ownerSupplyConfirmation),
+    bSystemEvidenceBundle: structuredClone(first.result.systemEvidenceBundle),
+    skuPackage: structuredClone(first.result.skuPackage),
+    c1Handoffs: [structuredClone(first.result.c1Handoff)]
+  };
+  let replayCalls = 0;
+  const replayProviders = new Proxy({}, { get() { replayCalls += 1; throw new Error("重放不应读取提供器"); } });
+  const replay = await runRealAConfirmationWithSystemEvidence({
+    candidate: persisted,
+    submission: input,
+    evidencePacks: [],
+    providers: replayProviders,
+    confirmedAt,
+    guooFilePath: "/tmp/unused.xlsx"
+  });
+  assert.equal(replay.idempotentReplay, true);
+  assert.equal(replay.result.idempotentReplay, true);
+  assert.equal(replayCalls, 0);
+  assert.equal(replay.evidencePacksToCommit.length, 0);
+  assert.equal(replay.result.skuPackage.dataRevision, first.result.skuPackage.dataRevision);
+  assert.deepEqual(replay.result.c1Handoff, first.result.c1Handoff);
 });

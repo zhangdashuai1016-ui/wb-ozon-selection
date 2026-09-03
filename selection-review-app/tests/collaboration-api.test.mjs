@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = 43918;
@@ -38,6 +37,55 @@ function candidate(id, workflowStatus, processing) {
     comments: [],
     history: []
   };
+}
+
+function withOpenException(item, exceptionId) {
+  item.executionRuntime = {
+    schemaVersion: "software-execution-runtime-v1",
+    candidateId: item.id,
+    dataRevision: item.dataRevision,
+    businessPhase: "A",
+    executorType: "software",
+    status: "blocked",
+    stepId: "MAINTENANCE_REQUIRED",
+    inputRevision: item.dataRevision,
+    outputRevision: null,
+    inferenceJobId: null,
+    inferenceReceiptId: null,
+    technicalFailure: null,
+    codexWakeupCount: 0,
+    updatedAt: "2026-08-07T00:00:00.000Z",
+    history: [],
+    exceptionCase: {
+      schemaVersion: "exception-case-v2",
+      exceptionId,
+      candidateId: item.id,
+      skuPackageId: null,
+      sourceRevision: item.dataRevision,
+      businessPhase: "A",
+      softwareJobId: null,
+      stepId: "MAINTENANCE_REQUIRED",
+      lastSuccessfulStepId: null,
+      businessStateChanged: false,
+      reasonCode: "system_failure",
+      failureLayer: "test",
+      evidenceRefs: [],
+      externalRequestRefs: [],
+      unknownOutcome: false,
+      automaticRetryAllowed: false,
+      forbiddenAutomaticActions: ["retry", "change_model", "change_path", "advance_business_stage"],
+      safeMessageKey: "exception.system_failure",
+      message: "测试技术维护案件。",
+      dispatchState: "queued",
+      maintenanceAuthorizationId: `maintenance:${exceptionId}`,
+      turnId: null,
+      status: "open",
+      openedAt: "2026-08-07T00:00:00.000Z",
+      authorizedAt: "2026-08-07T00:00:00.000Z",
+      resolvedAt: null
+    }
+  };
+  return item;
 }
 
 function profitPassedCandidate(id) {
@@ -88,7 +136,7 @@ test("node comments, one-shot dispatch, exact claim, and production confirmation
     meta: { version: 2, title: "test", updatedAt: "2026-08-07T00:00:00.000Z", automationStarted: false },
     rules: {},
     candidates: [
-      candidate("QUEUE-1", "codex_processing", { state: "queued", dispatchState: "requested", manualHold: false }),
+      withOpenException(candidate("QUEUE-1", "codex_processing", { state: "queued", dispatchState: "requested", manualHold: false }), "exc-queue-1"),
       candidate("STOP-1", "codex_processing", { state: "blocked", dispatchState: "blocked", manualHold: true }),
       profitPassedCandidate("C-PENDING-1"),
       profitPassedCandidate("C-DECISION-1"),
@@ -118,7 +166,7 @@ test("node comments, one-shot dispatch, exact claim, and production confirmation
   });
   const stderr = [];
   child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
-  t.after(() => stopApiProcess(child));
+  t.after(() => child.kill("SIGTERM"));
   await waitForHealth(child, stderr);
 
   let state = await (await fetch(`${baseUrl}/api/state`)).json();
@@ -270,11 +318,8 @@ test("node comments, one-shot dispatch, exact claim, and production confirmation
     exclusions: "不送审、不发布",
     confirmed: true
   });
-  assert.equal(production.status, 200);
-  const authorized = (await production.json()).candidate;
-  assert.equal(authorized.workflowStatus, "ready_to_list");
-  assert.equal(authorized.productionAuthorization.status, "confirmed");
-  assert.equal(authorized.dataRevision, 2);
+  assert.equal(production.status, 409);
+  assert.match((await production.json()).message, /历史读取|只有开放的ExceptionCase/);
 
   const blockedLegacyProduction = await post("/api/candidates/LEGACY-READY/production-authorization", {
     dataRevision: 1,

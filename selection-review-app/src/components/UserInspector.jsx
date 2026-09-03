@@ -160,7 +160,7 @@ function ProcessingPanel({ candidate, onRecoveryAction }) {
   let currentStep = status.currentStep || "当前没有实际任务在运行";
   if (recoverableTerminal) {
     currentStep = latestDispatch.status === "responded_unverified"
-      ? "任务确实已经运行并回复；卡在结果回传，评审台没有收到可验收的结构化结果"
+      ? "任务确实已经运行并回复；卡在结果回传，今日选品评审没有收到可验收的结构化结果"
       : `最近一次派发已停止：${latestDispatch.error || latestDispatch.agentReply || "等待明确恢复方式"}`;
   } else if (dispatch?.status === "running") currentStep = dispatch.currentStep || currentStep;
   else if (["received", "permission_required"].includes(dispatch?.status)) currentStep = "负责人任务已接收，等待登记真实执行步骤";
@@ -218,7 +218,7 @@ function ProcessingPanel({ candidate, onRecoveryAction }) {
           {dispatch?.runId ? <small className="processing-attempts">真实运行编号：{dispatch.runId}</small> : null}
           {dispatch?.deliveryDetail ? <small className="processing-attempts">派发状态：{dispatch.deliveryDetail}</small> : null}
           {dispatch?.error ? <small className="processing-error">派发失败层：{dispatch.failureLayer || "未知"} · {dispatch.error}</small> : null}
-          {returnPathFailed ? <small className="processing-error">系统卡点：执行任务无法把结构化结果交回评审台；这不等于商品审核失败。</small> : null}
+          {returnPathFailed ? <small className="processing-error">系统卡点：执行任务无法把结构化结果交回今日选品评审；这不等于商品审核失败。</small> : null}
           {businessBlocker ? <small className="processing-attempts">商品当前业务卡点：{businessBlocker}</small> : null}
           {status.lastAttemptAt ? <small className="processing-attempts">最近尝试：{new Date(status.lastAttemptAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}</small> : null}
           {status.lastProgressAt ? <small className="processing-attempts">最近实质进展：{new Date(status.lastProgressAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}</small> : null}
@@ -437,7 +437,7 @@ function WbMarketSummary({ candidate, presentation }) {
         {presentation.riskAccepted ? (
           <div className="wb-risk-handoff">
             <b>{presentation.paused ? "当前暂停，不进行任何WB上架操作" : "不等于WB已验证通过"}</b>
-            <span>{presentation.paused ? "恢复后负责人：上架任务" : "下一阶段负责人：上架任务"}</span>
+            <span>{presentation.paused ? "恢复后执行者：软件；异常才进入上架维护" : "下一阶段执行者：软件"}</span>
             <span>{presentation.paused ? "恢复条件：重新提供并确认最终图片附件清单。" : "正式写入前仍须确认：店铺、价格、库存、图片、发布范围。"}</span>
           </div>
         ) : null}
@@ -469,7 +469,137 @@ function WbMarketSummary({ candidate, presentation }) {
   );
 }
 
-function ListingPreparationPanel({ candidate, onRecoveryAction, onCapture, onSelectSku, onLifecycleProductionAuthorization }) {
+function formatAssetSize(byteSize) {
+  const bytes = Number(byteSize || 0);
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+function C2FinalAssetsPanel({ candidate, onUpload, onConfirm }) {
+  const [assets, setAssets] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [ownerChecked, setOwnerChecked] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setAssets([]);
+    setUploading(false);
+    setConfirming(false);
+    setOwnerChecked(false);
+    setError("");
+  }, [candidate.id, candidate.dataRevision]);
+
+  async function chooseFiles(event) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (!files.length) return;
+    if (assets.length + files.length > 30) {
+      setError("每个SKU最多30个最终素材，请减少本次选择数量。");
+      return;
+    }
+    setUploading(true);
+    setOwnerChecked(false);
+    setError("");
+    const uploaded = [];
+    try {
+      for (const file of files) {
+        const result = await onUpload(file);
+        uploaded.push(result.asset);
+      }
+      setAssets((current) => [...current, ...uploaded]);
+    } catch (uploadError) {
+      if (uploaded.length) setAssets((current) => [...current, ...uploaded]);
+      setError(`${uploadError.message}；本轮已停止，没有自动重试。`);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function moveAsset(index, delta) {
+    const target = index + delta;
+    if (target < 0 || target >= assets.length) return;
+    setOwnerChecked(false);
+    setAssets((current) => {
+      const next = [...current];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
+
+  function removeAsset(assetId) {
+    setOwnerChecked(false);
+    setAssets((current) => current.filter((asset) => asset.assetId !== assetId));
+  }
+
+  const firstIsImage = assets[0]?.mediaType === "image";
+  const canConfirm = assets.length > 0 && firstIsImage && ownerChecked && !uploading && !confirming;
+
+  async function confirmAssets() {
+    if (!canConfirm) return;
+    setConfirming(true);
+    setError("");
+    try {
+      const orderedAssets = assets.map((asset, index) => ({
+        ...asset,
+        order: index + 1,
+        role: index === 0 ? "main_image" : asset.mediaType === "video" ? "product_video" : "detail_image",
+        addedAt: asset.stagedAt
+      }));
+      await onConfirm({
+        finalUploadAssets: orderedAssets,
+        approvedAssetIds: orderedAssets.map((asset) => asset.assetId),
+        confirmationNote: "主人在评审台确认当前SKU最终素材、首图和顺序"
+      });
+    } catch (confirmError) {
+      setError(confirmError.message);
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  return (
+    <div className="c2-final-assets-panel">
+      <div className="c2-final-assets-heading">
+        <div><b>C2 最终上传素材</b><span>只接收主人最终确认的图片或视频；采集素材和AI草稿不会自动进入这里。</span></div>
+        <span className="c2-asset-count">{assets.length}/30</span>
+      </div>
+      <label className={`c2-file-picker ${uploading ? "disabled" : ""}`}>
+        <input type="file" multiple accept=".jpg,.jpeg,.png,.webp,.mp4,image/jpeg,image/png,image/webp,video/mp4" disabled={uploading || confirming} onChange={chooseFiles} />
+        <b>{uploading ? "正在保存所选素材…" : "添加最终图片或视频"}</b>
+        <small>可一次多选；JPG、PNG、WEBP、MP4。选择文件不会改变商品业务状态。</small>
+      </label>
+      {assets.length ? (
+        <ol className="c2-final-asset-list">
+          {assets.map((asset, index) => (
+            <li key={asset.assetId} className={index === 0 ? "is-main" : ""}>
+              <div className="c2-final-asset-order">{index + 1}</div>
+              <div className="c2-final-asset-copy">
+                <b>{asset.fileName}</b>
+                <span>{index === 0 ? "首图" : asset.mediaType === "video" ? "商品视频" : "详情图"} · {formatAssetSize(asset.byteSize)}</span>
+                <small>SHA256 {String(asset.sha256 || "").slice(0, 12)}…</small>
+              </div>
+              <div className="c2-final-asset-actions">
+                <button type="button" className="button secondary" disabled={index === 0 || uploading || confirming} onClick={() => moveAsset(index, -1)}>上移</button>
+                <button type="button" className="button secondary" disabled={index === assets.length - 1 || uploading || confirming} onClick={() => moveAsset(index, 1)}>下移</button>
+                <button type="button" className="button secondary danger" disabled={uploading || confirming} onClick={() => removeAsset(asset.assetId)}>移除</button>
+              </div>
+            </li>
+          ))}
+        </ol>
+      ) : <p className="c2-empty-assets">尚未选择最终素材。当前商品仍停在C2，不会自动进入生产。</p>}
+      {assets.length > 0 && !firstIsImage ? <p className="field-error">首位必须是图片。请把一张图片移到第1位。</p> : null}
+      {error ? <p className="field-error">{error}</p> : null}
+      <label className="c2-owner-confirmation">
+        <input type="checkbox" checked={ownerChecked} disabled={!assets.length || uploading || confirming} onChange={(event) => setOwnerChecked(event.target.checked)} />
+        <span>我确认以上文件属于当前SKU，并确认首图和顺序。</span>
+      </label>
+      <button type="button" className="button primary" disabled={!canConfirm} onClick={confirmAssets}>{confirming ? "正在锁定素材…" : "确认最终素材并生成方案卡"}</button>
+      <small>这次确认只完成C2并生成最终商品方案卡，不创建生产授权、不派发任务、不访问或写入店铺。</small>
+    </div>
+  );
+}
+
+function ListingPreparationPanel({ candidate, onRecoveryAction, onCapture, onSelectSku, onUploadLifecycleFinalAsset, onConfirmLifecycleFinalAssets, onLifecycleProductionAuthorization }) {
   const handoff = candidate.listingHandoff || {};
   const preparation = candidate.listingPreparation || {};
   const sourceCapture = candidate.sourceCapture || {};
@@ -561,19 +691,19 @@ function ListingPreparationPanel({ candidate, onRecoveryAction, onCapture, onSel
   return (
     <section className="workflow-card listing-preparation-card">
       <div>
-        <h3>{capturing ? "正在读取1688商品" : legacySkuSelection ? "历史1688 SKU选择记录" : choosingSku ? "请选择一个或多个1688 SKU" : waiting ? "待上架准备" : lifecycleSku?.businessPhase === "C2" && c2Assets?.status === "awaiting_final_uploads" ? "C1商品方案完成 · 等待C2最终素材" : needsOwnerDecision ? "C阶段核验完成 · 等待你确认" : stopped ? "C阶段已停止" : handoff.state === "running" ? "上架任务正在做C阶段" : "C阶段已派发"}</h3>
+        <h3>{capturing ? "正在读取1688商品" : legacySkuSelection ? "历史1688 SKU选择记录" : choosingSku ? "请选择一个或多个1688 SKU" : waiting ? "待上架准备" : lifecycleSku?.businessPhase === "C2" && c2Assets?.status === "awaiting_final_uploads" ? "C1商品方案完成 · 等待C2最终素材" : needsOwnerDecision ? "C阶段核验完成 · 等待你确认" : stopped ? "C阶段已停止" : handoff.state === "running" ? "软件正在执行C阶段" : "C阶段等待软件执行"}</h3>
         <p>
           {capturing
             ? "本机Chrome正在处理当前商品一次；尚未派发上架任务。"
             : legacySkuSelection
               ? "这是旧流程留下的SKU选择状态，只读保留；不能再由此创建旧C阶段派发。"
             : choosingSku
-              ? "商品页面中的全部SKU已经列出。勾选本次要核验的一个或多个规格后，才会向上架任务派发当前商品的C阶段。"
+              ? "商品页面中的全部SKU已经列出。勾选本次要核验的一个或多个规格后，由软件保存并继续当前商品；不会派发Codex任务。"
               : waiting
             ? "这是旧流程遗留状态。本阶段不改变商品状态，也不再提供人工启动C的旧按钮。"
             : stopped
               ? sourceCapture.reason || handoff.blockReason || preparation.reason || "本次核验已停止；系统不会自动重试。"
-              : handoff.currentStep || "等待上架任务领取当前SKU。"}
+              : handoff.currentStep || "等待软件状态机继续当前SKU。"}
         </p>
         {needsOwnerDecision ? (
           <div className="recovery-confirmation owner-decision-card">
@@ -623,7 +753,17 @@ function ListingPreparationPanel({ candidate, onRecoveryAction, onCapture, onSel
             ) : null}
           </div>
         ) : null}
-        <small>负责人：上架任务 · C1只继承A阶段确认的供应SKU和B利润结果，核对材质/带电/IP/合规、Schema与SEO；不得重新寻找或替换供应SKU。</small>
+        {lifecycleSku?.businessPhase === "C2" && c2Assets?.status === "awaiting_final_uploads" ? (
+          c2Assets.softwareState ? (
+            <C2FinalAssetsPanel candidate={candidate} onUpload={onUploadLifecycleFinalAsset} onConfirm={onConfirmLifecycleFinalAssets} />
+          ) : (
+            <div className="recovery-confirmation">
+              <b>历史C2记录仅可读取</b>
+              <p>当前记录缺少新版软件状态，不能冒充新C2继续上传；需要先做明确迁移。</p>
+            </div>
+          )
+        ) : null}
+        <small>正常执行者：C1软件状态机 · 上架任务只负责领域开发与异常维护。C1只继承A阶段确认的供应SKU和B利润结果；不得重新寻找或替换供应SKU。</small>
         <div className="inherited-input-card">
           <b>前期继承资料 · 不需要重新填写</b>
           <div className="inherited-input-grid">
@@ -783,7 +923,7 @@ function ReadyPanel({ candidate, rules, onMarkListed, onProductionAuthorization 
           {profit?.status === "verified" ? (
             <p>单件利润 ¥{profit.unitProfitRmb} · 利润率 {(Number(profit.marginRate) * 100).toFixed(1)}% · 目标售价 {profit.targetPriceRub ? `${profit.targetPriceRub} RUB` : `¥${profit.targetPriceRmb || "?"}`}</p>
           ) : <p>旧利润结论已失效或尚未验证，不显示伪精确数值。</p>}
-          <small className="handoff-owner">负责人：上架任务 · 当前尚未获得生产写入授权</small>
+          <small className="handoff-owner">正常执行者：软件 · 当前尚未获得生产写入授权；上架任务未被正常流程唤醒</small>
         </div>
         <span className={`wb-result wb-${wbView.kind}`} title={wbView.detail || wb.reason || ""}>{wbView.label}</span>
       </section>
@@ -1179,14 +1319,14 @@ function OzonSalesCapturePanel({ candidate, captureControl, extensionStatus, onS
   );
 }
 
-export default function UserInspector({ candidate, rules, captureControl, extensionStatus, onUpdate, onEvaluate, onComment, onMarkListed, onRecoveryAction, onStartSourceCapture, onStartOzonSalesCapture, onSelectSourceCaptureSku, onProductionAuthorization, onLifecycleProductionAuthorization }) {
+export default function UserInspector({ candidate, rules, captureControl, extensionStatus, onUpdate, onEvaluate, onComment, onMarkListed, onRecoveryAction, onStartSourceCapture, onStartOzonSalesCapture, onSelectSourceCaptureSku, onProductionAuthorization, onUploadLifecycleFinalAsset, onConfirmLifecycleFinalAssets, onLifecycleProductionAuthorization }) {
   return (
     <section className="workflow-region">
       <OzonSalesCapturePanel candidate={candidate} captureControl={captureControl} extensionStatus={extensionStatus} onStart={onStartOzonSalesCapture} />
       {candidate.workflowStatus === "awaiting_user_direction" ? <DirectionPanel candidate={candidate} onEvaluate={onEvaluate} /> : null}
       {candidate.workflowStatus === "codex_processing" ? <ProcessingPanel candidate={candidate} onRecoveryAction={onRecoveryAction} /> : null}
       {candidate.workflowStatus === "listing_preparation" ? (
-        <ListingPreparationPanel candidate={candidate} onRecoveryAction={onRecoveryAction} onCapture={onStartSourceCapture} onSelectSku={onSelectSourceCaptureSku} onLifecycleProductionAuthorization={onLifecycleProductionAuthorization} />
+        <ListingPreparationPanel candidate={candidate} onRecoveryAction={onRecoveryAction} onCapture={onStartSourceCapture} onSelectSku={onSelectSourceCaptureSku} onUploadLifecycleFinalAsset={onUploadLifecycleFinalAsset} onConfirmLifecycleFinalAssets={onConfirmLifecycleFinalAssets} onLifecycleProductionAuthorization={onLifecycleProductionAuthorization} />
       ) : null}
       {candidate.workflowStatus === "needs_user_data" ? <NeedsDataPanel candidate={candidate} onUpdate={onUpdate} /> : null}
       {candidate.workflowStatus === "ready_to_list" ? <ReadyPanel candidate={candidate} rules={rules} onMarkListed={onMarkListed} onProductionAuthorization={onProductionAuthorization} /> : null}

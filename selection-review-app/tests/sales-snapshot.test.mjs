@@ -6,6 +6,7 @@ import {
   SALES_SNAPSHOT_SCHEMA_VERSION,
   SELLER_TYPES,
   UNKNOWN,
+  attachTerraAuxiliaryDraft,
   collectMockOzonSalesSnapshot,
   validateSalesSnapshot
 } from "../lib/sales-snapshot.mjs";
@@ -87,6 +88,50 @@ test("verified competitor category identity can be frozen on a SalesSnapshot", (
     }
   };
   assert.deepEqual(validateSalesSnapshot(enriched), { valid: true, errors: [] });
+});
+
+test("Terra can only append an auxiliary draft from captured text and authorized snapshot images", () => {
+  const snapshot = collectMockOzonSalesSnapshot(mockFixture());
+  const before = structuredClone(snapshot);
+  const draft = {
+    draftId: "terra-draft:mock-001",
+    provider: "terra",
+    modelVersion: "terra-test-1",
+    generatedAt: "2026-08-12T13:06:00.000Z",
+    status: "draft",
+    authoritative: false,
+    mayOverrideObservedFields: false,
+    publicTextEvidenceRefs: [snapshot.evidenceRef],
+    authorizedImageRefs: [snapshot.imageRefs[0]],
+    output: { normalizedSummary: "辅助整理文字", visualTags: ["wooden"] }
+  };
+  const result = attachTerraAuxiliaryDraft(snapshot, draft);
+  assert.deepEqual({ ...result, auxiliaryDrafts: undefined }, { ...before, auxiliaryDrafts: undefined });
+  assert.equal(result.auxiliaryDrafts.length, 1);
+  assert.equal(result.auxiliaryDrafts[0].authoritative, false);
+  assert.equal(result.auxiliaryDrafts[0].mayOverrideObservedFields, false);
+  assert.deepEqual(attachTerraAuxiliaryDraft(result, draft), result, "同一草稿重复附加必须幂等");
+  assert.deepEqual(snapshot, before, "Terra整理不得修改原始销售快照");
+});
+
+test("A sales snapshot rejects Linlongs and unauthorized image references", () => {
+  const snapshot = collectMockOzonSalesSnapshot(mockFixture());
+  const base = {
+    modelVersion: "model-test-1",
+    generatedAt: "2026-08-12T13:06:00.000Z",
+    status: "draft",
+    authoritative: false,
+    mayOverrideObservedFields: false,
+    publicTextEvidenceRefs: [snapshot.evidenceRef],
+    authorizedImageRefs: [],
+    output: { summary: "draft" }
+  };
+  assert.throws(() => attachTerraAuxiliaryDraft(snapshot, { ...base, provider: "linlongs" }), /PROVIDER_REJECTED/);
+  assert.throws(() => attachTerraAuxiliaryDraft(snapshot, {
+    ...base,
+    provider: "terra",
+    authorizedImageRefs: ["https://not-authorized.example/image.jpg"]
+  }), /IMAGE_SCOPE_INVALID/);
 });
 
 test("competitor category identity is rejected when commission and Schema evidence is incomplete", () => {

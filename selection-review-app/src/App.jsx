@@ -9,9 +9,10 @@ import { PlusIcon } from "./components/Icons";
 import QueueTabs from "./components/QueueTabs";
 import OperatingRules from "./components/OperatingRules";
 import ProcessingBreakdown from "./components/ProcessingBreakdown";
+import RuntimeArchitectureStatus from "./components/RuntimeArchitectureStatus";
 import Phase2ASimulation from "./components/Phase2ASimulation";
 import UserInspector from "./components/UserInspector";
-import WorkflowMap from "./components/WorkflowMap";
+import ThreeStoreMap from "./components/ThreeStoreMap";
 import {
   EXTENSION_CAPTURE_ACK_TIMEOUT_MS,
   EXTENSION_STATUS_PING,
@@ -31,7 +32,7 @@ function request1688ExtensionCapture(payload, timeoutMs = EXTENSION_CAPTURE_ACK_
   return new Promise((resolve) => {
     const timer = window.setTimeout(() => {
       window.removeEventListener("message", onMessage);
-      resolve({ accepted: false, code: "extension_bridge_unavailable", error: "评审台页面没有收到扩展桥接回应" });
+      resolve({ accepted: false, code: "extension_bridge_unavailable", error: "今日选品评审页面没有收到扩展桥接回应" });
     }, timeoutMs);
     function onMessage(event) {
       if (event.source !== window || event.origin !== window.location.origin) return;
@@ -49,7 +50,7 @@ function requestOzonExtensionCapture(payload, timeoutMs = EXTENSION_CAPTURE_ACK_
   return new Promise((resolve) => {
     const timer = window.setTimeout(() => {
       window.removeEventListener("message", onMessage);
-      resolve({ accepted: false, code: "extension_bridge_unavailable", error: "评审台页面没有收到扩展桥接回应" });
+      resolve({ accepted: false, code: "extension_bridge_unavailable", error: "今日选品评审页面没有收到扩展桥接回应" });
     }, timeoutMs);
     function onMessage(event) {
       if (event.source !== window || event.origin !== window.location.origin) return;
@@ -69,7 +70,9 @@ export default function App() {
     meta: null,
     rules: null,
     summary: null,
+    seerfarRuntime: null,
     extensionHeartbeat: null,
+    runtimeArchitecture: null,
     captureControl: { status: "idle", label: "商品采集控制空闲" }
   });
   const [selectedId, setSelectedId] = useState("");
@@ -79,7 +82,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState(null);
   const [view, setView] = useState("review");
-  const [workflowMap, setWorkflowMap] = useState(null);
+  const [threeStoreMap, setThreeStoreMap] = useState(null);
   const [extensionStatus, setExtensionStatus] = useState(() => extensionConnectionStatus({
     cachedVersion: readCachedExtensionVersion()
   }));
@@ -92,6 +95,25 @@ export default function App() {
       serverHeartbeat: state.extensionHeartbeat
     });
   }, [extensionStatus, state.extensionHeartbeat]);
+
+  useEffect(() => {
+    let active = true;
+    api.getSeerfarRuntimeStatus()
+      .then((seerfarRuntime) => {
+        if (active) setState((current) => ({ ...current, seerfarRuntime }));
+      })
+      .catch((error) => {
+        if (active) setState((current) => ({
+          ...current,
+          seerfarRuntime: {
+            configured: false,
+            softwareExecutionEnabled: false,
+            statusError: error.message
+          }
+        }));
+      });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let responseTimer;
@@ -131,7 +153,7 @@ export default function App() {
   const load = useCallback(async (quiet = false) => {
     try {
       const next = await api.getState();
-      setState(next);
+      setState((current) => ({ ...next, seerfarRuntime: current.seerfarRuntime }));
       setSelectedId((currentId) => {
         const current = next.candidates.find((candidate) => candidate.id === currentId);
         if (current && matchesQueue(current, queue, sourceFilter)) return currentId;
@@ -163,23 +185,20 @@ export default function App() {
     [state.candidates, selectedId]
   );
 
-  const loadWorkflowMap = useCallback(async (candidateId = selectedId) => {
+  const loadThreeStoreMap = useCallback(async () => {
     try {
-      const next = await api.getWorkflowMap(candidateId || "");
-      setWorkflowMap(next);
+      const next = await api.getThreeStoreMap();
+      setThreeStoreMap(next);
       return next;
     } catch (error) {
-      setNotice({ type: "error", message: `读取小地图失败：${error.message}` });
+      setNotice({ type: "error", message: `读取全店能力地图失败：${error.message}` });
       return null;
     }
-  }, [selectedId]);
+  }, []);
 
   useEffect(() => {
-    if (view !== "map") return undefined;
-    loadWorkflowMap();
-    const timer = window.setInterval(() => loadWorkflowMap(), 3000);
-    return () => window.clearInterval(timer);
-  }, [view, loadWorkflowMap]);
+    if (view === "map") loadThreeStoreMap();
+  }, [view, loadThreeStoreMap]);
 
   function openQueue(nextQueue, preferredId = "", nextSourceFilter = sourceFilter) {
     if (["eliminated", "listed"].includes(nextQueue)) nextSourceFilter = "all";
@@ -203,7 +222,7 @@ export default function App() {
       setSelectedId(result.candidate.id);
       setNotice({
         type: "success",
-        message: `${result.candidate.id} 已保存，并已自动向选品任务派发一次A/B处理；失败后不会自动重试`
+        message: `${result.candidate.id} 已保存到软件状态机，当前等待A阶段方向判断；未唤醒Codex任务`
       });
       await load(true);
     } catch (error) {
@@ -230,7 +249,7 @@ export default function App() {
       });
       setQueue(result.candidate.workflowStatus);
       setSelectedId(result.candidate.id);
-      setNotice({ type: "success", message: result.dispatch ? "资料已保存，并已自动向选品任务派发一次A/B处理" : "资料已保存；已有任务或停止状态没有被自动重启" });
+      setNotice({ type: "success", message: result.dispatch ? "资料已保存，并已进入受控异常处理" : "资料已保存；软件状态机未唤醒Codex，停止状态也没有被自动重启" });
       await load(true);
     } catch (error) {
       if (error.body?.duplicateId) {
@@ -308,7 +327,7 @@ export default function App() {
         message:
           payload.decision === "reject"
             ? "已淘汰；不会自动补充新候选"
-            : "已保存并自动向选品任务派发一次A/B处理"
+            : "该旧判断入口已停止执行；新版商品请使用A阶段完整确认卡"
       });
       const nextState = await load(true);
       const next = firstInQueue(nextState?.candidates || [], "awaiting_user_direction", sourceFilter, previousId);
@@ -363,16 +382,6 @@ export default function App() {
     }
   }
 
-  async function submitNodeComment(payload) {
-    const result = await api.addNodeComment(payload);
-    setNotice({
-      type: "success",
-      message: "节点留言已保存，没有启动任务"
-    });
-    await Promise.all([load(true), loadWorkflowMap(payload.candidateId || "")]);
-    return result;
-  }
-
   async function startSourceCapture(recoverySuggestion = "", mode = "") {
     if (!selected) return null;
     try {
@@ -400,7 +409,7 @@ export default function App() {
           type: "error",
           message: failureCode === "extension_background_unavailable"
             ? "1688采集已停止：插件已安装，但后台没有响应。系统会继续自动检查，不需要反复重新加载。"
-            : "1688采集已停止：评审台页面没有检测到扩展桥接。没有派发任务。"
+            : "1688采集已停止：今日选品评审页面没有检测到扩展桥接。没有派发任务。"
         });
       } else {
         setNotice({
@@ -442,7 +451,7 @@ export default function App() {
           type: "error",
           message: failureCode === "extension_background_unavailable"
             ? "Ozon采集已停止：插件已安装，但后台没有响应。系统会继续自动检查，不需要反复重新加载。"
-            : "Ozon采集已停止：评审台页面没有检测到扩展桥接。商品业务状态没有改变。"
+            : "Ozon采集已停止：今日选品评审页面没有检测到扩展桥接。商品业务状态没有改变。"
         });
       } else {
         setNotice({ type: "success", message: "已让本机Chrome只读采集当前Ozon商品一次；不会推进B/C/D/E。" });
@@ -478,20 +487,6 @@ export default function App() {
     }
   }
 
-  async function decideDispatchApproval(dispatch, decision) {
-    try {
-      await api.decideDispatchApproval(dispatch.id, {
-        requestId: dispatch.pendingApproval?.requestId,
-        decision
-      });
-      setNotice({ type: decision === "accept" ? "success" : "warning", message: decision === "accept" ? "只允许了这一次Codex权限" : "已拒绝本次Codex权限" });
-      await loadWorkflowMap();
-    } catch (error) {
-      setNotice({ type: "error", message: error.message });
-      await loadWorkflowMap();
-    }
-  }
-
   async function confirmProductionAuthorization(payload) {
     if (!selected) return;
     try {
@@ -500,7 +495,7 @@ export default function App() {
         dataRevision: selected.dataRevision
       });
       setNotice({ type: "success", message: "已确认精确生产卡并启动当前SKU上架任务" });
-      await Promise.all([load(true), loadWorkflowMap(selected.id)]);
+      await load(true);
     } catch (error) {
       setNotice({ type: "error", message: error.message });
       throw error;
@@ -516,9 +511,40 @@ export default function App() {
         confirmed: true
       });
       setNotice({ type: "success", message: "最终商品方案已通过，生产授权已锁定；尚未启动D阶段，也没有店铺写入" });
-      await Promise.all([load(true), loadWorkflowMap(selected.id)]);
+      await load(true);
     } catch (error) {
       setNotice({ type: "error", message: error.message });
+      throw error;
+    }
+  }
+
+  async function uploadLifecycleFinalAsset(file) {
+    if (!selected) throw new Error("当前没有选中的商品");
+    try {
+      return await api.uploadLifecycleFinalAsset(selected.id, {
+        dataRevision: selected.dataRevision,
+        file
+      });
+    } catch (error) {
+      setNotice({ type: "error", message: error.message });
+      if (error.status === 409) await load(true);
+      throw error;
+    }
+  }
+
+  async function confirmLifecycleFinalAssets(payload) {
+    if (!selected) return;
+    try {
+      await api.confirmLifecycleFinalAssets(selected.id, {
+        ...payload,
+        dataRevision: selected.dataRevision,
+        confirmed: true
+      });
+      setNotice({ type: "success", message: "最终素材及顺序已锁定，最终商品方案卡已生成；尚未生产授权，也没有店铺写入" });
+      await load(true);
+    } catch (error) {
+      setNotice({ type: "error", message: error.message });
+      if (error.status === 409) await load(true);
       throw error;
     }
   }
@@ -533,14 +559,18 @@ export default function App() {
   }
 
   if (loading) {
-    return <div className="app-loading">正在打开今日选品评审台…</div>;
+    return <div className="app-loading">正在打开全店经营工作台…</div>;
   }
 
   return (
     <div className="app-shell">
       <header className="app-header">
-        <h1>今日选品评审台</h1>
+        <div className="app-brand">
+          <h1>全店经营工作台</h1>
+          <p>{view === "map" ? "全店能力地图" : view === "phase2a" ? "第2A模拟验收" : "今日选品评审"}</p>
+        </div>
         <div className="header-actions">
+          <RuntimeArchitectureStatus status={state.runtimeArchitecture} />
           <span className={`extension-status ${effectiveExtensionStatus.code}`} data-testid="extension-status">
             <i aria-hidden="true" />{effectiveExtensionStatus.label}
           </span>
@@ -548,10 +578,10 @@ export default function App() {
             <i aria-hidden="true" />{state.captureControl?.label || "商品采集控制状态未取得"}
           </span>
           <button className={`button ${view === "phase2a" ? "primary" : "secondary"}`} onClick={() => setView(view === "phase2a" ? "review" : "phase2a")}>
-            {view === "phase2a" ? "返回评审台" : "第2A模拟验收"}
+            {view === "phase2a" ? "返回今日选品评审" : "第2A模拟验收"}
           </button>
           <button className={`button ${view === "map" ? "primary" : "secondary"}`} onClick={() => setView(view === "map" ? "review" : "map")}>
-            {view === "map" ? "返回评审台" : "打开小地图"}
+            {view === "map" ? "返回今日选品评审" : "全店能力地图"}
           </button>
           <button className="button add-button" onClick={() => setAddOpen(true)}>
             <PlusIcon /> 添加我找到的商品
@@ -564,13 +594,10 @@ export default function App() {
       ) : view === "map" ? (
         <>
           {notice ? <div className={`global-notice ${notice.type}`}>{notice.message}</div> : null}
-          <WorkflowMap
-            map={workflowMap}
-            candidate={selected}
-            onSubmit={submitNodeComment}
-            onApproval={decideDispatchApproval}
-            onProductionAuthorization={confirmProductionAuthorization}
+          <ThreeStoreMap
+            map={threeStoreMap}
             onClose={() => setView("review")}
+            onRefresh={loadThreeStoreMap}
           />
         </>
       ) : (
@@ -600,7 +627,11 @@ export default function App() {
         />
         {selected ? (
           <div className="review-pane">
-            <CandidateDetail candidate={selected} onRealAConfirm={confirmRealAStage} />
+            <CandidateDetail
+              candidate={selected}
+              seerfarRuntime={state.seerfarRuntime}
+              onRealAConfirm={confirmRealAStage}
+            />
             <UserInspector
               candidate={selected}
               rules={state.rules}
@@ -615,6 +646,8 @@ export default function App() {
               onStartOzonSalesCapture={startOzonSalesCapture}
               onSelectSourceCaptureSku={selectSourceCaptureSku}
               onProductionAuthorization={confirmProductionAuthorization}
+              onUploadLifecycleFinalAsset={uploadLifecycleFinalAsset}
+              onConfirmLifecycleFinalAssets={confirmLifecycleFinalAssets}
               onLifecycleProductionAuthorization={confirmLifecycleProductionAuthorization}
             />
             <CandidateReview candidate={selected} />
@@ -628,7 +661,7 @@ export default function App() {
 
       <footer className="boundary-footer">
         <div>A销售与供应方案确认 → B具体SKU利润 → 自动进入C1 → C2最终素材 → 生产确认；SKU独立生命周期。</div>
-        <div>精确1688链接、供应SKU、货价、国内运费、采购成本、重量和尺寸在A阶段完成；B通过后自动交给上架任务做C1，不再要求主人点开始。</div>
+        <div>精确1688链接、供应SKU、货价、国内运费、采购成本、重量和尺寸在A阶段完成；B通过后由软件自动进入C1，不再要求主人点开始。上架任务只负责领域开发、验收与异常维护。</div>
         <div>失败立即停止且不自动重试。普通留言不会启动任务；生产写入必须另行确认价格、库存100、素材和发布范围。</div>
       </footer>
       </>

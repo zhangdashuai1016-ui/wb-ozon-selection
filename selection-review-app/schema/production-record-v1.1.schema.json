@@ -14,7 +14,7 @@
   "properties": {
     "schemaVersion": { "const": "production-record-v1.1" },
     "productionRecordId": { "type": "string", "minLength": 1 },
-    "executionMode": { "enum": ["single_sku_draft_only", "single_sku_create_and_moderate"] },
+    "executionMode": { "enum": ["single_sku_draft_only", "single_sku_create_and_moderate", "single_sku_seller_api"] },
     "sourceProductionPlanId": { "type": "string", "minLength": 1 },
     "sourceProductionPlanFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "sourceAuthorizationId": { "type": "string", "minLength": 1 },
@@ -25,6 +25,21 @@
     "supplierSkuId": { "type": "string", "minLength": 1 },
     "platformProductId": { "type": "string", "minLength": 1 },
     "platformOfferId": { "type": ["string", "null"] },
+    "merchantSku": { "type": "string", "minLength": 1 },
+    "requestReceiptRef": { "type": "string", "minLength": 1 },
+    "inventoryReceiptRef": { "type": "string", "minLength": 1 },
+    "executionKey": { "type": "string", "minLength": 1 },
+    "expectedPrice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["amount", "currency"],
+      "properties": {
+        "amount": { "type": "number", "exclusiveMinimum": 0 },
+        "currency": { "const": "CNY" }
+      }
+    },
+    "expectedStock": { "const": 100 },
+    "expectedImageCount": { "type": "integer", "minimum": 1 },
     "status": { "enum": ["draft", "validation_or_moderation"] },
     "writtenFields": { "type": "array", "minItems": 6, "maxItems": 7, "items": { "type": "string" } },
     "platformEvidenceRef": { "type": "string", "minLength": 1 },
@@ -43,5 +58,17 @@
     "platformWriteEvidenceRef": { "type": "string", "minLength": 1 },
     "platformReadbackEvidenceRef": { "type": "string", "minLength": 1 }
   },
+  "allOf": [{
+    "if": { "properties": { "executionMode": { "const": "single_sku_seller_api" } }, "required": ["executionMode"] },
+    "then": {
+      "required": ["merchantSku", "requestReceiptRef", "inventoryReceiptRef", "executionKey", "expectedPrice", "expectedStock", "expectedImageCount"],
+      "properties": {
+        "status": { "const": "validation_or_moderation" },
+        "businessStateEffect": { "const": "D_created_entered_validation_moderation" },
+        "inventoryModified": { "const": true },
+        "stockWritten": { "const": 100 }
+      }
+    }
+  }],
   "additionalProperties": false
 }

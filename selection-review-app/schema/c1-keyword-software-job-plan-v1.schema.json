@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "c1-keyword-software-job-plan-v1",
+  "title": "C1 Keyword Software Job Plan v1",
+  "type": "object",
+  "required": ["schemaVersion", "status", "readinessClass", "candidateId", "sourceCandidateRevision", "skuPackageId", "sourceSkuRevision", "mode", "bindings", "gaps", "job", "reusableSnapshot", "executionPolicy", "plannedAt", "planFingerprint", "runtimeInputTemplate", "seerfarRequest"],
+  "properties": {
+    "schemaVersion": { "const": "c1-keyword-software-job-plan-v1" },
+    "status": { "enum": ["ready", "reuse_ready", "not_ready"] },
+    "readinessClass": { "enum": ["ready", "not_ready", "blocked"] },
+    "candidateId": { "type": ["string", "null"] },
+    "sourceCandidateRevision": { "type": ["integer", "null"], "minimum": 0 },
+    "skuPackageId": { "type": ["string", "null"] },
+    "sourceSkuRevision": { "type": ["integer", "null"], "minimum": 0 },
+    "mode": { "enum": [null, "reuse_existing_evidence", "seerfar_open_api_once"] },
+    "bindings": { "type": ["object", "null"] },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "field", "message"],
+        "additionalProperties": false,
+        "properties": {
+          "code": { "type": "string", "minLength": 1 },
+          "field": { "type": "string", "minLength": 1 },
+          "message": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "job": { "type": ["object", "null"] },
+    "reusableSnapshot": { "type": ["object", "null"] },
+    "runtimeInputTemplate": { "type": ["object", "null"] },
+    "seerfarRequest": { "type": ["object", "null"] },
+    "executionPolicy": {
+      "type": "object",
+      "required": ["provider", "attemptLimit", "automaticRetries", "browserFallbackAllowed", "codexDispatchAllowed", "c2Started", "dStarted", "eStarted"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "enum": ["none", "seerfar_open_api"] },
+        "attemptLimit": { "enum": [0, 1] },
+        "automaticRetries": { "const": 0 },
+        "browserFallbackAllowed": { "const": false },
+        "codexDispatchAllowed": { "const": false },
+        "c2Started": { "const": false },
+        "dStarted": { "const": false },
+        "eStarted": { "const": false }
+      }
+    },
+    "plannedAt": { "type": "string", "format": "date-time" },
+    "planFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}

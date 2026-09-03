@@ -5,11 +5,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = 20000 + (process.pid % 30000);
 const baseUrl = `http://127.0.0.1:${port}`;
+const extensionOrigin = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 function candidate(id, productName = "机械发条木质火车320片3D拼图") {
   return {
@@ -94,7 +94,7 @@ async function waitForHealth(child, stderr) {
 async function post(url, body, headers = {}) {
   return fetch(`${baseUrl}${url}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...headers },
+    headers: { "Content-Type": "application/json", Origin: baseUrl, "Sec-Fetch-Site": "same-origin", ...headers },
     body: JSON.stringify(body)
   });
 }
@@ -135,6 +135,8 @@ test("旧1688 C入口不再派发，已上架证据恢复仍保持只读", async
       ...process.env,
       SELECTION_REVIEW_DATA_FILE: dataFile,
       SELECTION_REVIEW_API_PORT: String(port),
+      SELECTION_REVIEW_PUBLIC_ORIGIN: baseUrl,
+      SELECTION_REVIEW_ALLOWED_EXTENSION_ORIGINS: extensionOrigin,
       SELECTION_REVIEW_AUTO_DELIVER: "off",
       SELECTION_REVIEW_CODEX_DISPATCH: "off"
     },
@@ -142,15 +144,15 @@ test("旧1688 C入口不再派发，已上架证据恢复仍保持只读", async
   });
   const stderr = [];
   child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
-  t.after(() => stopApiProcess(child));
+  t.after(() => child.kill("SIGTERM"));
   await waitForHealth(child, stderr);
 
   const preflight = await fetch(`${baseUrl}/api/candidates/CAPTURE-1/source-capture/result`, {
     method: "OPTIONS",
-    headers: { Origin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+    headers: { Origin: extensionOrigin }
   });
   assert.equal(preflight.status, 204);
-  assert.equal(preflight.headers.get("access-control-allow-origin"), "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+  assert.equal(preflight.headers.get("access-control-allow-origin"), extensionOrigin);
 
   const start = await post("/api/candidates/CAPTURE-1/source-capture/start", { dataRevision: 1 });
   assert.equal(start.status, 409);
@@ -172,44 +174,12 @@ test("旧1688 C入口不再派发，已上架证据恢复仍保持只读", async
     dataRevision: listedRecovery.dataRevision,
     mode: "listed_evidence_recovery"
   });
-  assert.equal(listedStart.status, 201);
-  const listedSession = await listedStart.json();
-  assert.equal(listedSession.candidate.workflowStatus, "listed");
-  assert.deepEqual(listedSession.candidate.listingRecord, listedRecordBefore);
-  assert.equal(listedSession.candidate.sourceCapture.mode, "listed_evidence_recovery");
-  state = await (await fetch(`${baseUrl}/api/state`)).json();
-  assert.equal(state.captureControl.status, "busy");
-  assert.equal(state.captureControl.candidateId, "LISTED-RECOVERY");
-  assert.equal(state.captureControl.platform, "1688");
-
-  const listedResult = await post("/api/candidates/LISTED-RECOVERY/source-capture/result", {
-    captureId: listedSession.captureId,
-    token: listedSession.extensionRequest.token,
-    dataRevision: listedSession.dataRevision,
-    status: "captured",
-    evidence: capturedEvidence([
-      { sourceSkuId: "ghost-house", attributes: { 款式: "发光鬼屋" }, priceCny: 53, priceSource: "sku.price", stock: 8, stockSource: "sku.stock" }
-    ])
-  });
-  assert.equal(listedResult.status, 200);
-  const listedCaptured = await listedResult.json();
-  assert.equal(listedCaptured.candidate.workflowStatus, "listed");
-  assert.equal(listedCaptured.candidate.sourceCapture.status, "needs_sku_selection");
-  assert.equal(listedCaptured.dispatch, null);
+  assert.equal(listedStart.status, 409);
+  const listedStartBody = await listedStart.json();
+  assert.equal(listedStartBody.code, "listed_source_capture_claim_protocol_required");
+  assert.match(listedStartBody.message, /没有创建采集会话或业务写入/);
   state = await (await fetch(`${baseUrl}/api/state`)).json();
   assert.equal(state.captureControl.status, "idle");
-
-  const listedSelection = await post("/api/candidates/LISTED-RECOVERY/source-capture/select-sku", {
-    dataRevision: listedCaptured.candidate.dataRevision,
-    sourceSkuIds: ["ghost-house"]
-  });
-  assert.equal(listedSelection.status, 200);
-  const listedCompleted = await listedSelection.json();
-  assert.equal(listedCompleted.candidate.workflowStatus, "listed");
-  assert.deepEqual(listedCompleted.candidate.listingRecord, listedRecordBefore);
-  assert.equal(listedCompleted.candidate.sourceCapture.status, "verified");
-  assert.equal(listedCompleted.candidate.sourceCapture.selectedSkus[0].sourceSkuId, "ghost-house");
-  assert.equal(listedCompleted.dispatch, null);
 
   const persisted = JSON.parse(await readFile(dataFile, "utf8"));
   assert.equal(persisted.meta.automationStarted, false);
@@ -222,6 +192,7 @@ test("旧1688 C入口不再派发，已上架证据恢复仍保持只读", async
   const persistedListed = persisted.candidates.find((item) => item.id === "LISTED-RECOVERY");
   assert.equal(persistedListed.workflowStatus, "listed");
   assert.deepEqual(persistedListed.listingRecord, listedRecordBefore);
+  assert.equal(persistedListed.sourceCapture, undefined);
   const persistedOther = persisted.candidates.find((item) => item.id === "OTHER-1");
   assert.deepEqual(persistedOther, originalOther);
   assert.equal(persistedOther.sourceCapture, undefined);

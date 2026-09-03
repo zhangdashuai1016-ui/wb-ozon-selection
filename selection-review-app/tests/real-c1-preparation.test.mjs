@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createTrainCandidate } from "./helpers/legacy-candidate-fixture.mjs";
+import { readFile } from "node:fs/promises";
 import { prepareRealC1ForFinalAssets } from "../lib/real-c1-preparation.mjs";
 import { validateSkuLifecyclePackage } from "../lib/product-lifecycle-schema.mjs";
 import { collectMockOzonSalesSnapshot } from "../lib/sales-snapshot.mjs";
@@ -18,7 +18,8 @@ const ownerFactConfirmation = {
 };
 
 async function fixtureCandidate() {
-  const candidate = createTrainCandidate({ lifecycle: false });
+  const document = JSON.parse(await readFile(new URL("../data/candidates.json", import.meta.url), "utf8"));
+  const candidate = structuredClone(document.candidates.find((item) => item.id === "CX-20260803-010"));
   candidate.dataRevision = 25;
   candidate.lifecycleV11 = undefined;
   candidate.sourceCapture = {

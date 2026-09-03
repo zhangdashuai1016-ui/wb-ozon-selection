@@ -63,7 +63,7 @@ export function validateProductionPlan(plan) {
   if (!isoDateTime(plan.createdAt)) push(errors, "createdAt", "必须是有效时间");
   for (const field of [
     "sourceAuthorizationId", "sourceAuthorizationFingerprint", "platform", "store",
-    "skuPackageId", "titleVersion", "attributeVersion", "assetsFinalUploadsVersion", "publishScope"
+    "skuPackageId", "titleVersion", "contentVersion", "attributeVersion", "assetsFinalUploadsVersion", "publishScope"
   ]) {
     if (!nonEmptyString(plan[field])) push(errors, field, "必须是非空字符串");
   }
@@ -74,7 +74,16 @@ export function validateProductionPlan(plan) {
     push(errors, "sku", "必须锁定供应SKU和变体");
   }
   if (!nonEmptyString(plan.title)) push(errors, "title", "必须锁定标题正文");
+  if (!isObject(plan.content) || !nonEmptyString(plan.content.description) ||
+      !Array.isArray(plan.content.bulletPoints) || plan.content.bulletPoints.length === 0 ||
+      !Array.isArray(plan.content.searchKeywords) || plan.content.searchKeywords.length === 0) {
+    push(errors, "content", "必须锁定描述、五点和搜索词");
+  }
   if (!isObject(plan.attributes)) push(errors, "attributes", "必须锁定属性值");
+  if (!isObject(plan.packing) || !isObject(plan.packing.weight) || !isObject(plan.packing.dimensions)) {
+    push(errors, "packing", "必须锁定包装重量和尺寸");
+  }
+  if (!isObject(plan.schemaWriteBindings)) push(errors, "schemaWriteBindings", "必须锁定当前Schema的真实写入方式");
   if (!isObject(plan.platformCategory)) push(errors, "platformCategory", "必须锁定平台类目");
   for (const field of ["buyerTargetPrice", "platformWritePrice"]) {
     if (!isObject(plan[field]) || !Number.isFinite(plan[field].amount) || plan[field].amount <= 0 || !nonEmptyString(plan[field].currency)) {
@@ -117,6 +126,9 @@ export function createProductionPlan({ productionAuthorization, createdAt }) {
   if (!isoDateTime(createdAt)) throw new Error("PRODUCTION_PLAN_INPUT_GAP: 创建时间无效");
   const snapshot = readAuthorizedProductionSnapshot(productionAuthorization);
   const scope = snapshot.lockedScope;
+  if (!isObject(scope.content) || !isObject(scope.packing) || !isObject(scope.schemaWriteBindings)) {
+    throw new Error("PRODUCTION_PLAN_INPUT_GAP: 旧授权未锁定完整生产文案、包装或Schema写入方式，必须重新生成授权");
+  }
   const authorizationFingerprint = fingerprintProductionAuthorization(productionAuthorization);
   const plan = {
     schemaVersion: PRODUCTION_PLAN_VERSION,
@@ -136,8 +148,12 @@ export function createProductionPlan({ productionAuthorization, createdAt }) {
     },
     titleVersion: scope.titleVersion,
     title: scope.title,
+    contentVersion: scope.contentVersion,
+    content: structuredClone(scope.content),
     attributeVersion: scope.attributeVersion,
     attributes: structuredClone(scope.attributes),
+    packing: structuredClone(scope.packing),
+    schemaWriteBindings: structuredClone(scope.schemaWriteBindings),
     platformCategory: structuredClone(scope.platformCategory),
     buyerTargetPrice: structuredClone(scope.buyerTargetPrice),
     platformWritePrice: structuredClone(scope.platformWritePrice),

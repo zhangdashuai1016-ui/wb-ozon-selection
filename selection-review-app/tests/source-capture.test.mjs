@@ -351,6 +351,9 @@ test("1688 collector accepts a real top-level SKU ID on a single-specification o
 test("extension manifest stays limited to the 1688 short-link/detail allowlist, Ozon product pages and the local review app", async () => {
   const manifest = JSON.parse(await readFile(path.join(appDir, "extension", "1688-capture", "manifest.json"), "utf8"));
   assert.equal(manifest.version, "1.2.7");
+  assert.equal(manifest.name, "全店经营工作台 · 商品只读采集器");
+  assert.equal(manifest.action.default_title, "全店经营工作台 · 商品只读采集器");
+  assert.match(manifest.description, /本机全店经营工作台/);
   assert.deepEqual(manifest.permissions.sort(), ["alarms", "scripting", "storage", "tabs"]);
   assert.deepEqual(manifest.host_permissions.sort(), [
     "http://127.0.0.1:4317/*",

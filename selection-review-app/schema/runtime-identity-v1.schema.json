@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "runtime-identity-v1.schema.json",
+  "title": "Runtime identity contracts v1",
+  "$defs": {
+    "actorContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "userId", "sessionId", "actorType", "roles", "source", "authenticatedAt"],
+      "properties": {
+        "schemaVersion": { "const": "actor-context-v1" },
+        "userId": { "type": "string", "minLength": 1 },
+        "sessionId": { "type": "string", "minLength": 1 },
+        "actorType": { "enum": ["human", "software", "worker", "maintenance"] },
+        "roles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["owner", "operator", "reviewer", "production_authorizer", "technical_maintainer"] }
+        },
+        "source": { "type": "string", "minLength": 1 },
+        "authenticatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "workerDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "workerId", "capabilities", "version", "status", "observedAt"],
+      "properties": {
+        "schemaVersion": { "const": "worker-descriptor-v1" },
+        "workerId": { "type": "string", "minLength": 1 },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["chrome", "ozon-login", "wb-login", "1688-login", "seerfar-browser", "company-vpn", "file-upload", "image-processing", "stable-asset-transport", "seerfar-open-api"] }
+        },
+        "version": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["online", "offline", "busy", "blocked"] },
+        "observedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "operationAuditEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "eventId", "action", "actor", "workerId", "candidateId", "skuPackageId",
+        "sourceRevision", "resultRevision", "fromState", "toState", "authorizationRef",
+        "externalRequestState", "externalRequestRef", "idempotencyKey", "serverTime"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "operation-audit-event-v1" },
+        "eventId": { "type": "string", "minLength": 1 },
+        "action": { "type": "string", "minLength": 1 },
+        "actor": { "$ref": "#/$defs/actorContext" },
+        "workerId": { "type": ["string", "null"], "minLength": 1 },
+        "candidateId": { "type": "string", "minLength": 1 },
+        "skuPackageId": { "type": "string", "minLength": 1 },
+        "sourceRevision": { "type": "integer", "minimum": 0 },
+        "resultRevision": { "type": "integer", "minimum": 0 },
+        "fromState": { "type": "string", "minLength": 1 },
+        "toState": { "type": "string", "minLength": 1 },
+        "authorizationRef": { "type": ["string", "null"], "minLength": 1 },
+        "externalRequestState": { "enum": ["not_sent", "failed", "unknown_outcome", "succeeded"] },
+        "externalRequestRef": { "type": ["string", "null"], "minLength": 1 },
+        "idempotencyKey": { "type": "string", "minLength": 1 },
+        "serverTime": { "type": "string", "format": "date-time" }
+      }
+    },
+    "softwareJobResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "jobId", "candidateId", "skuPackageId", "revision", "workerId", "leaseId",
+        "externalRequestState", "failureClass", "resultRef", "evidenceRefs", "observedAt"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "software-job-result-v1" },
+        "jobId": { "type": "string", "minLength": 1 },
+        "candidateId": { "type": "string", "minLength": 1 },
+        "skuPackageId": { "type": "string", "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 0 },
+        "workerId": { "type": "string", "minLength": 1 },
+        "leaseId": { "type": "string", "minLength": 1 },
+        "externalRequestState": { "enum": ["not_sent", "failed", "unknown_outcome", "succeeded"] },
+        "failureClass": { "type": ["string", "null"], "minLength": 1 },
+        "resultRef": { "type": ["string", "null"], "minLength": 1 },
+        "evidenceRefs": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "observedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

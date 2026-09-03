@@ -13,7 +13,24 @@ async function request(path, options = {}) {
   return body;
 }
 
+async function uploadFile(path, file) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": file.type },
+    body: file
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(body.message || "素材上传失败");
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return body;
+}
+
 export const api = {
+  getSeerfarRuntimeStatus: () => request("/api/integrations/seerfar/runtime-status"),
   getPhase2ASimulation: () => request("/api/simulations/phase-2a"),
   confirmPhase2ASimulation: (payload) =>
     request("/api/simulations/phase-2a/confirm", {
@@ -26,20 +43,9 @@ export const api = {
       body: JSON.stringify(payload)
     }),
   getState: () => request("/api/state"),
-  getWorkflowMap: (candidateId = "") =>
-    request(`/api/workflow-map${candidateId ? `?candidateId=${encodeURIComponent(candidateId)}` : ""}`),
-  addNodeComment: (payload) =>
-    request("/api/node-comments", {
-      method: "POST",
-      body: JSON.stringify(payload)
-    }),
+  getThreeStoreMap: () => request("/api/three-store-map"),
   dispatchCandidate: (candidateId, payload) =>
     request(`/api/candidates/${encodeURIComponent(candidateId)}/dispatch`, {
-      method: "POST",
-      body: JSON.stringify(payload)
-    }),
-  decideDispatchApproval: (dispatchId, payload) =>
-    request(`/api/dispatches/${encodeURIComponent(dispatchId)}/approval`, {
       method: "POST",
       body: JSON.stringify(payload)
     }),
@@ -48,16 +54,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
-  completeLifecycleC1: (candidateId, payload) =>
-    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/complete`, {
-      method: "POST",
-      body: JSON.stringify(payload)
-    }),
   confirmLifecycleFinalAssets: (candidateId, payload) =>
     request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c2/final-assets`, {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  uploadLifecycleFinalAsset: (candidateId, { dataRevision, file }) =>
+    uploadFile(
+      `/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c2/final-assets/upload?dataRevision=${encodeURIComponent(dataRevision)}&fileName=${encodeURIComponent(file.name)}`,
+      file
+    ),
   confirmLifecycleProductionAuthorization: (candidateId, payload) =>
     request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/production-authorization`, {
       method: "POST",

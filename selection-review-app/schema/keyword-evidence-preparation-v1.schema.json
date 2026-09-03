@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "keyword-evidence-preparation-v1",
+  "title": "KeywordEvidencePreparation v1",
+  "type": "object",
+  "required": ["schemaVersion", "sourcePreparationVersion", "preparationId", "preparationFingerprint", "identity", "bindings", "scope", "businessGate", "preparedAt", "result", "coverage", "reusedSnapshot", "sourceAttempts", "rawCandidatePool", "pointsBefore", "pointsAfter", "pointsSpent", "connector", "execution", "businessEffect"],
+  "properties": {
+    "schemaVersion": { "const": "keyword-evidence-preparation-v1" },
+    "sourcePreparationVersion": { "const": "keyword-source-preparation-v1" },
+    "preparationId": { "type": "string", "minLength": 1 },
+    "preparationFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "identity": {
+      "type": "object",
+      "required": ["candidateId", "parentOpportunityId", "skuPackageId", "dataRevision"],
+      "properties": {
+        "candidateId": { "type": "string", "minLength": 1 },
+        "parentOpportunityId": { "type": "string", "minLength": 1 },
+        "skuPackageId": { "type": "string", "minLength": 1 },
+        "dataRevision": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "bindings": {
+      "type": "object",
+      "required": ["salesSnapshot", "supplySkuFacts"],
+      "properties": {
+        "salesSnapshot": {
+          "type": "object",
+          "required": ["snapshotId", "version", "fingerprint"],
+          "properties": {
+            "snapshotId": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 },
+            "fingerprint": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "supplySkuFacts": {
+          "type": "object",
+          "required": ["version", "fingerprint"],
+          "properties": {
+            "version": { "type": "string", "minLength": 1 },
+            "fingerprint": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "scope": {
+      "type": "object",
+      "required": ["platform", "exactSku", "fulfillment"],
+      "properties": {
+        "platform": { "type": "string", "minLength": 1 },
+        "exactSku": { "type": "string", "minLength": 1 },
+        "fulfillment": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "businessGate": {
+      "type": "object",
+      "required": ["approved", "approvedAt", "note", "evidenceRef"],
+      "properties": {
+        "approved": { "const": true },
+        "approvedAt": { "type": "string", "format": "date-time" },
+        "note": { "type": "string", "minLength": 1 },
+        "evidenceRef": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "preparedAt": { "type": "string", "format": "date-time" },
+    "result": { "enum": ["reused_snapshot", "source_candidates_ready", "true_empty", "technical_unavailable", "needs_review"] },
+    "coverage": { "enum": ["full", "partial", "none"] },
+    "reusedSnapshot": { "type": ["object", "null"] },
+    "sourceAttempts": { "type": "array", "items": { "$ref": "keyword-evidence-snapshot-v1.schema.json#/$defs/KeywordSourceAttempt" } },
+    "rawCandidatePool": { "type": "array", "items": { "$ref": "#/$defs/RawCandidate" } },
+    "pointsBefore": { "type": ["number", "null"] },
+    "pointsAfter": { "type": ["number", "null"] },
+    "pointsSpent": { "type": ["number", "null"] },
+    "connector": {
+      "type": "object",
+      "required": ["seerfarConnectorSuspended", "suspensionReason", "healthTrigger", "standardSkuCalls", "healthReceipts"],
+      "properties": {
+        "seerfarConnectorSuspended": { "type": "boolean" },
+        "suspensionReason": { "type": ["string", "null"] },
+        "healthTrigger": { "type": ["string", "null"] },
+        "standardSkuCalls": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "healthReceipts": { "type": "array", "maxItems": 3, "items": { "$ref": "#/$defs/HealthReceipt" } }
+      },
+      "additionalProperties": false
+    },
+    "execution": {
+      "type": "object",
+      "required": ["seerfarApiCalls", "browserCalls", "localFusionRuns", "networkCallsByLocalFusion", "modelCallsByLocalFusion", "automaticRetries"],
+      "properties": {
+        "seerfarApiCalls": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "browserCalls": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "localFusionRuns": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "networkCallsByLocalFusion": { "const": 0 },
+        "modelCallsByLocalFusion": { "const": 0 },
+        "automaticRetries": { "const": 0 }
+      },
+      "additionalProperties": false
+    },
+    "businessEffect": {
+      "type": "object",
+      "required": ["businessPhaseChanged", "businessResultChanged", "bOrC1Created", "dispatchesCreated"],
+      "properties": {
+        "businessPhaseChanged": { "const": false },
+        "businessResultChanged": { "const": false },
+        "bOrC1Created": { "const": false },
+        "dispatchesCreated": { "const": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "RawCandidate": {
+      "type": "object",
+      "required": ["term", "sourceRefs", "factRefs", "competitorRefs", "sourceTrust", "matchType"],
+      "properties": {
+        "term": { "type": "string", "minLength": 1 },
+        "sourceRefs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "factRefs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "competitorRefs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "sourceTrust": { "type": ["string", "null"] },
+        "matchType": { "enum": ["target_fact", "exact_match", "substitute", "multi_seed"] }
+      },
+      "additionalProperties": false
+    },
+    "HealthReceipt": {
+      "type": "object",
+      "required": ["standardSkuId", "status", "checkedAt", "receiptId", "attemptId", "pointsBefore", "pointsAfter", "pointsSpent"],
+      "properties": {
+        "standardSkuId": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["passed", "failed"] },
+        "checkedAt": { "type": "string", "format": "date-time" },
+        "receiptId": { "type": ["string", "null"] },
+        "attemptId": { "type": ["string", "null"] },
+        "pointsBefore": { "type": ["number", "null"] },
+        "pointsAfter": { "type": ["number", "null"] },
+        "pointsSpent": { "type": ["number", "null"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

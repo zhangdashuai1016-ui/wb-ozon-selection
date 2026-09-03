@@ -28,11 +28,35 @@ function authorizationFixture() {
       variantKey: "single-variant",
       titleVersion: "title-v1",
       title: "Тестовый деревянный 3D-пазл",
+      contentVersion: "content-v1",
+      content: {
+        locale: "ru-RU",
+        description: "Тестовый деревянный 3D-пазл.",
+        bulletPoints: ["Сборная модель."],
+        searchKeywords: ["деревянный 3D-пазл"]
+      },
       attributeVersion: "attributes-v1",
       attributes: {
         requiredPlatformFields: [
           { fieldKey: "brand", fact: { value: "Нет бренда", verificationStatus: "confirmed" } },
           { fieldKey: "model_name", fact: { value: "Тестовый пазл", verificationStatus: "confirmed" } }
+        ]
+      },
+      packing: {
+        weight: { value: 0.3, unit: "kg" },
+        dimensions: { length: 23, width: 16, height: 3, unit: "cm" }
+      },
+      schemaWriteBindings: {
+        schemaRevision: "ozon-schema:test",
+        evidenceRef: "test:schema-write-bindings",
+        content: {
+          title: { fieldKey: "title", attributeId: 4180, complexId: 0, dictionaryId: 0 },
+          description: { fieldKey: "description", attributeId: 4191, complexId: 0, dictionaryId: 0 },
+          searchKeywords: { fieldKey: "searchKeywords", attributeId: 23171, complexId: 0, dictionaryId: 0 }
+        },
+        requiredAttributes: [
+          { fieldKey: "brand", attributeId: 85, complexId: 0, dictionaryId: 1 },
+          { fieldKey: "model_name", attributeId: 9048, complexId: 0, dictionaryId: 0 }
         ]
       },
       platformCategory: {
@@ -115,6 +139,7 @@ test("13B-2 creates exactly one draft and saves the returned platform product ID
     createPlatformDraft: async (value) => {
       callCount += 1;
       payload = value;
+      assert.equal(payload.schemaWriteBindings.schemaRevision, "ozon-schema:test");
       return {
         status: "draft",
         productId: "OZON-DRAFT-1001",
@@ -145,6 +170,8 @@ test("13B-2 creates exactly one draft and saves the returned platform product ID
   assert.equal(payload.batchSize, 1);
   assert.equal(payload.supplierSkuId, "SUP-001");
   assert.equal(payload.title, plan.title);
+  assert.deepEqual(payload.content, plan.content);
+  assert.deepEqual(payload.packing, plan.packing);
   assert.deepEqual(payload.attributes, plan.attributes);
   assert.deepEqual(payload.buyerTargetPrice, plan.buyerTargetPrice);
   assert.deepEqual(payload.platformWritePrice, plan.platformWritePrice);
@@ -325,7 +352,7 @@ test("published ProductionRecord schema locks draft-only single-SKU execution", 
   const url = new URL("../schema/production-record-v1.1.schema.json", import.meta.url);
   const schema = JSON.parse(await readFile(url, "utf8"));
   assert.deepEqual(schema.properties.status.enum, ["draft", "validation_or_moderation"]);
-  assert.deepEqual(schema.properties.executionMode.enum, ["single_sku_draft_only", "single_sku_create_and_moderate"]);
+  assert.deepEqual(schema.properties.executionMode.enum, ["single_sku_draft_only", "single_sku_create_and_moderate", "single_sku_seller_api"]);
   assert.equal(schema.properties.batchSize.const, 1);
   assert.equal(schema.properties.published.const, false);
   assert.equal(schema.properties.activated.const, false);

@@ -45,12 +45,14 @@ import {
   validateProductionAuthorization
 } from "../lib/production-authorization.mjs";
 import { attachPassedMarketAssessment } from "./helpers/market-assessment-fixture.mjs";
-import { createTrainCandidate } from "./helpers/legacy-candidate-fixture.mjs";
 
+const TEST_PRODUCT_ID = "CX-20260803-010";
 const VARIANT = "规格:豪华小火车";
 
 async function phase7PassedState({ sellerType = "cross_border_cn" } = {}) {
-  const candidate = createTrainCandidate({ lifecycle: false });
+  const url = new URL("../data/candidates.json", import.meta.url);
+  const document = JSON.parse(await readFile(url, "utf8"));
+  const candidate = document.candidates.find((item) => item.id === TEST_PRODUCT_ID);
   const opportunity = structuredClone(adaptLegacyCandidateToOpportunity(candidate));
   opportunity.salesSnapshots[0].platform = "ozon";
   opportunity.salesSnapshots[0].sellerType = sellerType;
@@ -309,8 +311,45 @@ async function phase10FinalAssetsConfirmedState() {
 
 async function phase11ConfirmationCardState() {
   const phase10 = await phase10FinalAssetsConfirmedState();
+  const ready = structuredClone(phase10.skuPackage);
+  const c1 = ready.c1ProductPlan;
+  const sourceRefs = [c1.inputRefs.platformSchemaEvidenceId, c1.inputRefs.selectedSupplySnapshotId];
+  const confirmed = (value) => ({ value, verificationStatus: "confirmed", sourceRefs });
+  c1.productAttributes.status = confirmed("all_required_fields_known");
+  c1.productAttributes.requiredPlatformFields = [
+    { fieldKey: "brand", label: "品牌", fact: confirmed({ value: "Нет бренда", dictionaryValueId: 1001 }) },
+    { fieldKey: "model_name", label: "模型名", fact: confirmed("Механический 3D-пазл «Паровоз»") },
+    { fieldKey: "type", label: "类型", fact: confirmed({ value: "3D-пазл", dictionaryValueId: 2001 }) }
+  ];
+  c1.batteryAssessment.status = confirmed("fact_available");
+  c1.batteryAssessment.assessment = confirmed("no_battery");
+  c1.batteryAssessment.powered = confirmed(false);
+  c1.batteryAssessment.containsBattery = confirmed(false);
+  c1.batteryAssessment.batteryType = confirmed("not_applicable");
+  c1.batteryAssessment.batteryCount = confirmed(0);
+  c1.batteryAssessment.batteryCapacity = confirmed("not_applicable");
+  c1.categoryRestrictions.status = confirmed("known");
+  c1.categoryRestrictions.restrictions = confirmed([]);
+  c1.platformCategory.categoryPath = confirmed("Хобби и творчество > Пазлы, модели для сборки > 3D-пазл");
+  c1.platformCompliance.status = confirmed("known");
+  c1.platformCompliance.assessment = confirmed({ status: "clear" });
+  c1.platformCompliance.requiredFieldGapCount = confirmed(0);
+  c1.schemaSnapshot.writeBindings = confirmed({
+    schemaRevision: "ozon-schema:17028665:92935:2026-08-12",
+    evidenceRef: "test:ozon-schema-write-bindings",
+    content: {
+      title: { fieldKey: "title", attributeId: 4180, complexId: 0, dictionaryId: 0 },
+      description: { fieldKey: "description", attributeId: 4191, complexId: 0, dictionaryId: 0 },
+      searchKeywords: { fieldKey: "searchKeywords", attributeId: 23171, complexId: 0, dictionaryId: 0 }
+    },
+    requiredAttributes: [
+      { fieldKey: "brand", attributeId: 85, complexId: 0, dictionaryId: 301 },
+      { fieldKey: "model_name", attributeId: 9048, complexId: 0, dictionaryId: 0 },
+      { fieldKey: "type", attributeId: 8229, complexId: 0, dictionaryId: 302 }
+    ]
+  });
   return createFinalProductPlanConfirmationCard({
-    skuPackage: phase10.skuPackage,
+    skuPackage: ready,
     createdAt: "2026-08-12T13:20:00.000Z"
   });
 }
@@ -970,6 +1009,7 @@ test("published final confirmation card schema freezes owner and production boun
 
 test("12 converts the exact owner-approved confirmation card into a locked ProductionAuthorization", async () => {
   const phase11 = await phase11ConfirmationCardState();
+  assert.equal(phase11.confirmationCard.riskAndUnknowns.unknownCount, 0, JSON.stringify(phase11.confirmationCard.riskAndUnknowns));
   const result = createProductionAuthorization({
     skuPackage: phase11.skuPackage,
     ownerDecision: ownerProductionApproval(phase11.confirmationCard.cardId),
@@ -993,6 +1033,7 @@ test("12 converts the exact owner-approved confirmation card into a locked Produ
   assert.equal(authorization.lockedScope.supplierSkuId, "4993364145574");
   assert.match(authorization.lockedScope.titleVersion, /^c1-seo-draft-v1\.1:/);
   assert.match(authorization.lockedScope.attributeVersion, /^c1-fact-verification-v1\.1:/);
+  assert.equal(authorization.lockedScope.schemaWriteBindings.schemaRevision, "ozon-schema:17028665:92935:2026-08-12");
   assert.deepEqual(authorization.lockedScope.platformCategory, result.skuPackage.c1ProductPlan.platformCategory);
   assert.deepEqual(authorization.lockedScope.recommendedPrice, { rub: 1831, cny: 151.78 });
   assert.deepEqual(authorization.lockedScope.buyerTargetPrice, { amount: 1831, currency: "RUB" });
@@ -1039,7 +1080,26 @@ test("12 blocks production while the active B result still uses an estimated com
     publishScope: "create_draft_only",
     exclusions: [],
     confirmedAt: "2026-08-12T13:30:00.000Z"
-  }), /C阶段尚未补取当前精确佣金/);
+  }), /C阶段仍有未完成的生产门禁/);
+});
+
+test("12 blocks owner authorization when required C1 facts remain unknown", async () => {
+  const phase10 = await phase10FinalAssetsConfirmedState();
+  const risky = createFinalProductPlanConfirmationCard({
+    skuPackage: phase10.skuPackage,
+    createdAt: "2026-08-12T13:20:00.000Z"
+  });
+  assert.ok(risky.confirmationCard.riskAndUnknowns.unknownCount > 0);
+  assert.throws(() => createProductionAuthorization({
+    skuPackage: risky.skuPackage,
+    ownerDecision: ownerProductionApproval(risky.confirmationCard.cardId),
+    buyerTargetPrice: { amount: 1831, currency: "RUB" },
+    platformWritePrice: { amount: 151.78, currency: "CNY" },
+    priceConversion: { rubPerCny: 12.0637, evidenceRef: "fx:cbr:test", checkedAt: "2026-08-12T13:30:00.000Z" },
+    publishScope: "create_draft_only",
+    exclusions: [],
+    confirmedAt: "2026-08-12T13:30:00.000Z"
+  }), /C阶段仍有未完成的生产门禁/);
 });
 
 test("12 locks SKU, title, attributes, price, stock, final assets and authorization scope against later source changes", async () => {

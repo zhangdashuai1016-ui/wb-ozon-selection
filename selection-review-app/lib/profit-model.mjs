@@ -248,6 +248,26 @@ export function runSkuProfitModel({
   const fx = requireObject(exchangeRateEvidence, "汇率证据");
   const exchangeEvidenceId = requireString(fx.evidenceId, "汇率证据ID");
   const rubPerCny = requireNumber(fx.rubPerCny, "RUB/CNY汇率", { positive: true });
+  const inputSnapshotRefs = [
+    salesSnapshotId,
+    supplySnapshot.snapshotId,
+    feeEvidenceId,
+    logisticsEvidenceId,
+    exchangeEvidenceId
+  ];
+  const calculationTime = requireString(calculatedAt, "利润计算时间");
+  const existing = skuPackage.profitModels.find((item) =>
+    item.calculatedAt === calculationTime && JSON.stringify(item.inputSnapshotRefs) === JSON.stringify(inputSnapshotRefs)
+  );
+  if (existing) {
+    assertValidProfitModel(existing);
+    return deepFreeze({
+      flowVersion: "sku-profit-flow-v1.1",
+      skuPackage: structuredClone(skuPackage),
+      profitModel: structuredClone(existing),
+      idempotentReplay: true
+    });
+  }
   const recommendedSalePriceCny = roundMoney(recommendedSalePriceRub / rubPerCny);
   const pricing = calculateProjectSourceMarketFit({
     marketReferencePriceCny: recommendedSalePriceCny,
@@ -274,14 +294,8 @@ export function runSkuProfitModel({
   const model = {
     schemaVersion: PROFIT_MODEL_SCHEMA_VERSION,
     profitModelVersion: nextProfitVersion(skuPackage),
-    calculatedAt: requireString(calculatedAt, "利润计算时间"),
-    inputSnapshotRefs: [
-      salesSnapshotId,
-      supplySnapshot.snapshotId,
-      feeEvidenceId,
-      logisticsEvidenceId,
-      exchangeEvidenceId
-    ],
+    calculatedAt: calculationTime,
+    inputSnapshotRefs,
     marketAssessmentRef: resolvedMarket.assessment.assessmentId,
     marketSampleRefs: structuredClone(resolvedMarket.assessment.primarySampleIds),
     marketSellerTypesUsed: structuredClone(resolvedMarket.assessment.sellerTypesUsed),
@@ -378,6 +392,7 @@ export function runSkuProfitModel({
   return deepFreeze({
     flowVersion: "sku-profit-flow-v1.1",
     skuPackage: completed,
-    profitModel: completed.profitModels.at(-1)
+    profitModel: completed.profitModels.at(-1),
+    idempotentReplay: false
   });
 }

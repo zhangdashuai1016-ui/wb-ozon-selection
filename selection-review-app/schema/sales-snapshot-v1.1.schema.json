@@ -83,6 +83,27 @@
       "additionalProperties": false
     },
     "attributes": { "type": "object" },
+    "auxiliaryDrafts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["schemaVersion", "draftId", "provider", "modelVersion", "generatedAt", "status", "authoritative", "mayOverrideObservedFields", "publicTextEvidenceRefs", "authorizedImageRefs", "output"],
+        "properties": {
+          "schemaVersion": { "const": "terra-a-sales-draft-v1" },
+          "draftId": { "type": "string", "minLength": 1 },
+          "provider": { "const": "terra" },
+          "modelVersion": { "type": "string", "minLength": 1 },
+          "generatedAt": { "type": "string", "format": "date-time" },
+          "status": { "const": "draft" },
+          "authoritative": { "const": false },
+          "mayOverrideObservedFields": { "const": false },
+          "publicTextEvidenceRefs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+          "authorizedImageRefs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "output": { "type": "object" }
+        },
+        "additionalProperties": false
+      }
+    },
     "collectedAt": { "type": "string", "format": "date-time" },
     "evidenceRef": { "type": "string", "minLength": 1 },
     "collectorVersion": {

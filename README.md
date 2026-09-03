@@ -1,45 +1,46 @@
-# WB 与 Ozon 选品评审台
+# WB 与 Ozon 选品评审台：源码预览
 
-面向选品评审、利润核算和上架准备协作的本地应用源码，采用 [MIT 许可证](LICENSE)。前端使用 React/Vite，服务端使用 Node.js；业务模型、数据校验和状态流位于 `selection-review-app/lib/`。
+这是 2026-09-03 的**未完成源码预览版**，用于查看代码、评审和协作修改；不是已验收发布版或已部署服务。采用 [MIT 许可证](LICENSE)。
 
-## 查看与参与修改
+## 查看与分享
 
-项目地址：[zhangdashuai1016-ui/wb-ozon-selection](https://github.com/zhangdashuai1016-ui/wb-ozon-selection)。公开后可直接浏览代码，无需申请查看权限。
+[本次预览源码](https://github.com/zhangdashuai1016-ui/wb-ozon-selection/tree/preview/source-snapshot-2026-09-03) · [项目首页](https://github.com/zhangdashuai1016-ui/wb-ozon-selection)
 
-1. 登录自己的 GitHub 账号，点击仓库右上角 **Fork**，建立自己的副本。
-2. 在自己的副本里创建功能分支，修改代码或文档；提交说明写清问题、改动和验证结果。
-3. 发起 Pull Request，目标选择本仓库的 `main`。
-4. 由维护者审查、确认 CI 结果后合并。新贡献者的 CI 运行可能需要维护者批准。
-
-Fork 和 MIT 许可不授予原仓库写权限。直接向原仓库推送需要维护者另行邀请为协作者；不要共享账号、密码或访问令牌。
-
-## 贡献者开发检查
-
-准备 Node.js 24 和 pnpm 11.19.0。在自己的 Fork 中修改时，克隆自己的仓库；只阅读代码可以直接克隆本仓库：
+公开仓库可直接阅读，无需提供账号、密码或令牌。首页默认显示 main；本次新源码在 preview/source-snapshot-2026-09-03，没有覆盖 main。
 
 ```bash
-git clone https://github.com/zhangdashuai1016-ui/wb-ozon-selection.git
-cd wb-ozon-selection/selection-review-app
-pnpm install --frozen-lockfile --strict-peer-dependencies
-pnpm test:ci
-pnpm build
-node --check server.mjs
+git clone --branch preview/source-snapshot-2026-09-03 --single-branch https://github.com/zhangdashuai1016-ui/wb-ozon-selection.git
 ```
 
-依赖安装需要访问软件包仓库。上述纯测试、构建和语法检查不启动评审台服务；`pnpm test` 会包含临时服务测试，不是这里的默认检查入口。
+## 发布范围
 
-GitHub CI 同时运行静态检查、纯测试、构建和隔离 API 测试。API 测试只在无外网、非 root、代码只读的独立容器内启动临时服务，并使用合成数据和假派发程序；`pnpm test:ci:api` 不应直接在本机运行。测试通过不等于真实店铺操作或业务验收完成。
+本次是当前开发文件快照，包含尚未提交、尚未完整验收的代码。开发基线为 ca1df7ffe4d80c55d05c33276f28eea3f2c1de6a，但实际内容包括其后的工作区修改，以本分支文件为准。没有额外整合其他工作区的修复补丁，也没有为发布而修改业务实现或测试断言。
 
-## 数据与运行边界
+包含前端、服务端、领域模块、Schema、浏览器扩展、现有测试、开发脚本和配套依赖清单；main 原有 CI 支持文件保留。
 
-- 本仓库不包含真实候选数据库、经营证据目录、商品素材目录或业务凭据；测试样例不代表当前平台事实。
-- 克隆代码不会安装后台服务，也不是开箱即用的生产环境。应用仍有原维护者的个人路径与任务配置，使用前需要独立配置和审查。
-- 不要直接运行个人 `.command`、后台启动或部署脚本，也不要为贡献代码而导入真实经营数据、连接真实店铺或开启付费调用。
-- 平台操作必须使用运行者自己的合法账号与明确授权；开源代码不提供他人的平台权限、凭据或生产授权。这是运行安全说明，不是 MIT 许可证的附加使用限制。
-- 提交前检查变更和文件清单，不要上传密码、Token、Cookie、环境文件或带密钥的链接。允许提交的 `.env.example` 及 `.env.*.example` 只能包含占位值；`.gitignore` 不能清除历史或保证没有秘密泄漏。
+发布副本仅对 7 个源码文件清理多余的文件末尾空行，以通过 Git 空白检查；原工作区不改，业务逻辑和测试断言不变。
 
-原维护者的本机配置与实现说明见 [应用 README](selection-review-app/README.md)；项目业务边界见 [项目规则](AGENTS.md)。
+排除真实候选数据库、全部 data/（包括动态 workflow-map.json 和物流表）、经营证据、商品素材、凭据文件、环境秘密、依赖安装目录、构建产物、日志、能力快照和私人施工交接文档；个人 plist、command、部署与后台启动配置也不在预览中。只排除发布副本，原工作区和业务数据未删除。
 
-## 许可证
+源码仍有历史任务引用、个人目录默认值及旧业务回归样例，不能宣称已全面去除个人化代码。这些引用不是运行权限、可用凭据或当前平台事实，不要照抄连接真实系统。
 
-本项目按 [MIT License](LICENSE) 提供，允许使用、修改、分发和商用，须保留版权及许可证声明；软件不提供担保。第三方依赖仍遵循各自的许可证。
+## 验证状态与缺口
+
+- 本次只做离线 JavaScript、JSX、JSON、CSS 静态语法检查及前端内存打包，不执行应用入口。
+- 未运行完整测试、API 集成测试、真实浏览器流程、服务或平台操作；静态通过不等于功能完成。
+- 跨阶段合同和运行时接线仍待整合验收。C1、C2、D/E 等源码存在不等于对应业务已完成。
+- 部分测试或入口依赖被排除的真实数据、动态工作流图、个人路径或启动配置，不能保证克隆后全套测试或服务直接运行。不得导入真实资料制造测试通过。
+- main 原有 CI 与当前开发快照尚未整合：package.json 缺少 test:ci / test:ci:api 命令，新测试清单未接入，不能引用 main 历史绿灯证明本分支通过。
+- 当前 CI 只响应向 main 推送或以 main 为目标的 Pull Request。本次仅推送预览分支，不创建 PR、不触发 CI、不部署。
+
+## 朋友如何修改
+
+1. 登录自己的 GitHub 账号 Fork 仓库，不要仅复制默认分支，否则需另外获取预览分支。
+2. 从 preview/source-snapshot-2026-09-03 创建自己的功能分支，修改并记录验证结果。
+3. 发起 Pull Request 时，先把目标选为本仓库的 preview/source-snapshot-2026-09-03，由维护者审查；不要直接把未完成快照合进 main。
+
+Fork 和 MIT 不授予原仓库直接推送权限。直接推送需另行邀请协作者，不应共享账号或令牌。
+
+阅读或修改代码不需要启动服务、安装后台任务、连接店铺或执行付费调用。未独立审查配置并取得准确授权前，不要运行启动、部署、采集、生产写入或完整测试入口。这是运行安全说明，不是 MIT 的附加许可限制；第三方依赖遵循各自许可证。
+
+工程边界见 [项目规则](AGENTS.md)，结构见 [应用说明](selection-review-app/README.md)。内部文档引用可能指向未公开资料，不代表工程已完成。

@@ -143,14 +143,24 @@ export function validateProductionRecord(record) {
   ]) if (!nonEmptyString(record[field])) push(errors, field, "必须是非空字符串");
   if (!isoDateTime(record.createdAt)) push(errors, "createdAt", "必须是有效时间");
   if (!["draft", "validation_or_moderation"].includes(record.status)) push(errors, "status", "平台状态无效");
-  if (!["single_sku_draft_only", "single_sku_create_and_moderate"].includes(record.executionMode)) push(errors, "executionMode", "只能执行单SKU授权范围");
+  if (!["single_sku_draft_only", "single_sku_create_and_moderate", "single_sku_seller_api"].includes(record.executionMode)) push(errors, "executionMode", "只能执行单SKU授权范围");
   const expectedFields = record.executionMode === "single_sku_create_and_moderate" ? MODERATION_WRITE_FIELDS : DRAFT_WRITE_FIELDS;
   if (!sameStringArray(record.writtenFields, expectedFields)) push(errors, "writtenFields", "写入字段与授权范围不一致");
   if (!["D_draft_created", "D_created_entered_validation_moderation"].includes(record.businessStateEffect)) push(errors, "businessStateEffect", "业务效果无效");
   if (record.batchSize !== 1) push(errors, "batchSize", "只能创建一个SKU");
   if (record.published !== false || record.activated !== false || record.advertisingOpened !== false) push(errors, "status", "禁止发布、激活或开广告");
   if (record.executionMode === "single_sku_draft_only" && (record.inventoryModified !== true || record.stockWritten !== 100)) push(errors, "inventoryModified", "草稿模式必须记录库存100已写入");
-  if (record.executionMode === "single_sku_create_and_moderate" && (record.inventoryModified !== false || record.stockWritten !== null)) push(errors, "inventoryModified", "校验/审核模式必须记录库存未写");
+  if (record.executionMode === "single_sku_create_and_moderate" && (record.inventoryModified !== false || record.stockWritten !== null)) push(errors, "inventoryModified", "旧校验/审核模式必须记录库存未写");
+  if (record.executionMode === "single_sku_seller_api") {
+    for (const field of ["merchantSku", "requestReceiptRef", "inventoryReceiptRef", "executionKey"]) {
+      if (!nonEmptyString(record[field])) push(errors, field, "Seller API软件执行记录必须保存非空值");
+    }
+    if (!nonEmptyString(record.platformOfferId) || record.platformOfferId !== record.merchantSku) push(errors, "platformOfferId", "平台offer必须等于锁定merchantSku");
+    if (record.inventoryModified !== true || record.stockWritten !== 100) push(errors, "inventoryModified", "Seller API软件执行必须回读库存100");
+    if (!isObject(record.expectedPrice) || !Number.isFinite(record.expectedPrice.amount) || !nonEmptyString(record.expectedPrice.currency)) push(errors, "expectedPrice", "必须锁定E回读价格");
+    if (record.expectedStock !== 100) push(errors, "expectedStock", "必须锁定E回读库存100");
+    if (record.expectedImageCount !== record.imagesUploaded) push(errors, "expectedImageCount", "必须锁定E回读图片数");
+  }
   if (!Number.isInteger(record.imagesUploaded) || record.imagesUploaded < 1) push(errors, "imagesUploaded", "必须记录草稿内最终图片写入数量");
   if (!Array.isArray(record.finalUploadAssetIds) || record.finalUploadAssetIds.length !== record.imagesUploaded || record.finalUploadAssetIds.some((item) => !nonEmptyString(item))) push(errors, "finalUploadAssetIds", "必须按顺序记录已写入的最终素材");
   if (!nonEmptyString(record.mainImageAssetId) || record.mainImageAssetId !== record.finalUploadAssetIds?.[0]) push(errors, "mainImageAssetId", "首图必须是最终素材顺序第一张");
@@ -198,8 +208,12 @@ export async function executeSingleSkuDraftCreation({
     variantKey: productionPlan.sku.variantKey,
     title: productionPlan.title,
     titleVersion: productionPlan.titleVersion,
+    content: structuredClone(productionPlan.content),
+    contentVersion: productionPlan.contentVersion,
     attributes: structuredClone(productionPlan.attributes),
     attributeVersion: productionPlan.attributeVersion,
+    packing: structuredClone(productionPlan.packing),
+    schemaWriteBindings: structuredClone(productionPlan.schemaWriteBindings),
     platformCategory: structuredClone(productionPlan.platformCategory),
     buyerTargetPrice: structuredClone(productionPlan.buyerTargetPrice),
     platformWritePrice: structuredClone(productionPlan.platformWritePrice),

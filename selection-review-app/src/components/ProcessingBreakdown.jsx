@@ -9,7 +9,7 @@ export default function ProcessingBreakdown({ summary, automationStarted }) {
       <span>已确认待派发 {counts.authorized || 0}</span>
       <span className="processing-stopped">已停止待决定 {counts.stopped || 0}</span>
       {counts.stateAnomaly ? <span className="processing-anomaly">状态异常 {counts.stateAnomaly}</span> : null}
-      <small>{automationStarted === true ? "连续自动化已由总控开启" : "连续自动化关闭 · 新候选只自动派发A/B一次；失败不自动重试"}</small>
+      <small>{automationStarted === true ? "连续自动化已由总控开启" : "连续自动化关闭 · 新候选进入软件状态机，不唤醒Codex；失败不自动重试"}</small>
     </section>
   );
 }

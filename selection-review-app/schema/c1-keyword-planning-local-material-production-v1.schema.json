@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "c1-keyword-planning-local-material-production-v1.schema.json",
+  "title": "C1 Keyword Planning Local Material Production V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "candidateId", "skuPackageId", "sourceCandidateRevision", "resultCandidateRevision", "status", "inputFingerprint", "materialFingerprint", "gaps", "producedAt", "execution"],
+  "properties": {
+    "schemaVersion": { "const": "c1-keyword-planning-local-material-production-v1" },
+    "candidateId": { "type": "string", "minLength": 1 },
+    "skuPackageId": { "type": ["string", "null"] },
+    "sourceCandidateRevision": { "type": "integer", "minimum": 0 },
+    "resultCandidateRevision": { "type": "integer", "minimum": 1 },
+    "status": { "enum": ["ready", "not_ready", "blocked"] },
+    "inputFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "materialFingerprint": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "field", "message"],
+        "properties": {
+          "code": { "type": "string", "minLength": 1 },
+          "field": { "type": "string", "minLength": 1 },
+          "message": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "producedAt": { "type": "string", "format": "date-time" },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attemptLimit", "externalCalls", "aiCalls", "browserActions", "codexDispatches", "softwareJobsCreated", "automaticRetries"],
+      "properties": {
+        "attemptLimit": { "const": 1 },
+        "externalCalls": { "const": 0 },
+        "aiCalls": { "const": 0 },
+        "browserActions": { "const": 0 },
+        "codexDispatches": { "const": 0 },
+        "softwareJobsCreated": { "const": 0 },
+        "automaticRetries": { "const": 0 }
+      }
+    }
+  }
+}

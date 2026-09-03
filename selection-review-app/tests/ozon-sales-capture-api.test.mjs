@@ -5,11 +5,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
+import { createServer } from "node:http";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = 43927;
 const baseUrl = `http://127.0.0.1:${port}`;
+const gatewayPort = 43928;
+const extensionOrigin = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 function candidate(id, productId) {
   return {
@@ -49,7 +51,7 @@ async function waitForHealth(child, stderr) {
 async function post(url, body, headers = {}) {
   return fetch(`${baseUrl}${url}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...headers },
+    headers: { "Content-Type": "application/json", Origin: baseUrl, "Sec-Fetch-Site": "same-origin", ...headers },
     body: JSON.stringify(body)
   });
 }
@@ -81,20 +83,54 @@ test("one Ozon capture appends a verified SalesSnapshot without changing busines
     candidates: [target, other]
   }));
 
+  let terraCalls = 0;
+  const gateway = createServer(async (req, res) => {
+    terraCalls += 1;
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const request = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    const body = JSON.stringify({
+      jobId: "inf-ozon-capture-test",
+      candidateId: request.candidateId,
+      dataRevision: request.dataRevision,
+      taskType: request.taskType,
+      model: request.model,
+      status: "completed",
+      attempt: 1,
+      receipt: {
+        requestHash: "a".repeat(64),
+        outputSchemaHash: "b".repeat(64),
+        evidenceRefs: request.evidenceRefs,
+        requestedAt: "2026-08-14T01:00:01.000Z",
+        completedAt: "2026-08-14T01:00:02.000Z",
+        validation: { strictJson: true, schemaValid: true },
+        usage: "unknown",
+        output: { summary: "公开销售快照已整理", comparabilitySignals: ["当前价格清晰"], attributeHints: [] }
+      }
+    });
+    res.writeHead(202, { "content-type": "application/json" });
+    res.end(body);
+  });
+  await new Promise((resolve) => gateway.listen(gatewayPort, "127.0.0.1", resolve));
+  t.after(() => gateway.close());
+
   const child = spawn(process.execPath, [path.join(appDir, "server.mjs"), "--api-only"], {
     cwd: appDir,
     env: {
       ...process.env,
       SELECTION_REVIEW_DATA_FILE: dataFile,
       SELECTION_REVIEW_API_PORT: String(port),
+      SELECTION_REVIEW_PUBLIC_ORIGIN: baseUrl,
+      SELECTION_REVIEW_ALLOWED_EXTENSION_ORIGINS: extensionOrigin,
       SELECTION_REVIEW_AUTO_DELIVER: "off",
-      SELECTION_REVIEW_CODEX_DISPATCH: "off"
+      SELECTION_REVIEW_CODEX_DISPATCH: "off",
+      SELECTION_REVIEW_AI_GATEWAY_URL: `http://127.0.0.1:${gatewayPort}`
     },
     stdio: ["ignore", "ignore", "pipe"]
   });
   const stderr = [];
   child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
-  t.after(() => stopApiProcess(child));
+  t.after(() => child.kill("SIGTERM"));
   await waitForHealth(child, stderr);
 
   const health = await (await fetch(`${baseUrl}/api/health`)).json();
@@ -102,84 +138,34 @@ test("one Ozon capture appends a verified SalesSnapshot without changing busines
 
   const preflight = await fetch(`${baseUrl}/api/candidates/OZON-CAPTURE-1/sales-capture/result`, {
     method: "OPTIONS",
-    headers: { Origin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+    headers: { Origin: extensionOrigin }
   });
   assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get("access-control-allow-origin"), extensionOrigin);
 
   const start = await post("/api/candidates/OZON-CAPTURE-1/sales-capture/start", { dataRevision: 1 });
-  assert.equal(start.status, 201);
-  const started = await start.json();
-  assert.equal(started.expectedProductId, "4403916892");
-  assert.equal(started.candidate.salesCapture.status, "waiting_extension");
-  assert.equal(started.candidate.workflowStatus, "codex_processing");
-  assert.equal(started.candidate.processing.state, "blocked");
+  assert.equal(start.status, 409);
+  const startBody = await start.json();
+  assert.equal(startBody.code, "sales_capture_claim_protocol_required");
+  assert.match(startBody.message, /没有创建采集会话或业务写入/);
 
   const busyState = await (await fetch(`${baseUrl}/api/state`)).json();
-  assert.deepEqual(busyState.captureControl, {
-    status: "busy",
-    label: "正在采集 OZON-CAPTURE-1（ozon）",
-    candidateId: "OZON-CAPTURE-1",
-    captureId: started.captureId,
-    platform: "ozon",
-    captureKind: "sales",
-    startedAt: busyState.captureControl.startedAt,
-    expiresAt: busyState.captureControl.expiresAt
-  });
+  assert.deepEqual(busyState.captureControl, { status: "idle", label: "无活动采集" });
 
   const blockedParallel = await post("/api/candidates/OZON-OTHER-1/sales-capture/start", { dataRevision: 1 });
   assert.equal(blockedParallel.status, 409);
   const blockedParallelBody = await blockedParallel.json();
-  assert.match(blockedParallelBody.message, /本次没有启动，也不会排队或自动重试/);
-  assert.equal(blockedParallelBody.captureControl.candidateId, "OZON-CAPTURE-1");
+  assert.equal(blockedParallelBody.code, "sales_capture_claim_protocol_required");
   const storedDuringCapture = JSON.parse(await readFile(dataFile, "utf8"));
+  assert.deepEqual(storedDuringCapture.candidates.find((item) => item.id === "OZON-CAPTURE-1"), target);
   assert.equal(storedDuringCapture.candidates.find((item) => item.id === "OZON-OTHER-1").dataRevision, 1);
   assert.equal(storedDuringCapture.candidates.find((item) => item.id === "OZON-OTHER-1").salesCapture, undefined);
-
-  const result = await post("/api/candidates/OZON-CAPTURE-1/sales-capture/result", {
-    captureId: started.captureId,
-    token: started.extensionRequest.token,
-    dataRevision: started.dataRevision,
-    status: "captured",
-    evidence: evidence("4403916892")
-  }, { Origin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
-  assert.equal(result.status, 200);
-  const completed = await result.json();
-  assert.equal(completed.dispatch, null);
-  assert.equal(completed.candidate.salesCapture.status, "verified");
-  assert.equal(completed.candidate.salesCapture.currentPrice, 2598);
-  assert.equal(completed.candidate.workflowStatus, "codex_processing");
-  assert.equal(completed.candidate.processing.state, "blocked");
-  assert.equal(completed.candidate.lifecycleV11.status, "opportunity_sales_snapshot_captured");
-  assert.equal(completed.candidate.lifecycleV11.platformWrites, 0);
-  assert.equal(completed.candidate.lifecycleV11.opportunityPackage.salesSnapshots.length, 2);
-  const snapshot = completed.candidate.lifecycleV11.opportunityPackage.salesSnapshots[1];
-  assert.equal(snapshot.productId, "4403916892");
-  assert.equal(snapshot.sellerType, "unknown");
-  assert.equal(snapshot.currentPrice, 2598);
-
-  const idleState = await (await fetch(`${baseUrl}/api/state`)).json();
-  assert.equal(idleState.captureControl.status, "idle");
+  assert.equal(terraCalls, 0);
 
   const stored = JSON.parse(await readFile(dataFile, "utf8"));
+  const storedTarget = stored.candidates.find((item) => item.id === "OZON-CAPTURE-1");
+  assert.deepEqual(storedTarget, target);
   const storedOther = stored.candidates.find((item) => item.id === "OZON-OTHER-1");
   assert.deepEqual(storedOther, other, "其他候选必须完全不变");
   assert.equal(stored.meta.automationStarted, false);
-
-  const failedStart = await post("/api/candidates/OZON-OTHER-1/sales-capture/start", { dataRevision: 1 });
-  const failedSession = await failedStart.json();
-  const failedResult = await post("/api/candidates/OZON-OTHER-1/sales-capture/result", {
-    captureId: failedSession.captureId,
-    token: failedSession.extensionRequest.token,
-    dataRevision: failedSession.dataRevision,
-    status: "failed",
-    failureCode: "site_verification_required",
-    message: "页面要求人工验证",
-    observedAt: "2026-08-14T01:05:00.000Z"
-  }, { Origin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
-  assert.equal(failedResult.status, 200);
-  const failed = await failedResult.json();
-  assert.equal(failed.candidate.salesCapture.technicalStatus, "permission_required");
-  assert.equal(failed.candidate.salesCapture.businessStateEffect, "unchanged");
-  assert.equal(failed.candidate.workflowStatus, "codex_processing");
-  assert.equal(failed.candidate.lifecycleV11, undefined);
 });

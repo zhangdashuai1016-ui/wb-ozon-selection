@@ -2,10 +2,17 @@ import { execFile as execFileCallback } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
-export const DEFAULT_GUOO_TARIFF_PATH = "/Users/shuaizhang/Desktop/GUOO产品资费测算表【2026.7.20更新】.xlsx";
+const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+export const DEFAULT_GUOO_TARIFF_PATH = path.join(
+  PROJECT_ROOT,
+  "data",
+  "logistics",
+  "GUOO产品资费测算表【2026.8.19更新】.xlsx",
+);
 const SHEET_NAME = "GUOO realFBS资费试算表";
 
 function decodeXml(value) {
@@ -121,16 +128,20 @@ export function selectGuooTariffRow(rows, requestedRoute) {
   if (!requested) throw new Error("GUOO_TARIFF_ROUTE_MISSING");
   let productType = "";
   let weightLimit = "";
+  let declaredValueLimit = "";
+  let sizeLimit = "";
   const candidates = [];
   for (let rowNumber = 10; rowNumber <= 24; rowNumber += 1) {
     const row = rows[rowNumber] || {};
     if (String(row[2] || "").trim()) productType = String(row[2]).trim();
     if (String(row[7] || "").trim()) weightLimit = String(row[7]).trim();
+    if (String(row[8] || "").trim()) declaredValueLimit = String(row[8]).trim();
+    if (String(row[9] || "").trim()) sizeLimit = String(row[9]).trim();
     const routeCell = String(row[3] || "").trim();
     if (!routeCell) continue;
     const firstEnglishLine = routeCell.split(/\r?\n/).find((line) => /^GUOO\s+/i.test(line.trim())) || "";
     if (routeIdentity(firstEnglishLine) !== requested) continue;
-    candidates.push({ rowNumber, row, productType, weightLimit, routeCell });
+    candidates.push({ rowNumber, row, productType, weightLimit, declaredValueLimit, sizeLimit, routeCell });
   }
   if (candidates.length !== 1) {
     throw new Error(candidates.length
@@ -178,8 +189,8 @@ export async function readCurrentGuooTariff({
       ...(bigRoute ? { volumeDivisorCm3PerKg: 12000 } : {}),
       productType: selected.productType,
       weightLimit: selected.weightLimit,
-      declaredValueLimitRub: String(selected.row[8] || "").trim(),
-      sizeLimit: String(selected.row[9] || "").trim(),
+      declaredValueLimitRub: selected.declaredValueLimit,
+      sizeLimit: selected.sizeLimit,
       batteryTransportRule: String(selected.row[10] || "").trim(),
       transportMethod: String(selected.row[4] || "").trim(),
       tariffFormula: String(selected.row[6] || "").trim(),

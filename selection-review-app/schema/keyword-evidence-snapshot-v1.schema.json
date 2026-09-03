@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "keyword-evidence-snapshot-v1",
+  "title": "KeywordEvidenceSnapshot v1",
+  "type": "object",
+  "required": ["schemaVersion", "snapshotId", "snapshotFingerprint", "status", "identity", "bindings", "validity", "sourceAttempts", "groups", "businessEffect"],
+  "properties": {
+    "schemaVersion": { "const": "keyword-evidence-snapshot-v1" },
+    "snapshotId": { "type": "string", "minLength": 1 },
+    "snapshotFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "status": { "enum": ["ready", "partial_ready", "technical_unavailable", "true_empty", "stale", "needs_review"] },
+    "identity": {
+      "type": "object",
+      "required": ["candidateId", "parentOpportunityId", "skuPackageId", "dataRevision"],
+      "properties": {
+        "candidateId": { "type": "string", "minLength": 1 },
+        "parentOpportunityId": { "type": "string", "minLength": 1 },
+        "skuPackageId": { "type": "string", "minLength": 1 },
+        "dataRevision": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "bindings": {
+      "type": "object",
+      "required": ["salesSnapshot", "supplySkuFacts"],
+      "properties": {
+        "salesSnapshot": {
+          "type": "object",
+          "required": ["snapshotId", "version", "fingerprint"],
+          "properties": {
+            "snapshotId": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 },
+            "fingerprint": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "supplySkuFacts": {
+          "type": "object",
+          "required": ["version", "fingerprint"],
+          "properties": {
+            "version": { "type": "string", "minLength": 1 },
+            "fingerprint": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "validity": {
+      "type": "object",
+      "required": ["collectedAt", "expiresAt"],
+      "properties": {
+        "collectedAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "sourceAttempts": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/KeywordSourceAttempt" } },
+    "groups": {
+      "type": "object",
+      "required": ["title_keywords", "attribute_and_tag_keywords", "description_long_tail"],
+      "properties": {
+        "title_keywords": { "type": "array", "items": { "$ref": "#/$defs/KeywordRecord" } },
+        "attribute_and_tag_keywords": { "type": "array", "items": { "$ref": "#/$defs/KeywordRecord" } },
+        "description_long_tail": { "type": "array", "items": { "$ref": "#/$defs/KeywordRecord" } }
+      },
+      "additionalProperties": false
+    },
+    "scoringContext": { "type": "object" },
+    "businessEffect": {
+      "type": "object",
+      "required": ["businessPhaseChanged", "businessResultChanged", "bOrC1Created", "dispatchesCreated"],
+      "properties": {
+        "businessPhaseChanged": { "const": false },
+        "businessResultChanged": { "const": false },
+        "bOrC1Created": { "const": false },
+        "dispatchesCreated": { "const": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "KeywordSourceAttempt": {
+      "type": "object",
+      "required": ["schemaVersion", "attemptId", "provider", "channel", "queryId", "queryText", "locale", "targetPlatform", "requestId", "receiptId", "startedAt", "completedAt", "status", "resultCount", "failureClass", "traceRef"],
+      "properties": {
+        "schemaVersion": { "const": "keyword-source-attempt-v1" },
+        "attemptId": { "type": "string", "minLength": 1 },
+        "provider": { "type": "string", "minLength": 1 },
+        "channel": { "enum": ["api", "browser", "local_fusion"] },
+        "queryId": { "type": "string", "minLength": 1 },
+        "queryText": { "type": "string", "minLength": 1 },
+        "locale": { "type": "string", "minLength": 1 },
+        "targetPlatform": { "type": "string", "minLength": 1 },
+        "requestId": { "type": ["string", "null"] },
+        "receiptId": { "type": ["string", "null"] },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": ["string", "null"] },
+        "status": { "enum": ["completed", "failed"] },
+        "resultCount": { "type": ["integer", "null"], "minimum": 0 },
+        "failureClass": { "type": ["string", "null"], "enum": [null, "login_required", "quota_or_rate_limit", "network_timeout", "selector_changed", "input_not_committed", "stale_result", "true_empty", "provider_server_error"] },
+        "traceRef": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "KeywordRecord": {
+      "type": "object",
+      "required": ["keyword", "sourceRefs", "factRefs", "score", "scoringVersion", "confidence", "decision", "decisionReason"],
+      "properties": {
+        "keyword": { "type": "string", "minLength": 1 },
+        "sourceRefs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "factRefs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "score": { "type": ["number", "null"] },
+        "scoringVersion": { "type": ["string", "null"] },
+        "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "decision": { "type": ["string", "null"], "enum": [null, "adopted", "rejected", "needs_review"] },
+        "decisionReason": { "type": ["string", "null"] },
+        "matchType": { "enum": ["target_fact", "exact_match", "substitute", "multi_seed"] },
+        "evidenceCoverage": { "type": "number", "minimum": 0, "maximum": 1 },
+        "usageRestriction": { "type": ["string", "null"] },
+        "placementGateEvidence": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "object", "required": ["approved", "evidenceRef", "reason"], "properties": { "approved": { "const": true }, "evidenceRef": { "type": "string", "minLength": 1 }, "reason": { "type": "string", "minLength": 1 } }, "additionalProperties": false }
+          ]
+        },
+        "components": { "type": "object" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

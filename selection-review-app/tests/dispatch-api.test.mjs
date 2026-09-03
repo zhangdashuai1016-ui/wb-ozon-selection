@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = 43917;
@@ -31,11 +30,11 @@ async function post(url, body) {
   });
 }
 
-test("candidate entry auto-dispatches once and failure only retries from an explicit UI suggestion", async (t) => {
-  const directory = await mkdtemp(path.join(tmpdir(), "selection-dispatch-"));
+test("新版候选进入软件状态机且任何旧Codex入口都不能推动", async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "selection-software-entry-"));
   const dataFile = path.join(directory, "candidates.json");
   await writeFile(dataFile, JSON.stringify({
-    meta: { version: 2, title: "test", updatedAt: "2026-08-11T08:00:00.000Z", automationStarted: false },
+    meta: { version: 2, title: "test", updatedAt: "2026-08-22T08:00:00.000Z", automationStarted: false },
     rules: {},
     candidates: []
   }));
@@ -47,93 +46,55 @@ test("candidate entry auto-dispatches once and failure only retries from an expl
       SELECTION_REVIEW_DATA_FILE: dataFile,
       SELECTION_REVIEW_API_PORT: String(port),
       SELECTION_REVIEW_AUTO_DELIVER: "off",
-      SELECTION_REVIEW_CODEX_DISPATCH: "off"
+      SELECTION_REVIEW_CODEX_DISPATCH: "off",
+      CODEX_OFFLINE: "true"
     },
     stdio: ["ignore", "ignore", "pipe"]
   });
   const stderr = [];
   child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
-  t.after(() => stopApiProcess(child));
+  t.after(() => child.kill("SIGTERM"));
   await waitForHealth(child, stderr);
-
-  const exchangePack = await post("/api/evidence-packs", {
-    kind: "exchange_rate",
-    scope: { pair: "RUB/CNY" },
-    summary: "本轮官方RUB/CNY汇率",
-    sourceType: "real",
-    checkedAt: "2026-08-11T08:30:00.000Z"
-  });
-  assert.equal(exchangePack.status, 201);
 
   const createResponse = await post("/api/candidates", {
     targetStore: "dandanshu",
-    productUrl: "https://www.ozon.ru/product/auto-1/"
+    productUrl: "https://www.ozon.ru/product/software-entry-1/"
   });
   assert.equal(createResponse.status, 201);
   const createdBody = await createResponse.json();
-  assert.equal(createdBody.candidate.workflowStatus, "codex_processing");
-  assert.equal(createdBody.candidate.processing.dispatchTrigger, "candidate_entry_auto");
-  assert.equal(createdBody.dispatch.assigneeRole, "selection_task");
-  assert.equal(createdBody.dispatch.status, "queued");
-  assert.equal(createdBody.dispatch.candidateSnapshot.candidateId, createdBody.candidate.id);
-  assert.equal(createdBody.dispatch.candidateSnapshot.dataRevision, createdBody.candidate.dataRevision);
-  assert.equal(createdBody.dispatch.reusableEvidencePacks.length, 1);
-  assert.equal(createdBody.dispatch.reusableEvidencePacks[0].kind, "exchange_rate");
+  assert.equal(createdBody.candidate.workflowStatus, "awaiting_user_direction");
+  assert.equal(createdBody.candidate.executionRuntime.executorType, "software");
+  assert.equal(createdBody.candidate.executionRuntime.status, "not_started");
+  assert.equal(createdBody.candidate.executionRuntime.codexWakeupCount, 0);
+  assert.equal(createdBody.dispatch, null);
 
-  const duplicateDispatch = await post(`/api/candidates/${createdBody.candidate.id}/dispatch`, {
+  const oldDispatch = await post(`/api/candidates/${createdBody.candidate.id}/dispatch`, {
     dataRevision: createdBody.candidate.dataRevision
   });
-  assert.equal(duplicateDispatch.status, 409);
+  assert.equal(oldDispatch.status, 409);
+  assert.match((await oldDispatch.json()).message, /不能使用旧通用派发入口|当前业务阶段不能直接派发/);
 
-  const recordedComment = await post(`/api/candidates/${createdBody.candidate.id}/comments`, {
-    actor: "user",
-    message: "这只是说明，不要启动任务",
-    requestReview: false
-  });
-  assert.equal(recordedComment.status, 201);
-  const forbiddenCommentDispatch = await post(`/api/candidates/${createdBody.candidate.id}/comments`, {
+  const oldCommentDispatch = await post(`/api/candidates/${createdBody.candidate.id}/comments`, {
     actor: "user",
     message: "旧按钮不应再派发",
     requestReview: true
   });
-  assert.equal(forbiddenCommentDispatch.status, 409);
+  assert.equal(oldCommentDispatch.status, 409);
+  assert.match((await oldCommentDispatch.json()).message, /普通留言不会启动任务|Normal production path attempted Codex dependency\./);
+
+  const simulation = await (await fetch(`${baseUrl}/api/simulations/software-execution`)).json();
+  assert.equal(simulation.result.codexWakeups, 0);
+  assert.equal(simulation.persistence.codexTasksWoken, 0);
+  assert.equal(simulation.persistence.sharedCandidatesWritten, 0);
+
+  const state = await (await fetch(`${baseUrl}/api/state`)).json();
+  const current = state.candidates.find((item) => item.id === createdBody.candidate.id);
+  assert.equal(current.executionRuntimeView.executorType, "software");
+  assert.equal(current.executionRuntimeView.legacyReadOnly, false);
+  assert.equal(state.meta.automationStarted, false);
+  assert.equal(state.summary.dispatch.processingCounts.dispatched, 0);
 
   const persisted = JSON.parse(await readFile(dataFile, "utf8"));
-  const originalDispatch = persisted.dispatches.find((item) => item.id === createdBody.dispatch.id);
-  originalDispatch.status = "failed";
-  originalDispatch.failureLayer = "market_page";
-  originalDispatch.error = "公开页读取失败";
-  const storedCandidate = persisted.candidates.find((item) => item.id === createdBody.candidate.id);
-  storedCandidate.processing.state = "blocked";
-  storedCandidate.processing.manualHold = true;
-  storedCandidate.processing.blockReason = "公开页读取失败";
-  await writeFile(dataFile, JSON.stringify(persisted));
-
-  const stateBeforeRetry = await (await fetch(`${baseUrl}/api/state`)).json();
-  const stopped = stateBeforeRetry.candidates.find((item) => item.id === createdBody.candidate.id);
-  assert.equal(stopped.latestDispatch.status, "failed");
-  assert.equal(stateBeforeRetry.summary.dispatch.processingCounts.stopped, 1);
-
-  const retryResponse = await post("/api/control/resume", {
-    candidateId: stopped.id,
-    dataRevision: stopped.dataRevision,
-    recoveryPath: "同规格竞品不足5个也可以，按现有可追溯样本完成B阶段"
-  });
-  assert.equal(retryResponse.status, 200);
-  const retryBody = await retryResponse.json();
-  assert.equal(retryBody.candidate.processing.dispatchTrigger, "user_guided_retry");
-  assert.equal(retryBody.candidate.processing.manualHold, false);
-  assert.equal(retryBody.dispatch.trigger, "user_guided_retry");
-  assert.equal(retryBody.dispatch.assigneeRole, "selection_task");
-
-  const secondClick = await post("/api/control/resume", {
-    candidateId: stopped.id,
-    dataRevision: retryBody.candidate.dataRevision,
-    recoveryPath: "重复点击"
-  });
-  assert.equal(secondClick.status, 409);
-
-  const finalState = await (await fetch(`${baseUrl}/api/state`)).json();
-  assert.equal(finalState.meta.automationStarted, false);
-  assert.equal(finalState.summary.dispatch.processingCounts.dispatched, 1);
+  assert.equal(persisted.dispatches.length, 0);
+  assert.equal(persisted.candidates[0].executionRuntime.codexWakeupCount, 0);
 });

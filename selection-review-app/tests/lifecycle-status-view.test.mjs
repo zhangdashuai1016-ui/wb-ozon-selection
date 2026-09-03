@@ -1,15 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createTrainCandidate, createMusicBoxCandidate } from "./helpers/legacy-candidate-fixture.mjs";
+import { readFile } from "node:fs/promises";
 import {
   mapLifecycleStatus,
   withTechnicalFailureDisplay
 } from "../src/lifecycleStatusView.js";
 
 async function currentCandidate(id = "CX-20260803-010") {
-  if (id === "CX-20260803-010") return createTrainCandidate();
-  assert.equal(id, "CX-20260802-014");
-  return createMusicBoxCandidate();
+  const url = new URL("../data/candidates.json", import.meta.url);
+  const document = JSON.parse(await readFile(url, "utf8"));
+  return document.candidates.find((item) => item.id === id);
 }
 
 test("a stored SKU lifecycle package renders all four current state lines", async () => {

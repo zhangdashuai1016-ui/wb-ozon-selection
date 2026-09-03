@@ -1,11 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import {
   CodexDispatcher,
-  createDispatchSkillCatalog,
   DISPATCH_OUTPUT_SCHEMA,
   dispatchCandidateSnapshot,
   dispatchCapabilityPlan,
@@ -30,85 +26,6 @@ const candidate = {
   complianceStatus: "clear",
   authorizationStatus: "clear"
 };
-
-test("default dispatch skill catalog preserves the registered names and paths", () => {
-  const catalog = createDispatchSkillCatalog();
-  assert.deepEqual(Object.values(catalog), [
-    { name: "ozon-wb-pricing", path: "/Users/shuaizhang/.codex/skills/ozon-wb-pricing/SKILL.md" },
-    { name: "optimize-ecommerce-seo", path: "/Users/shuaizhang/Documents/电商能力实验室/optimize-ecommerce-seo/SKILL.md" },
-    { name: "wb-listing-launch", path: "/Users/shuaizhang/.codex/skills/wb-listing-launch/SKILL.md" },
-    { name: "wb-safe-write", path: "/Users/shuaizhang/.codex/skills/wb-safe-write/SKILL.md" }
-  ]);
-  assert.strictEqual(createDispatchSkillCatalog({ directory: null }), catalog);
-  assert.ok(Object.isFrozen(catalog));
-  assert.ok(Object.values(catalog).every(Object.isFrozen));
-  assert.deepEqual(requiredSkillsForDispatch({ id: "M07" }, candidate), [catalog.pricing, catalog.ecommerceSeo]);
-  assert.deepEqual(requiredSkillsForDispatch({ id: "M10" }, { targetStore: "wb" }), [catalog.wbListing, catalog.wbSafeWrite]);
-});
-
-test("dispatch skill directory rejects empty, relative and non-string configuration", () => {
-  for (const directory of ["", " ", "skills", "./skills", "../skills", "~/skills", 123, {}, []]) {
-    assert.throws(() => createDispatchSkillCatalog({ directory }), /DISPATCH_SKILLS_DIRECTORY_INVALID/);
-  }
-});
-
-test("configured catalog is shared by capability projection and actual skill attachment", async (t) => {
-  const directory = await mkdtemp(path.join(tmpdir(), "dispatch-skill-catalog-"));
-  t.after(() => rm(directory, { recursive: true, force: true }));
-  const skillCatalog = createDispatchSkillCatalog({ directory });
-  assert.deepEqual(Object.values(skillCatalog).map((skill) => skill.path), [
-    "ozon-wb-pricing", "optimize-ecommerce-seo", "wb-listing-launch", "wb-safe-write"
-  ].map((name) => path.join(directory, name, "SKILL.md")));
-  assert.ok(Object.isFrozen(skillCatalog));
-  assert.ok(Object.values(skillCatalog).every(Object.isFrozen));
-  const node = { id: "M07", title: "C阶段SKU、来源与合规" };
-  const requiredSkills = requiredSkillsForDispatch(node, candidate, skillCatalog);
-  const plan = dispatchCapabilityPlan(node, candidate, skillCatalog);
-  assert.deepEqual(plan.requiredSkills, requiredSkills);
-  for (const skill of requiredSkills) {
-    await mkdir(path.dirname(skill.path));
-    await writeFile(skill.path, "Synthetic skill fixture; no external capability.\n");
-  }
-  const requests = [];
-  const dispatcher = new CodexDispatcher({ enabled: false, skillCatalog });
-  dispatcher.inspectRoute = async () => ({ status: "idle" });
-  dispatcher.request = async (method, params) => {
-    requests.push({ method, params });
-    return method === "turn/start" ? { turn: { id: "turn-configured-skills" } } : {};
-  };
-  const result = await dispatcher.deliver(
-    { id: "D-CONFIGURED-SKILLS", scope: "candidate", assigneeRole: "listing_task", message: "核验当前SKU" },
-    { threadId: "listing-thread", projectPath: "/project" },
-    node,
-    candidate
-  );
-  assert.equal(result.status, "running");
-  assert.deepEqual(requests.map((item) => item.method), ["thread/resume", "turn/start"]);
-  assert.deepEqual(requests[1].params.input.slice(1), requiredSkills.map((skill) => ({ type: "skill", ...skill })));
-  assert.deepEqual(result.attachedSkills, requiredSkills.map((skill) => skill.name));
-  assert.deepEqual(requiredSkillsForDispatch({ id: "M10" }, { targetStore: "wb" }, skillCatalog), [
-    skillCatalog.wbListing, skillCatalog.wbSafeWrite
-  ]);
-});
-
-test("configured catalog still rejects a missing actual skill file before turn start", async (t) => {
-  const directory = await mkdtemp(path.join(tmpdir(), "dispatch-skill-missing-"));
-  t.after(() => rm(directory, { recursive: true, force: true }));
-  const skillCatalog = createDispatchSkillCatalog({ directory });
-  await mkdir(path.dirname(skillCatalog.pricing.path));
-  await writeFile(skillCatalog.pricing.path, "Synthetic skill fixture; no external capability.\n");
-  const requests = [];
-  const dispatcher = new CodexDispatcher({ enabled: false, skillCatalog });
-  dispatcher.inspectRoute = async () => ({ status: "idle" });
-  dispatcher.request = async (method) => { requests.push(method); return {}; };
-  await assert.rejects(dispatcher.deliver(
-    { id: "D-MISSING-CONFIGURED-SKILL", scope: "candidate", assigneeRole: "listing_task", message: "核验当前SKU" },
-    { threadId: "listing-thread", projectPath: "/project" },
-    { id: "M07", title: "C阶段SKU、来源与合规" },
-    candidate
-  ), /本轮必需Skill不存在：optimize-ecommerce-seo/u);
-  assert.deepEqual(requests, ["thread/resume"]);
-});
 
 test("dispatch payload carries the exact SKU revision without callback or tokenized URLs", async () => {
   const requests = [];
@@ -159,7 +76,7 @@ test("dispatch payload carries the exact SKU revision without callback or tokeni
 
 test("C-stage dispatch goes to listing with inherited inputs, capture evidence, and explicit skill items", async () => {
   const requests = [];
-  const dispatcher = new CodexDispatcher({ enabled: false, pathExists: () => true });
+  const dispatcher = new CodexDispatcher({ enabled: false });
   dispatcher.inspectRoute = async () => ({ status: "idle" });
   dispatcher.request = async (method, params) => {
     requests.push({ method, params });
@@ -199,34 +116,6 @@ test("C-stage dispatch goes to listing with inherited inputs, capture evidence, 
   assert.match(inputs[0].text, /采购到手总价、真实打包重量、尺寸、目标店铺和精确1688链接均为前期已填写的继承输入/);
   assert.match(inputs[0].text, /不得重新打开1688/);
   assert.match(inputs[0].text, /CAP-ONE/);
-});
-
-test("C-stage dispatch stops before turn start when a required skill is missing", async () => {
-  const requests = [];
-  const dispatcher = new CodexDispatcher({ enabled: false, pathExists: () => false });
-  dispatcher.inspectRoute = async () => ({ status: "idle" });
-  dispatcher.request = async (method) => {
-    requests.push(method);
-    return {};
-  };
-
-  await assert.rejects(
-    dispatcher.deliver(
-      {
-        id: "D-C-MISSING-SKILL",
-        scope: "candidate",
-        candidateId: candidate.id,
-        assigneeRole: "listing_task",
-        dataRevision: candidate.dataRevision,
-        message: "只做当前SKU的C阶段"
-      },
-      { threadId: "listing-thread", projectPath: "/project" },
-      { id: "M07", title: "C阶段SKU、来源与合规" },
-      candidate
-    ),
-    /本轮必需Skill不存在：ozon-wb-pricing/u
-  );
-  assert.deepEqual(requests, ["thread/resume"]);
 });
 
 test("structured dispatch output is parsed without a reverse callback", () => {

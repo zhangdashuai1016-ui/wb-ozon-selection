@@ -89,6 +89,7 @@ export function buildRealAConfirmationCard(candidate, options = {}) {
       ? candidate.sourceUrl
       : null;
   const dimensions = isObject(candidate.dimensionsCm) ? candidate.dimensionsCm : {};
+  const terraDraft = sales?.auxiliaryDrafts?.filter((item) => item.provider === "terra").at(-1) || null;
 
   const card = {
     cardVersion: REAL_A_CONFIRMATION_CARD_VERSION,
@@ -112,8 +113,22 @@ export function buildRealAConfirmationCard(candidate, options = {}) {
       evidenceRef: sales.evidenceRef,
       comparability: "unknown",
       validityStatus: "unknown",
-      confidence: "unknown"
+      confidence: "unknown",
+      terraAssist: terraDraft ? {
+        status: "draft",
+        authoritative: false,
+        modelVersion: terraDraft.modelVersion,
+        generatedAt: terraDraft.generatedAt,
+        draftId: terraDraft.draftId,
+        output: structuredClone(terraDraft.output)
+      } : null
     } : null,
+    aiAssist: isObject(candidate.aStageAi) ? structuredClone(candidate.aStageAi) : {
+      status: terraDraft ? "completed" : "not_started",
+      taskType: "sales_comparability_assist",
+      model: "gpt-5.6-terra",
+      authoritative: false
+    },
     supplierConfirmation: {
       productUrl: field(sourceUrl, sourceUrl ? "exact_1688_url" : "missing_exact_1688_url"),
       supplierSkuId: field(capturedSku?.sourceSkuId, capturedSku ? "verified_source_capture" : "missing_verified_sku"),
@@ -165,6 +180,7 @@ export function buildRealAConfirmationCard(candidate, options = {}) {
       createsDispatch: false,
       businessStateChanged: false
     },
+    blockedByException: candidate.executionRuntime?.exceptionCase?.status === "open",
     systemEvidenceReadiness: isObject(options.systemEvidenceReadiness)
       ? structuredClone(options.systemEvidenceReadiness)
       : unavailableSystemEvidence(),

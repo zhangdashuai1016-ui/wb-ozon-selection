@@ -120,6 +120,26 @@ export async function runRealAConfirmationWithSystemEvidence({
     });
   }
 
+  if (candidate.lifecycleV11?.skuPackage) {
+    return deepFreeze({
+      orchestrationVersion: REAL_A_B_EVIDENCE_ORCHESTRATION_VERSION,
+      status: "completed",
+      contextualCandidate: structuredClone(candidate),
+      evidenceContext: structuredClone(candidate.lifecycleEvidenceContextV11 || null),
+      evidencePreparation: null,
+      evidencePacksToCommit: [],
+      result: runRealAConfirmationToBAndC1({
+        candidate,
+        submission,
+        evidencePacks,
+        confirmedAt
+      }),
+      externalAccesses: [],
+      platformWrites: 0,
+      idempotentReplay: true
+    });
+  }
+
   const contextResult = applyLifecycleBEvidenceContext(candidate, {
     submission: validation.normalized,
     guooFilePath

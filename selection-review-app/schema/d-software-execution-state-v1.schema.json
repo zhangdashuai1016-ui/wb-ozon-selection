@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "d-software-execution-state-v1",
+  "title": "D阶段单次执行持久化状态 v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "candidateId", "candidateDataRevision", "authorizationId",
+    "productionPlanId", "executionKey", "status", "attempt",
+    "mustPersistBeforeSellerApi", "canCallSellerApiBeforePersist", "attemptLimit",
+    "automaticRetry", "retryAllowed", "platformWrites"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "d-software-execution-state-v1" },
+    "candidateId": { "type": "string", "minLength": 1 },
+    "candidateDataRevision": { "type": "integer", "minimum": 0 },
+    "authorizationId": { "type": "string", "minLength": 1 },
+    "productionPlanId": { "type": "string", "minLength": 1 },
+    "executionKey": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["in_flight", "unknown_outcome", "succeeded", "failed"] },
+    "attempt": { "type": "object" },
+    "mustPersistBeforeSellerApi": { "const": true },
+    "canCallSellerApiBeforePersist": { "const": false },
+    "attemptLimit": { "const": 1 },
+    "automaticRetry": { "const": false },
+    "retryAllowed": { "const": false },
+    "platformWrites": { "type": "integer", "minimum": 0 }
+  }
+}

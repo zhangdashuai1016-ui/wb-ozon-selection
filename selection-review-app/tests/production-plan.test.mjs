@@ -25,8 +25,29 @@ function authorizationFixture() {
       variantKey: "豪华小火车",
       titleVersion: "c1-seo-draft-v1.1:2026-08-12T13:00:00.000Z",
       title: "Механический деревянный 3D-пазл «Паровоз», 320 деталей",
+      contentVersion: "c1-seo-draft-v1.1:2026-08-12T13:00:00.000Z",
+      content: {
+        locale: "ru-RU",
+        description: "Механический деревянный 3D-пазл в виде паровоза.",
+        bulletPoints: ["Сборная модель паровоза."],
+        searchKeywords: ["деревянный 3D-пазл"]
+      },
       attributeVersion: "c1-fact-verification-v1.1:2026-08-12T12:30:00.000Z",
       attributes: { brand: { value: "unknown", status: "unknown" } },
+      packing: {
+        weight: { value: 0.3, unit: "kg" },
+        dimensions: { length: 23, width: 16, height: 3, unit: "cm" }
+      },
+      schemaWriteBindings: {
+        schemaRevision: "ozon-schema:test",
+        evidenceRef: "test:schema-write-bindings",
+        content: {
+          title: { fieldKey: "title", attributeId: 4180, complexId: 0, dictionaryId: 0 },
+          description: { fieldKey: "description", attributeId: 4191, complexId: 0, dictionaryId: 0 },
+          searchKeywords: { fieldKey: "searchKeywords", attributeId: 23171, complexId: 0, dictionaryId: 0 }
+        },
+        requiredAttributes: [{ fieldKey: "brand", attributeId: 85, complexId: 0, dictionaryId: 1 }]
+      },
       platformCategory: {
         descriptionCategoryId: { value: "17028665", verificationStatus: "confirmed" },
         typeId: { value: "92935", verificationStatus: "confirmed" }
@@ -68,6 +89,9 @@ test("13A creates a complete ProductionPlan only from ProductionAuthorization", 
   assert.deepEqual(plan.sku, { supplierSkuId: "4993364145574", variantKey: "豪华小火车" });
   assert.match(plan.titleVersion, /^c1-seo-draft-v1\.1:/);
   assert.match(plan.title, /Паровоз/);
+  assert.match(plan.content.description, /3D-пазл/);
+  assert.equal(plan.packing.weight.value, 0.3);
+  assert.equal(plan.schemaWriteBindings.schemaRevision, "ozon-schema:test");
   assert.match(plan.attributeVersion, /^c1-fact-verification-v1\.1:/);
   assert.equal(plan.platformCategory.typeId.value, "92935");
   assert.deepEqual(plan.buyerTargetPrice, { amount: 1831, currency: "RUB" });
@@ -147,8 +171,8 @@ test("published ProductionPlan schema freezes the simulation-only no-write bound
   const url = new URL("../schema/production-plan-v1.1.schema.json", import.meta.url);
   const schema = JSON.parse(await readFile(url, "utf8"));
   for (const field of [
-    "platform", "store", "skuPackageId", "sku", "titleVersion", "title", "attributeVersion",
-    "attributes", "platformCategory", "buyerTargetPrice", "platformWritePrice", "priceConversion", "stock", "assetsFinalUploadsVersion", "finalUploads", "executionStrategy", "publishScope"
+    "platform", "store", "skuPackageId", "sku", "titleVersion", "title", "contentVersion", "content", "attributeVersion",
+    "attributes", "packing", "platformCategory", "buyerTargetPrice", "platformWritePrice", "priceConversion", "stock", "assetsFinalUploadsVersion", "finalUploads", "executionStrategy", "publishScope"
   ]) assert.ok(schema.required.includes(field), field);
   assert.equal(schema.properties.mode.const, "simulation");
   assert.equal(schema.properties.sourceDataAccess.const, "production_authorization_only");

@@ -3,38 +3,2720 @@
   "$id": "c2-asset-lifecycle-v1.1",
   "title": "C2素材生命周期 v1.1",
   "type": "object",
-  "required": ["schemaVersion", "assetPackageId", "status", "createdAt", "updatedAt", "assets", "ownerFinalUploadConfirmation", "dReadPolicy", "generationIntegrations", "platformUploads", "productionStarted"],
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "assetPackageId",
+    "status",
+    "createdAt",
+    "updatedAt",
+    "assets",
+    "mediaRequirements",
+    "unknownManifest",
+    "effectiveVideoRequirement",
+    "ownerVideoRequirement",
+    "ownerFinalUploadConfirmation",
+    "productionAuthorizationPreparation",
+    "stableAssetTransport",
+    "dReadPolicy",
+    "generationIntegrations",
+    "platformUploads",
+    "productionStarted",
+    "softwareState"
+  ],
+  "$defs": {
+    "opaqueEvidenceRef": {
+      "$ref": "#/$defs/canonicalFrozenRef"
+    },
+    "c1OpaqueAuthorizationId": {
+      "type": "string",
+      "minLength": 27,
+      "maxLength": 256,
+      "pattern": "^(?=.{27,256}$)authorization:c1-ai-draft:(?!.*[\\r\\n])(?!(?:(?:[aA][._~-]*[uU][._~-]*[tT][._~-]*[hH][._~-]*[oO][._~-]*[rR][._~-]*[iI][._~-]*[zZ][._~-]*[aA][._~-]*[tT][._~-]*[iI][._~-]*[oO][._~-]*[nN]|[bB][._~-]*[eE][._~-]*[aA][._~-]*[rR][._~-]*[eE][._~-]*[rR]|[bB][._~-]*[aA][._~-]*[sS][._~-]*[iI][._~-]*[cC]|[pP][._~-]*[aA][._~-]*[sS][._~-]*[sS][._~-]*[wW][._~-]*[oO][._~-]*[rR][._~-]*[dD]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[sS]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[jJ][._~-]*[aA][._~-]*[rR]|[hH][._~-]*[eE][._~-]*[aA][._~-]*[dD][._~-]*[eE][._~-]*[rR][._~-]*[sS]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[tT][._~-]*[oO][._~-]*[kK][._~-]*[eE][._~-]*[nN]|[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[sS][._~-]*[eE][._~-]*[cC][._~-]*[rR][._~-]*[eE][._~-]*[tT]|[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL][._~-]*[sS]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][sS][._~-]*[aA][tT]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE][._~-]*[aA][tT]|[aA][pP][iI][._~-]*[kK][eE][yY]|[aA][pP][iI][._~-]*[kK][eE][yY][._~-]*[aA][tT]|[sS][._~-]*[iI][._~-]*[gG][._~-]*[nN][._~-]*[aA][._~-]*[tT][._~-]*[uU][._~-]*[rR][._~-]*[eE]|[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[vV][aA][lL][uU][eE]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[tT][oO][kK][eE][nN]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[pP][aA][sS][sS][wW][oO][rR][dD]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT][._~-]*[aA][tT]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[bB][oO][dD][yY]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[hH][tT][mM][lL]|[rR][aA][wW][._~-]*[pP][aA][yY][lL][oO][aA][dD])|[eE][xX][pP][iI][rR][eE][sS]|[eE][xX][pP][iI][rR][eE][sS][._~-]*[aA][tT]|[eE][xX][pP][iI][rR][yY]|[eE][xX][pP][iI][rR][yY][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[xX][._~-]*[aA][mM][zZ][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[aA][wW][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[gG][oO][oO][gG][lL][eE][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[oO][sS][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[vV][eE][rR][sS][iI][oO][nN]|[xX][._~-]*[oO][sS][sS][._~-]*[dD][aA][tT][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[eE][xX][pP][iI][rR][eE][sS]|[xX][._~-]*[oO][sS][sS][._~-]*[aA][dD][dD][iI][tT][iI][oO][nN][aA][lL][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[sS][iI][gG])(?:[._~-]|$))[A-Za-z0-9][A-Za-z0-9._~-]*$"
+    },
+    "stableOpaqueEvidenceRef": {
+      "$ref": "#/$defs/canonicalFrozenRef"
+    },
+    "noRawPersistenceKeys": {
+      "if": {
+        "type": "object"
+      },
+      "then": {
+        "propertyNames": {
+          "not": {
+            "pattern": "^(?:[Rr][Aa][Ww][-_]*(?:[Rr][Ee][Ss][Pp][Oo][Nn][Ss][Ee]|[Rr][Ee][Qq][Uu][Ee][Ss][Tt]|[Hh][Tt][Mm][Ll]|[Pp][Aa][Yy][Ll][Oo][Aa][Dd]|[Bb][Oo][Dd][Yy]|[Hh][Ee][Aa][Dd][Ee][Rr][Ss]?)|(?:[Rr][Ee][Qq][Uu][Ee][Ss][Tt]|[Rr][Ee][Ss][Pp][Oo][Nn][Ss][Ee])[-_]*(?:[Bb][Oo][Dd][Yy]|[Hh][Ee][Aa][Dd][Ee][Rr][Ss]?))$"
+          }
+        },
+        "additionalProperties": {
+          "$ref": "#/$defs/noRawPersistenceKeys"
+        }
+      },
+      "else": {
+        "if": {
+          "type": "array"
+        },
+        "then": {
+          "items": {
+            "$ref": "#/$defs/noRawPersistenceKeys"
+          }
+        }
+      }
+    },
+    "g1Identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "candidateId",
+        "skuPackageId",
+        "platform",
+        "storeRef",
+        "supplierSkuId",
+        "merchantSku",
+        "warehouseRef",
+        "credentialAlias",
+        "platformProductId"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "g1-identity-v1"
+        },
+        "candidateId": {
+          "allOf": [
+            {
+              "not": {
+                "enum": [
+                  "unknown",
+                  "null",
+                  "undefined",
+                  "not_applicable"
+                ]
+              }
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        },
+        "skuPackageId": {
+          "allOf": [
+            {
+              "not": {
+                "enum": [
+                  "unknown",
+                  "null",
+                  "undefined",
+                  "not_applicable"
+                ]
+              }
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        },
+        "platform": {
+          "not": {
+            "enum": [
+              "unknown",
+              "null",
+              "undefined",
+              "not_applicable"
+            ]
+          }
+        },
+        "storeRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "stableStoreId",
+            "platformStoreId",
+            "mappingVersion"
+          ],
+          "properties": {
+            "stableStoreId": {
+              "allOf": [
+                {
+                  "not": {
+                    "enum": [
+                      "unknown",
+                      "null",
+                      "undefined",
+                      "not_applicable"
+                    ]
+                  }
+                },
+                {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                }
+              ]
+            },
+            "platformStoreId": {
+              "allOf": [
+                {
+                  "not": {
+                    "enum": [
+                      "unknown",
+                      "null",
+                      "undefined",
+                      "not_applicable"
+                    ]
+                  }
+                },
+                {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                }
+              ]
+            },
+            "mappingVersion": {
+              "not": {
+                "enum": [
+                  "unknown",
+                  "null",
+                  "undefined",
+                  "not_applicable"
+                ]
+              }
+            }
+          }
+        },
+        "supplierSkuId": {
+          "allOf": [
+            {
+              "not": {
+                "enum": [
+                  "unknown",
+                  "null",
+                  "undefined",
+                  "not_applicable"
+                ]
+              }
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        },
+        "merchantSku": {
+          "const": "not_applicable"
+        },
+        "warehouseRef": {
+          "const": "not_applicable"
+        },
+        "credentialAlias": {
+          "const": "not_applicable"
+        },
+        "platformProductId": {
+          "const": "not_applicable"
+        }
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "analysisAuthorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidenceRef"
+      ],
+      "properties": {
+        "status": {
+          "const": "analysis_reference_only"
+        },
+        "evidenceRef": {
+          "allOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        }
+      }
+    },
+    "draftAuthorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidenceRef"
+      ],
+      "properties": {
+        "status": {
+          "const": "draft_reference_only"
+        },
+        "evidenceRef": {
+          "allOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        }
+      }
+    },
+    "listingAuthorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidenceRef"
+      ],
+      "properties": {
+        "status": {
+          "const": "owner_authorized_for_listing"
+        },
+        "evidenceRef": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/stableOpaqueEvidenceRef"
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        }
+      }
+    },
+    "collectedAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assetId",
+        "mediaType",
+        "assetRef",
+        "sourcePlatform",
+        "sourceEvidenceRef",
+        "assetVersion",
+        "sha256",
+        "usageAuthorization",
+        "addedAt",
+        "lifecycleArea",
+        "usagePolicy",
+        "productionEligible"
+      ],
+      "properties": {
+        "assetId": {
+          "allOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        },
+        "mediaType": {
+          "enum": [
+            "image",
+            "video"
+          ]
+        },
+        "assetRef": {
+          "$ref": "#/$defs/analysisAssetRef"
+        },
+        "sourcePlatform": {
+          "enum": [
+            "ozon",
+            "wb",
+            "1688",
+            "pinduoduo"
+          ]
+        },
+        "sourceEvidenceRef": {
+          "allOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        },
+        "assetVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "usageAuthorization": {
+          "$ref": "#/$defs/analysisAuthorization"
+        },
+        "addedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lifecycleArea": {
+          "const": "collected"
+        },
+        "usagePolicy": {
+          "const": "analysis_reference_only"
+        },
+        "productionEligible": {
+          "const": false
+        }
+      }
+    },
+    "aiDraftAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assetId",
+        "mediaType",
+        "assetRef",
+        "assetVersion",
+        "sha256",
+        "sourceType",
+        "generatorRef",
+        "sourceEvidenceRef",
+        "usageAuthorization",
+        "addedAt",
+        "lifecycleArea",
+        "productionEligible"
+      ],
+      "properties": {
+        "assetId": {
+          "allOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        },
+        "mediaType": {
+          "enum": [
+            "image",
+            "video"
+          ]
+        },
+        "assetRef": {
+          "$ref": "#/$defs/analysisAssetRef"
+        },
+        "assetVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sourceType": {
+          "const": "ai_generated_draft"
+        },
+        "generatorRef": {
+          "allOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        },
+        "sourceEvidenceRef": {
+          "allOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        },
+        "usageAuthorization": {
+          "$ref": "#/$defs/draftAuthorization"
+        },
+        "addedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lifecycleArea": {
+          "const": "aiDrafts"
+        },
+        "productionEligible": {
+          "const": false
+        }
+      }
+    },
+    "finalAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assetId",
+        "mediaType",
+        "assetRef",
+        "fileName",
+        "assetVersion",
+        "sha256",
+        "sourceEvidenceRef",
+        "stableUrlEvidenceRef",
+        "usageAuthorization",
+        "sourceType",
+        "order",
+        "role",
+        "slotId",
+        "byteSize",
+        "width",
+        "height",
+        "addedAt",
+        "lifecycleArea",
+        "ownerConfirmed",
+        "productionEligible"
+      ],
+      "properties": {
+        "assetId": {
+          "allOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        },
+        "mediaType": {
+          "enum": [
+            "image",
+            "video"
+          ]
+        },
+        "assetRef": {
+          "$ref": "#/$defs/canonicalStableHttpsAssetRef"
+        },
+        "fileName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "assetVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sourceEvidenceRef": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/stableOpaqueEvidenceRef"
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        },
+        "stableUrlEvidenceRef": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/stableOpaqueEvidenceRef"
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        },
+        "usageAuthorization": {
+          "$ref": "#/$defs/listingAuthorization"
+        },
+        "sourceType": {
+          "const": "owner_provided_final_upload"
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "slotId": {
+          "allOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        },
+        "byteSize": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "width": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "height": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "addedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lifecycleArea": {
+          "const": "finalUploads"
+        },
+        "ownerConfirmed": {
+          "const": true
+        },
+        "productionEligible": {
+          "const": true
+        }
+      }
+    },
+    "slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slotId",
+        "mediaType",
+        "role",
+        "minCount",
+        "maxCount"
+      ],
+      "properties": {
+        "slotId": {
+          "allOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        },
+        "mediaType": {
+          "enum": [
+            "image",
+            "video"
+          ]
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "minCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxCount": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "imageSlot": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/slot"
+        },
+        {
+          "properties": {
+            "mediaType": {
+              "const": "image"
+            }
+          }
+        }
+      ]
+    },
+    "videoSlot": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/slot"
+        },
+        {
+          "properties": {
+            "mediaType": {
+              "const": "video"
+            }
+          }
+        }
+      ]
+    },
+    "videoRequirement": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "requiredBy",
+            "evidenceRefs"
+          ],
+          "properties": {
+            "status": {
+              "const": "required"
+            },
+            "requiredBy": {
+              "enum": [
+                "schema",
+                "owner"
+              ]
+            },
+            "evidenceRefs": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "allOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "$ref": "#/$defs/canonicalFrozenRef"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "requiredBy",
+            "evidenceRefs"
+          ],
+          "properties": {
+            "status": {
+              "const": "not_required"
+            },
+            "requiredBy": {
+              "const": "default"
+            },
+            "evidenceRefs": {
+              "type": "array",
+              "maxItems": 0,
+              "items": {
+                "allOf": [
+                  {},
+                  {
+                    "$ref": "#/$defs/canonicalFrozenRef"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "canonicalC1Handoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "identity",
+        "frozenInputRevisionRefs",
+        "handoffRevisionRefs",
+        "frozenInputRefs",
+        "schemaSnapshotRef",
+        "draftOnlySeo",
+        "keywordEvidenceRefs",
+        "mediaRequirements",
+        "unknownManifest"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "g1-c1-domain-contract-v1"
+        },
+        "identity": {
+          "$ref": "#/$defs/g1Identity"
+        },
+        "frozenInputRevisionRefs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sourceRevision",
+            "resultRevision"
+          ],
+          "properties": {
+            "sourceRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "resultRevision": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "handoffRevisionRefs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sourceRevision",
+            "resultRevision"
+          ],
+          "properties": {
+            "sourceRevision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "resultRevision": {
+              "type": "integer",
+              "minimum": 2
+            }
+          }
+        },
+        "frozenInputRefs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "candidateId",
+            "skuPackageId",
+            "platform",
+            "storeRef",
+            "sourceRevision",
+            "salesSnapshotId",
+            "selectedSupplySnapshotId",
+            "ownerSupplyConfirmationRef",
+            "profitModelVersion",
+            "schemaSnapshotRef"
+          ],
+          "properties": {
+            "candidateId": {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            },
+            "skuPackageId": {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            },
+            "platform": {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            },
+            "storeRef": {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            },
+            "sourceRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "salesSnapshotId": {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            },
+            "selectedSupplySnapshotId": {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            },
+            "ownerSupplyConfirmationRef": {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            },
+            "profitModelVersion": {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            },
+            "schemaSnapshotRef": {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          }
+        },
+        "schemaSnapshotRef": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/opaqueEvidenceRef"
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        },
+        "draftOnlySeo": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "formalProviderResultAccepted",
+            "reason",
+            "aiRequestId",
+            "aiRequestFingerprint",
+            "inputFingerprint",
+            "sourceRevision",
+            "receiptRef",
+            "providerJobRef"
+          ],
+          "properties": {
+            "status": {
+              "const": "draft_only"
+            },
+            "formalProviderResultAccepted": {
+              "const": true
+            },
+            "reason": {
+              "type": "null"
+            },
+            "aiRequestId": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/opaqueEvidenceRef"
+                },
+                {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                }
+              ]
+            },
+            "aiRequestFingerprint": {
+              "$ref": "#/$defs/sha256"
+            },
+            "inputFingerprint": {
+              "$ref": "#/$defs/sha256"
+            },
+            "sourceRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "receiptRef": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/opaqueEvidenceRef"
+                },
+                {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                }
+              ]
+            },
+            "providerJobRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "jobId",
+                "jobType",
+                "providerId",
+                "providerVersion",
+                "candidateId",
+                "skuPackageId",
+                "platform",
+                "storeRef",
+                "authorizationRef",
+                "inputFingerprint",
+                "sourceRevision",
+                "receiptRef",
+                "terminalStatus",
+                "requestSubmitted",
+                "responseVerified"
+              ],
+              "properties": {
+                "jobId": {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/opaqueEvidenceRef"
+                    },
+                    {
+                      "$ref": "#/$defs/canonicalFrozenRef"
+                    }
+                  ]
+                },
+                "jobType": {
+                  "const": "c1_ai_draft"
+                },
+                "providerId": {
+                  "allOf": [
+                    {
+                      "not": {
+                        "const": "unknown"
+                      }
+                    },
+                    {
+                      "$ref": "#/$defs/canonicalFrozenRef"
+                    }
+                  ]
+                },
+                "providerVersion": {
+                  "allOf": [
+                    {
+                      "not": {
+                        "const": "unknown"
+                      }
+                    },
+                    {
+                      "$ref": "#/$defs/canonicalFrozenRef"
+                    }
+                  ]
+                },
+                "candidateId": {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                },
+                "skuPackageId": {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                },
+                "platform": {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                },
+                "storeRef": {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                },
+                "authorizationRef": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "authorizationId",
+                    "authorizationType",
+                    "scope"
+                  ],
+                  "properties": {
+                    "authorizationId": {
+                      "$ref": "#/$defs/c1OpaqueAuthorizationId"
+                    },
+                    "authorizationType": {
+                      "const": "paid_ai_draft"
+                    },
+                    "scope": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "candidateId",
+                        "skuPackageId",
+                        "platform",
+                        "storeRef",
+                        "sourceRevision",
+                        "jobType"
+                      ],
+                      "properties": {
+                        "candidateId": {
+                          "$ref": "#/$defs/canonicalFrozenRef"
+                        },
+                        "skuPackageId": {
+                          "$ref": "#/$defs/canonicalFrozenRef"
+                        },
+                        "platform": {
+                          "$ref": "#/$defs/canonicalFrozenRef"
+                        },
+                        "storeRef": {
+                          "$ref": "#/$defs/canonicalFrozenRef"
+                        },
+                        "sourceRevision": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "jobType": {
+                          "const": "c1_ai_draft"
+                        }
+                      }
+                    }
+                  }
+                },
+                "inputFingerprint": {
+                  "$ref": "#/$defs/sha256"
+                },
+                "sourceRevision": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "receiptRef": {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/opaqueEvidenceRef"
+                    },
+                    {
+                      "$ref": "#/$defs/canonicalFrozenRef"
+                    }
+                  ]
+                },
+                "terminalStatus": {
+                  "const": "completed"
+                },
+                "requestSubmitted": {
+                  "const": true
+                },
+                "responseVerified": {
+                  "const": true
+                }
+              }
+            }
+          }
+        },
+        "keywordEvidenceRefs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/opaqueEvidenceRef"
+              },
+              {
+                "$ref": "#/$defs/canonicalFrozenRef"
+              }
+            ]
+          }
+        },
+        "mediaRequirements": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "schemaSnapshotRef",
+            "sourceRefs",
+            "requiredSlots",
+            "videoRequirement",
+            "reason"
+          ],
+          "properties": {
+            "status": {
+              "const": "confirmed"
+            },
+            "schemaSnapshotRef": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/opaqueEvidenceRef"
+                },
+                {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                }
+              ]
+            },
+            "sourceRefs": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/opaqueEvidenceRef"
+                  },
+                  {
+                    "$ref": "#/$defs/canonicalFrozenRef"
+                  }
+                ]
+              }
+            },
+            "requiredSlots": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "slotId",
+                  "mediaType",
+                  "required"
+                ],
+                "properties": {
+                  "slotId": {
+                    "allOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "$ref": "#/$defs/canonicalFrozenRef"
+                      }
+                    ]
+                  },
+                  "mediaType": {
+                    "enum": [
+                      "image",
+                      "video"
+                    ]
+                  },
+                  "required": {
+                    "const": true
+                  }
+                }
+              }
+            },
+            "videoRequirement": {
+              "enum": [
+                "required",
+                "not_required"
+              ]
+            },
+            "reason": {
+              "type": "null"
+            }
+          }
+        },
+        "unknownManifest": {
+          "type": "array",
+          "maxItems": 0
+        }
+      }
+    },
+    "canonicalFrozenRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^(?=.{1,256}$)(?!.*[\\r\\n])(?!.*//)(?!(?:[bB][eE][aA][rR][eE][rR]|[bB][aA][sS][iI][cC])(?:[._~@#+-]|$))(?!(?:(?:[aA][._~-]*[uU][._~-]*[tT][._~-]*[hH][._~-]*[oO][._~-]*[rR][._~-]*[iI][._~-]*[zZ][._~-]*[aA][._~-]*[tT][._~-]*[iI][._~-]*[oO][._~-]*[nN]|[bB][._~-]*[eE][._~-]*[aA][._~-]*[rR][._~-]*[eE][._~-]*[rR]|[bB][._~-]*[aA][._~-]*[sS][._~-]*[iI][._~-]*[cC]|[pP][._~-]*[aA][._~-]*[sS][._~-]*[sS][._~-]*[wW][._~-]*[oO][._~-]*[rR][._~-]*[dD]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[sS]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[jJ][._~-]*[aA][._~-]*[rR]|[hH][._~-]*[eE][._~-]*[aA][._~-]*[dD][._~-]*[eE][._~-]*[rR][._~-]*[sS]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[tT][._~-]*[oO][._~-]*[kK][._~-]*[eE][._~-]*[nN]|[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[sS][._~-]*[eE][._~-]*[cC][._~-]*[rR][._~-]*[eE][._~-]*[tT]|[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL][._~-]*[sS]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][sS][._~-]*[aA][tT]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE][._~-]*[aA][tT]|[aA][pP][iI][._~-]*[kK][eE][yY]|[aA][pP][iI][._~-]*[kK][eE][yY][._~-]*[aA][tT]|[sS][._~-]*[iI][._~-]*[gG][._~-]*[nN][._~-]*[aA][._~-]*[tT][._~-]*[uU][._~-]*[rR][._~-]*[eE]|[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[vV][aA][lL][uU][eE]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[tT][oO][kK][eE][nN]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[pP][aA][sS][sS][wW][oO][rR][dD]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT][._~-]*[aA][tT]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[bB][oO][dD][yY]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[hH][tT][mM][lL]|[rR][aA][wW][._~-]*[pP][aA][yY][lL][oO][aA][dD])|[eE][xX][pP][iI][rR][eE][sS]|[eE][xX][pP][iI][rR][eE][sS][._~-]*[aA][tT]|[eE][xX][pP][iI][rR][yY]|[eE][xX][pP][iI][rR][yY][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[xX][._~-]*[aA][mM][zZ][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[aA][wW][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[gG][oO][oO][gG][lL][eE][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[oO][sS][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[vV][eE][rR][sS][iI][oO][nN]|[xX][._~-]*[oO][sS][sS][._~-]*[dD][aA][tT][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[eE][xX][pP][iI][rR][eE][sS]|[xX][._~-]*[oO][sS][sS][._~-]*[aA][dD][dD][iI][tT][iI][oO][nN][aA][lL][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[sS][iI][gG])(?:[:/]|$))(?!.*(?:^|[/:])(?:(?:[aA][._~-]*[uU][._~-]*[tT][._~-]*[hH][._~-]*[oO][._~-]*[rR][._~-]*[iI][._~-]*[zZ][._~-]*[aA][._~-]*[tT][._~-]*[iI][._~-]*[oO][._~-]*[nN]|[bB][._~-]*[eE][._~-]*[aA][._~-]*[rR][._~-]*[eE][._~-]*[rR]|[bB][._~-]*[aA][._~-]*[sS][._~-]*[iI][._~-]*[cC]|[pP][._~-]*[aA][._~-]*[sS][._~-]*[sS][._~-]*[wW][._~-]*[oO][._~-]*[rR][._~-]*[dD]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[sS]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[jJ][._~-]*[aA][._~-]*[rR]|[hH][._~-]*[eE][._~-]*[aA][._~-]*[dD][._~-]*[eE][._~-]*[rR][._~-]*[sS]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[tT][._~-]*[oO][._~-]*[kK][._~-]*[eE][._~-]*[nN]|[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[sS][._~-]*[eE][._~-]*[cC][._~-]*[rR][._~-]*[eE][._~-]*[tT]|[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL][._~-]*[sS]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][sS][._~-]*[aA][tT]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE][._~-]*[aA][tT]|[aA][pP][iI][._~-]*[kK][eE][yY]|[aA][pP][iI][._~-]*[kK][eE][yY][._~-]*[aA][tT]|[sS][._~-]*[iI][._~-]*[gG][._~-]*[nN][._~-]*[aA][._~-]*[tT][._~-]*[uU][._~-]*[rR][._~-]*[eE]|[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[vV][aA][lL][uU][eE]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[tT][oO][kK][eE][nN]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[pP][aA][sS][sS][wW][oO][rR][dD]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT][._~-]*[aA][tT]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[bB][oO][dD][yY]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[hH][tT][mM][lL]|[rR][aA][wW][._~-]*[pP][aA][yY][lL][oO][aA][dD])|[eE][xX][pP][iI][rR][eE][sS]|[eE][xX][pP][iI][rR][eE][sS][._~-]*[aA][tT]|[eE][xX][pP][iI][rR][yY]|[eE][xX][pP][iI][rR][yY][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[xX][._~-]*[aA][mM][zZ][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[aA][wW][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[gG][oO][oO][gG][lL][eE][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[oO][sS][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[vV][eE][rR][sS][iI][oO][nN]|[xX][._~-]*[oO][sS][sS][._~-]*[dD][aA][tT][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[eE][xX][pP][iI][rR][eE][sS]|[xX][._~-]*[oO][sS][sS][._~-]*[aA][dD][dD][iI][tT][iI][oO][nN][aA][lL][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[sS][iI][gG])(?::|/|$))[A-Za-z0-9][A-Za-z0-9._~:/@#+-]*$"
+    },
+    "canonicalStableHttpsAssetRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "allOf": [
+        {
+          "not": {
+            "pattern": "^https://(?:localhost|[^/]*\\.(?:localhost|local|localdomain|lan|home|internal))(?:/|$)"
+          }
+        }
+      ],
+      "pattern": "^(?=.{1,1024}$)(?!.*[\\r\\n])(?!.*[?&](?:(?:[aA][._~-]*[uU][._~-]*[tT][._~-]*[hH][._~-]*[oO][._~-]*[rR][._~-]*[iI][._~-]*[zZ][._~-]*[aA][._~-]*[tT][._~-]*[iI][._~-]*[oO][._~-]*[nN]|[bB][._~-]*[eE][._~-]*[aA][._~-]*[rR][._~-]*[eE][._~-]*[rR]|[bB][._~-]*[aA][._~-]*[sS][._~-]*[iI][._~-]*[cC]|[pP][._~-]*[aA][._~-]*[sS][._~-]*[sS][._~-]*[wW][._~-]*[oO][._~-]*[rR][._~-]*[dD]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[sS]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[jJ][._~-]*[aA][._~-]*[rR]|[hH][._~-]*[eE][._~-]*[aA][._~-]*[dD][._~-]*[eE][._~-]*[rR][._~-]*[sS]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[tT][._~-]*[oO][._~-]*[kK][._~-]*[eE][._~-]*[nN]|[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[sS][._~-]*[eE][._~-]*[cC][._~-]*[rR][._~-]*[eE][._~-]*[tT]|[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL][._~-]*[sS]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][sS][._~-]*[aA][tT]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE][._~-]*[aA][tT]|[aA][pP][iI][._~-]*[kK][eE][yY]|[aA][pP][iI][._~-]*[kK][eE][yY][._~-]*[aA][tT]|[sS][._~-]*[iI][._~-]*[gG][._~-]*[nN][._~-]*[aA][._~-]*[tT][._~-]*[uU][._~-]*[rR][._~-]*[eE]|[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[vV][aA][lL][uU][eE]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[tT][oO][kK][eE][nN]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[pP][aA][sS][sS][wW][oO][rR][dD]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT][._~-]*[aA][tT]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[bB][oO][dD][yY]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[hH][tT][mM][lL]|[rR][aA][wW][._~-]*[pP][aA][yY][lL][oO][aA][dD])|[eE][xX][pP][iI][rR][eE][sS]|[eE][xX][pP][iI][rR][eE][sS][._~-]*[aA][tT]|[eE][xX][pP][iI][rR][yY]|[eE][xX][pP][iI][rR][yY][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[xX][._~-]*[aA][mM][zZ][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[aA][wW][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[gG][oO][oO][gG][lL][eE][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[oO][sS][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[vV][eE][rR][sS][iI][oO][nN]|[xX][._~-]*[oO][sS][sS][._~-]*[dD][aA][tT][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[eE][xX][pP][iI][rR][eE][sS]|[xX][._~-]*[oO][sS][sS][._~-]*[aA][dD][dD][iI][tT][iI][oO][nN][aA][lL][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[sS][iI][gG])=)(?!.*(?:^|[/:])(?:(?:[aA][._~-]*[uU][._~-]*[tT][._~-]*[hH][._~-]*[oO][._~-]*[rR][._~-]*[iI][._~-]*[zZ][._~-]*[aA][._~-]*[tT][._~-]*[iI][._~-]*[oO][._~-]*[nN]|[bB][._~-]*[eE][._~-]*[aA][._~-]*[rR][._~-]*[eE][._~-]*[rR]|[bB][._~-]*[aA][._~-]*[sS][._~-]*[iI][._~-]*[cC]|[pP][._~-]*[aA][._~-]*[sS][._~-]*[sS][._~-]*[wW][._~-]*[oO][._~-]*[rR][._~-]*[dD]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[sS]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[jJ][._~-]*[aA][._~-]*[rR]|[hH][._~-]*[eE][._~-]*[aA][._~-]*[dD][._~-]*[eE][._~-]*[rR][._~-]*[sS]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[tT][._~-]*[oO][._~-]*[kK][._~-]*[eE][._~-]*[nN]|[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[sS][._~-]*[eE][._~-]*[cC][._~-]*[rR][._~-]*[eE][._~-]*[tT]|[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL][._~-]*[sS]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][sS][._~-]*[aA][tT]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE][._~-]*[aA][tT]|[aA][pP][iI][._~-]*[kK][eE][yY]|[aA][pP][iI][._~-]*[kK][eE][yY][._~-]*[aA][tT]|[sS][._~-]*[iI][._~-]*[gG][._~-]*[nN][._~-]*[aA][._~-]*[tT][._~-]*[uU][._~-]*[rR][._~-]*[eE]|[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[vV][aA][lL][uU][eE]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[tT][oO][kK][eE][nN]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[pP][aA][sS][sS][wW][oO][rR][dD]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT][._~-]*[aA][tT]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[bB][oO][dD][yY]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[hH][tT][mM][lL]|[rR][aA][wW][._~-]*[pP][aA][yY][lL][oO][aA][dD])|[eE][xX][pP][iI][rR][eE][sS]|[eE][xX][pP][iI][rR][eE][sS][._~-]*[aA][tT]|[eE][xX][pP][iI][rR][yY]|[eE][xX][pP][iI][rR][yY][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[xX][._~-]*[aA][mM][zZ][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[aA][wW][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[gG][oO][oO][gG][lL][eE][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[oO][sS][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[vV][eE][rR][sS][iI][oO][nN]|[xX][._~-]*[oO][sS][sS][._~-]*[dD][aA][tT][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[eE][xX][pP][iI][rR][eE][sS]|[xX][._~-]*[oO][sS][sS][._~-]*[aA][dD][dD][iI][tT][iI][oO][nN][aA][lL][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[sS][iI][gG])(?::|/|$))(?!.*(?:/\\.{1,2})(?:/|\\?|$))(?!https://[^/]+/.*//)https://(?!localhost(?:/|$))(?![^/]*\\.(?:localhost|local)(?:/|$))(?!(?:[0-9.]+|\\[[^\\]]+\\])(?:/|$))(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?/[A-Za-z0-9._~!$'()*+,:@/-]+(?:\\?[A-Za-z0-9._~-]+=[A-Za-z0-9._~-]+(?:&[A-Za-z0-9._~-]+=[A-Za-z0-9._~-]+)*)?$"
+    },
+    "c2ContractString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "c2SecretCheckedContractString": {
+      "$ref": "#/$defs/c2ContractString"
+    },
+    "analysisAssetRef": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/canonicalFrozenRef"
+        },
+        {
+          "$ref": "#/$defs/canonicalStableHttpsAssetRef"
+        }
+      ]
+    }
+  },
   "properties": {
-    "schemaVersion": { "const": "c2-asset-lifecycle-v1.1" },
-    "assetPackageId": { "type": "string", "minLength": 1 },
-    "status": { "enum": ["awaiting_final_uploads", "completed"] },
-    "createdAt": { "type": "string", "format": "date-time" },
-    "updatedAt": { "type": "string", "format": "date-time" },
+    "schemaVersion": {
+      "const": "c2-asset-lifecycle-v1.1"
+    },
+    "assetPackageId": {
+      "allOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "$ref": "#/$defs/canonicalFrozenRef"
+        }
+      ]
+    },
+    "status": {
+      "enum": [
+        "awaiting_final_uploads",
+        "completed"
+      ]
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
     "assets": {
       "type": "object",
-      "required": ["collected", "aiDrafts", "finalUploads"],
+      "additionalProperties": false,
+      "required": [
+        "collected",
+        "aiDrafts",
+        "finalUploads"
+      ],
       "properties": {
-        "collected": { "type": "array" },
-        "aiDrafts": { "type": "array" },
-        "finalUploads": { "type": "array" }
-      },
-      "additionalProperties": false
+        "collected": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/collectedAsset"
+          }
+        },
+        "aiDrafts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/aiDraftAsset"
+          }
+        },
+        "finalUploads": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/finalAsset"
+          }
+        }
+      }
     },
-    "ownerFinalUploadConfirmation": { "type": ["object", "null"] },
+    "mediaRequirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "evidenceRef",
+        "evidenceVersion",
+        "platform",
+        "targetStore",
+        "storeRef",
+        "categoryId",
+        "schemaRevision",
+        "sourceDataRevision",
+        "sourceC1Fingerprint",
+        "imageSlots",
+        "videoSlots",
+        "schemaVideoRequirement",
+        "requirementsFingerprint"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "c2-media-requirements-v1"
+        },
+        "evidenceRef": {
+          "allOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        },
+        "evidenceVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetStore": {
+          "type": "string",
+          "minLength": 1
+        },
+        "storeRef": {
+          "allOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        },
+        "categoryId": {
+          "allOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        },
+        "schemaRevision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceDataRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sourceC1Fingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "imageSlots": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/imageSlot"
+          }
+        },
+        "videoSlots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/videoSlot"
+          }
+        },
+        "schemaVideoRequirement": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "requiredBy",
+                "evidenceRef"
+              ],
+              "properties": {
+                "status": {
+                  "const": "required"
+                },
+                "requiredBy": {
+                  "const": "schema"
+                },
+                "evidenceRef": {
+                  "allOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "$ref": "#/$defs/canonicalFrozenRef"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "requiredBy",
+                "evidenceRef"
+              ],
+              "properties": {
+                "status": {
+                  "const": "not_required"
+                },
+                "requiredBy": {
+                  "const": "default"
+                },
+                "evidenceRef": {
+                  "allOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/$defs/canonicalFrozenRef"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "requirementsFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "unknownManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "sourceDataRevision",
+        "blockingItems"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "c1-unknown-manifest-v1"
+        },
+        "sourceDataRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blockingItems": {
+          "type": "array",
+          "maxItems": 0
+        }
+      }
+    },
+    "effectiveVideoRequirement": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/videoRequirement"
+        }
+      ]
+    },
+    "ownerVideoRequirement": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "required",
+            "confirmedBy",
+            "skuPackageId",
+            "sourceDataRevision",
+            "evidenceRef"
+          ],
+          "properties": {
+            "schemaVersion": {
+              "const": "c2-owner-video-requirement-v1"
+            },
+            "required": {
+              "const": true
+            },
+            "confirmedBy": {
+              "const": "owner"
+            },
+            "skuPackageId": {
+              "allOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                }
+              ]
+            },
+            "sourceDataRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "evidenceRef": {
+              "allOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "ownerFinalUploadConfirmation": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "confirmedBy",
+            "confirmedAt",
+            "approvedManifestVersion",
+            "approvedManifestSha256",
+            "approvedMediaRequirementsFingerprint",
+            "approvedAssetIds",
+            "approvedMainImageAssetId",
+            "approvedVideoDisposition",
+            "confirmationNote"
+          ],
+          "properties": {
+            "status": {
+              "const": "confirmed"
+            },
+            "confirmedBy": {
+              "const": "owner"
+            },
+            "confirmedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "approvedManifestVersion": {
+              "const": "c2-final-manifest-v1"
+            },
+            "approvedManifestSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "approvedMediaRequirementsFingerprint": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "approvedAssetIds": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "allOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "$ref": "#/$defs/canonicalFrozenRef"
+                  }
+                ]
+              }
+            },
+            "approvedMainImageAssetId": {
+              "allOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                }
+              ]
+            },
+            "approvedVideoDisposition": {
+              "enum": [
+                "includes_video",
+                "excludes_video"
+              ]
+            },
+            "confirmationNote": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "productionAuthorizationPreparation": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "status",
+            "skuPackageId",
+            "sourceDataRevision",
+            "resultDataRevision",
+            "sourceC1Fingerprint",
+            "mediaRequirementsFingerprint",
+            "finalManifestVersion",
+            "finalManifestSha256",
+            "finalUploadsFingerprint",
+            "mainImageAssetId",
+            "videoDisposition",
+            "ownerConfirmationAt",
+            "targetContext",
+            "frozenC1Handoff",
+            "mediaRequirements",
+            "finalUploads",
+            "effectiveVideoRequirement",
+            "ownerVideoRequirement",
+            "ownerFinalUploadConfirmation",
+            "finalCardInputSnapshot",
+            "finalCardInputFingerprint",
+            "ownerFinalCardAuthorizationDecision",
+            "pendingAuthorizationInputs",
+            "preparationFingerprint",
+            "productionAuthorizationCreated",
+            "dHandoffCreated"
+          ],
+          "properties": {
+            "schemaVersion": {
+              "const": "c2-production-authorization-preparation-v1"
+            },
+            "status": {
+              "const": "awaiting_final_card_approval"
+            },
+            "skuPackageId": {
+              "allOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                }
+              ]
+            },
+            "sourceDataRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "resultDataRevision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "sourceC1Fingerprint": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "mediaRequirementsFingerprint": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "finalManifestVersion": {
+              "const": "c2-final-manifest-v1"
+            },
+            "finalManifestSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "finalUploadsFingerprint": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "mainImageAssetId": {
+              "allOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                }
+              ]
+            },
+            "videoDisposition": {
+              "enum": [
+                "includes_video",
+                "excludes_video"
+              ]
+            },
+            "ownerConfirmationAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "targetContext": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "platform",
+                "targetStore",
+                "storeRef",
+                "categoryId",
+                "schemaRevision",
+                "schemaEvidenceRef",
+                "schemaEvidenceVersion",
+                "mediaRequirementsFingerprint"
+              ],
+              "properties": {
+                "platform": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "targetStore": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "storeRef": {
+                  "allOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "$ref": "#/$defs/canonicalFrozenRef"
+                    }
+                  ]
+                },
+                "categoryId": {
+                  "allOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "$ref": "#/$defs/canonicalFrozenRef"
+                    }
+                  ]
+                },
+                "schemaRevision": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "schemaEvidenceRef": {
+                  "allOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "$ref": "#/$defs/canonicalFrozenRef"
+                    }
+                  ]
+                },
+                "schemaEvidenceVersion": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "mediaRequirementsFingerprint": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            },
+            "frozenC1Handoff": {
+              "$ref": "#/$defs/canonicalC1Handoff"
+            },
+            "mediaRequirements": {
+              "$ref": "#/properties/mediaRequirements"
+            },
+            "finalUploads": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/finalAsset"
+              }
+            },
+            "effectiveVideoRequirement": {
+              "$ref": "#/$defs/videoRequirement"
+            },
+            "ownerVideoRequirement": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "ownerFinalUploadConfirmation": {
+              "type": "object"
+            },
+            "finalCardInputSnapshot": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/noRawPersistenceKeys"
+                }
+              ],
+              "type": "object",
+              "required": [
+                "schemaVersion",
+                "skuPackageId",
+                "sourceDataRevision",
+                "resultDataRevision",
+                "sourceC1Fingerprint",
+                "identity",
+                "variantKey",
+                "inheritedSalesSnapshotRefs",
+                "selectedSupplySnapshot",
+                "activeProfitModelVersion",
+                "activeProfitModel",
+                "c1Snapshot",
+                "canonicalC1"
+              ],
+              "properties": {
+                "schemaVersion": {
+                  "const": "c2-final-card-input-snapshot-v1"
+                },
+                "skuPackageId": {
+                  "allOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "$ref": "#/$defs/canonicalFrozenRef"
+                    }
+                  ]
+                },
+                "sourceDataRevision": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "resultDataRevision": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "sourceC1Fingerprint": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "identity": {
+                  "$ref": "#/$defs/g1Identity"
+                },
+                "variantKey": {
+                  "type": "string",
+                  "minLength": 1,
+                  "not": {
+                    "enum": [
+                      "unknown",
+                      "null",
+                      "undefined",
+                      "not_applicable"
+                    ]
+                  }
+                },
+                "inheritedSalesSnapshotRefs": {
+                  "type": "array",
+                  "items": {
+                    "allOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "$ref": "#/$defs/canonicalFrozenRef"
+                      }
+                    ]
+                  }
+                },
+                "selectedSupplySnapshot": {
+                  "type": "object"
+                },
+                "activeProfitModelVersion": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "activeProfitModel": {
+                  "type": "object"
+                },
+                "c1Snapshot": {
+                  "type": "object"
+                },
+                "canonicalC1": {
+                  "$ref": "#/$defs/canonicalC1Handoff"
+                }
+              },
+              "additionalProperties": false
+            },
+            "finalCardInputFingerprint": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "ownerFinalCardAuthorizationDecision": {
+              "type": "null"
+            },
+            "pendingAuthorizationInputs": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "schemaVersion",
+                "status",
+                "merchantSku",
+                "credentialAlias",
+                "warehouseRef",
+                "stock",
+                "price",
+                "allowedWriteFields",
+                "exclusions",
+                "sourceConfirmationCardId",
+                "ownerBusinessDecision",
+                "buyerTargetPrice",
+                "platformWritePrice",
+                "priceConversion",
+                "publishScope",
+                "confirmedAt"
+              ],
+              "properties": {
+                "schemaVersion": {
+                  "const": "c2-authorization-pending-inputs-v1"
+                },
+                "status": {
+                  "const": "awaiting_independent_owner_authorization"
+                },
+                "merchantSku": {
+                  "type": "null"
+                },
+                "credentialAlias": {
+                  "type": "null"
+                },
+                "warehouseRef": {
+                  "allOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/$defs/canonicalFrozenRef"
+                    }
+                  ]
+                },
+                "stock": {
+                  "type": "null"
+                },
+                "price": {
+                  "type": "null"
+                },
+                "allowedWriteFields": {
+                  "type": "null"
+                },
+                "exclusions": {
+                  "type": "null"
+                },
+                "sourceConfirmationCardId": {
+                  "allOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/$defs/canonicalFrozenRef"
+                    }
+                  ]
+                },
+                "ownerBusinessDecision": {
+                  "type": "null"
+                },
+                "buyerTargetPrice": {
+                  "type": "null"
+                },
+                "platformWritePrice": {
+                  "type": "null"
+                },
+                "priceConversion": {
+                  "type": "null"
+                },
+                "publishScope": {
+                  "type": "null"
+                },
+                "confirmedAt": {
+                  "type": "null"
+                }
+              }
+            },
+            "preparationFingerprint": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "productionAuthorizationCreated": {
+              "const": false
+            },
+            "dHandoffCreated": {
+              "const": false
+            }
+          }
+        }
+      ]
+    },
+    "stableAssetTransport": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "status",
+            "jobRef",
+            "stagedAssetManifestFingerprint",
+            "stagedAssets",
+            "ownerStagingConfirmation",
+            "transportResult"
+          ],
+          "properties": {
+            "schemaVersion": {
+              "const": "c2-stable-asset-transport-v1"
+            },
+            "status": {
+              "enum": [
+                "awaiting_verified_result",
+                "verified"
+              ]
+            },
+            "jobRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "schemaVersion",
+                "jobId",
+                "jobType",
+                "candidateId",
+                "skuPackageId",
+                "sourceRevision",
+                "resultRevision",
+                "inputFingerprint"
+              ],
+              "properties": {
+                "schemaVersion": {
+                  "const": "c2-stable-asset-transport-job-ref-v1"
+                },
+                "jobId": {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                },
+                "jobType": {
+                  "const": "c2_stable_asset_transport"
+                },
+                "candidateId": {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                },
+                "skuPackageId": {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                },
+                "sourceRevision": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "resultRevision": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "inputFingerprint": {
+                  "$ref": "#/$defs/sha256"
+                }
+              }
+            },
+            "stagedAssetManifestFingerprint": {
+              "$ref": "#/$defs/sha256"
+            },
+            "stagedAssets": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 64,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "assetId",
+                  "mediaType",
+                  "fileName",
+                  "assetVersion",
+                  "sha256",
+                  "sourceEvidenceRef",
+                  "usageAuthorization",
+                  "sourceType",
+                  "order",
+                  "role",
+                  "slotId",
+                  "byteSize",
+                  "width",
+                  "height"
+                ],
+                "properties": {
+                  "assetId": {
+                    "$ref": "#/$defs/canonicalFrozenRef"
+                  },
+                  "mediaType": {
+                    "enum": [
+                      "image",
+                      "video"
+                    ]
+                  },
+                  "fileName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255,
+                    "pattern": "^[^/\\\\\\u0000-\\u001f]+$"
+                  },
+                  "assetVersion": {
+                    "$ref": "#/$defs/canonicalFrozenRef"
+                  },
+                  "sha256": {
+                    "$ref": "#/$defs/sha256"
+                  },
+                  "sourceEvidenceRef": {
+                    "$ref": "#/$defs/canonicalFrozenRef"
+                  },
+                  "usageAuthorization": {
+                    "$ref": "#/$defs/listingAuthorization"
+                  },
+                  "sourceType": {
+                    "const": "owner_provided_final_upload"
+                  },
+                  "order": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "role": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "slotId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "byteSize": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "width": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "height": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  }
+                }
+              }
+            },
+            "ownerStagingConfirmation": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "schemaVersion",
+                "status",
+                "confirmedBy",
+                "confirmedByUserId",
+                "confirmedAt",
+                "confirmationRef",
+                "approvedStagedAssetManifestFingerprint",
+                "approvedMediaRequirementsFingerprint",
+                "approvedAssetIds",
+                "approvedMainImageAssetId",
+                "approvedVideoDisposition"
+              ],
+              "properties": {
+                "schemaVersion": {
+                  "const": "c2-owner-staging-confirmation-v1"
+                },
+                "status": {
+                  "const": "confirmed"
+                },
+                "confirmedBy": {
+                  "const": "owner"
+                },
+                "confirmedByUserId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "confirmedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "confirmationRef": {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                },
+                "approvedStagedAssetManifestFingerprint": {
+                  "$ref": "#/$defs/sha256"
+                },
+                "approvedMediaRequirementsFingerprint": {
+                  "$ref": "#/$defs/sha256"
+                },
+                "approvedAssetIds": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 64,
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/canonicalFrozenRef"
+                  }
+                },
+                "approvedMainImageAssetId": {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                },
+                "approvedVideoDisposition": {
+                  "enum": [
+                    "includes_video",
+                    "excludes_video"
+                  ]
+                }
+              }
+            },
+            "transportResult": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "software-job-admission-v1.schema.json#/$defs/softwareJobResultEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "applicationDisposition": {
+                          "const": "applied"
+                        },
+                        "payloadKind": {
+                          "const": "c2_stable_asset_transport"
+                        },
+                        "payload": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "schemaVersion",
+                            "status",
+                            "jobId",
+                            "candidateId",
+                            "skuPackageId",
+                            "revision",
+                            "stagedAssetManifestFingerprint",
+                            "finalManifestSha256",
+                            "assets",
+                            "verifiedAt"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "const": "c2-stable-asset-transport-result-v1"
+                            },
+                            "status": {
+                              "const": "verified"
+                            },
+                            "jobId": {
+                              "$ref": "#/$defs/canonicalFrozenRef"
+                            },
+                            "candidateId": {
+                              "$ref": "#/$defs/canonicalFrozenRef"
+                            },
+                            "skuPackageId": {
+                              "$ref": "#/$defs/canonicalFrozenRef"
+                            },
+                            "revision": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "stagedAssetManifestFingerprint": {
+                              "$ref": "#/$defs/sha256"
+                            },
+                            "finalManifestSha256": {
+                              "$ref": "#/$defs/sha256"
+                            },
+                            "assets": {
+                              "type": "array",
+                              "minItems": 1,
+                              "maxItems": 64,
+                              "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "assetId",
+                                  "sha256",
+                                  "order",
+                                  "role",
+                                  "slotId",
+                                  "stableUrl",
+                                  "stableUrlEvidenceRef"
+                                ],
+                                "properties": {
+                                  "assetId": {
+                                    "$ref": "#/$defs/canonicalFrozenRef"
+                                  },
+                                  "sha256": {
+                                    "$ref": "#/$defs/sha256"
+                                  },
+                                  "order": {
+                                    "type": "integer",
+                                    "minimum": 1
+                                  },
+                                  "role": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 256
+                                  },
+                                  "slotId": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 256
+                                  },
+                                  "stableUrl": {
+                                    "allOf": [
+                                      {
+                                        "$ref": "#/$defs/canonicalStableHttpsAssetRef"
+                                      },
+                                      {
+                                        "pattern": "^https://[^/?#@]+/[^?#]*$"
+                                      }
+                                    ]
+                                  },
+                                  "stableUrlEvidenceRef": {
+                                    "$ref": "#/$defs/canonicalFrozenRef"
+                                  }
+                                }
+                              }
+                            },
+                            "verifiedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
     "dReadPolicy": {
       "type": "object",
-      "required": ["onlyAllowedArea", "collectedAllowed", "aiDraftsAllowed", "ownerConfirmationRequired"],
+      "additionalProperties": false,
+      "required": [
+        "onlyAllowedArea",
+        "collectedAllowed",
+        "aiDraftsAllowed",
+        "ownerConfirmationRequired"
+      ],
       "properties": {
-        "onlyAllowedArea": { "const": "assets.finalUploads" },
-        "collectedAllowed": { "const": false },
-        "aiDraftsAllowed": { "const": false },
-        "ownerConfirmationRequired": { "const": true }
-      },
-      "additionalProperties": false
+        "onlyAllowedArea": {
+          "const": "assets.finalUploads"
+        },
+        "collectedAllowed": {
+          "const": false
+        },
+        "aiDraftsAllowed": {
+          "const": false
+        },
+        "ownerConfirmationRequired": {
+          "const": true
+        }
+      }
     },
-    "generationIntegrations": { "type": "object" },
-    "platformUploads": { "const": 0 },
-    "productionStarted": { "const": false }
+    "generationIntegrations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "xiaohouzi",
+        "otherAiTools"
+      ],
+      "properties": {
+        "xiaohouzi": {
+          "const": "not_connected"
+        },
+        "otherAiTools": {
+          "const": "not_connected"
+        }
+      }
+    },
+    "platformUploads": {
+      "const": 0
+    },
+    "productionStarted": {
+      "const": false
+    },
+    "softwareState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "lifecycleStatus",
+        "sourceDataRevision",
+        "sourceC1Fingerprint",
+        "mediaRequirementsFingerprint",
+        "assetManifestFingerprint",
+        "executionPolicy",
+        "technicalState"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "c2-software-state-v1"
+        },
+        "lifecycleStatus": {
+          "enum": [
+            "c2_waiting_final_uploads",
+            "c2_ready"
+          ]
+        },
+        "sourceDataRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sourceC1Fingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "mediaRequirementsFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "assetManifestFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "executionPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "externalAccessAllowed",
+            "imageGenerationAllowed",
+            "codexDispatchAllowed",
+            "productionAllowed",
+            "automaticRetry"
+          ],
+          "properties": {
+            "externalAccessAllowed": {
+              "const": false
+            },
+            "imageGenerationAllowed": {
+              "const": false
+            },
+            "codexDispatchAllowed": {
+              "const": false
+            },
+            "productionAllowed": {
+              "const": false
+            },
+            "automaticRetry": {
+              "const": false
+            }
+          }
+        },
+        "technicalState": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "failure",
+            "automaticRetry"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "completed",
+                "failed"
+              ]
+            },
+            "failure": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "layer",
+                    "failureClass",
+                    "code",
+                    "evidenceRef",
+                    "failedAt"
+                  ],
+                  "properties": {
+                    "layer": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "failureClass": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "code": {
+                      "type": "string",
+                      "pattern": "^[A-Z0-9_]+$"
+                    },
+                    "evidenceRef": {
+                      "allOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        {
+                          "$ref": "#/$defs/canonicalFrozenRef"
+                        }
+                      ]
+                    },
+                    "failedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              ]
+            },
+            "automaticRetry": {
+              "const": false
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "completed"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "failure": {
+                    "type": "null"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "failed"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "failure": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
   },
-  "additionalProperties": false
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "awaiting_final_uploads"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "assets": {
+            "properties": {
+              "finalUploads": {
+                "maxItems": 0
+              }
+            }
+          },
+          "ownerFinalUploadConfirmation": {
+            "type": "null"
+          },
+          "productionAuthorizationPreparation": {
+            "type": "null"
+          },
+          "softwareState": {
+            "properties": {
+              "lifecycleStatus": {
+                "const": "c2_waiting_final_uploads"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "awaiting_final_uploads"
+          },
+          "stableAssetTransport": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "status",
+          "stableAssetTransport"
+        ]
+      },
+      "then": {
+        "properties": {
+          "effectiveVideoRequirement": {
+            "type": "null"
+          },
+          "ownerVideoRequirement": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "awaiting_final_uploads"
+          },
+          "stableAssetTransport": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "status",
+          "stableAssetTransport"
+        ]
+      },
+      "then": {
+        "properties": {
+          "effectiveVideoRequirement": {
+            "$ref": "#/$defs/videoRequirement"
+          },
+          "stableAssetTransport": {
+            "properties": {
+              "status": {
+                "const": "awaiting_verified_result"
+              },
+              "transportResult": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "completed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "assets": {
+            "properties": {
+              "finalUploads": {
+                "minItems": 1
+              }
+            }
+          },
+          "effectiveVideoRequirement": {
+            "$ref": "#/$defs/videoRequirement"
+          },
+          "ownerFinalUploadConfirmation": {
+            "type": "object"
+          },
+          "productionAuthorizationPreparation": {
+            "type": "object"
+          },
+          "softwareState": {
+            "properties": {
+              "lifecycleStatus": {
+                "const": "c2_ready"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "completed"
+          },
+          "stableAssetTransport": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "status",
+          "stableAssetTransport"
+        ]
+      },
+      "then": {
+        "properties": {
+          "stableAssetTransport": {
+            "properties": {
+              "status": {
+                "const": "verified"
+              },
+              "transportResult": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

@@ -84,7 +84,7 @@ export default function Phase2ASimulation({ onClose }) {
           <h2>{card.productName}</h2>
           <p>模拟SKU，不在真实52条候选中；不派发任务、不访问平台、不写店。</p>
         </div>
-        <button className="button secondary" onClick={onClose}>返回真实评审台</button>
+        <button className="button secondary" onClick={onClose}>返回今日选品评审</button>
       </header>
 
       <section className="phase2a-proof-banner">
@@ -163,7 +163,7 @@ export default function Phase2ASimulation({ onClose }) {
             <div className="phase2a-handoff">
               <b>B通过，已自动进入C1</b>
               <span>交接编号：{handoff.handoffId}</span>
-              <span>负责人：选品任务 → 上架任务；选品任务已停止当前SKU</span>
+              <span>运行责任：A/B软件 → C1软件；Codex选品/上架任务均未被正常流程唤醒</span>
               <span>继承：{handoff.parentOpportunityId} / {handoff.skuPackageId} / 修订 {handoff.inheritedOpportunityRevision}:{handoff.inheritedSkuRevision}</span>
               <span>同一交接重复调用只返回原记录；真实任务派发 {result.realTaskDispatches} 次。</span>
             </div>

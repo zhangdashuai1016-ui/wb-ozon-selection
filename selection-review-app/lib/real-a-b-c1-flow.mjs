@@ -174,6 +174,64 @@ function createC1Handoff({ opportunityPackage, skuPackage, profitModel, createdA
   };
 }
 
+function replayExistingLifecycle(candidate, validation) {
+  const lifecycle = candidate.lifecycleV11;
+  const opportunity = lifecycle?.opportunityPackage;
+  const skuPackage = lifecycle?.skuPackage;
+  if (!opportunity || !skuPackage) return null;
+  if (validation.decision !== "confirm" || !validation.normalized) {
+    throw new Error("REAL_A_ALREADY_CONFIRMED_CONFLICT: 已有SKU生命周期与本次决定不一致");
+  }
+  const expected = validation.normalized;
+  const supply = skuPackage.selectedSupplySnapshot;
+  const supplierSku = supply?.supplierSku;
+  const components = supplierSku?.attributes?.purchaseCostComponents;
+  const identity = supply?.supplierOption;
+  const sameSales = opportunity.salesSnapshots?.some((item) => item.snapshotId === expected.salesReview.snapshotId);
+  const sameSupply = identity?.productUrl === expected.supplierConfirmation.productUrl &&
+    supplierSku?.supplierSkuId === expected.supplierConfirmation.supplierSkuId &&
+    supplierSku?.variantKey === expected.supplierConfirmation.variantKey &&
+    components?.unitProductPrice === expected.supplierConfirmation.unitProductPrice &&
+    components?.unitDomesticFreight === expected.supplierConfirmation.unitDomesticFreight &&
+    components?.otherPurchaseCosts === expected.supplierConfirmation.otherPurchaseCosts &&
+    supplierSku?.actualPurchaseCost === expected.supplierConfirmation.actualPurchaseCost &&
+    supplierSku?.weight?.value === expected.supplierConfirmation.weightKg &&
+    supplierSku?.dimensions?.length === expected.supplierConfirmation.dimensionsCm.length &&
+    supplierSku?.dimensions?.width === expected.supplierConfirmation.dimensionsCm.width &&
+    supplierSku?.dimensions?.height === expected.supplierConfirmation.dimensionsCm.height;
+  if (!sameSales || !sameSupply) {
+    throw new Error("REAL_A_ALREADY_CONFIRMED_CONFLICT: 本次A确认输入与已冻结销售或供应数据不一致");
+  }
+  const profitModel = skuPackage.profitModels?.find((item) => item.profitModelVersion === skuPackage.activeProfitModelVersion);
+  if (!profitModel) throw new Error("REAL_A_EXISTING_LIFECYCLE_INVALID: 缺少当前B利润版本");
+  const handoffs = Array.isArray(lifecycle.c1Handoffs) ? lifecycle.c1Handoffs : [];
+  if (handoffs.length > 1) throw new Error("REAL_A_EXISTING_LIFECYCLE_INVALID: 同一SKU存在多个C1交接");
+  const c1Handoff = handoffs[0] || null;
+  if (c1Handoff && (c1Handoff.skuPackageId !== skuPackage.skuPackageId || c1Handoff.inheritedSkuRevision !== skuPackage.dataRevision)) {
+    throw new Error("REAL_A_EXISTING_LIFECYCLE_INVALID: C1交接没有锁定同一SKU包及修订号");
+  }
+  assertValidLifecyclePackage(opportunity);
+  assertValidLifecyclePackage(skuPackage);
+  return deepFreeze({
+    flowVersion: REAL_A_B_C1_FLOW_VERSION,
+    decision: "confirm",
+    sourceCandidateId: candidate.id,
+    sourceCandidateRevision: lifecycle.aConfirmationReceipt?.sourceCandidateRevision ?? opportunity.dataRevision,
+    confirmationReceiptId: lifecycle.aConfirmationReceipt?.receiptId || `a-confirmation:${candidate.id}:${opportunity.dataRevision}:confirm`,
+    systemEvidenceBundle: structuredClone(lifecycle.bSystemEvidenceBundle || null),
+    opportunityPackage: structuredClone(opportunity),
+    ownerSupplyConfirmation: structuredClone(lifecycle.ownerSupplyConfirmation),
+    skuPackage: structuredClone(skuPackage),
+    profitModel: structuredClone(profitModel),
+    c1Handoff: structuredClone(c1Handoff),
+    uniqueOwner: c1Handoff ? "listing_task" : "none",
+    idempotentReplay: true,
+    externalAccesses: [],
+    taskDispatches: 0,
+    platformWrites: 0
+  });
+}
+
 /**
  * 真实A确认后的纯函数闭环。调用者负责在一个原子持久化事务中保存结果。
  * 本函数不访问平台、不派发Codex任务，也不修改输入候选。
@@ -192,7 +250,6 @@ export function runRealAConfirmationToBAndC1({
   if (!isoDateTime(processedAt) || Date.parse(processedAt) < Date.parse(confirmedAt)) {
     throw new Error("REAL_A_INPUT_GAP: B处理时间不得早于主人确认时间");
   }
-  if (candidate.lifecycleV11?.skuPackage) throw new Error("REAL_A_ALREADY_CONFIRMED: 当前商品已进入SKU生命周期");
   const before = JSON.stringify(candidate);
   const card = buildRealAConfirmationCard(candidate);
   const validation = validateRealAConfirmationSubmission(card, submission);
@@ -200,6 +257,7 @@ export function runRealAConfirmationToBAndC1({
     const detail = validation.errors.map((item) => `${item.label}：${item.reason}`).join("；");
     throw new Error(`REAL_A_CONFIRMATION_INVALID: ${detail}`);
   }
+  if (candidate.lifecycleV11?.skuPackage) return replayExistingLifecycle(candidate, validation);
   if (validation.decision === "reject") {
     return deepFreeze({
       flowVersion: REAL_A_B_C1_FLOW_VERSION,
@@ -295,6 +353,7 @@ export function runRealAConfirmationToBAndC1({
     profitModel: bResult.profitModel,
     c1Handoff,
     uniqueOwner: c1Handoff ? "listing_task" : "none",
+    idempotentReplay: false,
     externalAccesses: [],
     taskDispatches: 0,
     platformWrites: 0

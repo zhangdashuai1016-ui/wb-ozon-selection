@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "c1-ai-draft-request-v1",
+  "title": "C1第三方AI草稿请求 v1",
+  "type": "object",
+  "required": ["schemaVersion", "requestId", "requestFingerprint", "providerPolicyVersion", "requestedAt", "provider", "taskClassification", "identity", "sourceFactsFingerprint", "verifiedFacts", "competitorTextEvidence", "keywordEvidence", "seoRules", "expectedOutput", "executionPolicy"],
+  "properties": {
+    "schemaVersion": { "const": "c1-ai-draft-request-v1" },
+    "requestId": { "type": "string", "minLength": 1 },
+    "requestFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "providerPolicyVersion": { "const": "c1-ai-provider-policy-v1" },
+    "requestedAt": { "type": "string", "format": "date-time" },
+    "provider": { "enum": ["terra", "sol"] },
+    "taskClassification": { "type": "object" },
+    "identity": { "type": "object" },
+    "sourceFactsFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "verifiedFacts": { "type": "array", "minItems": 1 },
+    "competitorTextEvidence": { "type": "object" },
+    "keywordEvidence": { "type": "object" },
+    "seoRules": { "type": "object" },
+    "expectedOutput": { "type": "object" },
+    "executionPolicy": {
+      "type": "object",
+      "required": ["attemptLimit", "automaticRetry", "fallbackProvider", "solFallbackAfterTerraFailure", "codexDispatch", "platformAccessAllowed", "productionWriteAllowed"],
+      "properties": {
+        "attemptLimit": { "const": 1 },
+        "automaticRetry": { "const": false },
+        "fallbackProvider": { "type": "null" },
+        "solFallbackAfterTerraFailure": { "const": false },
+        "codexDispatch": { "const": false },
+        "platformAccessAllowed": { "const": false },
+        "productionWriteAllowed": { "const": false }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,5 +1,8 @@
 import fs from "node:fs/promises";
 
+// Legacy dispatch/comment compatibility only. M01–M12 describe historical
+// candidate-routing nodes and are not a source for the user-facing 三店地图.
+
 export const ACTIVE_DISPATCH_STATES = new Set([
   "queued",
   "waiting_assignee",

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "d-software-execution-v1",
+  "title": "单SKU D软件执行契约 v1",
+  "type": "object",
+  "required": ["schemaVersion", "status"],
+  "properties": {
+    "schemaVersion": { "const": "d-software-execution-v1" },
+    "status": { "enum": ["not_ready", "ready", "in_flight", "failed", "unknown_outcome", "succeeded"] },
+    "executionKey": { "type": "string", "minLength": 1 },
+    "gaps": { "type": "array" },
+    "retryAllowed": { "const": false },
+    "productionRecord": { "type": ["object", "null"] },
+    "executionPolicy": {
+      "type": "object",
+      "properties": {
+        "path": { "const": "ozon_seller_api" },
+        "batchSize": { "const": 1 },
+        "attemptLimit": { "const": 1 },
+        "automaticRetry": { "const": false },
+        "browserFallback": { "const": false },
+        "manualFallback": { "const": false },
+        "codexDispatch": { "const": false },
+        "nextSkuAutomaticStart": { "const": false }
+      }
+    }
+  }
+}

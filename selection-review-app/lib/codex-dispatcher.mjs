@@ -1,41 +1,27 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
-import path from "node:path";
 import { sourceCaptureForDispatch } from "./source-capture.mjs";
 
 const DEFAULT_CODEX_BIN = "/Applications/ChatGPT.app/Contents/Resources/codex";
 
 const DISPATCH_SKILLS = Object.freeze({
-  pricing: Object.freeze({
+  pricing: {
     name: "ozon-wb-pricing",
     path: "/Users/shuaizhang/.codex/skills/ozon-wb-pricing/SKILL.md"
-  }),
-  ecommerceSeo: Object.freeze({
+  },
+  ecommerceSeo: {
     name: "optimize-ecommerce-seo",
     path: "/Users/shuaizhang/Documents/电商能力实验室/optimize-ecommerce-seo/SKILL.md"
-  }),
-  wbListing: Object.freeze({
+  },
+  wbListing: {
     name: "wb-listing-launch",
     path: "/Users/shuaizhang/.codex/skills/wb-listing-launch/SKILL.md"
-  }),
-  wbSafeWrite: Object.freeze({
+  },
+  wbSafeWrite: {
     name: "wb-safe-write",
     path: "/Users/shuaizhang/.codex/skills/wb-safe-write/SKILL.md"
-  })
-});
-
-// A configured directory contains the existing named skills; it does not add
-// capabilities or bypass the file-existence check performed before dispatch.
-export function createDispatchSkillCatalog({ directory = null } = {}) {
-  if (directory === null) return DISPATCH_SKILLS;
-  if (typeof directory !== "string" || !directory.trim() || !path.isAbsolute(directory)) {
-    throw new Error("DISPATCH_SKILLS_DIRECTORY_INVALID: Skill目录必须为非空绝对路径");
   }
-  return Object.freeze(Object.fromEntries(Object.entries(DISPATCH_SKILLS).map(([key, skill]) => [
-    key,
-    Object.freeze({ name: skill.name, path: path.join(directory, skill.name, "SKILL.md") })
-  ])));
-}
+});
 
 function plainStatus(status) {
   if (!status) return "unknown";
@@ -171,22 +157,22 @@ export function dispatchCandidateSnapshot(candidate) {
   };
 }
 
-export function requiredSkillsForDispatch(node, candidate, skillCatalog = DISPATCH_SKILLS) {
+export function requiredSkillsForDispatch(node, candidate) {
   if (!node) return [];
   if (node.id === "M07") {
-    return [skillCatalog.pricing, skillCatalog.ecommerceSeo].map((skill) => ({ ...skill }));
+    return [DISPATCH_SKILLS.pricing, DISPATCH_SKILLS.ecommerceSeo].map((skill) => ({ ...skill }));
   }
   if (node.id === "M10" && candidate?.targetStore === "wb") {
-    return [skillCatalog.wbListing, skillCatalog.wbSafeWrite].map((skill) => ({ ...skill }));
+    return [DISPATCH_SKILLS.wbListing, DISPATCH_SKILLS.wbSafeWrite].map((skill) => ({ ...skill }));
   }
   return [];
 }
 
-export function dispatchCapabilityPlan(node, candidate, skillCatalog = DISPATCH_SKILLS) {
+export function dispatchCapabilityPlan(node, candidate) {
   const snapshot = dispatchCandidateSnapshot(candidate);
   const sourceCapture = snapshot?.sourceCapture || null;
   return {
-    requiredSkills: requiredSkillsForDispatch(node, candidate, skillCatalog),
+    requiredSkills: requiredSkillsForDispatch(node, candidate),
     inheritedInputs: snapshot ? {
       dataRevision: snapshot.dataRevision,
       targetStore: snapshot.targetStore,
@@ -210,18 +196,10 @@ export function dispatchCapabilityPlan(node, candidate, skillCatalog = DISPATCH_
 }
 
 export class CodexDispatcher {
-  constructor({
-    onEvent,
-    enabled = true,
-    codexBin = process.env.SELECTION_REVIEW_CODEX_BIN || DEFAULT_CODEX_BIN,
-    pathExists = fs.existsSync,
-    skillCatalog = DISPATCH_SKILLS
-  } = {}) {
+  constructor({ onEvent, enabled = true, codexBin = process.env.SELECTION_REVIEW_CODEX_BIN || DEFAULT_CODEX_BIN } = {}) {
     this.onEvent = onEvent || (() => undefined);
     this.enabled = enabled && process.env.SELECTION_REVIEW_CODEX_DISPATCH !== "off";
     this.codexBin = codexBin;
-    this.pathExists = pathExists;
-    this.skillCatalog = skillCatalog;
     this.process = null;
     this.buffer = "";
     this.nextId = 1;
@@ -244,7 +222,7 @@ export class CodexDispatcher {
 
   async ensureStarted() {
     if (!this.enabled) throw new Error("Codex一次性派发已在当前运行环境关闭");
-    if (!this.pathExists(this.codexBin)) throw new Error(`找不到Codex本机程序：${this.codexBin}`);
+    if (!fs.existsSync(this.codexBin)) throw new Error(`找不到Codex本机程序：${this.codexBin}`);
     if (this.process && this.process.exitCode === null && this.initialized) return;
     if (this.initializing) return this.initializing;
 
@@ -273,7 +251,7 @@ export class CodexDispatcher {
       this.request("initialize", {
         clientInfo: {
           name: "selection-review-app",
-          title: "今日选品评审台",
+          title: "全店经营工作台",
           version: "1.0.0"
         },
         capabilities: { experimentalApi: true }
@@ -496,9 +474,9 @@ export class CodexDispatcher {
         : [];
     const requiredSkills = Array.isArray(dispatch.requiredSkills)
       ? dispatch.requiredSkills.map((skill) => skill.name).filter(Boolean)
-      : requiredSkillsForDispatch(node, candidate, this.skillCatalog).map((skill) => skill.name);
+      : requiredSkillsForDispatch(node, candidate).map((skill) => skill.name);
     return [
-      "【今日选品评审台一次性派发】",
+      "【全店经营工作台一次性派发】",
       `派发编号：${dispatch.id}`,
       `节点：${node.id} ${node.title}`,
       `范围：${scopeText}`,
@@ -557,9 +535,9 @@ export class CodexDispatcher {
       }
       throw error;
     }
-    const requiredSkills = requiredSkillsForDispatch(node, candidate, this.skillCatalog);
+    const requiredSkills = requiredSkillsForDispatch(node, candidate);
     for (const skill of requiredSkills) {
-      if (!this.pathExists(skill.path)) throw new Error(`本轮必需Skill不存在：${skill.name}`);
+      if (!fs.existsSync(skill.path)) throw new Error(`本轮必需Skill不存在：${skill.name}`);
     }
     const skillMention = requiredSkills.map((skill) => `$${skill.name}`).join(" ");
     const prompt = this.buildPrompt({ ...dispatch, requiredSkills }, node, candidate);

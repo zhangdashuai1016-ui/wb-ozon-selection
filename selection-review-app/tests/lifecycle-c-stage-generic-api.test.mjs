@@ -5,9 +5,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { DEFAULT_RULES } from "../lib/workflow.mjs";
-import { createTrainCandidate, createGenericCStageCandidate } from "./helpers/legacy-candidate-fixture.mjs";
-import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = 35000 + (process.pid % 20000);
@@ -15,6 +12,186 @@ const baseUrl = `http://127.0.0.1:${port}`;
 const TEST_ID = "GENERIC-NON-TRAIN-001";
 const TEST_SKU = "SINK-ORGANIZER-BLUE";
 
+function replaceAllStrings(value, replacements) {
+  return JSON.parse(Object.entries(replacements).reduce(
+    (text, [from, to]) => text.split(from).join(to),
+    JSON.stringify(value)
+  ));
+}
+
+function nonTrainCandidate(reference) {
+  const candidate = replaceAllStrings(reference, {
+    "CX-20260803-010": TEST_ID,
+    "4993364145574": TEST_SKU,
+    "712421624571": "900000000001",
+    "8a318f128032ae3f693cf198c362a0b2": "variant:blue-sink-organizer"
+  });
+  const lifecycle = candidate.lifecycleV11;
+  const opportunity = lifecycle.opportunityPackage;
+  const sku = lifecycle.skuPackage;
+  const variantKey = "颜色:蓝色";
+  const sales = opportunity.salesSnapshots[0];
+  sales.title = "Силиконовый органайзер для кухонной раковины";
+  sales.productUrl = "https://www.ozon.ru/product/sink-organizer-test/";
+  sales.categoryPath = "Дом и сад > Кухня > Органайзеры";
+  sales.marketEvidence.exactTarget.specification = "硅胶水槽收纳架，蓝色";
+  sales.marketEvidence.exactTarget.lowestOtherOfferRub = 1200;
+  sales.marketEvidence.exactTarget.regularPriceRub = 1350;
+  sales.marketEvidence.exactTarget.ozonCardPriceRub = 1200;
+  sales.marketEvidence.directionSamplesCaveat = "相似厨房收纳用品只作方向背景，不冒充精确同款";
+  sales.marketEvidence.acceptanceNote = "测试夹具：当前销售样本与蓝色硅胶水槽收纳架具有合理可比性";
+  sales.legacyExpectedPriceRub = 1200;
+
+  opportunity.directionName = "厨房水槽收纳架";
+  for (const option of opportunity.supplierOptions) {
+    option.productUrl = "https://detail.1688.com/offer/900000000001.html";
+    option.offerId = "900000000001";
+    option.supplierOptionId = "supplier-option:1688:900000000001";
+    option.evidenceRef = "source-capture:test:sink-organizer";
+    const supplierSku = option.supplierSkus[0];
+    Object.assign(supplierSku, {
+      supplierSkuId: TEST_SKU,
+      variantKey,
+      attributes: {
+        product_type: "水槽收纳架",
+        color: "蓝色",
+        model_name: "水槽收纳架"
+      },
+      unitProductPrice: 16,
+      unitDomesticFreight: 4,
+      actualPurchaseCost: 20,
+      weight: { value: 0.25, unit: "kg", evidenceRef: "owner-confirmed:test:weight" },
+      dimensions: { length: 22, width: 11, height: 4, unit: "cm", evidenceRef: "owner-confirmed:test:dimensions" },
+      material: "silicone",
+      powerProfile: {
+        powered: false,
+        containsBattery: false,
+        batteryType: "not_applicable",
+        batteryCount: 0,
+        batteryCapacity: "not_applicable",
+        evidenceRef: "owner-confirmed:test:power"
+      },
+      imageRefs: ["https://example.invalid/sink-organizer-source.jpg"]
+    });
+  }
+  opportunity.recommendedSupplierOptionId = "supplier-option:1688:900000000001";
+  opportunity.confirmedSupplierOptionId = "supplier-option:1688:900000000001";
+
+  const selected = sku.selectedSupplySnapshot;
+  selected.snapshotId = `source-capture:test:sink-organizer:${TEST_SKU}`;
+  selected.ownerSupplyConfirmation.recommendedSupplierOptionId = "supplier-option:1688:900000000001";
+  selected.ownerSupplyConfirmation.supplierOptionId = "supplier-option:1688:900000000001";
+  selected.ownerSupplyConfirmation.supplierSkuId = TEST_SKU;
+  selected.ownerSupplyConfirmation.variantKey = variantKey;
+  selected.supplierOption = structuredClone(opportunity.supplierOptions[0]);
+  selected.supplierSku = structuredClone(opportunity.supplierOptions[0].supplierSkus[0]);
+  sku.supplierOptionId = "supplier-option:1688:900000000001";
+  sku.supplierSkuId = TEST_SKU;
+  sku.variantKey = variantKey;
+  sku.skuPackageId = `sku-lifecycle:${TEST_ID}:${TEST_SKU}`;
+  sku.skuFacts = {
+    actualPurchaseCost: 20,
+    actualPurchaseCostCurrency: "CNY",
+    weight: structuredClone(selected.supplierSku.weight),
+    dimensions: structuredClone(selected.supplierSku.dimensions),
+    material: "silicone",
+    powerProfile: structuredClone(selected.supplierSku.powerProfile)
+  };
+  sku.inheritedSalesSnapshotRefs = [sales.snapshotId];
+  sku.businessPhase = "B";
+  sku.businessResult = "passed";
+  sku.technicalStatus = "completed";
+  sku.ownerAction = "none";
+  sku.c1ProductPlan = null;
+  sku.c2FinalAssets = null;
+  sku.productionConfirmationCard = null;
+  sku.productionAuthorization = null;
+  sku.productionRecord = null;
+  sku.externalListingRecord = null;
+  sku.eVerificationRecord = null;
+  sku.readbackHistory = [];
+  sku.profitModels = [{
+    schemaVersion: "profit-model-v1.1",
+    profitModelVersion: "profit-v1",
+    calculatedAt: "2026-08-17T10:00:00.000Z",
+    inputSnapshotRefs: [
+      sales.snapshotId,
+      selected.snapshotId,
+      "fees:ozon:dandanshu:kitchen-organizer:2026-08-17",
+      "logistics:guoo:kitchen-organizer:2026-08-17",
+      "fx:cbr:2026-08-17:RUB-CNY"
+    ],
+    marketAssessmentRef: "a-market:test:sink-organizer",
+    marketSampleRefs: [sales.snapshotId],
+    marketSellerTypesUsed: ["unknown"],
+    marketConfidence: "limited",
+    containsLocalRuBackground: false,
+    recommendedSalePriceRub: 1200,
+    recommendedSalePriceCny: 100,
+    priceConversion: {
+      rubPerCny: 12,
+      evidenceRef: "fx:cbr:2026-08-17:RUB-CNY",
+      checkedAt: "2026-08-17T10:00:00.000Z"
+    },
+    sellerSettlementRevenue: {
+      amount: 86,
+      currency: "CNY",
+      evidenceRef: "fees:ozon:dandanshu:kitchen-organizer:2026-08-17",
+      formula: "recommendedSalePriceCny × (1 - commissionRate)"
+    },
+    commissionRate: 0.14,
+    internationalFreight: {
+      amount: 20,
+      currency: "CNY",
+      evidenceRef: "logistics:guoo:kitchen-organizer:2026-08-17",
+      route: "GUOO Economy Small"
+    },
+    actualPurchaseCost: { amount: 20, currency: "CNY", evidenceRef: selected.snapshotId },
+    otherCosts: {
+      amount: 10,
+      currency: "CNY",
+      evidenceRef: "fees:ozon:dandanshu:kitchen-organizer:2026-08-17",
+      components: {
+        packagingRmb: 1.5,
+        labelRmb: 1.5,
+        fixedOtherRmb: 7,
+        advertisingRate: 0,
+        returnReserveRate: 0,
+        damageReserveRate: 0
+      }
+    },
+    unitProfitRmb: 36,
+    profitMargin: 0.36,
+    thresholdVersion: "profit-threshold-v1.2-15pct-or-20cny",
+    thresholds: { minimumProfitMargin: 0.15, minimumUnitProfitRmb: 20, logic: "any" },
+    result: "passed",
+    executionMode: "five_upstream_evidence_sources_only",
+    externalAccesses: [],
+    requestedExistingFields: [],
+    formula: "利润=卖家结算收入-国际运费-实际采购到手成本-其他成本；利润率=单件利润÷建议成交价人民币"
+  }];
+  sku.activeProfitModelVersion = "profit-v1";
+  sku.audit.updatedAt = "2026-08-17T10:00:00.000Z";
+  sku.audit.history = [{ event: "generic_non_train_b_passed", at: "2026-08-17T10:00:00.000Z" }];
+
+  candidate.id = TEST_ID;
+  candidate.productName = "硅胶水槽收纳架";
+  candidate.productUrl = sales.productUrl;
+  candidate.sourceUrl = "https://detail.1688.com/offer/900000000001.html";
+  candidate.purchasePriceRmb = 20;
+  candidate.packedWeightKg = 0.25;
+  candidate.dimensionsCm = { length: 22, width: 11, height: 4 };
+  candidate.workflowStatus = "listing_preparation";
+  candidate.dataRevision = 1;
+  candidate.processing = { state: "idle", manualHold: false };
+  candidate.listingPreparation = { status: "c1_ready" };
+  candidate.listingHandoff = { state: "queued", owner: "listing_task" };
+  lifecycle.status = "b_passed_auto_c1";
+  lifecycle.skuPackage = sku;
+  lifecycle.platformWrites = 0;
+  lifecycle.externalAccesses = [];
+  return candidate;
+}
 
 async function waitForHealth(child, stderr) {
   for (let attempt = 0; attempt < 60; attempt += 1) {
@@ -38,16 +215,35 @@ async function post(pathname, body) {
   return { response, body: bodyJson };
 }
 
+async function upload(pathname, body, contentType) {
+  const response = await fetch(`${baseUrl}${pathname}`, {
+    method: "POST",
+    headers: { "Content-Type": contentType },
+    body
+  });
+  const bodyJson = await response.json();
+  return { response, body: bodyJson };
+}
+
+function testPng(marker) {
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.from(`c2-test-${marker}`)
+  ]);
+}
+
 test("第二个非火车SKU用通用C1、C2和ProductionAuthorization完成隔离测试", async (t) => {
-  const fireTrain = createTrainCandidate();
-  assert.ok(fireTrain.lifecycleV11.skuPackage, "合成对照候选必须包含完整生命周期");
+  const source = JSON.parse(await readFile(path.join(appDir, "data", "candidates.json"), "utf8"));
+  const fireTrain = source.candidates.find((item) => item.id === "CX-20260803-010");
+  assert.ok(fireTrain);
   const originalFireTrain = JSON.stringify(fireTrain);
-  const candidate = createGenericCStageCandidate();
+  const candidate = nonTrainCandidate(fireTrain);
   const directory = await mkdtemp(path.join(tmpdir(), "generic-c-stage-api-"));
   const dataFile = path.join(directory, "candidates.json");
+  const c2UploadDir = path.join(directory, "c2-final-uploads");
   await writeFile(dataFile, JSON.stringify({
     meta: { version: 2, title: "generic-c-stage-test", updatedAt: "2026-08-17T10:00:00.000Z", automationStarted: false },
-    rules: structuredClone(DEFAULT_RULES),
+    rules: source.rules,
     candidates: [structuredClone(fireTrain), candidate],
     dispatches: []
   }));
@@ -57,15 +253,17 @@ test("第二个非火车SKU用通用C1、C2和ProductionAuthorization完成隔�
     env: {
       ...process.env,
       SELECTION_REVIEW_DATA_FILE: dataFile,
+      SELECTION_REVIEW_C2_UPLOAD_DIR: c2UploadDir,
       SELECTION_REVIEW_API_PORT: String(port),
       SELECTION_REVIEW_AUTO_DELIVER: "off",
-      SELECTION_REVIEW_CODEX_DISPATCH: "off"
+      SELECTION_REVIEW_CODEX_DISPATCH: "off",
+      SELECTION_REVIEW_LEGACY_MANUAL_C1_INPUT: "true"
     },
     stdio: ["ignore", "ignore", "pipe"]
   });
   const stderr = [];
   child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
-  t.after(() => stopApiProcess(child));
+  t.after(() => child.kill("SIGTERM"));
   await waitForHealth(child, stderr);
 
   const retired = await post(`/api/candidates/${TEST_ID}/lifecycle/final-assets`, { dataRevision: 1, confirmed: true });
@@ -89,6 +287,19 @@ test("第二个非火车SKU用通用C1、C2和ProductionAuthorization完成隔�
         { fieldKey: "product_type", label: "商品类型", required: true, sourceAttributeKeys: ["product_type"] },
         { fieldKey: "color", label: "颜色", required: true, sourceAttributeKeys: ["color"] }
       ],
+      writeBindings: {
+        schemaRevision: "ozon-schema:kitchen-organizer:2026-08-17",
+        evidenceRef: "test:ozon-schema-write-bindings:sink-organizer",
+        content: {
+          title: { fieldKey: "title", attributeId: 4180, complexId: 0, dictionaryId: 0 },
+          description: { fieldKey: "description", attributeId: 4191, complexId: 0, dictionaryId: 0 },
+          searchKeywords: { fieldKey: "searchKeywords", attributeId: 23171, complexId: 0, dictionaryId: 0 }
+        },
+        requiredAttributes: [
+          { fieldKey: "product_type", attributeId: 9101, complexId: 0, dictionaryId: 0 },
+          { fieldKey: "color", attributeId: 9102, complexId: 0, dictionaryId: 0 }
+        ]
+      },
       categoryRestrictions: [],
       platformCompliance: "no_recorded_restriction",
       collectedAt: "2026-08-17T10:01:00.000Z"
@@ -147,32 +358,46 @@ test("第二个非火车SKU用通用C1、C2和ProductionAuthorization完成隔�
   assert.equal(c1.body.candidate.lifecycleV11.platformWrites, 0);
 
   const revisionAfterC1 = c1.body.candidate.dataRevision;
-  const finalUploadAssets = [
-    {
-      assetId: `final:${TEST_ID}:main`,
-      mediaType: "image",
-      assetRef: "https://example.invalid/final/sink-organizer-main.jpg",
-      fileName: "sink-organizer-main.jpg",
-      sha256: "a".repeat(64),
-      byteSize: 120000,
-      order: 1,
-      role: "main_image",
-      sourceType: "owner_provided_final_upload",
-      addedAt: "2026-08-17T10:02:00.000Z"
-    },
-    {
-      assetId: `final:${TEST_ID}:detail-1`,
-      mediaType: "image",
-      assetRef: "https://example.invalid/final/sink-organizer-detail.jpg",
-      fileName: "sink-organizer-detail.jpg",
-      sha256: "b".repeat(64),
-      byteSize: 110000,
-      order: 2,
-      role: "detail_image",
-      sourceType: "owner_provided_final_upload",
-      addedAt: "2026-08-17T10:02:00.000Z"
-    }
-  ];
+  const beforeUpload = await readFile(dataFile, "utf8");
+  const invalidUpload = await upload(
+    `/api/candidates/${TEST_ID}/lifecycle/c2/final-assets/upload?dataRevision=${revisionAfterC1}&fileName=not-an-image.png`,
+    Buffer.from("not an image"),
+    "image/png"
+  );
+  assert.equal(invalidUpload.response.status, 415);
+  assert.match(invalidUpload.body.message, /文件内容与声明类型不一致/);
+  assert.equal(await readFile(dataFile, "utf8"), beforeUpload, "失败上传不得修改候选共享数据");
+
+  const mainUpload = await upload(
+    `/api/candidates/${TEST_ID}/lifecycle/c2/final-assets/upload?dataRevision=${revisionAfterC1}&fileName=sink-organizer-main.png`,
+    testPng("main"),
+    "image/png"
+  );
+  assert.equal(mainUpload.response.status, 201, mainUpload.body.message);
+  assert.equal(mainUpload.body.businessStateChanged, false);
+  assert.equal(mainUpload.body.platformWrites, 0);
+  const detailUpload = await upload(
+    `/api/candidates/${TEST_ID}/lifecycle/c2/final-assets/upload?dataRevision=${revisionAfterC1}&fileName=sink-organizer-detail.png`,
+    testPng("detail"),
+    "image/png"
+  );
+  assert.equal(detailUpload.response.status, 201, detailUpload.body.message);
+  assert.equal(await readFile(dataFile, "utf8"), beforeUpload, "素材暂存不得改变候选业务状态或修订号");
+  const finalUploadAssets = [mainUpload.body.asset, detailUpload.body.asset].map((asset, index) => ({
+    ...asset,
+    order: index + 1,
+    role: index === 0 ? "main_image" : "detail_image",
+    addedAt: asset.stagedAt
+  }));
+  const tampered = await post(`/api/candidates/${TEST_ID}/lifecycle/c2/final-assets`, {
+    dataRevision: revisionAfterC1,
+    confirmed: true,
+    finalUploadAssets: [{ ...finalUploadAssets[0], sourceEvidenceRef: "owner-supplied:forged" }],
+    approvedAssetIds: [finalUploadAssets[0].assetId]
+  });
+  assert.equal(tampered.response.status, 422);
+  assert.match(tampered.body.message, /证据引用无效/);
+  assert.equal(await readFile(dataFile, "utf8"), beforeUpload, "素材身份校验失败不得改变候选共享数据");
   const c2 = await post(`/api/candidates/${TEST_ID}/lifecycle/c2/final-assets`, {
     dataRevision: revisionAfterC1,
     confirmed: true,
@@ -229,7 +454,7 @@ test("第二个非火车SKU用通用C1、C2和ProductionAuthorization完成隔�
   const persisted = JSON.parse(await readFile(dataFile, "utf8"));
   assert.equal(JSON.stringify(persisted.candidates.find((item) => item.id === "CX-20260803-010")), originalFireTrain);
   const serializedNonTrain = JSON.stringify(persisted.candidates.find((item) => item.id === TEST_ID).lifecycleV11.skuPackage);
-  for (const fireSpecific of ["CX-20260803-010", "4993364145574", "豪华小火车", "Паровоз", "DVP", "282"]) {
+  for (const fireSpecific of ["CX-20260803-010", "4993364145574", "豪华小火车", "Паровоз", "DVP", "282件"]) {
     assert.equal(serializedNonTrain.includes(fireSpecific), false, `非火车生命周期不得包含火车专属值：${fireSpecific}`);
   }
   assert.equal(persisted.meta.automationStarted, false);

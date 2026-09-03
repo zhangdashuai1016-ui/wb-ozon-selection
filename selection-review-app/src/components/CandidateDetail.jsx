@@ -6,8 +6,11 @@ import {
   USER_DECISION_LABELS
 } from "../constants";
 import { ExternalIcon } from "./Icons";
+import ExecutionRuntimeCard from "./ExecutionRuntimeCard";
+import DESoftwareRuntimeCard from "./DESoftwareRuntimeCard";
 import LifecycleStatusCard from "./LifecycleStatusCard";
 import LifecycleEntryPreview from "./LifecycleEntryPreview";
+import KeywordSoftwareRuntimeCard from "./KeywordSoftwareRuntimeCard";
 import RealAConfirmationCard from "./RealAConfirmationCard";
 import StatusBadge from "./StatusBadge";
 
@@ -29,7 +32,7 @@ function ReviewList({ items }) {
   return <ul className="compact-list">{items.map((item) => <li key={typeof item === "string" ? item : item.label}>{typeof item === "string" ? item : item.label}</li>)}</ul>;
 }
 
-export default function CandidateDetail({ candidate, onRealAConfirm, realAConfirming = false }) {
+export default function CandidateDetail({ candidate, seerfarRuntime, onRealAConfirm, realAConfirming = false }) {
   const dimensions = candidate.dimensionsCm || {};
   return (
     <main className="candidate-detail">
@@ -61,6 +64,9 @@ export default function CandidateDetail({ candidate, onRealAConfirm, realAConfir
             <Link href={candidate.competitorUrl}>打开俄区竞品</Link>
           </div>
           {candidate.notes ? <p className="product-note">{candidate.notes}</p> : null}
+          <ExecutionRuntimeCard runtime={candidate.executionRuntimeView} />
+          <KeywordSoftwareRuntimeCard candidate={candidate} runtimeStatus={seerfarRuntime} />
+          <DESoftwareRuntimeCard runtime={candidate.dESoftwareRuntimeView} />
           <LifecycleStatusCard candidate={candidate} />
           <LifecycleEntryPreview preview={candidate.lifecycleEntryPreview} />
           {candidate.realAConfirmationCard ? (

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "c1-ai-draft-receipt-v1",
+  "title": "C1第三方AI草稿回执 v1",
+  "type": "object",
+  "required": ["schemaVersion", "receiptId", "providerRequestId", "requestId", "requestFingerprint", "provider", "modelVersion", "serviceVersion", "status", "attempt", "startedAt", "completedAt", "inputEvidenceRefs", "outputFingerprint", "externalPlatformAccesses", "codexDispatches", "productionWrites", "output"],
+  "properties": {
+    "schemaVersion": { "const": "c1-ai-draft-receipt-v1" },
+    "receiptId": { "type": "string", "minLength": 1 },
+    "providerRequestId": { "type": "string", "minLength": 1 },
+    "requestId": { "type": "string", "minLength": 1 },
+    "requestFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "provider": { "enum": ["terra", "sol"] },
+    "modelVersion": { "type": "string", "minLength": 1 },
+    "serviceVersion": { "type": "string", "minLength": 1 },
+    "status": { "const": "completed" },
+    "attempt": { "const": 1 },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" },
+    "inputEvidenceRefs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "outputFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "externalPlatformAccesses": { "const": 0 },
+    "codexDispatches": { "const": 0 },
+    "productionWrites": { "const": 0 },
+    "output": {
+      "type": "object",
+      "required": ["status", "locale", "claimCoverage", "unsupportedClaims", "title", "description", "bulletPoints", "searchKeywords"],
+      "properties": {
+        "status": { "const": "draft_only" },
+        "locale": { "const": "ru-RU" },
+        "claimCoverage": { "const": "complete" },
+        "unsupportedClaims": { "type": "array", "maxItems": 0 },
+        "title": { "$ref": "#/$defs/citedText" },
+        "description": { "$ref": "#/$defs/citedText" },
+        "bulletPoints": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/citedText" } },
+        "searchKeywords": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/citedText" } }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "citedText": {
+      "type": "object",
+      "required": ["text", "factRefs", "keywordRefs", "assertions"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1 },
+        "factRefs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "keywordRefs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "assertions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["factPath", "value"],
+            "properties": {
+              "factPath": { "type": "string", "minLength": 1 },
+              "value": {}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

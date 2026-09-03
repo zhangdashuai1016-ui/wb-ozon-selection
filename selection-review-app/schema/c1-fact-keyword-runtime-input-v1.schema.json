@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "c1-fact-keyword-runtime-input-v1.schema.json",
+  "title": "C1 Fact Keyword Runtime Input v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "dataRevision",
+    "keywordSourceEvidence",
+    "frozenSeoRules",
+    "frozenComplexityDecision",
+    "reusableKeywordSnapshot",
+    "keywordExpiresAt",
+    "providerEvidence"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "c1-fact-keyword-runtime-input-v1" },
+    "dataRevision": { "type": "integer", "minimum": 0 },
+    "keywordSourceEvidence": { "type": "object" },
+    "frozenSeoRules": { "type": "object" },
+    "frozenComplexityDecision": { "type": ["object", "null"] },
+    "reusableKeywordSnapshot": { "type": ["object", "null"] },
+    "keywordExpiresAt": { "type": "string", "format": "date-time" },
+    "providerEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seerfarApiReceipt", "browserReceipt", "standardSkuHealthReceipts", "keywordMetricEvidence"],
+      "properties": {
+        "seerfarApiReceipt": { "type": ["object", "null"] },
+        "browserReceipt": { "type": ["object", "null"] },
+        "standardSkuHealthReceipts": { "type": "array", "maxItems": 3, "items": { "type": "object" } },
+        "keywordMetricEvidence": { "type": ["object", "null"] }
+      }
+    }
+  }
+}

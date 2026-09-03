@@ -1,6 +1,7 @@
 export const SALES_SNAPSHOT_SCHEMA_VERSION = "sales-snapshot-v1.1";
 export const MOCK_OZON_COLLECTOR_VERSION = "mock-ozon-sales-snapshot-v1";
 export const REAL_OZON_COLLECTOR_VERSION = "real-ozon-sales-snapshot-v1";
+export const TERRA_AUXILIARY_DRAFT_VERSION = "terra-a-sales-draft-v1";
 export const OZON_COLLECTION_RESULT_VERSION = "ozon-sales-collection-result-v1";
 export const UNKNOWN = "unknown";
 
@@ -53,6 +54,10 @@ function deepFreeze(value) {
   Object.freeze(value);
   for (const child of Object.values(value)) deepFreeze(child);
   return value;
+}
+
+function sameJson(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 export function validateSalesSnapshot(snapshot) {
@@ -127,6 +132,32 @@ export function validateSalesSnapshot(snapshot) {
     }
   }
   if (!isObject(snapshot.attributes)) push(errors, "attributes", "必须是对象");
+  if (snapshot.auxiliaryDrafts !== undefined) {
+    if (!Array.isArray(snapshot.auxiliaryDrafts)) {
+      push(errors, "auxiliaryDrafts", "必须是数组");
+    } else {
+      const seenDraftIds = new Set();
+      snapshot.auxiliaryDrafts.forEach((draft, index) => {
+        const path = `auxiliaryDrafts[${index}]`;
+        if (!isObject(draft)) return push(errors, path, "必须是对象");
+        if (draft.schemaVersion !== TERRA_AUXILIARY_DRAFT_VERSION) push(errors, `${path}.schemaVersion`, "版本无效");
+        if (!nonEmptyString(draft.draftId) || seenDraftIds.has(draft.draftId)) push(errors, `${path}.draftId`, "必须非空且不得重复");
+        seenDraftIds.add(draft.draftId);
+        if (draft.provider !== "terra") push(errors, `${path}.provider`, "只允许terra");
+        if (draft.status !== "draft" || draft.authoritative !== false || draft.mayOverrideObservedFields !== false) {
+          push(errors, path, "只能保存不可覆盖真实字段的辅助草稿");
+        }
+        if (!nonEmptyString(draft.modelVersion) || !isoDateTime(draft.generatedAt)) push(errors, path, "缺模型版本或生成时间");
+        if (!Array.isArray(draft.publicTextEvidenceRefs) || draft.publicTextEvidenceRefs.length === 0 || draft.publicTextEvidenceRefs.some((item) => !nonEmptyString(item))) {
+          push(errors, `${path}.publicTextEvidenceRefs`, "必须引用公开文字证据");
+        }
+        if (!Array.isArray(draft.authorizedImageRefs) || draft.authorizedImageRefs.some((item) => !snapshot.imageRefs.includes(item))) {
+          push(errors, `${path}.authorizedImageRefs`, "只能引用快照内获准图片");
+        }
+        if (!isObject(draft.output)) push(errors, `${path}.output`, "必须是结构化草稿");
+      });
+    }
+  }
   if (!isoDateTime(snapshot.collectedAt)) push(errors, "collectedAt", "必须是有效时间");
   if (!nonEmptyString(snapshot.evidenceRef)) push(errors, "evidenceRef", "必须是非空字符串");
   const validCollectorPair =
@@ -137,6 +168,53 @@ export function validateSalesSnapshot(snapshot) {
   }
   if (snapshot.readOnly !== true) push(errors, "readOnly", "必须为true");
   return { valid: errors.length === 0, errors };
+}
+
+export function attachTerraAuxiliaryDraft(snapshot, draft) {
+  assertValidSalesSnapshot(snapshot);
+  if (!isObject(draft)) throw new TypeError("A_TERRA_DRAFT_INVALID: Terra草稿必须是对象");
+  if (draft.provider !== "terra") throw new Error("A_TERRA_DRAFT_PROVIDER_REJECTED: A阶段只允许Terra辅助整理");
+  if (draft.status !== "draft" || draft.authoritative !== false || draft.mayOverrideObservedFields !== false) {
+    throw new Error("A_TERRA_DRAFT_BOUNDARY_REJECTED: Terra输出只能是不可覆盖真实字段的辅助草稿");
+  }
+  if (!nonEmptyString(draft.modelVersion) || !isoDateTime(draft.generatedAt)) {
+    throw new Error("A_TERRA_DRAFT_TRACE_MISSING: 必须保存模型版本和生成时间");
+  }
+  if (!Array.isArray(draft.publicTextEvidenceRefs) || draft.publicTextEvidenceRefs.length === 0 || draft.publicTextEvidenceRefs.some((item) => !nonEmptyString(item))) {
+    throw new Error("A_TERRA_DRAFT_TEXT_SCOPE_INVALID: 必须引用已采集公开文字证据");
+  }
+  const imageRefs = Array.isArray(draft.authorizedImageRefs) ? draft.authorizedImageRefs : [];
+  if (imageRefs.some((item) => !snapshot.imageRefs.includes(item))) {
+    throw new Error("A_TERRA_DRAFT_IMAGE_SCOPE_INVALID: Terra只能读取销售快照中获准的图片引用");
+  }
+  if (!isObject(draft.output)) throw new Error("A_TERRA_DRAFT_OUTPUT_INVALID: 草稿输出必须是结构化对象");
+  const next = structuredClone(snapshot);
+  next.auxiliaryDrafts ||= [];
+  const draftId = nonEmptyString(draft.draftId) ? draft.draftId.trim() : `terra:${snapshot.snapshotId}:${draft.modelVersion}:${draft.generatedAt}`;
+  const record = {
+    schemaVersion: TERRA_AUXILIARY_DRAFT_VERSION,
+    draftId,
+    provider: "terra",
+    modelVersion: draft.modelVersion.trim(),
+    generatedAt: new Date(draft.generatedAt).toISOString(),
+    status: "draft",
+    authoritative: false,
+    mayOverrideObservedFields: false,
+    publicTextEvidenceRefs: [...new Set(draft.publicTextEvidenceRefs)],
+    authorizedImageRefs: [...new Set(imageRefs)],
+    output: structuredClone(draft.output)
+  };
+  const existing = next.auxiliaryDrafts.find((item) => item.draftId === draftId);
+  if (existing) {
+    if (!sameJson(existing, record)) throw new Error("A_TERRA_DRAFT_ID_CONFLICT: 同一草稿ID内容不一致");
+    return deepFreeze(next);
+  }
+  next.auxiliaryDrafts.push(record);
+  for (const key of Object.keys(snapshot)) {
+    if (key !== "auxiliaryDrafts" && !sameJson(snapshot[key], next[key])) throw new Error(`A_TERRA_DRAFT_OBSERVED_FIELD_CHANGED: ${key}`);
+  }
+  assertValidSalesSnapshot(next);
+  return deepFreeze(next);
 }
 
 export function assertValidSalesSnapshot(snapshot) {

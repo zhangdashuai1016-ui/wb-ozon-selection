@@ -23,8 +23,29 @@ function productionPlanFixture() {
     sku: { supplierSkuId: "4993364145574", variantKey: "豪华小火车" },
     titleVersion: "c1-seo-draft-v1.1:2026-08-12T13:00:00.000Z",
     title: "Механический деревянный 3D-пазл «Паровоз», 320 деталей",
+    contentVersion: "c1-seo-draft-v1.1:2026-08-12T13:00:00.000Z",
+    content: {
+      locale: "ru-RU",
+      description: "Механический деревянный 3D-пазл в виде паровоза.",
+      bulletPoints: ["Сборная модель паровоза."],
+      searchKeywords: ["деревянный 3D-пазл"]
+    },
     attributeVersion: "c1-fact-verification-v1.1:2026-08-12T12:30:00.000Z",
     attributes: { brand: { value: "unknown", status: "unknown" } },
+    packing: {
+      weight: { value: 0.3, unit: "kg" },
+      dimensions: { length: 23, width: 16, height: 3, unit: "cm" }
+    },
+    schemaWriteBindings: {
+      schemaRevision: "ozon-schema:test",
+      evidenceRef: "test:schema-write-bindings",
+      content: {
+        title: { fieldKey: "title", attributeId: 4180, complexId: 0, dictionaryId: 0 },
+        description: { fieldKey: "description", attributeId: 4191, complexId: 0, dictionaryId: 0 },
+        searchKeywords: { fieldKey: "searchKeywords", attributeId: 23171, complexId: 0, dictionaryId: 0 }
+      },
+      requiredAttributes: [{ fieldKey: "brand", attributeId: 85, complexId: 0, dictionaryId: 1 }]
+    },
     platformCategory: {
       descriptionCategoryId: { value: "17028665", verificationStatus: "confirmed" },
       typeId: { value: "92935", verificationStatus: "confirmed" }

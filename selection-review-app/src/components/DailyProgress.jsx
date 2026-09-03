@@ -11,7 +11,7 @@ export default function DailyProgress({ summary }) {
   return (
     <section className="daily-progress" aria-label="今日选品总量目标">
       <div className="store-progress combined-progress">
-        <span>三店合计 · B利润通过</span>
+        <span>全店合计 · B利润通过</span>
         <strong>{progress.profitPassed}<i>/</i>{progress.target}</strong>
         <small>精确 {progress.exactProfitPassed} · 估算 {progress.estimatedProfitPassed}</small>
       </div>
@@ -25,7 +25,7 @@ export default function DailyProgress({ summary }) {
         <strong>{progress.readyToList}</strong>
         <small>仍须精确生产确认 · 历史待补C {progress.legacyReadyPendingC || 0}</small>
       </div>
-      <p>蛋蛋鼠、Miska、WB合计；B与C分开统计，不用变体凑数量。</p>
+      <p>当前已登记店铺合计；B与C分开统计，不用变体凑数量。</p>
     </section>
   );
 }

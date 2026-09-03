@@ -1,20 +1,23 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import fs from "node:fs";
 import test from "node:test";
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { createMusicBoxCandidate } from "./helpers/legacy-candidate-fixture.mjs";
 
 import { buildRealLifecycleEntryPreview } from "../lib/real-lifecycle-entry-preview.mjs";
 
-test("CX-20260802-014 produces a read-only real lifecycle entry preview without guessing missing supply facts", async (context) => {
-  const directory = await mkdtemp(path.join(tmpdir(), "lifecycle-preview-test-"));
-  context.after(() => rm(directory, { recursive: true, force: true }));
-  const dataPath = path.join(directory, "fixture.json");
-  const fileBefore = Buffer.from(JSON.stringify({ candidates: [createMusicBoxCandidate()] }));
-  await writeFile(dataPath, fileBefore);
-  const document = JSON.parse(await readFile(dataPath, "utf8"));
-  const candidate = document.candidates[0];
+const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const dataPath = path.join(appDir, "data", "candidates.json");
+
+function hash(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+test("CX-20260802-014 produces a read-only real lifecycle entry preview without guessing missing supply facts", () => {
+  const fileBefore = fs.readFileSync(dataPath);
+  const document = JSON.parse(fileBefore.toString("utf8"));
+  const candidate = document.candidates.find((item) => item.id === "CX-20260802-014");
   const candidateBefore = JSON.stringify(candidate);
 
   const preview = buildRealLifecycleEntryPreview(candidate);
@@ -60,5 +63,5 @@ test("CX-20260802-014 produces a read-only real lifecycle entry preview without 
     automationStarted: false
   });
   assert.equal(JSON.stringify(candidate), candidateBefore);
-  assert.deepEqual(await readFile(dataPath), fileBefore);
+  assert.equal(hash(fs.readFileSync(dataPath)), hash(fileBefore));
 });

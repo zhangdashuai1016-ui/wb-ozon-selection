@@ -1,13 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createMusicBoxCandidate } from "./helpers/legacy-candidate-fixture.mjs";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { runRealAConfirmationToBAndC1 } from "../lib/real-a-b-c1-flow.mjs";
 import { buildRealAConfirmationCard } from "../lib/real-a-confirmation-card.mjs";
 
+const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const confirmedAt = "2026-08-18T02:00:00.000Z";
 
 async function candidate() {
-  const value = createMusicBoxCandidate();
+  const document = JSON.parse(await readFile(path.join(appDir, "data", "candidates.json"), "utf8"));
+  const value = structuredClone(document.candidates.find((item) => item.id === "CX-20260802-014"));
   delete value.lifecycleV11;
   value.workflowStatus = "codex_processing";
   value.listingHandoff = null;
@@ -142,6 +146,9 @@ test("真实A一次确认原子生成Opportunity、SKU、B利润和唯一C1交�
   assert.equal(result.c1Handoff.trigger, "b_passed_auto_c1");
   assert.equal(result.c1Handoff.uniqueOwner, "listing_task");
   assert.equal(result.c1Handoff.selectionTaskStopped, true);
+  assert.equal(result.c1Handoff.skuPackageId, result.skuPackage.skuPackageId);
+  assert.equal(result.c1Handoff.inheritedSkuRevision, result.skuPackage.dataRevision);
+  assert.equal(result.idempotentReplay, false);
   assert.equal(result.taskDispatches, 0);
   assert.deepEqual(result.externalAccesses, []);
   assert.equal(result.platformWrites, 0);
@@ -179,14 +186,60 @@ test("B未达利润门槛时不创建C1交接", async () => {
   assert.equal(result.uniqueOwner, "none");
 });
 
-test("同一候选已有SKU生命周期时禁止再次确认", async () => {
+test("同一A确认结果落盘后重放保持SKU、利润版本、修订号和唯一C1交接不变", async () => {
   const source = addEvidenceContext(await candidate());
   const card = buildRealAConfirmationCard(source);
-  source.lifecycleV11 = { ...(source.lifecycleV11 || {}), skuPackage: { skuPackageId: "existing" } };
-  assert.throws(() => runRealAConfirmationToBAndC1({
+  const input = submission(card);
+  const first = runRealAConfirmationToBAndC1({
     candidate: source,
-    submission: submission(card),
+    submission: input,
     evidencePacks: evidencePacks(),
     confirmedAt
-  }), /REAL_A_ALREADY_CONFIRMED/);
+  });
+  const persisted = structuredClone(source);
+  persisted.dataRevision += 1;
+  persisted.lifecycleV11 = {
+    schemaVersion: "product-lifecycle-v1.1",
+    status: "b_passed_auto_c1",
+    aConfirmationReceipt: {
+      receiptId: first.confirmationReceiptId,
+      decision: "confirm",
+      sourceCandidateRevision: first.sourceCandidateRevision,
+      confirmedAt
+    },
+    opportunityPackage: structuredClone(first.opportunityPackage),
+    ownerSupplyConfirmation: structuredClone(first.ownerSupplyConfirmation),
+    bSystemEvidenceBundle: structuredClone(first.systemEvidenceBundle),
+    skuPackage: structuredClone(first.skuPackage),
+    c1Handoffs: [structuredClone(first.c1Handoff)]
+  };
+  const replay = runRealAConfirmationToBAndC1({
+    candidate: persisted,
+    submission: input,
+    evidencePacks: evidencePacks(),
+    confirmedAt
+  });
+  assert.equal(replay.idempotentReplay, true);
+  assert.equal(replay.skuPackage.skuPackageId, first.skuPackage.skuPackageId);
+  assert.equal(replay.skuPackage.dataRevision, first.skuPackage.dataRevision);
+  assert.deepEqual(replay.skuPackage.profitModels, first.skuPackage.profitModels);
+  assert.deepEqual(replay.c1Handoff, first.c1Handoff);
+  assert.equal(replay.taskDispatches, 0);
+});
+
+test("已有生命周期与重复A输入不一致时拒绝而不产生第二利润版本或C1", async () => {
+  const source = addEvidenceContext(await candidate());
+  const card = buildRealAConfirmationCard(source);
+  const first = runRealAConfirmationToBAndC1({ candidate: source, submission: submission(card), evidencePacks: evidencePacks(), confirmedAt });
+  source.lifecycleV11 = {
+    aConfirmationReceipt: { receiptId: first.confirmationReceiptId, sourceCandidateRevision: first.sourceCandidateRevision },
+    opportunityPackage: structuredClone(first.opportunityPackage),
+    ownerSupplyConfirmation: structuredClone(first.ownerSupplyConfirmation),
+    bSystemEvidenceBundle: structuredClone(first.systemEvidenceBundle),
+    skuPackage: structuredClone(first.skuPackage),
+    c1Handoffs: [structuredClone(first.c1Handoff)]
+  };
+  const changed = submission(card);
+  changed.supplierConfirmation.variantKey = "另一个SKU";
+  assert.throws(() => runRealAConfirmationToBAndC1({ candidate: source, submission: changed, evidencePacks: evidencePacks(), confirmedAt }), /ALREADY_CONFIRMED_CONFLICT/);
 });

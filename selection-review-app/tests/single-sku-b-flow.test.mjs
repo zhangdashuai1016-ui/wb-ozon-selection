@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createTrainCandidate } from "./helpers/legacy-candidate-fixture.mjs";
+import { readFile } from "node:fs/promises";
 import { adaptLegacyCandidateToOpportunity } from "../lib/legacy-candidate-adapter.mjs";
 import {
   createSkuLifecyclePackage,
@@ -13,12 +13,9 @@ const TEST_SKU_ID = "CX-20260803-010";
 const CALCULATED_AT = "2026-08-12T12:00:00.000Z";
 
 async function currentCandidate() {
-  const candidate = createTrainCandidate({ lifecycle: false });
-  // This B regression freezes the corrected 0.21 kg quote, not the initial 0.3 kg quote.
-  candidate.packedWeightKg = 0.21;
-  candidate.codexReview.cStageReview.logistics.billableWeightKg = 0.21;
-  candidate.codexReview.cStageReview.logistics.freightRmb = 23.87;
-  return candidate;
+  const url = new URL("../data/candidates.json", import.meta.url);
+  const document = JSON.parse(await readFile(url, "utf8"));
+  return document.candidates.find((item) => item.id === TEST_SKU_ID);
 }
 
 function createTestInputs(candidate, opportunityPackage) {

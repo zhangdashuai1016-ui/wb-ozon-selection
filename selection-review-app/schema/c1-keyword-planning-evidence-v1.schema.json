@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "c1-keyword-planning-evidence-v1.schema.json",
+  "title": "C1 Keyword Planning Evidence V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "binding", "locale", "expiresAt", "frozenSeoRules", "frozenComplexityDecision", "healthPolicy", "productFactTerms", "comparables", "seedEvidence", "quotaEvidence", "pointBudget", "keywordMetricEvidence", "reusableKeywordSnapshot", "reuseEvidenceNote"],
+  "properties": {
+    "schemaVersion": { "const": "c1-keyword-planning-evidence-v1" },
+    "binding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidateId", "skuPackageId", "sourceCandidateRevision", "candidateRevision", "resultCandidateRevision", "skuRevision", "sourceSkuRevision", "resultSkuRevision", "platform", "exactSupplierSkuId", "fulfillment", "profitModelVersion", "profitModelFingerprint", "salesSnapshotId", "salesSnapshotVersion", "salesSnapshotFingerprint", "supplySnapshotId", "supplySnapshotVersion", "supplySnapshotFingerprint", "c1FactsFingerprint"],
+      "properties": {
+        "candidateId": { "type": "string", "minLength": 1 }, "skuPackageId": { "type": "string", "minLength": 1 },
+        "sourceCandidateRevision": { "type": "integer", "minimum": 0 }, "candidateRevision": { "type": "integer", "minimum": 1 }, "resultCandidateRevision": { "type": "integer", "minimum": 1 },
+        "skuRevision": { "type": "integer", "minimum": 0 }, "sourceSkuRevision": { "type": "integer", "minimum": 0 }, "resultSkuRevision": { "type": "integer", "minimum": 0 },
+        "platform": { "enum": ["ozon", "wb"] }, "exactSupplierSkuId": { "type": "string", "minLength": 1 }, "fulfillment": { "type": "string", "minLength": 1 },
+        "profitModelVersion": { "type": "string", "minLength": 1 }, "profitModelFingerprint": { "$ref": "#/$defs/Fingerprint" },
+        "salesSnapshotId": { "type": "string", "minLength": 1 }, "salesSnapshotVersion": { "type": "string", "minLength": 1 }, "salesSnapshotFingerprint": { "$ref": "#/$defs/Fingerprint" },
+        "supplySnapshotId": { "type": "string", "minLength": 1 }, "supplySnapshotVersion": { "type": "string", "minLength": 1 }, "supplySnapshotFingerprint": { "$ref": "#/$defs/Fingerprint" },
+        "c1FactsFingerprint": { "$ref": "#/$defs/Fingerprint" }
+      }
+    },
+    "locale": { "type": "string", "minLength": 1 }, "expiresAt": { "type": "string", "format": "date-time" },
+    "frozenSeoRules": { "$ref": "#/$defs/SeoRules" },
+    "frozenComplexityDecision": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ComplexityDecision" }] },
+    "healthPolicy": { "$ref": "#/$defs/HealthPolicy" },
+    "productFactTerms": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/RawTerm" } },
+    "comparables": { "type": "array", "minItems": 3, "maxItems": 5, "items": { "$ref": "#/$defs/Comparable" } },
+    "seedEvidence": { "type": "array", "items": { "$ref": "#/$defs/RawTerm" } },
+    "quotaEvidence": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/QuotaEvidence" }] },
+    "pointBudget": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/PointBudget" }] },
+    "keywordMetricEvidence": { "$ref": "#/$defs/KeywordMetricEvidence" },
+    "reusableKeywordSnapshot": { "oneOf": [{ "type": "null" }, { "$ref": "keyword-evidence-snapshot-v1.schema.json" }] },
+    "reuseEvidenceNote": { "type": ["string", "null"] }
+  },
+  "$defs": {
+    "Fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "StringList": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "SeoRules": {
+      "type": "object", "additionalProperties": false, "required": ["rulesVersion", "evidenceRef"],
+      "properties": {
+        "rulesVersion": { "type": "string", "minLength": 1 }, "evidenceRef": { "type": "string", "minLength": 1 },
+        "locale": { "type": "string", "minLength": 1 }, "frozenAt": { "type": "string", "format": "date-time" },
+        "titleMaxLength": { "type": "integer", "minimum": 1 }, "descriptionMaxLength": { "type": "integer", "minimum": 1 }, "bulletPointLimit": { "type": "integer", "minimum": 1 },
+        "prohibitedClaims": { "$ref": "#/$defs/StringList" }
+      }
+    },
+    "ComplexityDecision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["decisionId", "ruleVersion", "evaluatedAt", "c1PlanId", "sourceFactsFingerprint", "complexity", "reason", "evidenceRefs"],
+      "properties": {
+        "decisionId": { "type": "string", "minLength": 1 }, "ruleVersion": { "type": "string", "minLength": 1 }, "evaluatedAt": { "type": "string", "format": "date-time" },
+        "c1PlanId": { "type": "string", "minLength": 1 }, "sourceFactsFingerprint": { "$ref": "#/$defs/Fingerprint" }, "complexity": { "enum": ["standard", "complex"] },
+        "reason": { "type": "string", "minLength": 1 }, "evidenceRefs": { "$ref": "#/$defs/StringList" }, "gatewayTaskType": { "type": "string", "minLength": 1 }
+      }
+    },
+    "HealthPolicy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["connectorVersion", "apiSchemaVersion", "controlledWindowId", "ttlMs", "suspectedSystemicFailure", "standardSkus", "lastProof"],
+      "properties": {
+        "connectorVersion": { "type": "string", "minLength": 1 }, "apiSchemaVersion": { "type": "string", "minLength": 1 }, "controlledWindowId": { "type": "string", "minLength": 1 },
+        "ttlMs": { "type": "number", "exclusiveMinimum": 0 }, "suspectedSystemicFailure": { "type": "boolean" },
+        "standardSkus": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "object", "additionalProperties": false, "required": ["id", "status", "evidenceRef"], "properties": { "id": { "type": "string", "minLength": 1 }, "status": { "const": "passed" }, "evidenceRef": { "type": "string", "minLength": 1 } } } },
+        "lastProof": { "type": "object", "additionalProperties": false, "required": ["connectorVersion", "apiSchemaVersion", "controlledWindowId", "provedAt"], "properties": { "connectorVersion": { "type": "string", "minLength": 1 }, "apiSchemaVersion": { "type": "string", "minLength": 1 }, "controlledWindowId": { "type": "string", "minLength": 1 }, "provedAt": { "type": "string", "format": "date-time" } } }
+      }
+    },
+    "RawTerm": {
+      "type": "object", "additionalProperties": false, "required": ["term", "sourceRefs", "factRefs", "factBindings", "competitorRefs", "sourceTrust", "matchType"],
+      "properties": { "term": { "type": "string", "minLength": 1 }, "sourceRefs": { "$ref": "#/$defs/StringList" }, "factRefs": { "$ref": "#/$defs/StringList" }, "factBindings": { "$ref": "#/$defs/FactBindings" }, "competitorRefs": { "$ref": "#/$defs/StringList" }, "sourceTrust": { "type": ["string", "null"] }, "matchType": { "enum": ["target_fact", "exact_match", "substitute", "multi_seed"] } }
+    },
+    "FactBindings": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/FactBinding" } },
+    "FactBinding": { "type": "object", "additionalProperties": false, "required": ["factPath", "factValueFingerprint", "sourceRef", "bindingRelation", "semanticProofRef"], "properties": { "factPath": { "type": "string", "minLength": 1 }, "factValueFingerprint": { "$ref": "#/$defs/Fingerprint" }, "sourceRef": { "type": "string", "minLength": 1 }, "bindingRelation": { "const": "exact_value" }, "semanticProofRef": { "type": "null" } } },
+    "Comparable": {
+      "type": "object", "additionalProperties": false,
+      "required": ["competitorRef", "seerfarSku", "platform", "matchType", "comparabilityStatus", "comparabilityEvidenceRefs", "factRefs", "factBindings", "useForReverseLookup", "organicTraffic", "manualSelectionRank", "selectionEvidenceRef", "terms"],
+      "properties": {
+        "competitorRef": { "type": "string", "minLength": 1 }, "seerfarSku": { "type": ["string", "integer"] }, "platform": { "enum": ["ozon", "wb"] }, "matchType": { "enum": ["exact_match", "substitute"] },
+        "comparabilityStatus": { "const": "proven" }, "comparabilityEvidenceRefs": { "$ref": "#/$defs/StringList" }, "factRefs": { "$ref": "#/$defs/StringList" }, "factBindings": { "$ref": "#/$defs/FactBindings" }, "useForReverseLookup": { "type": "boolean" },
+        "organicTraffic": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["value", "period", "evidenceRef"], "properties": { "value": { "type": "number", "minimum": 0 }, "period": { "type": "string", "minLength": 1 }, "evidenceRef": { "type": "string", "minLength": 1 } } }] },
+        "manualSelectionRank": { "type": "integer", "minimum": 1 }, "selectionEvidenceRef": { "type": "string", "minLength": 1 }, "terms": { "type": "array", "items": { "$ref": "#/$defs/RawTerm" } }
+      }
+    },
+    "QuotaEvidence": { "type": "object", "additionalProperties": false, "required": ["availablePoints", "observedAt", "expiresAt", "evidenceRef"], "properties": { "availablePoints": { "type": "number", "minimum": 0 }, "observedAt": { "type": "string", "format": "date-time" }, "expiresAt": { "type": "string", "format": "date-time" }, "evidenceRef": { "type": "string", "minLength": 1 } } },
+    "PointBudget": { "type": "object", "additionalProperties": false, "required": ["approved", "maxPoints", "evidenceRef"], "properties": { "approved": { "type": "boolean" }, "maxPoints": { "type": "number", "minimum": 0 }, "evidenceRef": { "type": "string", "minLength": 1 } } },
+    "MetricComponent": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "value": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+        "rawValue": { "type": ["number", "null"] },
+        "raw": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["returnRate", "cancelRate"], "properties": { "returnRate": { "type": "number", "minimum": 0, "maximum": 1 }, "cancelRate": { "type": "number", "minimum": 0, "maximum": 1 } } }] },
+        "normalizationRule": { "type": ["string", "null"] }, "conversionRule": { "type": ["string", "null"] }, "evidenceRef": { "type": ["string", "null"] },
+        "observedAt": { "type": ["string", "null"], "format": "date-time" }, "period": { "type": ["string", "null"] }
+      }
+    },
+    "MetricCandidate": {
+      "type": "object", "additionalProperties": false, "required": ["key", "descriptionGate", "components"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "descriptionGate": { "type": "object", "additionalProperties": false, "required": ["approved", "evidenceRef", "reason"], "properties": { "approved": { "type": "boolean" }, "evidenceRef": { "type": "string", "minLength": 1 }, "reason": { "type": "string", "minLength": 1 } } },
+        "components": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "semanticMatch": { "$ref": "#/$defs/MetricComponent" }, "searchDemand": { "$ref": "#/$defs/MetricComponent" }, "addToCartConversion": { "$ref": "#/$defs/MetricComponent" },
+            "competitorConsensus": { "$ref": "#/$defs/MetricComponent" }, "titleDensity": { "$ref": "#/$defs/MetricComponent" }, "competitorCount": { "$ref": "#/$defs/MetricComponent" },
+            "searchGrowth": { "$ref": "#/$defs/MetricComponent" }, "returnCancelHealth": { "$ref": "#/$defs/MetricComponent" }, "sourceTrust": { "$ref": "#/$defs/MetricComponent" }
+          }
+        }
+      }
+    },
+    "KeywordMetricEvidence": { "type": "object", "additionalProperties": false, "required": ["version", "candidates"], "properties": { "version": { "type": "string", "minLength": 1 }, "evidenceRef": { "type": "string", "minLength": 1 }, "preparationFingerprint": { "$ref": "#/$defs/Fingerprint" }, "candidates": { "type": "array", "items": { "$ref": "#/$defs/MetricCandidate" } } } }
+  }
+}

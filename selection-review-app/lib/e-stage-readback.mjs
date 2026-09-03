@@ -98,8 +98,12 @@ export function validateEVerificationRecord(record) {
     push(errors, "verificationPath", "外部发现路径必须来自ExternalListingRecord并形成externally_verified");
   }
   validateObservedState(record, errors);
-  if (!isObject(record.ownerPriceDecision) || record.ownerPriceDecision.decision !== "keep_current_live_price") {
-    push(errors, "ownerPriceDecision", "必须传递主人最终价格决定");
+  const priceDecision = record.ownerPriceDecision?.decision;
+  if (!isObject(record.ownerPriceDecision) ||
+      (systemPath
+        ? !["keep_current_live_price", "authorized_platform_write_price"].includes(priceDecision)
+        : priceDecision !== "keep_current_live_price")) {
+    push(errors, "ownerPriceDecision", "必须传递与验证路径一致的主人最终价格决定");
   }
   return { valid: errors.length === 0, errors };
 }

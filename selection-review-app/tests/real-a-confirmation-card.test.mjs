@@ -3,16 +3,17 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createMusicBoxCandidate } from "./helpers/legacy-candidate-fixture.mjs";
 import {
   buildRealAConfirmationCard,
   validateRealAConfirmationSubmission
 } from "../lib/real-a-confirmation-card.mjs";
+import { attachTerraAuxiliaryDraft } from "../lib/sales-snapshot.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 async function candidate() {
-  return createMusicBoxCandidate();
+  const document = JSON.parse(await readFile(path.join(appDir, "data", "candidates.json"), "utf8"));
+  return structuredClone(document.candidates.find((item) => item.id === "CX-20260802-014"));
 }
 
 function validSubmission(card) {
@@ -67,6 +68,26 @@ test("真实A确认卡一次展示销售、供应、成本和包装字段且零�
     automationStarted: false
   });
   assert.equal(JSON.stringify(source), before);
+});
+
+test("真实A确认卡展示Terra辅助草稿但明确不覆盖真实字段", async () => {
+  const source = await candidate();
+  const latest = source.salesSnapshotsV11.at(-1);
+  source.salesSnapshotsV11[source.salesSnapshotsV11.length - 1] = attachTerraAuxiliaryDraft(latest, {
+    provider: "terra",
+    modelVersion: "gpt-5.6-terra",
+    generatedAt: "2026-08-22T05:00:00.000Z",
+    status: "draft",
+    authoritative: false,
+    mayOverrideObservedFields: false,
+    publicTextEvidenceRefs: [latest.evidenceRef],
+    authorizedImageRefs: [],
+    output: { summary: "辅助判断", comparabilitySignals: [], attributeHints: [] }
+  });
+  const card = buildRealAConfirmationCard(source);
+  assert.equal(card.salesReview.terraAssist.output.summary, "辅助判断");
+  assert.equal(card.salesReview.terraAssist.authoritative, false);
+  assert.equal(card.salesReview.currentPrice, latest.currentPrice);
 });
 
 test("真实A确认卡要求精确SKU、成本拆分、包装和一次主人确认", async () => {
@@ -148,6 +169,8 @@ test("真实A确认卡不接受不相等的采购成本，也允许在同一张�
 test("真实A确认卡UI只有一组销售、供应、成本、包装和最终确认动作", async () => {
   const source = await readFile(path.join(appDir, "src", "components", "RealAConfirmationCard.jsx"), "utf8");
   assert.match(source, /A阶段完整确认卡/);
+  assert.match(source, /Terra辅助整理/);
+  assert.match(source, /不覆盖页面价格、标题、类目或卖家身份/);
   assert.match(source, /一次确认并进入B/);
   assert.doesNotMatch(source, /disabled=\{disabled \|\| !onSubmit \|\| !systemReady\}/);
   assert.match(source, /确认后由系统准备B证据/);

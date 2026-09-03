@@ -1,5 +1,18 @@
 .DS_Store
 
+# Preview excludes runtime data and personal deployment configuration
+/selection-review-app/data/
+/selection-review-app/capability-snapshots/
+/selection-review-app/*.plist
+/selection-review-app/*.command
+/selection-review-app/scripts/deploy-local-runtime.sh
+/selection-review-app/scripts/launch-server.sh
+/selection-review-app/scripts/open-review-in-chrome.sh
+/CURRENT.md
+/HANDOFF.md
+/PROJECT_STATE.md
+/docs/
+
 # Local environment files and private key material; examples must use placeholders
 .env
 .env.*
