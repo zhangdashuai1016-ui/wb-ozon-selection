@@ -1,4 +1,9 @@
+import { isCompleteStoreRef, sameStoreRef } from "./store-binding.mjs";
+import { assertValidProductionRecord, validateProductionRecord, validateProductionReadbackExpectation } from "./production-record-contract.mjs";
 import { createHash } from "node:crypto";
+import { assertNoProductionSecrets } from "./production-contract-primitives.mjs";
+
+export { validateProductionReadbackExpectation } from "./production-record-contract.mjs";
 
 export const EXTERNAL_LISTING_RECORD_VERSION = "external-listing-record-v1.1";
 export const E_VERIFICATION_RECORD_VERSION = "e-verification-record-v1.1";
@@ -49,6 +54,91 @@ function push(errors, path, message) {
   errors.push({ path, message });
 }
 
+function exactKeys(value, keys) {
+  return isObject(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
+}
+
+function positiveId(value) {
+  return typeof value === "string" && /^[1-9][0-9]*$/.test(value);
+}
+
+export function isObservedHttpsMediaUrl(value) {
+  if (!nonEmpty(value) || value !== value.trim()) return false;
+  try {
+    const url = new URL(value);
+    assertNoProductionSecrets(value, "platformMediaUrl");
+    return url.protocol === "https:" && !url.username && !url.password && !url.hash;
+  } catch { return false; }
+}
+
+/** A projection of the frozen D request, never a second authorization input. */
+export function projectProductionReadbackExpectation({ finalUploads, warehouseId }) {
+  const value = { schemaVersion: "production-readback-expectation-v2", warehouseId, stockBasis: "free_stock",
+    media: Array.isArray(finalUploads) ? finalUploads.map(asset => ({ assetId: asset.assetId, order: asset.order,
+      sha256: asset.sha256, submittedUrl: asset.platformAcceptedUrl })) : [] };
+  if (!validateProductionReadbackExpectation(value)) throw new Error("D_READBACK_EXPECTATION_INVALID");
+  return freeze(value);
+}
+
+export function observedMediaSequence(media) {
+  if (!exactKeys(media, ["sourceProtocol", "primaryImageUrl", "images"]) || media.sourceProtocol !== "ozon-product-attributes-v4" ||
+      !isObservedHttpsMediaUrl(media.primaryImageUrl) || !Array.isArray(media.images) || media.images.some(url => !isObservedHttpsMediaUrl(url))) return null;
+  // The separate primary field can also be the leading entry of the platform list.
+  // Only that leading repetition is structural; other duplicates remain observable.
+  const details = media.images[0] === media.primaryImageUrl ? media.images.slice(1) : media.images;
+  return [media.primaryImageUrl, ...details];
+}
+
+function validHistoricalInventoryObservation(inventory) {
+  return exactKeys(inventory, ["sourceProtocol", "rows"]) && inventory.sourceProtocol === "ozon-product-stocks-v4" &&
+    Array.isArray(inventory.rows) && inventory.rows.every(row => exactKeys(row, ["warehouseId", "type", "present", "reserved"]) &&
+      (positiveId(row.warehouseId) || row.warehouseId === "unknown") && nonEmpty(row.type) &&
+      [row.present, row.reserved].every(value => value === "unknown" || (Number.isSafeInteger(value) && value >= 0)));
+}
+
+const STOCK_OBSERVATION_PROTOCOL = "ozon-product-stocks-by-warehouse-fbs-v2";
+const observedQuantity = value => value === "unknown" || (Number.isSafeInteger(value) && value >= 0);
+const precisePositiveId = value => positiveId(value) && Number.isSafeInteger(Number(value));
+
+function validInventoryObservation(inventory) {
+  return exactKeys(inventory, ["sourceProtocol", "hasNext", "rows"]) && inventory.sourceProtocol === STOCK_OBSERVATION_PROTOCOL &&
+    (typeof inventory.hasNext === "boolean" || inventory.hasNext === "unknown") && Array.isArray(inventory.rows) &&
+    inventory.rows.every(row => exactKeys(row, ["warehouseId", "productId", "sku", "offerId", "freeStock", "present", "reserved"]) &&
+      [row.warehouseId, row.productId, row.sku].every(value => precisePositiveId(value) || value === "unknown") &&
+      nonEmpty(row.offerId) && [row.freeStock, row.present, row.reserved].every(observedQuantity));
+}
+
+/** Only the directly observed free_stock of one exact product/warehouse on a complete page is eligible. */
+export function observedWarehouseAvailableStock(inventory, warehouseId, identity) {
+  if (!precisePositiveId(warehouseId) || !precisePositiveId(identity?.productId) || !nonEmpty(identity?.offerId) ||
+      !validInventoryObservation(inventory) || inventory.hasNext !== false) return "unknown";
+  const rows = inventory.rows.filter(row => row.warehouseId === warehouseId && row.productId === identity.productId && row.offerId === identity.offerId);
+  if (rows.length !== 1 || !precisePositiveId(rows[0].sku) ||
+      ![rows[0].freeStock, rows[0].present, rows[0].reserved].every(value => Number.isSafeInteger(value) && value >= 0)) return "unknown";
+  return rows[0].freeStock;
+}
+
+/** Shared D and E content checks. Source URLs differing from CDN URLs are not equivalent evidence. */
+export function productionReadbackContentGaps(expectation, observation) {
+  if (!validateProductionReadbackExpectation(expectation)) return ["readback_expectation_missing_or_invalid"];
+  const gaps = [];
+  const sequence = observedMediaSequence(observation?.mediaObservation);
+  if (!sequence) gaps.push("media_identity_unverified");
+  else {
+    const expectedUrls = expectation.media.map(asset => asset.submittedUrl);
+    if (new Set(sequence).size !== sequence.length) gaps.push("media_duplicate");
+    if (sequence.length !== expectedUrls.length) gaps.push("media_manifest_mismatch");
+    if (sequence.some(url => !expectedUrls.includes(url))) gaps.push("media_identity_unverified");
+    if (sequence[0] !== expectedUrls[0]) gaps.push("main_image_mismatch");
+    if (JSON.stringify(sequence) !== JSON.stringify(expectedUrls)) gaps.push("media_order_or_set_mismatch");
+    if (observation.imageCount !== sequence.length) gaps.push("imageCount");
+  }
+  const stock = observedWarehouseAvailableStock(observation?.inventoryObservation, expectation.warehouseId, { productId: observation?.platformProductId, offerId: observation?.merchantSku });
+  if (stock === "unknown") gaps.push("warehouse_identity_or_quantity_unverified");
+  else if (stock !== observation.currentStock) gaps.push("warehouse_stock_mismatch");
+  return gaps;
+}
+
 function validateObservedState(record, errors) {
   for (const field of ["platform", "store", "skuPackageId", "supplierSkuId", "platformProductId", "merchantSku", "saleStatus", "platformEvidenceRef"]) {
     if (!nonEmpty(record[field])) push(errors, field, "必须是非空字符串");
@@ -79,6 +169,38 @@ export function validateExternalListingRecord(record) {
   return { valid: errors.length === 0, errors };
 }
 
+function listedObservationGaps(observation, { historicalInventory = false } = {}) {
+  if (!isObject(observation)) return ["observation"];
+  const gaps = [];
+  if (!isCompleteStoreRef(observation.storeRef, observation.store) || !nonEmpty(observation.warehouseRef) || !nonEmpty(observation.credentialAlias)) gaps.push("executionBinding");
+  if (!Number.isSafeInteger(observation.currentStock) || observation.currentStock < 0) gaps.push("currentStock");
+  if (!Number.isSafeInteger(observation.imageCount) || observation.imageCount < 1) gaps.push("imageCount");
+  if (!validMoney(observation.currentPrice)) gaps.push("currentPrice");
+  if (observation.moderationStatus !== "approved" || observation.validationStatus !== "success" ||
+      !["on_sale", "active", "selling"].includes(observation.saleStatus)) gaps.push("listedStatus");
+  if (!Array.isArray(observation.errors) || observation.errors.length !== 0) gaps.push("platformErrors");
+  if (!nonEmpty(observation.platformEvidenceRef)) gaps.push("platformEvidenceRef");
+  if (!observedMediaSequence(observation.mediaObservation)) gaps.push("media_identity_unverified");
+  if (!(historicalInventory ? validHistoricalInventoryObservation(observation.inventoryObservation) : validInventoryObservation(observation.inventoryObservation))) gaps.push("warehouse_identity_or_quantity_unverified");
+  return gaps;
+}
+
+export function systemCreatedReadbackGaps(productionRecord, observation) {
+  assertValidProductionRecord(productionRecord);
+  const gaps = listedObservationGaps(observation);
+  if (!isObject(observation)) return gaps;
+  for (const field of ["platform", "store", "skuPackageId", "supplierSkuId", "merchantSku", "platformProductId"]) {
+    if (observation[field] !== productionRecord[field]) gaps.push(field);
+  }
+  if (!sameStoreRef(observation.storeRef, productionRecord.storeRef) || observation.warehouseRef !== productionRecord.warehouseRef || observation.credentialAlias !== productionRecord.credentialAlias) gaps.push("executionBinding");
+  if (!validMoney(productionRecord.expectedPrice) || observation.currentPrice?.amount !== productionRecord.expectedPrice.amount ||
+      observation.currentPrice?.currency !== productionRecord.expectedPrice.currency) gaps.push("currentPrice");
+  if (observation.currentStock !== productionRecord.expectedStock) gaps.push("currentStock");
+  if (observation.imageCount !== productionRecord.expectedImageCount) gaps.push("imageCount");
+  gaps.push(...productionReadbackContentGaps(productionRecord.readbackExpectation, observation));
+  return [...new Set(gaps)];
+}
+
 export function validateEVerificationRecord(record) {
   const errors = [];
   if (!isObject(record)) return { valid: false, errors: [{ path: "$", message: "必须是对象" }] };
@@ -98,8 +220,31 @@ export function validateEVerificationRecord(record) {
     push(errors, "verificationPath", "外部发现路径必须来自ExternalListingRecord并形成externally_verified");
   }
   validateObservedState(record, errors);
-  if (!isObject(record.ownerPriceDecision) || record.ownerPriceDecision.decision !== "keep_current_live_price") {
-    push(errors, "ownerPriceDecision", "必须传递主人最终价格决定");
+  if (systemPath) for (const field of listedObservationGaps(record, { historicalInventory: record.inventoryObservation?.sourceProtocol === "ozon-product-stocks-v4" })) push(errors, field, "系统创建的E记录必须具有完整且通过的独立回读");
+  const priceDecision = record.ownerPriceDecision?.decision;
+  if (!isObject(record.ownerPriceDecision) || record.ownerPriceDecision.confirmedBy !== "owner" ||
+      (systemPath
+        ? !["keep_current_live_price", "authorized_platform_write_price"].includes(priceDecision)
+        : priceDecision !== "keep_current_live_price")) {
+    push(errors, "ownerPriceDecision", "必须传递与验证路径一致的主人最终价格决定");
+  }
+  if (priceDecision === "authorized_platform_write_price" && !nonEmpty(record.ownerPriceDecision?.authorizationId)) push(errors, "ownerPriceDecision.authorizationId", "必须保存准确授权引用");
+  if (priceDecision === "keep_current_live_price" && !isoDate(record.ownerPriceDecision?.confirmedAt)) push(errors, "ownerPriceDecision.confirmedAt", "必须保存主人保留价格的确认时间");
+  if (systemPath && (!validMoney(record.ownerPriceDecision?.price) || record.ownerPriceDecision.price.amount !== record.currentPrice?.amount || record.ownerPriceDecision.price.currency !== record.currentPrice?.currency)) {
+    push(errors, "ownerPriceDecision.price", "授权价格与独立回读不一致");
+  }
+  return { valid: errors.length === 0, errors };
+}
+
+export function validateSystemCreatedVerificationRecord(record, productionRecord) {
+  const errors = [...validateEVerificationRecord(record).errors];
+  const source = validateProductionRecord(productionRecord);
+  for (const item of source.errors) errors.push({ path: `productionRecord.${item.path}`, message: item.message });
+  if (source.valid && isObject(record)) {
+    if (record.verificationPath !== "system_created" || record.sourceRecordId !== productionRecord.productionRecordId) push(errors, "sourceRecordId", "必须属于当前系统生产记录");
+    if (record.ownerPriceDecision?.decision === "authorized_platform_write_price" && record.ownerPriceDecision.authorizationId !== productionRecord.sourceAuthorizationId) push(errors, "ownerPriceDecision.authorizationId", "价格决定必须来自当前生产授权");
+    for (const field of systemCreatedReadbackGaps(productionRecord, record)) push(errors, field, "E记录与当前生产记录不一致");
+    if (!isoDate(record.verifiedAt) || Date.parse(record.verifiedAt) < Date.parse(productionRecord.createdAt)) push(errors, "verifiedAt", "独立回读不能早于生产记录");
   }
   return { valid: errors.length === 0, errors };
 }
@@ -122,8 +267,10 @@ function observedFields(observation) {
     moderationStatus: observation.moderationStatus || "unknown",
     validationStatus: observation.validationStatus || "unknown",
     saleStatus: String(observation.saleStatus || ""),
-    errors: observation.errors === "unknown" ? "unknown" : structuredClone(observation.errors || []),
-    platformEvidenceRef: String(observation.platformEvidenceRef || "")
+    errors: observation.errors == null ? "unknown" : structuredClone(observation.errors),
+    platformEvidenceRef: String(observation.platformEvidenceRef || ""),
+    ...(observation.mediaObservation ? { mediaObservation: structuredClone(observation.mediaObservation) } : {}),
+    ...(observation.inventoryObservation ? { inventoryObservation: structuredClone(observation.inventoryObservation) } : {})
   };
 }
 
@@ -168,11 +315,10 @@ export function verifyExternalListing({ externalListingRecord, verifiedObservati
 }
 
 export function verifySystemCreatedListing({ productionRecord, verifiedObservation, verifiedAt, ownerPriceDecision }) {
-  if (!isObject(productionRecord) || !nonEmpty(productionRecord.productionRecordId)) throw new Error("E_PRODUCTION_RECORD_REQUIRED: 系统创建路径必须存在ProductionRecord");
+  const gaps = systemCreatedReadbackGaps(productionRecord, verifiedObservation);
+  if (gaps.length) throw new Error(`E_SYSTEM_READBACK_INCOMPLETE: ${gaps.join(",")}`);
+  if (!isoDate(verifiedAt) || Date.parse(verifiedAt) < Date.parse(productionRecord.createdAt)) throw new Error("E_SYSTEM_READBACK_TIME_INVALID");
   const observed = observedFields(verifiedObservation);
-  if (String(productionRecord.platformProductId) !== observed.platformProductId || String(productionRecord.supplierSkuId) !== observed.supplierSkuId) {
-    throw new Error("E_READBACK_IDENTITY_MISMATCH: 平台商品或SKU与ProductionRecord不一致");
-  }
   const record = {
     schemaVersion: E_VERIFICATION_RECORD_VERSION,
     verificationId: `e-verification:${productionRecord.productionRecordId}:${fingerprint({ observed, verifiedAt }).slice(0, 12)}`,
@@ -183,9 +329,10 @@ export function verifySystemCreatedListing({ productionRecord, verifiedObservati
     createdByCurrentRun: true,
     verifiedAt,
     ...observed,
+    storeRef: structuredClone(verifiedObservation.storeRef), warehouseRef: verifiedObservation.warehouseRef, credentialAlias: verifiedObservation.credentialAlias,
     ownerPriceDecision: structuredClone(ownerPriceDecision)
   };
-  assertValid(validateEVerificationRecord(record), "EVerificationRecord");
+  assertValid(validateSystemCreatedVerificationRecord(record, productionRecord), "EVerificationRecord");
   return freeze(record);
 }
 

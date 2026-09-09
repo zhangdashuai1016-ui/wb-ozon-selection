@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "guoo-tariff-source-v1",
+  "ruleVersion": "guoo-2026-08-19",
+  "fileName": "GUOO产品资费测算表【2026.8.19更新】.xlsx",
+  "sourceDescription": "买货项目已保存的2026.8.19原表；按主人2026-09-09决定纳入本项目",
+  "adoptionBasis": "owner_selected_project_version",
+  "mainSheet": "GUOO realFBS资费试算表",
+  "calculationContractVersion": "guoo-realfbs-five-input-quote-v1",
+  "calculationScope": "仅主表五输入报价及其直接引用文字，不包含其他工作表独立费用",
+  "inputs": ["实际包装重量kg", "长度cm", "宽度cm", "高度cm", "目标成交价RUB"],
+  "selection": "比较表内适用线路，自动推荐最低价线路族；具体PUDO/Courier与仓库映射单独核实",
+  "officialLatestVerified": false,
+  "byteLength": 10645521,
+  "sha256": "42af104c091d6bae1ec09d59b3fa2fbfbb8bbba71433c971d83ada3d821a4278",
+  "digestPurpose": "detect accidental corruption",
+  "scope": "本项目GUOO新测算；不适用于WB/CEL或其他项目",
+  "historyPolicy": "已冻结利润、授权和历史记录保持原文件及版本引用；不得原地替换",
+  "unresolvedRules": "保留工作簿原文与冲突；版本选择不代替线路适用性、计费规则和完整费用证明"
+}

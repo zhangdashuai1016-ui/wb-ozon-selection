@@ -1,10 +1,28 @@
+import { sameStoreRef } from "./store-binding.mjs";
 import { validateAMarketAssessment } from "./market-sample-policy.mjs";
+import { validateProfitCalculation } from "./profit-model-calculation.mjs";
+import { MINIMUM_PROFIT_MARGIN, MINIMUM_UNIT_PROFIT_RMB, LEGACY_PROFIT_THRESHOLD_VERSION } from "./profit-threshold-policy.mjs";
+export { MINIMUM_PROFIT_MARGIN, MINIMUM_UNIT_PROFIT_RMB, CURRENT_PROFIT_THRESHOLD_VERSION, LEGACY_PROFIT_THRESHOLD_VERSION } from "./profit-threshold-policy.mjs";
+import {
+  assertFinalAssetLocation,
+  assertNoProductionSecrets,
+  collectProductionSecretErrors,
+  fingerprintCanonicalRecord
+} from "./production-contract-primitives.mjs";
+import { validateProductionAuthorizationPreparation, isProductionExecutionBinding } from "./production-authorization-preparation.mjs";
+import { validateC1SkuRightsReviewRecord } from "./c1-sku-rights-review.mjs";
+import { isAssetTransportPrewriteFailure } from "./production-execution-failure.mjs";
+
+export {
+  assertNoProductionSecrets,
+  fingerprintCanonicalRecord
+} from "./production-contract-primitives.mjs";
+export {
+  validateProductionAuthorizationPreparation,
+  validateProductionAuthorizationPreparation as validateC2ProductionAuthorizationPreparationRecord
+} from "./production-authorization-preparation.mjs";
 
 export const PRODUCT_LIFECYCLE_SCHEMA_VERSION = "product-lifecycle-v1.1";
-export const MINIMUM_PROFIT_MARGIN = 0.15;
-export const MINIMUM_UNIT_PROFIT_RMB = 20;
-export const CURRENT_PROFIT_THRESHOLD_VERSION = "profit-threshold-v1.2-15pct-or-20cny";
-export const LEGACY_PROFIT_THRESHOLD_VERSION = "profit-threshold-v1.1-25pct-20cny";
 
 export const ENTITY_TYPES = Object.freeze({
   OPPORTUNITY: "OpportunityPackage",
@@ -91,8 +109,77 @@ const TECHNICAL_FAILURES = new Set([
   "stopped"
 ]);
 
+const G1_IDENTITY_FIELDS = Object.freeze([
+  "schemaVersion", "candidateId", "skuPackageId", "platform", "storeRef", "supplierSkuId",
+  "merchantSku", "warehouseRef", "credentialAlias", "platformProductId"
+]);
+const STORE_REF_FIELDS = Object.freeze(["stableStoreId", "platformStoreId", "mappingVersion"]);
+const PRODUCTION_AUTHORIZATION_FIELDS = Object.freeze([
+  "schemaVersion", "authorizationId", "status", "confirmedBy", "confirmedByActorId", "confirmedAt",
+  "authorizedByActorId", "authorizedAt", "ownerDecisionId", "ownerConfirmation", "technicalAuthorization",
+  "ownerDecisionFingerprint", "ownerDecisionSnapshot",
+  "sourceConfirmationCardId", "sourcePreparationFingerprint", "sourceFinalCardInputFingerprint",
+  "sourceC1Fingerprint", "sourceCandidateRevision", "resultCandidateRevision", "authorizedDataRevision",
+  "resultDataRevision", "sourceIdentity", "identity", "lockedScope", "scopeExpansionAllowed",
+  "fieldMutationAllowed", "skuReplacementAllowed", "assetReplacementAllowed", "readPolicy",
+  "productionExecuted", "platformWrites"
+]);
+const SINGLE_OWNER_AUTHORIZATION_FIELDS = Object.freeze([...PRODUCTION_AUTHORIZATION_FIELDS.map(field => field === "technicalAuthorization" ? "ownerAuthorization" : field), "executionBinding"]);
+const OWNER_AUTHORIZATION_FIELDS = Object.freeze(["schemaVersion", "actorId", "actorType", "role", "source", "authorizedAt"]);
+const OWNER_CONFIRMATION_FIELDS = Object.freeze([
+  "schemaVersion", "decisionId", "actorId", "actorType", "role", "confirmedAt",
+  "sourcePreparationFingerprint", "sourceFinalCardInputFingerprint", "sourceC1Fingerprint",
+  "sourceCandidateRevision", "sourceSkuRevision", "ownerDecisionFingerprint"
+]);
+const TECHNICAL_AUTHORIZATION_FIELDS = Object.freeze([
+  "schemaVersion", "actorId", "actorType", "role", "authorizedAt"
+]);
+const OWNER_DECISION_SNAPSHOT_FIELDS = Object.freeze([
+  "schemaVersion", "decisionId", "sourceConfirmationCardId", "sourcePreparationFingerprint",
+  "sourceFinalCardInputFingerprint", "sourceC1Fingerprint", "sourceCandidateRevision", "sourceSkuRevision",
+  "identity", "buyerTargetPrice", "platformWritePrice", "priceConversion", "stock", "publishScope",
+  "allowedWriteFields", "exclusions", "mediaRequirementsFingerprint", "finalManifestSha256",
+  "finalUploadsFingerprint", "mainImageAssetId", "videoDisposition", "effectiveVideoRequirement"
+]);
+const SINGLE_OWNER_DECISION_SNAPSHOT_FIELDS = Object.freeze([...OWNER_DECISION_SNAPSHOT_FIELDS, "executionBinding"]);
+const PRODUCTION_EXECUTION_BINDING_FIELDS = Object.freeze(["bindingId", "configurationVersion", "warehouseId"]);
+const LOCKED_SCOPE_FIELDS = Object.freeze([
+  "candidateId", "skuPackageId", "variantKey", "platform", "storeRef", "merchantSku", "supplierSkuId",
+  "warehouseRef", "credentialAlias", "schemaRevision", "schemaEvidenceRef", "schemaEvidenceVersion",
+  "activeProfitModelVersion", "buyerTargetPrice", "platformWritePrice", "priceConversion", "stock",
+  "mediaRequirementsFingerprint", "finalManifestVersion", "finalManifestSha256", "finalUploadsFingerprint",
+  "mainImageAssetId", "videoDisposition", "effectiveVideoRequirement", "finalUploads",
+  "finalCardInputSnapshot", "publishScope", "allowedWriteFields", "exclusions"
+]);
+const FINAL_CARD_FIELDS = Object.freeze([
+  "schemaVersion", "skuPackageId", "sourceDataRevision", "resultDataRevision", "sourceC1Fingerprint",
+  "identity", "variantKey", "inheritedSalesSnapshotRefs", "selectedSupplySnapshot",
+  "activeProfitModelVersion", "activeProfitModel", "c1Snapshot", "canonicalC1"
+]);
+const FINAL_UPLOAD_FIELDS = Object.freeze([
+  "assetId", "mediaType", "assetRef", "fileName", "assetVersion", "sha256", "sourceEvidenceRef",
+  "stableUrlEvidenceRef", "usageAuthorization", "sourceType", "order", "role", "slotId", "byteSize",
+  "width", "height", "addedAt", "lifecycleArea", "ownerConfirmed", "productionEligible"
+]);
+const D_HANDOFF_FIELDS = Object.freeze([
+  "schemaVersion", "handoffId", "status", "candidateId", "skuPackageId", "identity", "variantKey",
+  "productionAuthorizationId", "ownerDecisionId", "sourcePreparationFingerprint",
+  "sourceFinalCardInputFingerprint", "sourceCandidateRevision", "resultCandidateRevision",
+  "sourceSkuRevision", "resultSkuRevision", "createdAt", "uniqueOwner", "productionPlanCreated",
+  "executionIntentCreated", "softwareJobCreated", "dWritePermissionGranted", "externalRequests", "platformWrites"
+]);
+const PRODUCTION_WRITE_FIELDS = new Set([
+  "create_product", "title", "description", "attributes", "price", "stock", "assets.finalUploads", "publish_scope"
+]);
+const PLACEHOLDER_VALUES = new Set(["unknown", "null", "undefined", "not_applicable"]);
+const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasExactKeys(value, fields) {
+  return isObject(value) && JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...fields].sort());
 }
 
 function isNonEmptyString(value) {
@@ -137,6 +224,46 @@ function requireObject(value, path, errors) {
 
 function requireString(value, path, errors) {
   if (!isNonEmptyString(value)) push(errors, path, "必须是非空字符串");
+}
+
+function validateDAssetTransportGate(value, errors) {
+  if (value === undefined || value === null) return;
+  if (!isObject(value)) {
+    push(errors, "dAssetTransport", "必须是对象或null");
+    return;
+  }
+  if (value.schemaVersion !== "aliyun-oss-d-asset-state-v1") {
+    push(errors, "dAssetTransport.schemaVersion", "必须使用aliyun-oss-d-asset-state-v1");
+  }
+  if (!["in_flight", "verified", "unknown_outcome", "failed"].includes(value.status)) {
+    push(errors, "dAssetTransport.status", "必须是in_flight、verified、unknown_outcome或failed");
+  }
+  if (value.automaticRetry !== false) push(errors, "dAssetTransport.automaticRetry", "OSS素材传输禁止自动重试");
+  if (value.platformWrites !== 0) push(errors, "dAssetTransport.platformWrites", "OSS素材传输不得产生平台写入");
+  if (!isObject(value.intent) || value.intent.schemaVersion !== "aliyun-oss-d-asset-integration-v1") {
+    push(errors, "dAssetTransport.intent", "必须保存绑定当前授权的一次性OSS传输意图");
+  }
+  if (value.status === "in_flight" && value.intent?.status !== "in_flight") {
+    push(errors, "dAssetTransport.intent.status", "执行中状态必须对应已持久化的in_flight意图");
+  }
+  if (value.status === "verified") {
+    if (value.intent?.status !== "completed") push(errors, "dAssetTransport.intent.status", "验证完成后意图必须为completed");
+    if (!isObject(value.assetTransport) || value.assetTransport.status !== "verified" ||
+        value.assetTransport.mode !== "preapproved_stable_https" || !isNonEmptyString(value.assetTransport.evidenceRef) ||
+        !Array.isArray(value.assetTransport.resolvedAssets) || value.assetTransport.resolvedAssets.length === 0) {
+      push(errors, "dAssetTransport.assetTransport", "必须保存已独立验证的稳定HTTPS素材证据");
+    }
+  }
+  if (value.status === "unknown_outcome") {
+    if (value.intent?.status !== "unknown_outcome") push(errors, "dAssetTransport.intent.status", "结果未知时意图必须同步为unknown_outcome");
+    if (value.assetTransport !== null) push(errors, "dAssetTransport.assetTransport", "结果未知时不得保存可用于生产的素材证据");
+  }
+  if (value.status === "failed" && (value.intent?.status !== "failed" || value.intent.ossWrites !== 0 ||
+      value.intent.externalRequestState !== "not_attempted" ||
+      !isAssetTransportPrewriteFailure({ layer: value.intent.failureLayer, code: value.intent.failureCode }) ||
+      !isNonEmptyString(value.intent.failureCode) || value.assetTransport !== null)) {
+    push(errors, "dAssetTransport.intent", "配置前检失败必须保存未尝试上传和零写入，不得有可用素材回执");
+  }
 }
 
 function requireEnum(value, values, path, errors) {
@@ -240,7 +367,16 @@ function validateProfitModels(pkg, errors) {
     if (Number.isFinite(model.recommendedSalePriceCny) && model.recommendedSalePriceCny <= 0) {
       push(errors, `${path}.recommendedSalePriceCny`, "建议成交价必须大于0");
     }
-    if (Number.isFinite(model.recommendedSalePriceCny) && Number.isFinite(model.unitProfitRmb) && Number.isFinite(model.profitMargin)) {
+    if (model.calculation?.version === "profit-calculation-v3-cost-policy-snapshot") {
+      const context = model.otherCosts?.costPolicyContext;
+      if (context?.platform !== pkg.targetPlatform || context?.store !== pkg.targetStore ||
+          !sameStoreRef(context?.storeRef, pkg.g1Identity?.storeRef)) {
+        push(errors, `${path}.otherCosts.costPolicyContext`, "成本政策必须属于父SKU的同一平台、店铺和完整店铺身份");
+      }
+    }
+    if (Object.hasOwn(model, "calculation")) {
+      for (const entry of validateProfitCalculation(model)) push(errors, `${path}.${entry.path}`, entry.message);
+    } else if (Number.isFinite(model.recommendedSalePriceCny) && Number.isFinite(model.unitProfitRmb) && Number.isFinite(model.profitMargin)) {
       const expectedMargin = model.unitProfitRmb / model.recommendedSalePriceCny;
       if (Math.abs(model.profitMargin - expectedMargin) > 0.0001) {
         push(errors, `${path}.profitMargin`, "必须等于单件利润除以建议成交价人民币");
@@ -333,26 +469,342 @@ function validateC2AssetLifecycleGate(value, errors) {
   }
 }
 
+function validateG1Identity(identity, pkg, errors, path = "g1Identity") {
+  if (!isObject(identity)) {
+    push(errors, path, "必须保存完整G1身份");
+    return;
+  }
+  if (identity.schemaVersion !== "g1-identity-v1") push(errors, `${path}.schemaVersion`, "必须使用g1-identity-v1");
+  for (const field of ["candidateId", "skuPackageId", "platform", "supplierSkuId", "merchantSku", "warehouseRef", "credentialAlias", "platformProductId"]) {
+    if (!isNonEmptyString(identity[field]) || ["unknown", "null", "undefined"].includes(identity[field])) push(errors, `${path}.${field}`, "必须是明确身份值");
+  }
+  if (!isObject(identity.storeRef)) {
+    push(errors, `${path}.storeRef`, "必须是稳定结构化店铺引用");
+  } else {
+    for (const field of ["stableStoreId", "platformStoreId", "mappingVersion"]) {
+      if (!isNonEmptyString(identity.storeRef[field]) || ["unknown", "null", "undefined", "not_applicable"].includes(identity.storeRef[field])) {
+        push(errors, `${path}.storeRef.${field}`, "必须是明确店铺身份值");
+      }
+    }
+  }
+  if (identity.skuPackageId !== pkg.skuPackageId) push(errors, `${path}.skuPackageId`, "必须与SKU生命周期一致");
+  if (pkg.g1Identity?.candidateId && identity.candidateId !== pkg.g1Identity.candidateId) push(errors, `${path}.candidateId`, "必须与G1候选身份一致");
+  if (identity.platform !== pkg.targetPlatform) push(errors, `${path}.platform`, "必须与目标平台一致");
+  if (identity.storeRef?.stableStoreId !== pkg.targetStore) push(errors, `${path}.storeRef.stableStoreId`, "必须与目标店铺一致");
+  if (identity.supplierSkuId !== pkg.supplierSkuId) push(errors, `${path}.supplierSkuId`, "供应SKU不得替换");
+}
+
+function validateExactObject(value, fields, path, errors) {
+  if (!isObject(value)) {
+    push(errors, path, "必须是对象");
+    return false;
+  }
+  if (!hasExactKeys(value, fields)) push(errors, path, "字段必须与唯一公共合同完全一致，禁止缺失或额外字段");
+  return true;
+}
+
+function validateAuthorizationG1(identity, path, errors, { source = false } = {}) {
+  if (!validateExactObject(identity, G1_IDENTITY_FIELDS, path, errors)) return;
+  if (identity.schemaVersion !== "g1-identity-v1") push(errors, `${path}.schemaVersion`, "必须使用g1-identity-v1");
+  for (const field of ["candidateId", "skuPackageId", "platform", "supplierSkuId", "merchantSku", "warehouseRef", "credentialAlias", "platformProductId"]) {
+    if (!isNonEmptyString(identity[field]) || (field !== "merchantSku" && field !== "warehouseRef" && field !== "credentialAlias" && field !== "platformProductId" && PLACEHOLDER_VALUES.has(String(identity[field]).toLowerCase())) ||
+        (["merchantSku", "warehouseRef", "credentialAlias", "platformProductId"].includes(field) && ["unknown", "null", "undefined"].includes(String(identity[field]).toLowerCase()))) push(errors, `${path}.${field}`, "必须是明确身份值");
+  }
+  if (!validateExactObject(identity.storeRef, STORE_REF_FIELDS, `${path}.storeRef`, errors)) return;
+  for (const field of STORE_REF_FIELDS) {
+    if (!isNonEmptyString(identity.storeRef[field]) || PLACEHOLDER_VALUES.has(String(identity.storeRef[field]).toLowerCase())) push(errors, `${path}.storeRef.${field}`, "必须是明确店铺身份值");
+  }
+  if (source) {
+    for (const field of ["merchantSku", "warehouseRef", "credentialAlias", "platformProductId"]) {
+      if (identity[field] !== "not_applicable") push(errors, `${path}.${field}`, "C2源身份尚不得包含生产身份值");
+    }
+  } else {
+    for (const field of ["merchantSku", "warehouseRef", "credentialAlias"]) {
+      if (PLACEHOLDER_VALUES.has(String(identity[field]).toLowerCase())) push(errors, `${path}.${field}`, "授权身份必须由主人明确锁定");
+    }
+  }
+}
+
+function validateMoney(value, currency, path, errors) {
+  if (!validateExactObject(value, ["amount", "currency"], path, errors)) return;
+  if (!Number.isFinite(value.amount) || value.amount <= 0) push(errors, `${path}.amount`, "必须是正数");
+  if (value.currency !== currency) push(errors, `${path}.currency`, `必须是${currency}`);
+}
+
+function validateFinalUploads(finalUploads, lockedScope, errors) {
+  if (!Array.isArray(finalUploads) || finalUploads.length === 0) {
+    push(errors, "productionAuthorization.lockedScope.finalUploads", "必须锁定至少一个最终素材");
+    return;
+  }
+  const ids = new Set();
+  let mainCount = 0;
+  let videoCount = 0;
+  finalUploads.forEach((asset, index) => {
+    const path = `productionAuthorization.lockedScope.finalUploads[${index}]`;
+    if (!validateExactObject(asset, FINAL_UPLOAD_FIELDS, path, errors)) return;
+    for (const field of ["assetId", "assetRef", "fileName", "assetVersion", "sha256", "sourceEvidenceRef", "stableUrlEvidenceRef", "role", "slotId", "addedAt"]) {
+      if (!isNonEmptyString(asset[field])) push(errors, `${path}.${field}`, "必须是非空字符串");
+    }
+    if (!SHA256_PATTERN.test(String(asset.sha256 || ""))) push(errors, `${path}.sha256`, "必须是SHA256");
+    if (!["image", "video"].includes(asset.mediaType)) push(errors, `${path}.mediaType`, "必须是image或video");
+    if (asset.sourceType !== "owner_provided_final_upload" || asset.lifecycleArea !== "finalUploads" || asset.ownerConfirmed !== true || asset.productionEligible !== true) {
+      push(errors, path, "只允许主人确认的finalUploads素材");
+    }
+    if (!hasExactKeys(asset.usageAuthorization, ["status", "evidenceRef"]) || asset.usageAuthorization?.status !== "owner_authorized_for_listing" || !isNonEmptyString(asset.usageAuthorization?.evidenceRef)) {
+      push(errors, `${path}.usageAuthorization`, "必须保存主人上架用途授权");
+    }
+    for (const field of ["byteSize", "width", "height"]) {
+      if (asset[field] !== null && (!Number.isFinite(asset[field]) || asset[field] < 0)) push(errors, `${path}.${field}`, "必须是非负数或null");
+    }
+    if (!isIsoDateTime(asset.addedAt)) push(errors, `${path}.addedAt`, "必须是有效时间");
+    if (!Number.isInteger(asset.order) || asset.order !== index + 1) push(errors, `${path}.order`, "素材顺序必须从1连续递增");
+    if (ids.has(asset.assetId)) push(errors, `${path}.assetId`, "assetId不得重复");
+    ids.add(asset.assetId);
+    if (asset.role === "main_image") mainCount += 1;
+    if (asset.mediaType === "video") videoCount += 1;
+    try {
+      assertFinalAssetLocation(asset, path);
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.startsWith("C2_")) throw error;
+      push(errors, `${path}.assetRef`, "必须是登记的不可变本地素材或有证据的稳定HTTPS素材");
+    }
+  });
+  if (mainCount !== 1 || !ids.has(lockedScope.mainImageAssetId) || finalUploads.find((asset) => asset.role === "main_image")?.assetId !== lockedScope.mainImageAssetId) {
+    push(errors, "productionAuthorization.lockedScope.mainImageAssetId", "必须且只能锁定一个首图");
+  }
+  if (lockedScope.videoDisposition === "includes_video" && videoCount === 0) push(errors, "productionAuthorization.lockedScope.videoDisposition", "声明包含视频时必须有视频素材");
+  if (lockedScope.videoDisposition === "excludes_video" && videoCount > 0) push(errors, "productionAuthorization.lockedScope.videoDisposition", "声明排除视频时不得夹带视频素材");
+  if (lockedScope.effectiveVideoRequirement?.status === "required" && lockedScope.videoDisposition !== "includes_video") {
+    push(errors, "productionAuthorization.lockedScope.effectiveVideoRequirement", "条件视频为required时必须锁定视频");
+  }
+}
+
+export function validateProductionAuthorizationRecord(value, context = {}) {
+  const errors = [];
+  const path = "productionAuthorization";
+  const singleOwner = value?.schemaVersion === "production-authorization-v1.2";
+  if (!validateExactObject(value, singleOwner ? SINGLE_OWNER_AUTHORIZATION_FIELDS : PRODUCTION_AUTHORIZATION_FIELDS, path, errors)) return { valid: false, errors };
+  if (!["production-authorization-v1.1", "production-authorization-v1.2"].includes(value.schemaVersion)) push(errors, `${path}.schemaVersion`, "必须使用已发布的生产授权版本");
+  if (value.status !== "confirmed" || value.confirmedBy !== "owner") push(errors, `${path}.status`, "必须保存独立主人确认");
+  for (const field of ["authorizationId", "confirmedByActorId", "authorizedByActorId", "ownerDecisionId", "sourceConfirmationCardId"]) {
+    if (!isNonEmptyString(value[field])) push(errors, `${path}.${field}`, "必须是非空字符串");
+  }
+  for (const field of ["confirmedAt", "authorizedAt"]) if (!isIsoDateTime(value[field])) push(errors, `${path}.${field}`, "必须是有效时间");
+  for (const field of ["sourcePreparationFingerprint", "sourceFinalCardInputFingerprint", "sourceC1Fingerprint"]) {
+    if (!SHA256_PATTERN.test(String(value[field] || ""))) push(errors, `${path}.${field}`, "必须是SHA256");
+  }
+  for (const field of ["sourceCandidateRevision", "resultCandidateRevision", "authorizedDataRevision", "resultDataRevision"]) {
+    if (!isNonNegativeInteger(value[field])) push(errors, `${path}.${field}`, "必须是非负修订号");
+  }
+  if (value.resultCandidateRevision !== value.sourceCandidateRevision + 1 || value.resultDataRevision !== value.authorizedDataRevision + 1) push(errors, `${path}.resultDataRevision`, "candidate与SKU修订必须单步递增");
+
+  if (validateExactObject(value.ownerConfirmation, OWNER_CONFIRMATION_FIELDS, `${path}.ownerConfirmation`, errors)) {
+    const owner = value.ownerConfirmation;
+    if (owner.schemaVersion !== (singleOwner ? "production-owner-confirmation-v2" : "production-owner-confirmation-v1") || owner.actorType !== "human" || owner.role !== "owner") push(errors, `${path}.ownerConfirmation`, "必须是独立human-owner确认记录");
+    if (!isNonEmptyString(owner.actorId) || owner.actorId !== value.confirmedByActorId || owner.decisionId !== value.ownerDecisionId || owner.confirmedAt !== value.confirmedAt) push(errors, `${path}.ownerConfirmation`, "主人身份、决定与时间必须和授权同源");
+    if (owner.sourcePreparationFingerprint !== value.sourcePreparationFingerprint || owner.sourceFinalCardInputFingerprint !== value.sourceFinalCardInputFingerprint || owner.sourceC1Fingerprint !== value.sourceC1Fingerprint || owner.sourceCandidateRevision !== value.sourceCandidateRevision || owner.sourceSkuRevision !== value.authorizedDataRevision || owner.ownerDecisionFingerprint !== value.ownerDecisionFingerprint) push(errors, `${path}.ownerConfirmation`, "主人确认必须锁定完整决定、同一preparation和当前revision");
+  }
+  if (singleOwner) {
+    if (validateExactObject(value.ownerAuthorization, OWNER_AUTHORIZATION_FIELDS, `${path}.ownerAuthorization`, errors)) {
+      const owner = value.ownerAuthorization;
+      if (owner.schemaVersion !== "production-owner-authorization-v1" || owner.actorType !== "human" || owner.role !== "owner" ||
+          owner.source !== "authenticated_identity_provider") push(errors, `${path}.ownerAuthorization`, "必须是本次已认证主人的准确生产授权");
+      if (owner.actorId !== value.confirmedByActorId || owner.actorId !== value.authorizedByActorId || owner.authorizedAt !== value.authorizedAt ||
+          value.confirmedAt !== value.authorizedAt) push(errors, `${path}.ownerAuthorization`, "一次主人确认必须使用同一身份和时间");
+    }
+  } else {
+    if (validateExactObject(value.technicalAuthorization, TECHNICAL_AUTHORIZATION_FIELDS, `${path}.technicalAuthorization`, errors)) {
+      const technical = value.technicalAuthorization;
+      if (technical.schemaVersion !== "production-technical-authorization-v1" || technical.actorType !== "human" || technical.role !== "production_authorizer") push(errors, `${path}.technicalAuthorization`, "旧版本必须保持原技术授权记录");
+      if (!isNonEmptyString(technical.actorId) || technical.actorId !== value.authorizedByActorId || technical.authorizedAt !== value.authorizedAt) push(errors, `${path}.technicalAuthorization`, "旧技术授权身份与时间必须同源");
+    }
+    if (value.confirmedByActorId === value.authorizedByActorId) push(errors, `${path}.authorizedByActorId`, "旧版本主人确认者与技术授权者必须是独立人员");
+    if (isIsoDateTime(value.confirmedAt) && isIsoDateTime(value.authorizedAt) && Date.parse(value.confirmedAt) > Date.parse(value.authorizedAt)) {
+      push(errors, `${path}.authorizedAt`, "旧技术授权不得早于主人确认");
+    }
+  }
+
+  if (singleOwner && validateExactObject(value.executionBinding, PRODUCTION_EXECUTION_BINDING_FIELDS, `${path}.executionBinding`, errors)) {
+    const binding = value.executionBinding;
+    if (!isProductionExecutionBinding(binding)) {
+      push(errors, `${path}.executionBinding`, "必须锁定本次配置选择、版本和精确平台仓库ID");
+    }
+  }
+  const ownerSnapshot = value.ownerDecisionSnapshot;
+  if (validateExactObject(ownerSnapshot, singleOwner ? SINGLE_OWNER_DECISION_SNAPSHOT_FIELDS : OWNER_DECISION_SNAPSHOT_FIELDS, `${path}.ownerDecisionSnapshot`, errors)) {
+    if (ownerSnapshot.schemaVersion !== (singleOwner ? "production-owner-decision-snapshot-v2" : "production-owner-decision-snapshot-v1") || ownerSnapshot.decisionId !== value.ownerDecisionId ||
+        ownerSnapshot.sourceConfirmationCardId !== value.sourceConfirmationCardId || ownerSnapshot.sourcePreparationFingerprint !== value.sourcePreparationFingerprint ||
+        ownerSnapshot.sourceFinalCardInputFingerprint !== value.sourceFinalCardInputFingerprint || ownerSnapshot.sourceC1Fingerprint !== value.sourceC1Fingerprint ||
+        ownerSnapshot.sourceCandidateRevision !== value.sourceCandidateRevision || ownerSnapshot.sourceSkuRevision !== value.authorizedDataRevision) {
+      push(errors, `${path}.ownerDecisionSnapshot`, "主人决定身份、卡片、fingerprint与revision必须同源");
+    }
+    if (singleOwner && !sameJson(ownerSnapshot.executionBinding, value.executionBinding)) push(errors, `${path}.executionBinding`, "实际执行绑定必须属于主人本次确认范围");
+    if (!SHA256_PATTERN.test(String(value.ownerDecisionFingerprint || "")) || fingerprintCanonicalRecord(ownerSnapshot) !== value.ownerDecisionFingerprint) {
+      push(errors, `${path}.ownerDecisionFingerprint`, "主人完整决定指纹不一致");
+    }
+  }
+
+  validateAuthorizationG1(value.sourceIdentity, `${path}.sourceIdentity`, errors, { source: true });
+  validateAuthorizationG1(value.identity, `${path}.identity`, errors);
+  if (isObject(value.sourceIdentity) && isObject(value.identity)) {
+    for (const field of ["schemaVersion", "candidateId", "skuPackageId", "platform", "storeRef", "supplierSkuId", "platformProductId"]) {
+      if (!sameJson(value.sourceIdentity[field], value.identity[field])) push(errors, `${path}.identity.${field}`, "授权身份只能补充merchantSku、warehouseRef和credentialAlias");
+    }
+  }
+
+  const scope = value.lockedScope;
+  if (validateExactObject(scope, LOCKED_SCOPE_FIELDS, `${path}.lockedScope`, errors)) {
+    for (const field of ["candidateId", "skuPackageId", "variantKey", "platform", "merchantSku", "supplierSkuId", "warehouseRef", "credentialAlias", "schemaRevision", "schemaEvidenceRef", "schemaEvidenceVersion", "activeProfitModelVersion", "mainImageAssetId"]) {
+      if (!isNonEmptyString(scope[field])) push(errors, `${path}.lockedScope.${field}`, "必须是非空字符串");
+    }
+    if (!sameJson(scope.storeRef, value.identity?.storeRef) || scope.candidateId !== value.identity?.candidateId || scope.skuPackageId !== value.identity?.skuPackageId || scope.platform !== value.identity?.platform || scope.supplierSkuId !== value.identity?.supplierSkuId || scope.merchantSku !== value.identity?.merchantSku || scope.warehouseRef !== value.identity?.warehouseRef || scope.credentialAlias !== value.identity?.credentialAlias) push(errors, `${path}.lockedScope`, "身份、平台、结构化店铺与SKU必须同源");
+    validateMoney(scope.buyerTargetPrice, "RUB", `${path}.lockedScope.buyerTargetPrice`, errors);
+    validateMoney(scope.platformWritePrice, "CNY", `${path}.lockedScope.platformWritePrice`, errors);
+    if (validateExactObject(scope.priceConversion, ["rubPerCny", "evidenceRef", "checkedAt"], `${path}.lockedScope.priceConversion`, errors)) {
+      if (!Number.isFinite(scope.priceConversion.rubPerCny) || scope.priceConversion.rubPerCny <= 0 || !isNonEmptyString(scope.priceConversion.evidenceRef) || !isIsoDateTime(scope.priceConversion.checkedAt)) push(errors, `${path}.lockedScope.priceConversion`, "必须锁定有效汇率证据");
+      const converted = scope.buyerTargetPrice?.amount / scope.priceConversion.rubPerCny;
+      if (Number.isFinite(converted) && Math.abs(converted - scope.platformWritePrice?.amount) > 0.02) push(errors, `${path}.lockedScope.priceConversion`, "RUB/CNY价格换算不一致");
+    }
+    if (!Number.isInteger(scope.stock) || scope.stock < 0) push(errors, `${path}.lockedScope.stock`, "必须由主人明确锁定非负整数库存");
+    for (const field of ["mediaRequirementsFingerprint", "finalManifestSha256", "finalUploadsFingerprint"]) if (!SHA256_PATTERN.test(String(scope[field] || ""))) push(errors, `${path}.lockedScope.${field}`, "必须是SHA256");
+    if (scope.finalManifestVersion !== "c2-final-manifest-v1") push(errors, `${path}.lockedScope.finalManifestVersion`, "必须使用c2-final-manifest-v1");
+    if (!["includes_video", "excludes_video"].includes(scope.videoDisposition)) push(errors, `${path}.lockedScope.videoDisposition`, "视频处置无效");
+    if (!hasExactKeys(scope.effectiveVideoRequirement, ["status", "requiredBy", "evidenceRefs"]) || !["required", "not_required"].includes(scope.effectiveVideoRequirement?.status) || !isNonEmptyString(scope.effectiveVideoRequirement?.requiredBy) || !Array.isArray(scope.effectiveVideoRequirement?.evidenceRefs)) push(errors, `${path}.lockedScope.effectiveVideoRequirement`, "必须锁定条件视频要求");
+    validateFinalUploads(scope.finalUploads, scope, errors);
+    if (!validateExactObject(scope.finalCardInputSnapshot, FINAL_CARD_FIELDS, `${path}.lockedScope.finalCardInputSnapshot`, errors)) {
+      // Exact shape error already recorded.
+    } else {
+      const card = scope.finalCardInputSnapshot;
+      validateAuthorizationG1(card.identity, `${path}.lockedScope.finalCardInputSnapshot.identity`, errors, { source: true });
+      if (card.schemaVersion !== "c2-final-card-input-snapshot-v1" || card.skuPackageId !== scope.skuPackageId || card.variantKey !== scope.variantKey || card.sourceC1Fingerprint !== value.sourceC1Fingerprint || card.resultDataRevision !== value.authorizedDataRevision || card.sourceDataRevision + 1 !== card.resultDataRevision || card.activeProfitModelVersion !== scope.activeProfitModelVersion || card.activeProfitModel?.result !== "passed" || !sameJson(card.identity, value.sourceIdentity)) push(errors, `${path}.lockedScope.finalCardInputSnapshot`, "最终卡、身份、利润与revision必须同源");
+      if (singleOwner && (card.activeProfitModel?.commissionMode !== "exact" ||
+          scope.buyerTargetPrice?.amount !== card.activeProfitModel?.recommendedSalePriceRub || scope.platformWritePrice?.amount !== card.activeProfitModel?.recommendedSalePriceCny ||
+          !sameJson(scope.priceConversion, card.activeProfitModel?.priceConversion))) push(errors, `${path}.lockedScope.platformWritePrice`, "新版授权价格必须保持当前冻结精确利润方案，不得原地改价");
+      if (fingerprintCanonicalRecord(card) !== value.sourceFinalCardInputFingerprint) push(errors, `${path}.sourceFinalCardInputFingerprint`, "最终卡指纹不一致");
+      if (fingerprintCanonicalRecord({ g1Identity: card.identity, c1Snapshot: card.c1Snapshot }) !== value.sourceC1Fingerprint) push(errors, `${path}.sourceC1Fingerprint`, "C1指纹不一致");
+    }
+    if (fingerprintCanonicalRecord({ collected: [], aiDrafts: [], finalUploads: scope.finalUploads }) !== scope.finalUploadsFingerprint) push(errors, `${path}.lockedScope.finalUploadsFingerprint`, "finalUploads指纹不一致");
+    if (fingerprintCanonicalRecord({ schemaVersion: "c2-final-manifest-v1", mediaRequirementsFingerprint: scope.mediaRequirementsFingerprint, effectiveVideoRequirement: scope.effectiveVideoRequirement, mainImageAssetId: scope.mainImageAssetId, videoDisposition: scope.videoDisposition, assets: scope.finalUploads }) !== scope.finalManifestSha256) push(errors, `${path}.lockedScope.finalManifestSha256`, "最终素材清单指纹不一致");
+    if (!["create_draft_only", "create_and_allow_validation_moderation"].includes(scope.publishScope)) push(errors, `${path}.lockedScope.publishScope`, "授权范围无效");
+    if (!Array.isArray(scope.allowedWriteFields) || scope.allowedWriteFields.length === 0 || new Set(scope.allowedWriteFields).size !== scope.allowedWriteFields.length || scope.allowedWriteFields.some((field) => !PRODUCTION_WRITE_FIELDS.has(field))) push(errors, `${path}.lockedScope.allowedWriteFields`, "写字段必须非空、唯一且来自白名单");
+    if (!Array.isArray(scope.exclusions) || new Set(scope.exclusions).size !== scope.exclusions.length || scope.exclusions.some((field) => !isNonEmptyString(field))) push(errors, `${path}.lockedScope.exclusions`, "排除项必须是唯一非空字符串");
+    if (!sameJson(ownerSnapshot?.identity, value.identity) || !sameJson(ownerSnapshot?.buyerTargetPrice, scope.buyerTargetPrice) ||
+        !sameJson(ownerSnapshot?.platformWritePrice, scope.platformWritePrice) || !sameJson(ownerSnapshot?.priceConversion, scope.priceConversion) ||
+        ownerSnapshot?.stock !== scope.stock || ownerSnapshot?.publishScope !== scope.publishScope ||
+        !sameJson(ownerSnapshot?.allowedWriteFields, scope.allowedWriteFields) || !sameJson(ownerSnapshot?.exclusions, scope.exclusions) ||
+        ownerSnapshot?.mediaRequirementsFingerprint !== scope.mediaRequirementsFingerprint || ownerSnapshot?.finalManifestSha256 !== scope.finalManifestSha256 ||
+        ownerSnapshot?.finalUploadsFingerprint !== scope.finalUploadsFingerprint || ownerSnapshot?.mainImageAssetId !== scope.mainImageAssetId ||
+        ownerSnapshot?.videoDisposition !== scope.videoDisposition || !sameJson(ownerSnapshot?.effectiveVideoRequirement, scope.effectiveVideoRequirement)) {
+      push(errors, `${path}.ownerDecisionSnapshot`, "主人决定必须不可变锁定生产身份、价格、库存、范围与媒体条件");
+    }
+  }
+
+  if (value.scopeExpansionAllowed !== false || value.fieldMutationAllowed !== false || value.skuReplacementAllowed !== false || value.assetReplacementAllowed !== false) push(errors, path, "授权不得允许扩大、改字段、换SKU或换素材");
+  if (value.readPolicy !== "authorization_snapshot_only" || value.productionExecuted !== false || value.platformWrites !== 0) push(errors, `${path}.readPolicy`, "B1只能冻结授权快照，禁止D或平台写入");
+  collectProductionSecretErrors(value, path, errors);
+
+  const pkg = context.skuPackage;
+  if (isObject(pkg)) {
+    const preparation = pkg.c2FinalAssets?.productionAuthorizationPreparation;
+    if (!isObject(preparation)) {
+      push(errors, `${path}.sourcePreparationFingerprint`, "缺少真实C2 preparation时授权必须fail-closed");
+    } else {
+      try {
+        validateProductionAuthorizationPreparation({
+          preparation,
+          candidateId: value.identity?.candidateId,
+          skuPackage: pkg,
+          expectedSkuRevision: value.authorizedDataRevision
+        });
+      } catch (error) {
+        push(errors, `${path}.sourcePreparationFingerprint`, error.message);
+      }
+      if (value.sourcePreparationFingerprint !== preparation.preparationFingerprint || value.sourceFinalCardInputFingerprint !== preparation.finalCardInputFingerprint || value.sourceC1Fingerprint !== preparation.sourceC1Fingerprint || value.authorizedDataRevision !== preparation.resultDataRevision || !sameJson(value.sourceIdentity, preparation.finalCardInputSnapshot?.identity)) push(errors, `${path}.sourcePreparationFingerprint`, "必须与同一C2 preparation同源");
+      if (scope?.mediaRequirementsFingerprint !== preparation.mediaRequirementsFingerprint || scope?.finalManifestSha256 !== preparation.finalManifestSha256 || scope?.finalUploadsFingerprint !== preparation.finalUploadsFingerprint || scope?.mainImageAssetId !== preparation.mainImageAssetId || scope?.videoDisposition !== preparation.videoDisposition || !sameJson(scope?.effectiveVideoRequirement, preparation.effectiveVideoRequirement) || !sameJson(scope?.finalUploads, preparation.finalUploads) || !sameJson(scope?.finalCardInputSnapshot, preparation.finalCardInputSnapshot)) push(errors, `${path}.lockedScope`, "媒体、最终卡和preparation必须逐字段同源");
+      if (scope?.schemaRevision !== preparation.targetContext?.schemaRevision || scope?.schemaEvidenceRef !== preparation.targetContext?.schemaEvidenceRef || scope?.schemaEvidenceVersion !== preparation.targetContext?.schemaEvidenceVersion) push(errors, `${path}.lockedScope.schemaRevision`, "Schema证据必须来自同一preparation");
+    }
+    if (!sameJson(value.sourceIdentity, pkg.g1Identity) || scope?.candidateId !== pkg.g1Identity?.candidateId || scope?.skuPackageId !== pkg.skuPackageId || scope?.variantKey !== pkg.variantKey || scope?.platform !== pkg.targetPlatform || scope?.storeRef?.stableStoreId !== pkg.targetStore || scope?.supplierSkuId !== pkg.supplierSkuId) push(errors, `${path}.identity`, "必须与当前SKU生命周期G1身份同源");
+    const lifecycleState = context.lifecycleState || (pkg.productionAuthorization === value ? "persisted" : "source");
+    if (singleOwner && lifecycleState === "persisted") {
+      const card = pkg.productionConfirmationCard;
+      const decision = card?.ownerDecision;
+      if (card?.cardId !== value.sourceConfirmationCardId || card?.status !== "owner_business_approved" || !Number.isInteger(card?.cardRevision) || card.cardRevision < 2 ||
+          decision?.decisionId !== value.ownerDecisionId || decision?.selectedOption !== "approve_for_production_authorization" ||
+          decision?.ownerDecisionFingerprint !== value.ownerDecisionFingerprint || !sameJson(decision?.ownerConfirmation, value.ownerConfirmation) ||
+          !sameJson(decision?.executionBinding, value.executionBinding) ||
+          decision?.sourceConfirmationCardId !== value.sourceConfirmationCardId || decision?.sourcePreparationFingerprint !== value.sourcePreparationFingerprint ||
+          decision?.sourceFinalCardInputFingerprint !== value.sourceFinalCardInputFingerprint ||
+          ["merchantSku", "warehouseRef", "credentialAlias", "stock", "buyerTargetPrice", "platformWritePrice", "priceConversion", "publishScope", "allowedWriteFields", "exclusions"].some(field => !sameJson(decision?.[field], scope?.[field]))) {
+        push(errors, `${path}.ownerConfirmation`, "本次主人决定、准确范围、卡片与授权必须同一事务保存且不可漂移");
+      }
+    }
+    const expectedRevision = lifecycleState === "persisted" ? value.resultDataRevision : value.authorizedDataRevision;
+    if (pkg.dataRevision !== expectedRevision) push(errors, `${path}.resultDataRevision`, "必须绑定当前SKU revision");
+  }
+  if (context.candidateId !== undefined && value.identity?.candidateId !== context.candidateId) push(errors, `${path}.identity.candidateId`, "必须绑定当前candidateId");
+  if (context.candidateRevision !== undefined) {
+    const expectedRevision = context.lifecycleState === "persisted" ? value.resultCandidateRevision : value.sourceCandidateRevision;
+    if (context.candidateRevision !== expectedRevision) push(errors, `${path}.resultCandidateRevision`, "必须绑定当前candidate revision");
+  }
+  const expectedAuthorizationId = `production-auth:${value.identity?.skuPackageId}:${value.sourcePreparationFingerprint}:${value.ownerDecisionId}`;
+  if (value.authorizationId !== expectedAuthorizationId) push(errors, `${path}.authorizationId`, "授权ID必须确定性绑定SKU、preparation和主人决定");
+  const expectedConfirmationCardId = `final-plan-card:${value.identity?.skuPackageId}:${value.authorizedDataRevision}`;
+  if (value.sourceConfirmationCardId !== expectedConfirmationCardId) push(errors, `${path}.sourceConfirmationCardId`, "主人决定必须绑定当前C2最终确认卡");
+  return { valid: errors.length === 0, errors };
+}
+
 function validateProductionAuthorizationGate(value, pkg, errors) {
   if (!isObject(value)) return;
-  if (value.schemaVersion !== "production-authorization-v1.1") push(errors, "productionAuthorization.schemaVersion", "必须使用production-authorization-v1.1");
-  if (value.status !== "confirmed" || value.confirmedBy !== "owner") push(errors, "productionAuthorization.status", "必须由主人确认");
-  if (!isNonNegativeInteger(value.authorizedDataRevision)) push(errors, "productionAuthorization.authorizedDataRevision", "必须锁定数据修订号");
-  if (!isObject(value.lockedScope)) {
-    push(errors, "productionAuthorization.lockedScope", "必须存在锁定范围");
-  } else {
-    if (value.lockedScope.platform !== pkg.targetPlatform) push(errors, "productionAuthorization.lockedScope.platform", "平台与SKU生命周期不一致");
-    if (value.lockedScope.store !== pkg.targetStore) push(errors, "productionAuthorization.lockedScope.store", "店铺与SKU生命周期不一致");
-    if (value.lockedScope.skuPackageId !== pkg.skuPackageId) push(errors, "productionAuthorization.lockedScope.skuPackageId", "SKU生命周期ID不一致");
-    if (value.lockedScope.supplierSkuId !== pkg.supplierSkuId) push(errors, "productionAuthorization.lockedScope.supplierSkuId", "供应SKU不得替换");
-    if (value.lockedScope.stock !== 100) push(errors, "productionAuthorization.lockedScope.stock", "新品库存必须为100");
-    if (!Array.isArray(value.lockedScope.finalUploads) || value.lockedScope.finalUploads.length === 0) push(errors, "productionAuthorization.lockedScope.finalUploads", "必须锁定最终素材");
+  const result = validateProductionAuthorizationRecord(value, { skuPackage: pkg, candidateId: pkg.g1Identity?.candidateId, lifecycleState: "persisted" });
+  errors.push(...result.errors);
+}
+
+function validateDHandoff(value, pkg, errors) {
+  if (!isObject(value)) return;
+  const hasSoftwareJob = value.schemaVersion === "c2-d-handoff-v2";
+  validateExactObject(value, hasSoftwareJob ? [...D_HANDOFF_FIELDS, "softwareJobRef"] : D_HANDOFF_FIELDS, "dHandoff", errors);
+  if (hasSoftwareJob ? value.status !== "software_job_queued"
+    : value.schemaVersion !== "c2-d-handoff-v1" || value.status !== "awaiting_explicit_d_start") {
+    push(errors, "dHandoff.status", "必须明确区分历史交接与同笔创建的软件作业交接");
   }
-  if (value.scopeExpansionAllowed !== false || value.fieldMutationAllowed !== false || value.skuReplacementAllowed !== false || value.assetReplacementAllowed !== false) {
-    push(errors, "productionAuthorization", "授权不得允许扩大、改字段、换SKU或换素材");
+  for (const field of ["handoffId", "candidateId", "skuPackageId", "productionAuthorizationId", "ownerDecisionId", "sourcePreparationFingerprint", "sourceFinalCardInputFingerprint"]) {
+    if (!isNonEmptyString(value[field])) push(errors, `dHandoff.${field}`, "必须是非空字符串");
   }
-  if (value.readPolicy !== "authorization_snapshot_only") push(errors, "productionAuthorization.readPolicy", "D只能读取授权快照");
-  if (value.productionExecuted !== false || value.platformWrites !== 0) push(errors, "productionAuthorization.productionExecuted", "第12阶段不得执行D或平台写入");
+  for (const field of ["sourceCandidateRevision", "resultCandidateRevision", "sourceSkuRevision", "resultSkuRevision"]) {
+    if (!isNonNegativeInteger(value[field])) push(errors, `dHandoff.${field}`, "必须是非负修订号");
+  }
+  if (value.resultCandidateRevision !== value.sourceCandidateRevision + 1 || value.resultSkuRevision !== value.sourceSkuRevision + 1) push(errors, "dHandoff.resultSkuRevision", "交接修订必须单步递增");
+  if (value.skuPackageId !== pkg.skuPackageId || value.variantKey !== pkg.variantKey || value.resultSkuRevision !== pkg.dataRevision) push(errors, "dHandoff.skuPackageId", "SKU、variantKey或当前revision不一致");
+  validateG1Identity(value.identity, pkg, errors, "dHandoff.identity");
+  if (value.productionPlanCreated !== false || value.executionIntentCreated !== false || value.softwareJobCreated !== hasSoftwareJob ||
+      value.dWritePermissionGranted !== false || value.externalRequests !== 0 || value.platformWrites !== 0) {
+    push(errors, "dHandoff", "交接只记录授权与已声明的作业，不得宣称已执行外部动作");
+  }
+  const authorization = pkg.productionAuthorization;
+  if (!isObject(authorization) || value.productionAuthorizationId !== authorization.authorizationId ||
+      value.ownerDecisionId !== authorization.ownerDecisionId || value.sourcePreparationFingerprint !== authorization.sourcePreparationFingerprint ||
+      value.sourceFinalCardInputFingerprint !== authorization.sourceFinalCardInputFingerprint || !sameJson(value.identity, authorization.identity) ||
+      value.sourceCandidateRevision !== authorization.sourceCandidateRevision || value.resultCandidateRevision !== authorization.resultCandidateRevision ||
+      value.sourceSkuRevision !== authorization.authorizedDataRevision || value.resultSkuRevision !== authorization.resultDataRevision) {
+    push(errors, "dHandoff", "必须与同一事务生成的ProductionAuthorization完全绑定");
+  }
+  if (value.candidateId !== authorization?.identity?.candidateId || value.handoffId !== `d-handoff:${value.productionAuthorizationId}`) {
+    push(errors, "dHandoff.handoffId", "handoff身份与确定性ID必须绑定授权");
+  }
+  if (!isIsoDateTime(value.createdAt) || value.createdAt !== authorization?.authorizedAt || value.uniqueOwner !== "d_software") {
+    push(errors, "dHandoff.createdAt", "handoff时间与唯一D owner必须锁定同一ProductionAuthorization");
+  }
+  if (hasSoftwareJob) {
+    const ref = value.softwareJobRef;
+    validateExactObject(ref, ["jobId", "jobType", "candidateId", "skuPackageId", "sourceRevision", "resultRevision", "inputFingerprint"], "dHandoff.softwareJobRef", errors);
+    const fingerprint = isObject(authorization) ? fingerprintCanonicalRecord(authorization) : null;
+    if (!isObject(ref) || ref.jobType !== "d_production_execution" || ref.candidateId !== value.candidateId ||
+        ref.skuPackageId !== value.skuPackageId || ref.sourceRevision !== value.sourceCandidateRevision ||
+        ref.resultRevision !== value.resultCandidateRevision || ref.inputFingerprint !== fingerprint ||
+        ref.jobId !== `d-production-job:${fingerprint}`) {
+      push(errors, "dHandoff.softwareJobRef", "必须精确绑定同一PA的唯一D作业和冻结修订");
+    }
+  }
 }
 
 export function validateOpportunityPackage(pkg) {
@@ -397,16 +849,28 @@ export function validateSkuLifecyclePackage(pkg) {
   ]) {
     if (!isNonEmptyString(pkg[key])) push(errors, key, `${label}必须是非空字符串`);
   }
+  validateG1Identity(pkg.g1Identity, pkg, errors);
   requireArray(pkg.inheritedSalesSnapshotRefs, "inheritedSalesSnapshotRefs", errors);
   if (!isObject(pkg.selectedSupplySnapshot)) push(errors, "selectedSupplySnapshot", "必须保存已确认供应快照");
   if (!isObject(pkg.skuFacts)) push(errors, "skuFacts", "必须是对象");
   if (!isObject(pkg.c1ProductPlan) && pkg.c1ProductPlan !== null) push(errors, "c1ProductPlan", "必须是对象或null");
+  if (Object.hasOwn(pkg, "c1RightsReviewRecord")) {
+    const review = validateC1SkuRightsReviewRecord(pkg.c1RightsReviewRecord);
+    for (const code of review.errors) push(errors, "c1RightsReviewRecord", code);
+  }
   if (!isObject(pkg.c2FinalAssets) && pkg.c2FinalAssets !== null) push(errors, "c2FinalAssets", "必须是对象或null");
   if (isObject(pkg.c2FinalAssets)) validateC2AssetLifecycleGate(pkg.c2FinalAssets, errors);
   if (!isObject(pkg.productionAuthorization) && pkg.productionAuthorization !== null) {
     push(errors, "productionAuthorization", "必须是对象或null");
   }
   if (isObject(pkg.productionAuthorization)) validateProductionAuthorizationGate(pkg.productionAuthorization, pkg, errors);
+  if (!isObject(pkg.dHandoff) && pkg.dHandoff !== null && pkg.dHandoff !== undefined) {
+    push(errors, "dHandoff", "必须是对象或null");
+  }
+  if (isObject(pkg.dHandoff)) validateDHandoff(pkg.dHandoff, pkg, errors);
+  if (isObject(pkg.productionAuthorization) !== isObject(pkg.dHandoff)) {
+    push(errors, "dHandoff", "ProductionAuthorization与唯一D handoff必须同生同缺");
+  }
   if (!isObject(pkg.productionConfirmationCard) && pkg.productionConfirmationCard !== null && pkg.productionConfirmationCard !== undefined) {
     push(errors, "productionConfirmationCard", "必须是对象或null");
   }
@@ -415,11 +879,10 @@ export function validateSkuLifecyclePackage(pkg) {
       if (pkg.businessPhase !== "C2") push(errors, "businessPhase", "等待主人确认商品方案时必须停留在C2");
       if (pkg.productionAuthorization !== null) push(errors, "productionAuthorization", "商品方案确认前不得生成生产授权");
     }
-    if (pkg.productionConfirmationCard.status === "owner_business_approved" && !isObject(pkg.productionAuthorization)) {
-      push(errors, "productionAuthorization", "主人通过商品方案后必须存在对应授权对象");
-    }
+    // Owner approval can be saved before a different authorized person issues ProductionAuthorization.
   }
   if (!isObject(pkg.productionRecord) && pkg.productionRecord !== null) push(errors, "productionRecord", "必须是对象或null");
+  validateDAssetTransportGate(pkg.dAssetTransport, errors);
   if (!isObject(pkg.externalListingRecord) && pkg.externalListingRecord !== null) push(errors, "externalListingRecord", "必须是对象或null");
   if (!isObject(pkg.eVerificationRecord) && pkg.eVerificationRecord !== null) push(errors, "eVerificationRecord", "必须是对象或null");
   if (isObject(pkg.productionRecord) && isObject(pkg.externalListingRecord)) {

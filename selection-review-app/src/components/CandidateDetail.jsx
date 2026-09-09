@@ -6,15 +6,23 @@ import {
   USER_DECISION_LABELS
 } from "../constants";
 import { ExternalIcon } from "./Icons";
+import ExecutionRuntimeCard from "./ExecutionRuntimeCard";
+import DESoftwareRuntimeCard from "./DESoftwareRuntimeCard";
+import OzonAccountReadCard from "./OzonAccountReadCard";
 import LifecycleStatusCard from "./LifecycleStatusCard";
 import LifecycleEntryPreview from "./LifecycleEntryPreview";
+import KeywordSoftwareRuntimeCard from "./KeywordSoftwareRuntimeCard";
 import RealAConfirmationCard from "./RealAConfirmationCard";
 import StatusBadge from "./StatusBadge";
+import { safeWebUrl, safeImageUrl } from "../formState.js";
+import { formatMoney } from "../finiteDisplay.js";
+import { candidateRightsCompliancePresentation } from "../candidateViews.js";
 
 function Link({ href, children }) {
-  if (!href || href.startsWith("user-screenshot:") || href.startsWith("user-screenshot:")) return null;
+  const url = safeWebUrl(href);
+  if (!url) return null;
   return (
-    <a href={href} target="_blank" rel="noreferrer">
+    <a href={url} target="_blank" rel="noreferrer">
       {children} <ExternalIcon />
     </a>
   );
@@ -29,14 +37,15 @@ function ReviewList({ items }) {
   return <ul className="compact-list">{items.map((item) => <li key={typeof item === "string" ? item : item.label}>{typeof item === "string" ? item : item.label}</li>)}</ul>;
 }
 
-export default function CandidateDetail({ candidate, onRealAConfirm, realAConfirming = false }) {
+export default function CandidateDetail({ candidate, seerfarRuntime, onRealAConfirm, onContinueSavedDE, onAuthorizeAccountRead, onContinueAccountRead, realAConfirming = false }) {
   const dimensions = candidate.dimensionsCm || {};
+  const rightsCompliance = candidateRightsCompliancePresentation(candidate);
   return (
     <main className="candidate-detail">
       <section className="product-hero">
         <div className="product-image">
-          {candidate.imageUrl ? (
-            <img src={candidate.imageUrl} alt={candidate.productName} />
+          {safeImageUrl(candidate.imageUrl) ? (
+            <img src={safeImageUrl(candidate.imageUrl)} alt={candidate.productName} />
           ) : (
             <div className="image-placeholder">等待商品图片</div>
           )}
@@ -44,15 +53,15 @@ export default function CandidateDetail({ candidate, onRealAConfirm, realAConfir
         <div className="product-overview">
           <div className="title-line">
             <div>
-              <p className="product-id">{SOURCE_LABELS[candidate.source]} · {candidate.id}</p>
+              <p className="product-id">{SOURCE_LABELS[candidate.source] ?? candidate.source ?? "unknown"} · {candidate.id}</p>
               <h2>{candidate.productName}</h2>
             </div>
-            <StatusBadge status={candidate.workflowStatus} />
+            <StatusBadge status={candidate.workflowStatus} readback={candidate.eReadbackRuntimeView} />
           </div>
           <dl className="overview-grid">
-            <div><dt>目标店铺</dt><dd>{STORE_LABELS[candidate.targetStore]}</dd></div>
-            <div><dt>来源</dt><dd>{SOURCE_LABELS[candidate.source]}</dd></div>
-            <div><dt>采购到手总价（含国内运费）</dt><dd><Value value={candidate.purchasePriceRmb !== null ? `¥${candidate.purchasePriceRmb}` : null} /></dd></div>
+            <div><dt>目标店铺</dt><dd>{STORE_LABELS[candidate.targetStore] ?? candidate.targetStore ?? "unknown"}</dd></div>
+            <div><dt>来源</dt><dd>{SOURCE_LABELS[candidate.source] ?? candidate.source ?? "unknown"}</dd></div>
+            <div><dt>采购到手总价（含国内运费）</dt><dd><Value value={formatMoney(candidate.purchasePriceRmb)} /></dd></div>
             <div><dt>申报装箱重量/尺寸</dt><dd><Value value={candidate.packedWeightKg ? `${candidate.packedWeightKg}kg · ${dimensions.length || "?"}×${dimensions.width || "?"}×${dimensions.height || "?"}cm` : null} /></dd></div>
           </dl>
           <div className="link-row">
@@ -61,11 +70,25 @@ export default function CandidateDetail({ candidate, onRealAConfirm, realAConfir
             <Link href={candidate.competitorUrl}>打开俄区竞品</Link>
           </div>
           {candidate.notes ? <p className="product-note">{candidate.notes}</p> : null}
+          <ExecutionRuntimeCard runtime={candidate.executionRuntimeView} />
+          <KeywordSoftwareRuntimeCard candidate={candidate} runtimeStatus={seerfarRuntime} />
+          {candidate.ozonAccountReadPreparation ? <OzonAccountReadCard preparation={candidate.ozonAccountReadPreparation}
+            onAuthorize={onAuthorizeAccountRead} onContinue={onContinueAccountRead} /> : null}
+          <DESoftwareRuntimeCard runtime={candidate.dESoftwareRuntimeView} readback={candidate.eReadbackRuntimeView}
+            savedJobRuntime={candidate.dESavedJobRuntimeView}
+            onContinueSaved={onContinueSavedDE ? payload => onContinueSavedDE(candidate.id, payload) : null} />
           <LifecycleStatusCard candidate={candidate} />
           <LifecycleEntryPreview preview={candidate.lifecycleEntryPreview} />
+          {candidate.supplierImageSearchPreparation?.status === 'not_configured' ? (
+            <section className="inspector-section" aria-label="1688以图找货准备">
+              <h3>1688以图找货</h3>
+              <p role="status">图片搜索尚未就绪：页面操作规则和浏览器执行能力还未核验。</p>
+              <p>指定供应链接的详情采集是独立步骤。图搜结果仍需核实同款、具体规格、一件起订和单件成本，再由你确认供货方案。</p>
+            </section>
+          ) : null}
           {candidate.realAConfirmationCard ? (
             <RealAConfirmationCard
-              key={`${candidate.id}:${candidate.realAConfirmationCard.sourceDataRevision}`}
+              key={candidate.id}
               card={candidate.realAConfirmationCard}
               onSubmit={onRealAConfirm}
               disabled={realAConfirming}
@@ -77,10 +100,10 @@ export default function CandidateDetail({ candidate, onRealAConfirm, realAConfir
               <span>{candidate.selectionStage.nextAction || ""}</span>
             </div>
           ) : null}
-          {candidate.complianceStatus !== "clear" || candidate.authorizationStatus !== "clear" ? (
-            <div className="selection-stage stage-sourcePending">
-              <strong>IP/品牌或合规风险 · 需总控确认</strong>
-              <span>方向初筛不自动淘汰；总控/用户确认且C阶段完成权利与合规核验前，不得进入待上架或写店。</span>
+          {rightsCompliance ? (
+            <div className="selection-stage stage-sourcePending" aria-label="权利与合规状态">
+              <strong>{rightsCompliance.title}</strong>
+              {rightsCompliance.details.map(detail => <span key={detail}>{detail}</span>)}
             </div>
           ) : null}
           {candidate.approvalGate?.autoElimination?.shouldEliminate ? (
@@ -102,7 +125,7 @@ function Evidence({ evidence }) {
     <ul className="evidence-list">
       {evidence.map((item, index) => (
         <li key={`${item.url}-${index}`}>
-          <a href={item.url} target="_blank" rel="noreferrer">证据 {index + 1} <ExternalIcon /></a>
+          <Link href={item.url}>证据 {index + 1}</Link>
           <span>{item.checkedAt ? new Date(item.checkedAt).toLocaleString("zh-CN") : "未记录时间"} · {item.note || item.detail || "无说明"}</span>
         </li>
       ))}

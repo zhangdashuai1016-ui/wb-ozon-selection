@@ -115,6 +115,11 @@ jobs:
       - name: Prepare official Node.js test image
         run: docker pull node:24-bookworm-slim
 
+      - name: Build assets for runtime package validation
+        env:
+          NODE_OPTIONS: "--throw-deprecation"
+        run: pnpm build
+
       - name: Run API tests with loopback-only networking and no host credentials
         run: |
           docker run --rm --init --network none --user node \

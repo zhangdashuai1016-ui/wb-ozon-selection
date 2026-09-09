@@ -1,3 +1,4 @@
+import { isCompleteStoreRef, sameStoreRef } from "./store-binding.mjs";
 import { DEFAULT_GUOO_TARIFF_PATH, guooTariffRuleVersionFromPath } from "./guoo-tariff-reader.mjs";
 import { validateSalesSnapshot } from "./sales-snapshot.mjs";
 
@@ -88,12 +89,15 @@ export function applyLifecycleBEvidenceContext(candidate, {
   if (!(weightKg > 0)) {
     throw new Error("B_EVIDENCE_CONTEXT_PACKAGING_REQUIRED: 尚未确认实际打包重量，不能选择物流线路");
   }
-  if (weightKg > 2) {
+  if (route === "GUOO Economy Small" && weightKg > 2) {
     throw new Error("B_EVIDENCE_CONTEXT_ROUTE_UNRESOLVED: 当前重量超过GUOO Economy Small的2kg范围，系统尚未锁定其他线路");
   }
+  if (!isCompleteStoreRef(candidate.storeRef, candidate.targetStore)) throw new Error("B_EVIDENCE_CONTEXT_STORE_IDENTITY_MISSING");
+  if (explicit.storeRef !== undefined && !sameStoreRef(explicit.storeRef, candidate.storeRef)) throw new Error("B_EVIDENCE_CONTEXT_CONFLICT: 已保存店铺身份与候选映射不一致");
   const context = mergeMissing(explicit, {
     platform,
     store,
+    storeRef: structuredClone(candidate.storeRef),
     category: categorySnapshot ? categorySelector(categorySnapshot) : null,
     salesScheme: "rfbs",
     route,
@@ -101,6 +105,12 @@ export function applyLifecycleBEvidenceContext(candidate, {
     exchangePair: "RUB/CNY",
     schemaRuleVersion: "ozon-current"
   });
+  if (known(explicit.logisticsRuleVersion) && explicit.logisticsRuleVersion !== guooTariffRuleVersionFromPath(guooFilePath)) {
+    throw new Error("B_EVIDENCE_CONTEXT_TARIFF_VERSION_CONFLICT: 历史资费范围不能用于新版本测算，须保留历史并建立新的评审修订");
+  }
+  if (known(explicit.route) && explicit.route !== route) {
+    throw new Error("B_EVIDENCE_CONTEXT_ROUTE_CONFLICT: 已有线路与本轮比较结果不同，不能原地覆盖历史范围");
+  }
   const required = [
     ["category", "当前类目"],
     ["salesScheme", "销售模式"],
@@ -133,7 +143,8 @@ export function applyLifecycleBEvidenceContext(candidate, {
       store: "candidate_target",
       category: known(explicit.category) ? "explicit_context" : `sales_snapshot:${categorySnapshot.snapshotId}:category_and_type`,
       salesScheme: known(explicit.salesScheme) ? "explicit_context" : "server_policy:ozon_rfbs",
-      route: known(explicit.route) ? "explicit_context" : "server_policy:guoo_economy_small_upto_2kg",
+      route: known(explicit.route) ? "explicit_context" : route === "GUOO Economy Small"
+        ? "server_policy:guoo_economy_small_upto_2kg" : "resolved_route_comparison",
       logisticsRuleVersion: known(explicit.logisticsRuleVersion) ? "explicit_context" : "current_guoo_filename",
       exchangePair: known(explicit.exchangePair) ? "explicit_context" : "server_policy:rub_cny",
       schemaRuleVersion: known(explicit.schemaRuleVersion) ? "explicit_context" : "server_policy:ozon_current"

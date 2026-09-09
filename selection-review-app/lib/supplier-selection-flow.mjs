@@ -263,8 +263,10 @@ export function createOwnerSupplyConfirmation({
 }
 
 export function createSkuLifecycleFromConfirmedSupply({
+  candidateId,
   opportunityPackage,
   ownerSupplyConfirmation,
+  storeRef,
   skuPackageId,
   createdAt,
   readbackLimits = { maxAutomaticAttempts: 2, maxConsecutiveSameFailure: 1 }
@@ -285,7 +287,7 @@ export function createSkuLifecycleFromConfirmedSupply({
   if (!sku || sku.variantKey !== confirmation.variantKey) {
     throw new Error("SUPPLIER_CONFIRMATION_REQUIRED: 已确认SKU与供应快照不一致");
   }
-  if (!nonEmptyString(skuPackageId) || !isoDateTime(createdAt)) {
+  if (!nonEmptyString(candidateId) || !nonEmptyString(skuPackageId) || !isoDateTime(createdAt)) {
     throw new Error("SUPPLIER_FLOW_INPUT_GAP: SKU包身份或创建时间无效");
   }
   if (!Number.isInteger(readbackLimits.maxAutomaticAttempts) || readbackLimits.maxAutomaticAttempts <= 0 ||
@@ -303,6 +305,18 @@ export function createSkuLifecycleFromConfirmedSupply({
     variantKey: sku.variantKey,
     targetPlatform: source.targetPlatform,
     targetStore: source.targetStore,
+    g1Identity: {
+      schemaVersion: "g1-identity-v1",
+      candidateId,
+      skuPackageId,
+      platform: source.targetPlatform,
+      storeRef: structuredClone(storeRef),
+      supplierSkuId: sku.supplierSkuId,
+      merchantSku: "not_applicable",
+      warehouseRef: "not_applicable",
+      credentialAlias: "not_applicable",
+      platformProductId: "not_applicable"
+    },
     dataRevision: 0,
     businessPhase: "B",
     businessResult: "pending",

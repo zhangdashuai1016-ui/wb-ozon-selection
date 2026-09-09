@@ -1,3 +1,4 @@
+import { resolveLifecycleBCostPolicy } from "./global-pricing-policy.mjs";
 import { createC1ProductPlan } from "./c1-product-plan.mjs";
 import { assessAStageMarket } from "./market-sample-policy.mjs";
 import { PRODUCT_LIFECYCLE_SCHEMA_VERSION, assertValidLifecyclePackage } from "./product-lifecycle-schema.mjs";
@@ -347,31 +348,48 @@ export function runPhase2AConfirmation(input, options = {}) {
     confirmedAt: "2026-08-14T03:02:00.000Z"
   });
   const skuPackage = createSkuLifecycleFromConfirmedSupply({
+    candidateId: PHASE_2A_DEMO_ID,
+    storeRef: { stableStoreId: "dandanshu", platformStoreId: "simulation-store-001", mappingVersion: "simulation-stores-v1" },
     opportunityPackage: confirmed.opportunityPackage,
     ownerSupplyConfirmation: confirmed.confirmation,
     skuPackageId: `sku-lifecycle:${PHASE_2A_DEMO_ID}:${input.supplierConfirmation.supplierSkuId}`,
     createdAt: "2026-08-14T03:03:00.000Z"
   });
+  // This policy belongs only to the isolated simulation, never to a production store.
+  const costPolicyContext = { platform: skuPackage.targetPlatform, store: skuPackage.targetStore,
+    storeRef: structuredClone(skuPackage.g1Identity.storeRef), salesScheme: "rfbs" };
+  const simulationCostValues = { labelRmb: 1.5, fixedOtherRmb: 0, advertisingRate: 0,
+    returnReserveRate: 0.05, damageReserveRate: 0.05, withdrawalFeeRate: 0.02,
+    acquiringRate: null, taxRate: null, otherRate: null };
+  const costPolicySnapshot = {
+    schemaVersion: "b-cost-policy-snapshot-v1", policyId: "simulation:phase-2a:cost-policy",
+    policyVersion: "simulation:phase-2a:cost-policy-v1", scope: structuredClone(costPolicyContext),
+    effectiveFrom: null, effectiveTo: null, policyEvidenceRef: "simulation:phase-2a:cost-policy-evidence",
+    items: Object.fromEntries(Object.entries(simulationCostValues).map(([key, value]) => [key, {
+      status: value === null ? "not_applicable" : "applicable", value,
+      basis: key === "labelRmb" ? "per_order_cny" : key === "fixedOtherRmb" ? "per_unit_cny" : "target_price_cny_rate",
+      evidenceRef: `simulation:phase-2a:cost:${key}`, includedIn: null
+    }]))
+  };
+  const resolvedPolicy = resolveLifecycleBCostPolicy({ snapshot: costPolicySnapshot,
+    context: costPolicyContext, asOf: "2026-08-14T03:04:00.000Z" });
   const bResult = runSkuProfitModel({
     opportunityPackage: confirmed.opportunityPackage,
     skuPackage,
     salesSelection: { salesSnapshotId: SALES_SNAPSHOT_ID },
     platformFeeEvidence: {
       evidenceId: "simulation:fees:ozon:001",
+      costPolicySnapshot, costPolicyContext,
+      commissionEvidenceMode: "exact",
       commissionRate: 0.14,
       otherCosts: {
         packagingRmb: 1.5,
-        labelRmb: 1.5,
-        fixedOtherRmb: 0,
-        advertisingRate: 0,
-        returnReserveRate: 0.05,
-        damageReserveRate: 0.05,
-        withdrawalFeeRate: 0.02,
+        ...Object.fromEntries(Object.keys(simulationCostValues).map(key => [key, resolvedPolicy[key]])),
         targetMarginRate: 0.15,
         minimumUnitProfitRmb: 20,
         priceIncrementCny: 1,
         thresholdLogic: "any",
-        pricingPolicyVersion: "ozon-wb-global-pricing-2026-08-21-v3-project-or-threshold-v1"
+        pricingPolicyVersion: resolvedPolicy.policyVersion
       }
     },
     logisticsEvidence: {

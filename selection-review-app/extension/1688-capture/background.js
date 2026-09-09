@@ -1,340 +1,326 @@
 import { collect1688Page } from "./collector.js";
 import { collectOzonPage } from "./collector-ozon.js";
 import {
-  classify1688TimeoutOutcome,
   classify1688NavigationOutcome,
   classify1688Source,
-  detailOfferId,
-  shouldWaitFor1688Destination,
   observed1688TabAddress,
+  shouldWaitFor1688Destination,
   validateResolved1688Source
 } from "./source-routing.js";
-import { captureRequestErrorMessage, validateSupplierCaptureRequest } from "./capture-request.js";
+import {
+  canonicalOzonCaptureSource,
+  isReviewSender,
+  isOzonCaptureJob,
+  validateCaptureStartSignal,
+  validateOzonCaptureRequest,
+  validateSupplierCaptureRequest
+} from "./capture-request.js";
 
-const SOURCE_REQUEST_TYPE = "SELECTION_REVIEW_1688_CAPTURE_REQUEST";
-const SALES_REQUEST_TYPE = "SELECTION_REVIEW_OZON_CAPTURE_REQUEST";
+export const HEARTBEAT_ALARM = "selection-review-extension-heartbeat";
+const API_ORIGIN = "http://127.0.0.1:4317"; // Explicit local-development adapter, not central identity.
 const BACKGROUND_PING = "SELECTION_REVIEW_EXTENSION_BACKGROUND_PING";
-const HEARTBEAT_URL = "http://127.0.0.1:4317/api/extension/heartbeat";
-const HEARTBEAT_ALARM = "selection-review-extension-heartbeat";
-const activeCaptures = new Set();
+const START_TYPES = new Set(["SELECTION_REVIEW_1688_CAPTURE_REQUEST", "SELECTION_REVIEW_OZON_CAPTURE_REQUEST"]);
+const FAILURE_CODES = new Set([
+  "wrong_offer", "wrong_product", "structured_data_unavailable", "site_login_required",
+  "site_verification_required", "short_link_resolution_failed", "timeout", "sku_limit_exceeded",
+  "precise_price_missing", "exact_price_unavailable", "invalid_capture", "system_error"
+]);
+const safeFailureCode = (code) => FAILURE_CODES.has(code) ? code : "system_error";
+const failure = (code) => Object.assign(new Error(code), { code });
 
-async function reportHeartbeat() {
-  const response = await fetch(HEARTBEAT_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      version: chrome.runtime.getManifest().version,
-      backgroundReady: true,
-      observedAt: new Date().toISOString()
-    })
+function inspectCaptureTab(tab, payload) {
+  if (isOzonCaptureJob(payload)) {
+    const address = observed1688TabAddress(tab).value;
+    if (!address) return null;
+    const sourceUrl = canonicalOzonCaptureSource(address, payload.expectedProductId);
+    if (!sourceUrl) throw failure("wrong_product");
+    return tab.status === "complete" && !tab.pendingUrl ? { sourceUrl, productId: payload.expectedProductId } : null;
+  }
+  const address = observed1688TabAddress(tab).value;
+  if (!address) return null;
+  const resolved = validateResolved1688Source(payload.sourceUrl, address, payload.expectedOfferId);
+  if (resolved && tab.status === "complete" && !tab.pendingUrl) return resolved;
+  const diagnostics = classify1688NavigationOutcome(address, {
+    expectedOfferId: payload.expectedOfferId,
+    navigationStage: tab.status === "complete" ? "page_complete" : "redirect_observed"
   });
-  if (!response.ok) throw new Error(`评审台心跳返回${response.status}`);
-  const body = await response.json().catch(() => ({}));
-  const payload = body?.captureJob;
-  if (payload && !activeCaptures.has(payload.captureId)) {
-    const validation = validateSupplierCaptureRequest({
-      payload,
-      manifestVersion: chrome.runtime.getManifest().version
-    });
-    if (!validation.ok) {
-      if (payload.captureId && payload.token && payload.candidateId && Number.isInteger(payload.dataRevision)) {
-        await report(payload, {
-          status: "failed",
-          failureCode: validation.code,
-          observedAt: new Date().toISOString()
-        }).catch(() => undefined);
-      }
-      return body;
-    }
-    void runCapture(payload);
-  }
-  return body;
+  if (diagnostics.redirectClassification === "different_offer") throw failure("wrong_offer");
+  if (shouldWaitFor1688Destination(diagnostics, tab.status)) return null;
+  if (diagnostics.redirectClassification === "login_required") throw failure("site_login_required");
+  if (diagnostics.redirectClassification === "verification_required") throw failure("site_verification_required");
+  throw failure("short_link_resolution_failed");
 }
 
-function reportHeartbeatQuietly() {
-  void reportHeartbeat().catch(() => {});
-}
-
-chrome.alarms.create(HEARTBEAT_ALARM, { periodInMinutes: 0.5 });
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === HEARTBEAT_ALARM) reportHeartbeatQuietly();
-});
-chrome.runtime.onInstalled.addListener(reportHeartbeatQuietly);
-chrome.runtime.onStartup.addListener(reportHeartbeatQuietly);
-reportHeartbeatQuietly();
-
-function ozonProductId(value) {
-  try {
-    const url = new URL(String(value || ""));
-    if (!/(^|\.)ozon\.ru$/i.test(url.hostname)) return "";
-    return url.pathname.match(/^\/product\/(?:[^/]*-)?(\d{7,})(?:\/|$)/i)?.[1] || "";
-  } catch {
-    return "";
-  }
-}
-
-function canonicalOzonSource(value, expectedProductId) {
-  try {
-    const url = new URL(String(value || ""));
-    const productId = ozonProductId(url.href);
-    if (!productId || productId !== String(expectedProductId)) return null;
-    return `https://www.ozon.ru${url.pathname}${url.search}`;
-  } catch {
-    return null;
-  }
-}
-
-function validOzonRequest(payload) {
-  if (!payload || typeof payload !== "object") return false;
-  if (!payload.captureId || !payload.token || !payload.candidateId || !Number.isInteger(payload.dataRevision)) return false;
-  return Boolean(canonicalOzonSource(payload.productUrl, payload.expectedProductId));
-}
-
-function waitFor1688Destination(tabId, originalSource, expectedOfferId, timeoutMs = 15000) {
-  return new Promise(async (resolve, reject) => {
+// Listen before reading the tab: a completion event between those steps must not be lost.
+export function waitForCaptureTab(chromeApi, tabId, payload, { timeoutMs = 15000, setTimer = setTimeout, clearTimer = clearTimeout, signal } = {}) {
+  return new Promise((resolve, reject) => {
     let settled = false;
-    let lastDiagnostics = null;
-    const stopWithFailure = (code, diagnostics) => {
+    let timer;
+    const finish = (error, result) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
-      chrome.tabs.onUpdated.removeListener(listener);
-      reject(Object.assign(new Error("1688短链没有落到授权的商品详情页"), {
-        code,
-        failureDiagnostics: diagnostics
-      }));
+      clearTimer(timer);
+      chromeApi.tabs.onUpdated.removeListener(listener);
+      signal?.removeEventListener("abort", abort);
+      if (error) reject(error);
+      else resolve(result);
     };
-    const inspect = (tab, stage) => {
-      const observation = observed1688TabAddress(tab);
-      const observedUrl = observation.value;
-      if (!observedUrl) return false;
-      const diagnostics = {
-        ...classify1688NavigationOutcome(observedUrl, {
-          expectedOfferId,
-          navigationStage: stage
-        }),
-        tabObservation: observation.tabObservation,
-        lastObservedClassification: lastDiagnostics?.redirectClassification || null
-      };
-      lastDiagnostics = diagnostics;
-      const resolved = validateResolved1688Source(originalSource, observedUrl, expectedOfferId);
-      if (resolved && tab?.status === "complete") {
-        settled = true;
-        clearTimeout(timer);
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve({ tab, ...resolved });
-        return true;
-      }
-      if (diagnostics.redirectClassification === "different_offer") {
-        stopWithFailure("wrong_offer", diagnostics);
-        return true;
-      }
-      if (shouldWaitFor1688Destination(diagnostics, tab?.status)) return false;
-      const failureCode = diagnostics.redirectClassification === "login_required"
-        ? "site_login_required"
-        : diagnostics.redirectClassification === "verification_required"
-          ? "site_verification_required"
-          : "short_link_resolution_failed";
-      stopWithFailure(failureCode, diagnostics);
-      return true;
-    };
-    const timer = setTimeout(async () => {
+    const inspect = (tab) => {
       if (settled) return;
-      const current = await chrome.tabs.get(tabId).catch(() => null);
-      const diagnostics = classify1688TimeoutOutcome(current, expectedOfferId, lastDiagnostics);
-      stopWithFailure("short_link_resolution_failed", diagnostics);
-    }, timeoutMs);
-    const listener = (updatedId, changeInfo, tab) => {
-      if (updatedId !== tabId || settled) return;
-      inspect(tab, changeInfo.status === "complete" || tab?.status === "complete" ? "page_complete" : "redirect_observed");
+      try {
+        const result = inspectCaptureTab(tab, payload);
+        if (result) finish(null, result);
+      } catch (error) {
+        finish(error);
+      }
     };
-    chrome.tabs.onUpdated.addListener(listener);
-    const existing = await chrome.tabs.get(tabId).catch(() => null);
-    if (settled) return;
-    if (inspect(existing, existing?.status === "complete" ? "page_complete" : "redirect_observed")) return;
+    const listener = (updatedId, _changeInfo, tab) => { if (updatedId === tabId) inspect(tab); };
+    const abort = () => finish(failure("timeout"));
+    if (signal?.aborted) { reject(failure("timeout")); return; }
+    chromeApi.tabs.onUpdated.addListener(listener);
+    signal?.addEventListener("abort", abort, { once: true });
+    // The 15s navigation budget leaves time inside the server's 60s execution lease.
+    timer = setTimer(() => finish(failure("timeout")), timeoutMs);
+    chromeApi.tabs.get(tabId).then(inspect, () => finish(failure("system_error")));
   });
 }
 
-function ozonTabReady(tab, expectedProductId) {
-  if (ozonProductId(tab?.url) !== String(expectedProductId)) return false;
-  return tab?.status === "complete" || Boolean(String(tab?.title || "").trim());
+function validatedCollectedResult(collected, resolved, payload) {
+  if (!collected || typeof collected !== "object") throw failure("structured_data_unavailable");
+  if (collected.status !== "captured") throw failure(safeFailureCode(collected.failureCode));
+  const evidence = collected.evidence;
+  if (isOzonCaptureJob(payload)) {
+    if (evidence?.productId !== payload.expectedProductId ||
+        canonicalOzonCaptureSource(evidence?.productUrl, payload.expectedProductId) !== resolved.sourceUrl) {
+      throw failure("wrong_product");
+    }
+    return { status: "captured", evidence: { ...evidence, productUrl: resolved.sourceUrl } };
+  }
+  const source = classify1688Source(evidence?.sourceUrl);
+  if (evidence?.offerId !== resolved.offerId || source?.type !== "detail" || source.sourceUrl !== resolved.sourceUrl) {
+    throw failure("wrong_offer");
+  }
+  return { status: "captured", resolvedSourceUrl: resolved.sourceUrl, evidence: { ...evidence, sourceUrl: resolved.sourceUrl } };
 }
 
-function waitForOzonTab(tabId, expectedProductId, timeoutMs = 20000) {
-  return new Promise(async (resolve, reject) => {
-    const existing = await chrome.tabs.get(tabId).catch(() => null);
-    if (ozonTabReady(existing, expectedProductId)) return resolve(existing);
-    const timer = setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(listener);
-      reject(Object.assign(new Error("等待Ozon商品页面就绪超时"), { code: "timeout" }));
-    }, timeoutMs);
-    const listener = (updatedId, changeInfo, tab) => {
-      if (updatedId !== tabId || !ozonTabReady(tab, expectedProductId)) return;
-      clearTimeout(timer);
-      chrome.tabs.onUpdated.removeListener(listener);
-      resolve(tab);
+/**
+ * Browser APIs and transport are injectable only to exercise the worker with offline fixtures.
+ * ISOLATED protects JS built-ins from page overrides; the shared DOM is still untrusted evidence.
+ * Server authentication, durable lease/revision validation and no-replay remain mandatory.
+ */
+export function createCaptureRuntime({ chromeApi, fetchImpl, clock = () => new Date().toISOString(), waitOptions,
+  jobTimerOptions = { setTimer: setTimeout, clearTimer: clearTimeout } } = {}) {
+  let heartbeatPending = null;
+  let alarmPending = null;
+  let activeCapture = null;
+  const seenCaptureIds = new Set();
+  let cleanupBlocked = "";
+  let lastHeartbeat = { ok: false, code: "heartbeat_not_observed", observedAt: null };
+  let lastCaptureCode = "";
+  const version = chromeApi.runtime.getManifest().version;
+  const status = () => {
+    // Transport health TTL matches the existing local heartbeat contract, not product evidence age.
+    const fresh = lastHeartbeat.ok && Date.parse(clock()) - Date.parse(lastHeartbeat.observedAt) <= 75000;
+    return {
+      accepted: fresh && !cleanupBlocked,
+      backgroundReady: !cleanupBlocked,
+      serviceConnected: fresh,
+      code: cleanupBlocked || (lastHeartbeat.ok && !fresh ? "heartbeat_stale" : lastHeartbeat.code),
+      observedAt: lastHeartbeat.observedAt,
+      captureActive: Boolean(activeCapture),
+      lastCaptureCode,
+      version
     };
-    chrome.tabs.onUpdated.addListener(listener);
-  });
-}
+  };
 
-async function report(payload, result) {
-  const response = await fetch(`http://127.0.0.1:4317/api/candidates/${encodeURIComponent(payload.candidateId)}/source-capture/result`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      captureId: payload.captureId,
-      token: payload.token,
-      dataRevision: payload.dataRevision,
-      ...result
-    })
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw Object.assign(new Error(body.message || `评审台返回${response.status}`), { code: "server_rejected" });
-  return body;
-}
-
-async function reportOzon(payload, result) {
-  const response = await fetch(`http://127.0.0.1:4317/api/candidates/${encodeURIComponent(payload.candidateId)}/sales-capture/result`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      captureId: payload.captureId,
-      token: payload.token,
-      dataRevision: payload.dataRevision,
-      ...result
-    })
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw Object.assign(new Error(body.message || `评审台返回${response.status}`), { code: "server_rejected" });
-  return body;
-}
-
-async function runCapture(payload) {
-  activeCaptures.add(payload.captureId);
-  await chrome.storage.session.set({ [`capture:${payload.captureId}`]: { candidateId: payload.candidateId, startedAt: Date.now() } }).catch(() => undefined);
-  let tabId = null;
-  try {
-    const source = classify1688Source(payload.sourceUrl);
-    if (!source) throw Object.assign(new Error("1688链接不在允许范围内"), { code: "wrong_offer" });
-    const matching = source.type === "detail"
-      ? (await chrome.tabs.query({ url: "https://detail.1688.com/offer/*" }))
-        .find((tab) => detailOfferId(tab.url) === source.offerId)
-      : null;
-    const tab = matching
-      ? await chrome.tabs.update(matching.id, { active: true, url: source.sourceUrl })
-      : await chrome.tabs.create({ url: source.sourceUrl, active: true });
-    tabId = tab.id;
-    const resolved = await waitFor1688Destination(tabId, source.sourceUrl, payload.expectedOfferId, 15000);
-    const execution = await chrome.scripting.executeScript({
-      target: { tabId },
-      world: "MAIN",
-      func: collect1688Page,
-      args: [resolved.offerId]
+  async function sendResult(payload, result) {
+    const route = isOzonCaptureJob(payload) ? "sales-capture" : "source-capture";
+    const response = await fetchImpl(`${API_ORIGIN}/api/candidates/${encodeURIComponent(payload.candidateId)}/${route}/result`, {
+      method: "POST",
+      signal: AbortSignal.timeout(10000),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ captureId: payload.captureId, token: payload.token, dataRevision: payload.dataRevision, ...result })
     });
-    const collected = execution?.[0]?.result;
-    if (!collected || typeof collected !== "object") throw Object.assign(new Error("页面没有返回采集结果"), { code: "structured_data_unavailable" });
-    const accepted = await report(payload, collected.status === "captured"
-      ? { status: "captured", resolvedSourceUrl: resolved.sourceUrl, evidence: collected.evidence }
-      : {
-          status: "failed",
-          failureCode: collected.failureCode || "structured_data_unavailable",
-          observedAt: new Date().toISOString()
-        });
-    if (["verified", "needs_sku_selection", "captured_waiting_owner_selection"].includes(accepted?.candidate?.sourceCapture?.status) && tabId) {
-      await chrome.tabs.remove(tabId).catch(() => undefined);
+    if (!response.ok) throw failure([401, 403].includes(response.status) ? "extension_identity_rejected" : "result_rejected");
+  }
+
+  async function executeCapture(payload) {
+    let tabId = null;
+    let result;
+    const cancellation = new AbortController();
+    const { signal } = cancellation;
+    const assertNotCancelled = () => { if (signal.aborted) throw failure("timeout"); };
+    const closeOwnedTab = async (id) => {
+      let closeTimer;
+      try {
+        await Promise.race([
+          chromeApi.tabs.remove(id),
+          new Promise((_resolve, reject) => {
+            closeTimer = jobTimerOptions.setTimer(() => reject(failure("tab_cleanup_failed")), 3000);
+          })
+        ]);
+      } catch { cleanupBlocked = "tab_cleanup_failed"; lastCaptureCode = "tab_cleanup_failed"; }
+      finally { jobTimerOptions.clearTimer(closeTimer); }
+    };
+    // 30s includes tab creation, navigation, extraction and final browser identity readback.
+    // With one 10s result POST this leaves room inside the existing 60s server lease.
+    let deadlineTimer;
+    const deadline = new Promise((_resolve, reject) => {
+      deadlineTimer = jobTimerOptions.setTimer(() => {
+        cancellation.abort();
+        reject(failure("timeout"));
+      }, 30000);
+    });
+    const capture = async () => {
+      const url = isOzonCaptureJob(payload)
+        ? canonicalOzonCaptureSource(payload.productUrl, payload.expectedProductId)
+        : classify1688Source(payload.sourceUrl).sourceUrl;
+      const tab = await chromeApi.tabs.create({ url, active: false });
+      if (!Number.isInteger(tab.id)) throw failure("system_error");
+      if (signal.aborted) {
+        // Creation may resolve after the deadline. Its only allowed effect is closing this tab.
+        await closeOwnedTab(tab.id);
+        throw failure("timeout");
+      }
+      tabId = tab.id;
+      const resolved = await waitForCaptureTab(chromeApi, tabId, payload, { ...waitOptions, signal });
+      assertNotCancelled();
+      const isOzon = isOzonCaptureJob(payload);
+      const execution = await chromeApi.scripting.executeScript({
+        target: { tabId }, world: "ISOLATED",
+        func: isOzon ? collectOzonPage : collect1688Page,
+        args: [isOzon ? payload.expectedProductId : resolved.offerId]
+      });
+      assertNotCancelled();
+      // Re-read the browser identity after extraction, not the page's self-reported location.
+      const current = inspectCaptureTab(await chromeApi.tabs.get(tabId), payload);
+      assertNotCancelled();
+      if (!current || current.sourceUrl !== resolved.sourceUrl) throw failure(isOzon ? "wrong_product" : "wrong_offer");
+      return validatedCollectedResult(execution?.[0]?.result, resolved, payload);
+    };
+    try {
+      result = await Promise.race([capture(), deadline]);
+    } catch (error) {
+      result = { status: "failed", failureCode: safeFailureCode(error?.code), observedAt: clock() };
+      if (signal.aborted && tabId === null) cleanupBlocked = "tab_creation_unconfirmed";
+    } finally {
+      jobTimerOptions.clearTimer(deadlineTimer);
+      if (tabId !== null) await closeOwnedTab(tabId);
     }
-  } catch (error) {
-    await report(payload, {
-      status: "failed",
-      failureCode: error?.code || "structured_data_unavailable",
-      ...(error?.failureDiagnostics ? { failureDiagnostics: error.failureDiagnostics } : {}),
-      observedAt: new Date().toISOString()
-    }).catch(() => undefined);
-  } finally {
-    activeCaptures.delete(payload.captureId);
-    await chrome.storage.session.remove(`capture:${payload.captureId}`).catch(() => undefined);
-  }
-}
-
-async function runOzonCapture(payload) {
-  activeCaptures.add(payload.captureId);
-  await chrome.storage.session.set({ [`capture:${payload.captureId}`]: { candidateId: payload.candidateId, platform: "ozon", startedAt: Date.now() } }).catch(() => undefined);
-  let tabId = null;
-  try {
-    const productUrl = canonicalOzonSource(payload.productUrl, payload.expectedProductId);
-    if (!productUrl) throw Object.assign(new Error("Ozon链接与候选不一致"), { code: "wrong_product" });
-    const matching = (await chrome.tabs.query({ url: "https://www.ozon.ru/product/*" }))
-      .find((tab) => ozonProductId(tab.url) === String(payload.expectedProductId));
-    const tab = matching
-      ? await chrome.tabs.update(matching.id, { active: true, url: productUrl })
-      : await chrome.tabs.create({ url: productUrl, active: true });
-    tabId = tab.id;
-    await waitForOzonTab(tabId, payload.expectedProductId);
-    const execution = await chrome.scripting.executeScript({
-      target: { tabId },
-      world: "MAIN",
-      func: collectOzonPage,
-      args: [String(payload.expectedProductId)]
-    });
-    const collected = execution?.[0]?.result;
-    if (!collected || typeof collected !== "object") throw Object.assign(new Error("页面没有返回采集结果"), { code: "structured_data_unavailable" });
-    const accepted = await reportOzon(payload, collected.status === "captured"
-      ? { status: "captured", evidence: collected.evidence }
-      : {
-          status: "failed",
-          failureCode: collected.failureCode || "structured_data_unavailable",
-          message: collected.message || "Ozon采集失败",
-          observedAt: collected.observedAt || new Date().toISOString()
-        });
-    if (accepted?.candidate?.salesCapture?.status === "verified" && tabId) {
-      await chrome.tabs.remove(tabId).catch(() => undefined);
+    try {
+      // A transport failure has unknown delivery outcome: never send a second/fallback result.
+      await sendResult(payload, result);
+      lastCaptureCode = result.status === "failed" ? result.failureCode : "capture_reported";
+    } catch (error) {
+      lastCaptureCode = ["extension_identity_rejected", "result_rejected"].includes(error?.code) ? error.code : "result_delivery_unconfirmed";
+      if (error?.code === "extension_identity_rejected") lastHeartbeat = { ok: false, code: "extension_identity_rejected", observedAt: clock() };
+    } finally {
+      activeCapture = null;
     }
-  } catch (error) {
-    await reportOzon(payload, {
-      status: "failed",
-      failureCode: error?.code || "system_error",
-      message: String(error?.message || error),
-      observedAt: new Date().toISOString()
-    }).catch(() => undefined);
-  } finally {
-    activeCaptures.delete(payload.captureId);
-    await chrome.storage.session.remove(`capture:${payload.captureId}`).catch(() => undefined);
   }
+
+  function heartbeat() {
+    if (heartbeatPending) return heartbeatPending;
+    heartbeatPending = (async () => {
+      try {
+        const response = await fetchImpl(`${API_ORIGIN}/api/extension/heartbeat`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(10000),
+          body: JSON.stringify({ version, backgroundReady: !cleanupBlocked, observedAt: clock() })
+        });
+        if (!response.ok) throw failure([401, 403].includes(response.status) ? "extension_identity_rejected" : "heartbeat_unavailable");
+        const body = await response.json();
+        if (body?.accepted !== true) throw failure("heartbeat_rejected");
+        lastHeartbeat = { ok: true, code: "", observedAt: clock() };
+        // Even an older service returning a job cannot start work from a heartbeat.
+        return status();
+      } catch (error) {
+        lastHeartbeat = { ok: false, code: error?.code === "extension_identity_rejected" ? "extension_identity_rejected" : "heartbeat_unavailable", observedAt: clock() };
+        return status();
+      } finally { heartbeatPending = null; }
+    })();
+    return heartbeatPending;
+  }
+
+  async function claimCapture(message) {
+    if (seenCaptureIds.has(message.captureId)) return { accepted: false, code: "capture_replay_rejected" };
+    if (seenCaptureIds.size >= 256) return { accepted: false, code: "capture_session_limit_reached" };
+    seenCaptureIds.add(message.captureId);
+    activeCapture = message.captureId;
+    try {
+      const response = await fetchImpl(`${API_ORIGIN}/api/extension/capture-jobs/${encodeURIComponent(message.captureId)}/claim`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(10000),
+        body: JSON.stringify({ version })
+      });
+      if (!response.ok) throw failure([401, 403].includes(response.status) ? "extension_identity_rejected" : "capture_job_not_claimed");
+      const body = await response.json();
+      const payload = body?.captureJob;
+      const validation = isOzonCaptureJob(payload)
+        ? validateOzonCaptureRequest({ payload, manifestVersion: version })
+        : validateSupplierCaptureRequest({ payload, manifestVersion: version });
+      const expectedOzon = message.type === "SELECTION_REVIEW_OZON_CAPTURE_REQUEST";
+      if (body?.accepted !== true || !validation.ok || payload.captureId !== message.captureId ||
+          isOzonCaptureJob(payload) !== expectedOzon) throw failure("capture_job_invalid");
+      void executeCapture(payload);
+      return { accepted: true, claimedCaptureId: message.captureId };
+    } catch (error) {
+      activeCapture = null;
+      lastCaptureCode = ["extension_identity_rejected", "capture_job_not_claimed", "capture_job_invalid"].includes(error?.code)
+        ? error.code : "capture_claim_unconfirmed";
+      return { accepted: false, code: lastCaptureCode };
+    }
+  }
+
+  function ensureHeartbeatAlarm() {
+    if (alarmPending) return alarmPending;
+    alarmPending = (async () => {
+      try {
+        const existing = await chromeApi.alarms.get(HEARTBEAT_ALARM);
+        if (!existing) await chromeApi.alarms.create(HEARTBEAT_ALARM, { periodInMinutes: 0.5 });
+      } finally { alarmPending = null; }
+    })();
+    return alarmPending;
+  }
+
+  function handleMessage(message, sender, sendResponse) {
+    if (message?.type !== BACKGROUND_PING && !START_TYPES.has(message?.type)) return false;
+    if (!isReviewSender(sender?.url)) {
+      sendResponse({ accepted: false, code: "request_origin_invalid" });
+      return false;
+    }
+    if (message.type === BACKGROUND_PING) {
+      sendResponse(status()); // No network, no lease claim, no capture from a health inquiry.
+      return false;
+    }
+    if (!validateCaptureStartSignal(message).ok) {
+      sendResponse({ accepted: false, code: "start_signal_invalid" });
+      return false;
+    }
+    if (activeCapture || cleanupBlocked) {
+      sendResponse({ accepted: false, code: "capture_busy" });
+      return false;
+    }
+    void claimCapture(message).then(sendResponse);
+    return true;
+  }
+
+  function install() {
+    const start = () => {
+      void ensureHeartbeatAlarm().then(heartbeat, () => {
+        lastHeartbeat = { ok: false, code: "alarm_unavailable", observedAt: clock() };
+      });
+    };
+    chromeApi.runtime.onMessage.addListener(handleMessage);
+    chromeApi.alarms.onAlarm.addListener((alarm) => { if (alarm.name === HEARTBEAT_ALARM) void heartbeat(); });
+    chromeApi.runtime.onInstalled.addListener(start);
+    chromeApi.runtime.onStartup.addListener(start);
+    // A cold worker can be woken by a status PING. Module loading must never claim work.
+    void ensureHeartbeatAlarm().catch(() => {
+      lastHeartbeat = { ok: false, code: "alarm_unavailable", observedAt: clock() };
+    });
+  }
+  return { status, heartbeat, handleMessage, ensureHeartbeatAlarm, install };
 }
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type === BACKGROUND_PING) {
-    void reportHeartbeat().catch(() => undefined);
-    sendResponse({ accepted: true, version: chrome.runtime.getManifest().version });
-    return false;
-  }
-  if (![SOURCE_REQUEST_TYPE, SALES_REQUEST_TYPE].includes(message?.type)) return false;
-  const payload = message.payload;
-  const isOzon = message.type === SALES_REQUEST_TYPE;
-  if (!sender?.url?.startsWith("http://127.0.0.1:4317/")) {
-    sendResponse({ accepted: false, code: "request_origin_invalid", error: "采集请求不是来自本机评审台" });
-    return false;
-  }
-  const sourceValidation = isOzon ? null : validateSupplierCaptureRequest({
-    payload,
-    senderUrl: sender.url,
-    manifestVersion: chrome.runtime.getManifest().version
-  });
-  if ((!isOzon && !sourceValidation.ok) || (isOzon && !validOzonRequest(payload))) {
-    const code = isOzon ? "ozon_request_invalid" : sourceValidation.code;
-    sendResponse({
-      accepted: false,
-      code,
-      error: isOzon ? "Ozon采集请求缺少必要字段或商品身份不一致" : captureRequestErrorMessage(code)
-    });
-    return false;
-  }
-  if (activeCaptures.has(payload.captureId)) {
-    sendResponse({ accepted: true });
-    return false;
-  }
-  void (isOzon ? runOzonCapture(payload) : runCapture(payload));
-  sendResponse({ accepted: true });
-  return false;
-});
+if (globalThis.chrome?.runtime?.id) {
+  createCaptureRuntime({ chromeApi: globalThis.chrome, fetchImpl: globalThis.fetch.bind(globalThis) }).install();
+}

@@ -32,6 +32,7 @@ export const CODEX_DECISION_LABELS = {
 
 export const SOURCE_LABELS = {
   user: "你提交",
+  software: "软件发现",
   codex: "Codex选品"
 };
 

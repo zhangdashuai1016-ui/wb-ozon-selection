@@ -2,32 +2,541 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "e-verification-record-v1.1",
   "title": "E阶段独立验证记录 v1.1",
-  "type": "object",
-  "required": ["schemaVersion", "verificationId", "verificationPath", "sourceRecordType", "sourceRecordId", "outcome", "createdByCurrentRun", "verifiedAt", "platform", "store", "skuPackageId", "supplierSkuId", "platformProductId", "merchantSku", "currentPrice", "currentStock", "imageCount", "moderationStatus", "validationStatus", "saleStatus", "errors", "platformEvidenceRef", "ownerPriceDecision"],
-  "properties": {
-    "schemaVersion": { "const": "e-verification-record-v1.1" },
-    "verificationId": { "type": "string", "minLength": 1 },
-    "verificationPath": { "enum": ["system_created", "external_discovered"] },
-    "sourceRecordType": { "enum": ["ProductionRecord", "ExternalListingRecord"] },
-    "sourceRecordId": { "type": "string", "minLength": 1 },
-    "outcome": { "enum": ["listed_verified", "externally_verified"] },
-    "createdByCurrentRun": { "type": "boolean" },
-    "verifiedAt": { "type": "string", "format": "date-time" },
-    "platform": { "type": "string", "minLength": 1 },
-    "store": { "type": "string", "minLength": 1 },
-    "skuPackageId": { "type": "string", "minLength": 1 },
-    "supplierSkuId": { "type": "string", "minLength": 1 },
-    "platformProductId": { "type": "string", "minLength": 1 },
-    "merchantSku": { "type": "string", "minLength": 1 },
-    "currentPrice": { "type": "object", "required": ["amount", "currency"] },
-    "currentStock": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "const": "unknown" }] },
-    "imageCount": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "const": "unknown" }] },
-    "moderationStatus": { "type": "string", "minLength": 1 },
-    "validationStatus": { "type": "string", "minLength": 1 },
-    "saleStatus": { "type": "string", "minLength": 1 },
-    "errors": { "oneOf": [{ "type": "array" }, { "const": "unknown" }] },
-    "platformEvidenceRef": { "type": "string", "minLength": 1 },
-    "ownerPriceDecision": { "type": "object" }
+  "$defs": {
+    "mediaObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceProtocol",
+        "primaryImageUrl",
+        "images"
+      ],
+      "properties": {
+        "sourceProtocol": {
+          "const": "ozon-product-attributes-v4"
+        },
+        "primaryImageUrl": {
+          "oneOf": [
+            {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https://"
+            },
+            {
+              "const": "unknown"
+            }
+          ]
+        },
+        "images": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uri",
+                "pattern": "^https://"
+              }
+            },
+            {
+              "const": "unknown"
+            }
+          ]
+        }
+      }
+    },
+    "inventoryObservation": {
+      "description": "v4 rows are readable historical evidence only; new acceptance uses the explicit v2 free_stock protocol.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/inventoryObservationV1"
+        },
+        {
+          "$ref": "#/$defs/inventoryObservationV2"
+        }
+      ]
+    },
+    "inventoryObservationV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceProtocol",
+        "rows"
+      ],
+      "properties": {
+        "sourceProtocol": {
+          "const": "ozon-product-stocks-v4"
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "warehouseId",
+              "type",
+              "present",
+              "reserved"
+            ],
+            "properties": {
+              "warehouseId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]*$"
+                  },
+                  {
+                    "const": "unknown"
+                  }
+                ]
+              },
+              "type": {
+                "type": "string",
+                "minLength": 1
+              },
+              "present": {
+                "oneOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "const": "unknown"
+                  }
+                ]
+              },
+              "reserved": {
+                "oneOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "const": "unknown"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "inventoryObservationV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceProtocol",
+        "hasNext",
+        "rows"
+      ],
+      "properties": {
+        "sourceProtocol": {
+          "const": "ozon-product-stocks-by-warehouse-fbs-v2"
+        },
+        "hasNext": {
+          "enum": [
+            true,
+            false,
+            "unknown"
+          ]
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "warehouseId",
+              "productId",
+              "sku",
+              "offerId",
+              "freeStock",
+              "present",
+              "reserved"
+            ],
+            "properties": {
+              "warehouseId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]*$"
+                  },
+                  {
+                    "const": "unknown"
+                  }
+                ]
+              },
+              "productId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]*$"
+                  },
+                  {
+                    "const": "unknown"
+                  }
+                ]
+              },
+              "sku": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]*$"
+                  },
+                  {
+                    "const": "unknown"
+                  }
+                ]
+              },
+              "offerId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "freeStock": {
+                "oneOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "const": "unknown"
+                  }
+                ]
+              },
+              "present": {
+                "oneOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "const": "unknown"
+                  }
+                ]
+              },
+              "reserved": {
+                "oneOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "const": "unknown"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
   },
-  "additionalProperties": false
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "verificationId",
+    "verificationPath",
+    "sourceRecordType",
+    "sourceRecordId",
+    "outcome",
+    "createdByCurrentRun",
+    "verifiedAt",
+    "platform",
+    "store",
+    "skuPackageId",
+    "supplierSkuId",
+    "platformProductId",
+    "merchantSku",
+    "currentPrice",
+    "currentStock",
+    "imageCount",
+    "moderationStatus",
+    "validationStatus",
+    "saleStatus",
+    "errors",
+    "platformEvidenceRef",
+    "ownerPriceDecision"
+  ],
+  "properties": {
+    "mediaObservation": {
+      "$ref": "#/$defs/mediaObservation"
+    },
+    "inventoryObservation": {
+      "$ref": "#/$defs/inventoryObservation"
+    },
+    "schemaVersion": {
+      "const": "e-verification-record-v1.1"
+    },
+    "verificationId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "verificationPath": {
+      "enum": [
+        "system_created",
+        "external_discovered"
+      ]
+    },
+    "sourceRecordType": {
+      "enum": [
+        "ProductionRecord",
+        "ExternalListingRecord"
+      ]
+    },
+    "sourceRecordId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "outcome": {
+      "enum": [
+        "listed_verified",
+        "externally_verified"
+      ]
+    },
+    "createdByCurrentRun": {
+      "type": "boolean"
+    },
+    "verifiedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "platform": {
+      "type": "string",
+      "minLength": 1
+    },
+    "store": {
+      "type": "string",
+      "minLength": 1
+    },
+    "skuPackageId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "supplierSkuId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "platformProductId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "merchantSku": {
+      "type": "string",
+      "minLength": 1
+    },
+    "currentPrice": {
+      "type": "object",
+      "required": [
+        "amount",
+        "currency"
+      ],
+      "properties": {
+        "amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "currentStock": {
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "const": "unknown"
+        }
+      ]
+    },
+    "imageCount": {
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "const": "unknown"
+        }
+      ]
+    },
+    "moderationStatus": {
+      "type": "string",
+      "minLength": 1
+    },
+    "validationStatus": {
+      "type": "string",
+      "minLength": 1
+    },
+    "saleStatus": {
+      "type": "string",
+      "minLength": 1
+    },
+    "errors": {
+      "oneOf": [
+        {
+          "type": "array"
+        },
+        {
+          "const": "unknown"
+        }
+      ]
+    },
+    "platformEvidenceRef": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ownerPriceDecision": {
+      "type": "object"
+    },
+    "storeRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stableStoreId",
+        "platformStoreId",
+        "mappingVersion"
+      ],
+      "properties": {
+        "stableStoreId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platformStoreId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mappingVersion": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "warehouseRef": {
+      "type": "string",
+      "minLength": 1
+    },
+    "credentialAlias": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "verificationPath": {
+            "const": "system_created"
+          }
+        },
+        "required": [
+          "verificationPath"
+        ]
+      },
+      "then": {
+        "properties": {
+          "storeRef": {
+            "$ref": "#/properties/storeRef"
+          },
+          "warehouseRef": {
+            "$ref": "#/properties/warehouseRef"
+          },
+          "credentialAlias": {
+            "$ref": "#/properties/credentialAlias"
+          },
+          "inventoryObservation": {
+            "$ref": "#/$defs/inventoryObservation"
+          },
+          "sourceRecordType": {
+            "const": "ProductionRecord"
+          },
+          "outcome": {
+            "const": "listed_verified"
+          },
+          "mediaObservation": {
+            "type": "object",
+            "properties": {
+              "primaryImageUrl": {
+                "type": "string",
+                "format": "uri",
+                "pattern": "^https://"
+              },
+              "images": {
+                "type": "array"
+              }
+            }
+          },
+          "createdByCurrentRun": {
+            "const": true
+          },
+          "currentStock": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "imageCount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "moderationStatus": {
+            "const": "approved"
+          },
+          "validationStatus": {
+            "const": "success"
+          },
+          "saleStatus": {
+            "enum": [
+              "on_sale",
+              "active",
+              "selling"
+            ]
+          },
+          "errors": {
+            "type": "array",
+            "maxItems": 0
+          },
+          "ownerPriceDecision": {
+            "type": "object",
+            "required": [
+              "decision",
+              "confirmedBy",
+              "price"
+            ],
+            "properties": {
+              "price": {
+                "$ref": "#/properties/currentPrice"
+              },
+              "decision": {
+                "enum": [
+                  "authorized_platform_write_price",
+                  "keep_current_live_price"
+                ]
+              },
+              "confirmedBy": {
+                "const": "owner"
+              }
+            }
+          }
+        },
+        "required": [
+          "storeRef",
+          "warehouseRef",
+          "credentialAlias",
+          "mediaObservation",
+          "inventoryObservation"
+        ]
+      }
+    }
+  ]
 }

@@ -1,0 +1,545 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "software-job-v2.schema.json",
+  "title": "Account preparation software job",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "admission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "admissionId",
+        "jobId",
+        "subject",
+        "revision",
+        "jobType",
+        "normalizedScopeKey",
+        "authorizationRef",
+        "authorizationFingerprint",
+        "credentialBindingRef",
+        "credentialAlias",
+        "credentialBindingFingerprint",
+        "phase",
+        "observedAt"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "software-job-admission-v2"
+        },
+        "subject": {
+          "$ref": "ozon-account-read-v2.schema.json#/$defs/subject"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "jobType": {
+          "const": "ozon_account_read"
+        },
+        "phase": {
+          "enum": [
+            "enqueue_before_candidate_commit",
+            "enqueue_current",
+            "claim",
+            "external_request"
+          ]
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "admissionId": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "jobId": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "normalizedScopeKey": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "authorizationRef": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "authorizationFingerprint": {
+          "$ref": "software-job-v1.schema.json#/$defs/sha256"
+        },
+        "credentialBindingRef": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "credentialAlias": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "credentialBindingFingerprint": {
+          "$ref": "software-job-v1.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "resultEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "resultRef",
+        "jobId",
+        "jobType",
+        "subject",
+        "revision",
+        "workerId",
+        "leaseId",
+        "externalRequestRef",
+        "externalRequestState",
+        "payloadKind",
+        "payload",
+        "payloadFingerprint",
+        "applicationDisposition",
+        "recordedAt"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "software-job-result-envelope-v2"
+        },
+        "subject": {
+          "$ref": "ozon-account-read-v2.schema.json#/$defs/subject"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "jobType": {
+          "const": "ozon_account_read"
+        },
+        "externalRequestState": {
+          "const": "succeeded"
+        },
+        "payloadKind": {
+          "const": "ozon_account_read"
+        },
+        "applicationDisposition": {
+          "const": "result_recorded_no_candidate_mutation"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "receiptRef",
+            "scopeFingerprint"
+          ],
+          "properties": {
+            "schemaVersion": {
+              "const": "ozon-account-read-job-result-v1"
+            },
+            "receiptRef": {
+              "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+            },
+            "scopeFingerprint": {
+              "$ref": "software-job-v1.schema.json#/$defs/sha256"
+            }
+          }
+        },
+        "resultRef": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "jobId": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "workerId": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "leaseId": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "externalRequestRef": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "payloadFingerprint": {
+          "$ref": "software-job-v1.schema.json#/$defs/sha256"
+        }
+      }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "jobId",
+    "revision",
+    "jobType",
+    "status",
+    "createdAt",
+    "startedAt",
+    "lastProgressAt",
+    "completedAt",
+    "requestedByUserId",
+    "ownerUserId",
+    "requiredCapabilities",
+    "workerId",
+    "workerVersion",
+    "workerCapabilitiesSnapshot",
+    "leaseId",
+    "leaseExpiresAt",
+    "attempt",
+    "idempotencyKey",
+    "externalRequestState",
+    "externalRequestRef",
+    "progressRef",
+    "resultRef",
+    "resultEnvelope",
+    "failureClass",
+    "automaticRetryAllowed",
+    "admissionDecision",
+    "scopeBinding",
+    "subject"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "software-job-v2"
+    },
+    "jobId": {
+      "$ref": "software-job-v1.schema.json#/properties/jobId"
+    },
+    "revision": {
+      "$ref": "software-job-v1.schema.json#/properties/revision"
+    },
+    "jobType": {
+      "const": "ozon_account_read"
+    },
+    "status": {
+      "$ref": "software-job-v1.schema.json#/properties/status"
+    },
+    "createdAt": {
+      "$ref": "software-job-v1.schema.json#/properties/createdAt"
+    },
+    "startedAt": {
+      "$ref": "software-job-v1.schema.json#/properties/startedAt"
+    },
+    "lastProgressAt": {
+      "$ref": "software-job-v1.schema.json#/properties/lastProgressAt"
+    },
+    "completedAt": {
+      "$ref": "software-job-v1.schema.json#/properties/completedAt"
+    },
+    "requestedByUserId": {
+      "$ref": "software-job-v1.schema.json#/properties/requestedByUserId"
+    },
+    "ownerUserId": {
+      "$ref": "software-job-v1.schema.json#/properties/ownerUserId"
+    },
+    "requiredCapabilities": {
+      "const": [
+        "ozon-account-read"
+      ]
+    },
+    "workerId": {
+      "$ref": "software-job-v1.schema.json#/properties/workerId"
+    },
+    "workerVersion": {
+      "$ref": "software-job-v1.schema.json#/properties/workerVersion"
+    },
+    "workerCapabilitiesSnapshot": {
+      "$ref": "software-job-v1.schema.json#/properties/workerCapabilitiesSnapshot"
+    },
+    "leaseId": {
+      "$ref": "software-job-v1.schema.json#/properties/leaseId"
+    },
+    "leaseExpiresAt": {
+      "$ref": "software-job-v1.schema.json#/properties/leaseExpiresAt"
+    },
+    "attempt": {
+      "$ref": "software-job-v1.schema.json#/properties/attempt"
+    },
+    "idempotencyKey": {
+      "$ref": "software-job-v1.schema.json#/properties/idempotencyKey"
+    },
+    "externalRequestState": {
+      "$ref": "software-job-v1.schema.json#/properties/externalRequestState"
+    },
+    "externalRequestRef": {
+      "$ref": "software-job-v1.schema.json#/properties/externalRequestRef"
+    },
+    "progressRef": {
+      "$ref": "software-job-v1.schema.json#/properties/progressRef"
+    },
+    "resultRef": {
+      "$ref": "software-job-v1.schema.json#/properties/resultRef"
+    },
+    "resultEnvelope": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/resultEnvelope"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "failureClass": {
+      "$ref": "software-job-v1.schema.json#/properties/failureClass"
+    },
+    "automaticRetryAllowed": {
+      "$ref": "software-job-v1.schema.json#/properties/automaticRetryAllowed"
+    },
+    "admissionDecision": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/admission"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "scopeBinding": {
+      "$ref": "ozon-account-read-v2.schema.json#/$defs/scope"
+    },
+    "subject": {
+      "$ref": "ozon-account-read-v2.schema.json#/$defs/subject"
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "status": {
+          "const": "queued"
+        },
+        "attempt": {
+          "const": 0
+        },
+        "externalRequestState": {
+          "enum": [
+            "not_sent"
+          ]
+        },
+        "startedAt": {
+          "type": "null"
+        },
+        "completedAt": {
+          "type": "null"
+        },
+        "workerId": {
+          "type": "null"
+        },
+        "leaseId": {
+          "type": "null"
+        },
+        "leaseExpiresAt": {
+          "type": "null"
+        },
+        "externalRequestRef": {
+          "type": "null"
+        },
+        "resultEnvelope": {
+          "type": "null"
+        },
+        "resultRef": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "status",
+        "attempt",
+        "externalRequestState"
+      ]
+    },
+    {
+      "properties": {
+        "status": {
+          "const": "claimed"
+        },
+        "attempt": {
+          "const": 1
+        },
+        "externalRequestState": {
+          "enum": [
+            "not_sent"
+          ]
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "type": "null"
+        },
+        "workerId": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "leaseId": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "leaseExpiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "externalRequestRef": {
+          "type": "null"
+        },
+        "resultEnvelope": {
+          "type": "null"
+        },
+        "resultRef": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "status",
+        "attempt",
+        "externalRequestState"
+      ]
+    },
+    {
+      "properties": {
+        "status": {
+          "const": "waiting_platform"
+        },
+        "attempt": {
+          "const": 1
+        },
+        "externalRequestState": {
+          "enum": [
+            "in_flight"
+          ]
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "type": "null"
+        },
+        "workerId": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "leaseId": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "leaseExpiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "externalRequestRef": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "resultEnvelope": {
+          "type": "null"
+        },
+        "resultRef": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "status",
+        "attempt",
+        "externalRequestState"
+      ]
+    },
+    {
+      "properties": {
+        "status": {
+          "const": "completed"
+        },
+        "attempt": {
+          "const": 1
+        },
+        "externalRequestState": {
+          "enum": [
+            "succeeded"
+          ]
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "externalRequestRef": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "resultRef": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "resultEnvelope": {
+          "$ref": "#/$defs/resultEnvelope"
+        },
+        "failureClass": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "status",
+        "attempt",
+        "externalRequestState"
+      ]
+    },
+    {
+      "properties": {
+        "status": {
+          "const": "failed"
+        },
+        "attempt": {
+          "const": 1
+        },
+        "externalRequestState": {
+          "enum": [
+            "not_sent",
+            "failed",
+            "succeeded"
+          ]
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "failureClass": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "resultEnvelope": {
+          "type": "null"
+        },
+        "resultRef": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "status",
+        "attempt",
+        "externalRequestState"
+      ]
+    },
+    {
+      "properties": {
+        "status": {
+          "const": "unknown_outcome"
+        },
+        "attempt": {
+          "const": 1
+        },
+        "externalRequestState": {
+          "enum": [
+            "unknown_outcome"
+          ]
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "failureClass": {
+          "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+        },
+        "resultEnvelope": {
+          "type": "null"
+        },
+        "resultRef": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "status",
+        "attempt",
+        "externalRequestState"
+      ]
+    }
+  ]
+}

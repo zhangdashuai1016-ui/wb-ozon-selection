@@ -1,0 +1,555 @@
+{
+  "schemaVersion": "first-sku-engineering-decision-v1",
+  "decisionId": "first-sku-route-correction-20260909",
+  "recordedAt": "2026-09-09T01:48:15.179067+00:00",
+  "source": "主人经施工前讨论语音五明确决定",
+  "marketProvider": "seerfar",
+  "supplierSource": "1688",
+  "commissionReferencePolicy": {
+    "decisionId": "local-official-commission-reference-20260909",
+    "source": "主人经施工前讨论语音五明确决定",
+    "acquisitionSeparateFromSkuCalculation": true,
+    "skuCalculationSource": "saved_official_commission_version",
+    "perSkuExternalCommissionRequestAllowed": false,
+    "matchKeys": [
+      "platform",
+      "sellerRegion",
+      "salesScheme",
+      "categoryIdentity",
+      "sourceDefinedPriceConditions"
+    ],
+    "trace": [
+      "officialSource",
+      "acquiredAt",
+      "effectivePeriodOrUnknown",
+      "version",
+      "matchedRow"
+    ],
+    "knownOfficialChangeInvalidatesAffectedVersion": true,
+    "unknownScopeOrMissingCategory": "explicit_gap_no_network_fallback_no_guessed_rate",
+    "refreshFrequency": null,
+    "refreshFrequencyUndecidedDoesNotBlockLocalLookup": true,
+    "storageBoundary": "replaceable_reference_repository_local_adapter_now_central_repository_later",
+    "deploymentAuthorized": false
+  },
+  "linkfox": {
+    "selected": false,
+    "newImplementationAllowed": false,
+    "configurationAllowed": false,
+    "historicalCodePreserved": true
+  },
+  "inventoryPrefill": {
+    "quantity": 100,
+    "scope": "all_new_products",
+    "writeAuthorization": false,
+    "sourceFile": "/Users/shuaizhang/Documents/wb & ozon 选品/AGENTS.md",
+    "sourceLines": [
+      422,
+      423
+    ]
+  },
+  "finalAssets": {
+    "providedBy": "owner",
+    "existingFlow": "multiple_upload_order_primary_and_one_final_confirmation",
+    "imageWorkbenchIntegrationRequiredForFirstSku": false
+  },
+  "attributeCompletionPolicy": {
+    "decisionId": "first-sku-evidence-based-optional-attributes-20260909",
+    "source": "主人经施工前讨论语音五明确决定",
+    "appliesToProgressItems": [
+      4,
+      7,
+      8,
+      10,
+      11
+    ],
+    "priority": "current_platform_category_required_attributes",
+    "optionalUnknown": "retain_unknown_internally_omit_from_platform_as_schema_allows_no_owner_request_no_block",
+    "automaticFill": "only_traceable_facts_proven_for_same_product_and_exact_specification",
+    "approximateCompetitorFactsMayReplaceSkuFacts": false,
+    "necessaryBusinessFacts": "actual_packed_weight_dimensions_battery_MOQ_costs_remain_required_when_approved_profit_logistics_safety_rules_need_them",
+    "missingRequiredFacts": "explain_purpose_and_minimum_missing_fields_in_one_owner_request",
+    "contentCompleteness": "improve_with_known_facts_without_fabrication",
+    "platformScoreMetric": null,
+    "platformScoreThreshold": null,
+    "platformScoreGateAllowed": false
+  },
+  "logisticsRule": {
+    "provider": "guoo",
+    "selection": "lowest_complete_cost_among_proven_eligible_routes",
+    "inputs": [
+      "actual_packed_weight",
+      "actual_dimensions",
+      "declared_value",
+      "category_and_battery_restrictions",
+      "destination",
+      "store_supported_routes",
+      "complete_applicable_charges"
+    ],
+    "warehousePrefill": "only_with_verified_route_warehouse_mapping"
+  },
+  "correction": "原路线障碍先准确报告失败层并修复。未经主人明确决定，不得先把替代供应商、模型、数据源或业务路线接入代码或默认流程，再要求主人注册、付款或事后接受。备选、未启用、未扣费均不是例外。普通技术修复继续自主推进。",
+  "externalAuthority": {
+    "credentials": false,
+    "accountReads": false,
+    "productSearch": false,
+    "paidCalls": false,
+    "platformWrites": false,
+    "deployment": false,
+    "restart": false
+  },
+  "auditScope": "seerfar_and_1688_reuse_first; then_only_previously_known_blockers_in_order; broader_audit_paused",
+  "supplierSearchDecision": {
+    "route": "1688_official_image_search",
+    "input": "competitor_main_or_suitable_product_image",
+    "bullheadBaseline": "one_bullhead_supplier_plus_one_exact_same_sku_supplier",
+    "withoutBullhead": "approximately_three_to_four_comparable_suppliers",
+    "eligibility": "one_piece_order_and_quantity_one_price_plus_domestic_freight",
+    "sourceFile": "/Users/shuaizhang/Documents/wb & ozon 选品/docs/archive/owner-intent/WB and Ozon选品-老板意图无损决策整合稿-2026-08-28-v4.md",
+    "sourceLines": [
+      3165,
+      3201,
+      3361,
+      3363,
+      3381
+    ],
+    "historicalExecutionRecovered": false
+  },
+  "ownerProvidedSupplierLinkDecision": {
+    "decisionId": "first-sku-owner-selected-single-1688-link-20260909",
+    "source": "主人经施工前讨论语音五明确决定",
+    "scope": "manual_supply_participation_when_first_sku_reaches_supply_stage",
+    "status": "approved_manual_supply_step_after_new_seerfar_discovery",
+    "supersedes": "supplierSearchDecision comparison and image-search requirements within this scope only",
+    "meaning": "新版工作台先从正式Seerfar找出新方向；到找货的人类参与步骤时，主人可提供一个选定1688货源链接。不是当前前置输入，不替代Seerfar开端。",
+    "supplierLinkCount": 1,
+    "alternativeSupplierSearchRequired": false,
+    "multiSupplierUiRequired": false,
+    "automaticImageSearchRequired": false,
+    "productLinkConfirmsSku": false,
+    "skuConfirmation": "在现有同一A确认卡展示该链接内的真实SKU；主人未明确规格时须选择唯一具体SKU，并确认其对应价格、实际采购成本及包装。",
+    "missingFacts": "unknown; never infer from lowest price or another SKU",
+    "downstreamUse": "confirmed supplier SKU facts are listing supply evidence; platform category, target selling price, commission, freight and exchange evidence retain their own boundaries",
+    "procurementMeaning": "reference_for_separately_authorized_procurement_only",
+    "externalCollectionAuthorized": false,
+    "imageUploadAuthorized": false,
+    "purchaseOrderAuthorized": false,
+    "productionWriteAuthorized": false,
+    "actualSupplierLink": null
+  },
+  "maintenanceReadAuthorization": {
+    "record": "logs/first-sku-resumption-20260909/authorization.json",
+    "approvedViaTask": "01a080eb-d2ee-7b90-8634-5dcb67e671ad",
+    "scope": "limited_official_documentation_and_image_search_entry_read_only",
+    "seerfarPagesRead": 4,
+    "seerfarPageLimit": 4,
+    "1688NavigationAttempts": 1,
+    "1688PagesRead": 0,
+    "1688StoppedReason": "browser_site_safety_policy",
+    "normalProductAccountReadAuthority": false,
+    "normalProductQueryAuthority": false
+  },
+  "firstItemTargetStore": "miska",
+  "engineeringHandoff": {
+    "requestedByOwner": true,
+    "successorTaskName": "全店工作台总劳工六",
+    "createdByThisTask": false,
+    "newSeerfarSliceImplementationStarted": false,
+    "currentTaskMustRemainStopped": true,
+    "handoffEntry": "../HANDOFF.md"
+  },
+  "firstSkuAcceptanceSequence": {
+    "decisionId": "first-sku-new-seerfar-end-to-end-20260909",
+    "source": "主人经施工前讨论语音五明确决定",
+    "start": "new_workbench_formal_seerfar_discovery",
+    "historicalCandidateOrLinkForAcceptanceAllowed": false,
+    "ownerProvidesLinkBeforeDiscovery": false,
+    "sequence": [
+      "software_seerfar_discovery",
+      "new_market_direction_presented",
+      "pause_at_actual_owner_decision",
+      "owner_voice_review_of_workbench",
+      "owner_single_1688_source_when_supply_stage_reached",
+      "software_A_to_E_with_stage_authorizations"
+    ],
+    "codexRole": "explanation_and_maintenance_only",
+    "currentOwnerAction": "none_engineering_preparation",
+    "runtimeRequests": "present_specific_scope_budget_and_required_authorization_in_workbench",
+    "unlimitedExternalOrPaidOrProductionAuthority": false
+  },
+  "marketSampleDecisionRecovery": {
+    "source": "docs/archive/owner-intent/WB and Ozon选品-老板意图无损决策整合稿-2026-08-28-v4.md",
+    "sourceLines": [
+      1464,
+      3405,
+      3435,
+      3438
+    ],
+    "sellerPriority": "cross_border_cn_preferred_not_exclusive_unknown_not_automatic_rejection",
+    "formalMarketSampleEligibility": [
+      "exact_same_product",
+      "exact_same_specification",
+      "same_market",
+      "currently_for_sale"
+    ],
+    "coreSampleOrder": "last_30_day_sales_descending_after_comparability_verified",
+    "coreSampleCount": 3,
+    "additionalSampleReasons": [
+      "brand_difference",
+      "promotion",
+      "specification_difference",
+      "anomalous_price"
+    ],
+    "insufficientSamples": "explicitly_mark_when_fewer_than_three_valid_comparable_samples",
+    "salesProvenance": "official_actual_or_third_party_estimate_explicitly_labelled",
+    "reviews": "rating_count_representative_positive_negative_recurring_issues_with_sources_and_time",
+    "fixedReviewCountGate": null,
+    "profitPriority": "approved_profit_conclusion_not_overridden_by_low_cross_border_share",
+    "implementationStatus": "seller_priority_base_exists_market_sample_policy_monthly_core_selection_and_discovery_integration_not_complete",
+    "categoryResultIsComparableCoreSample": false,
+    "maximumTotalSampleCount": 5
+  },
+  "seerfarConfigurationPreparation": {
+    "status": "draft_not_activated",
+    "runtimeConfigurationWritten": false,
+    "authorizationGranted": false,
+    "sourceTask": "施工前讨论语音五",
+    "targetStore": "miska",
+    "currentDirection": null,
+    "currentCategoryId": null,
+    "currentCategoryEvidenceRef": null,
+    "currentContractEvidenceRef": null,
+    "currentCostEvidenceRef": null,
+    "currentBudget": null,
+    "credentialLocator": null,
+    "missingMeaning": "Current evidence is not verified; historical identity is recovered, not a failed current request.",
+    "historicalMapping": {
+      "observedOn": "2026-07-27",
+      "platform": "ozon",
+      "categoryId": "17027494_17028712_93366",
+      "fulfillment": "RFBS",
+      "name": "室内装饰镜",
+      "evidenceRoot": "/Users/shuaizhang/Documents/电商能力实验室/seerfar-lab/experiments/20260727/ozon-4997772117",
+      "sourceFields": [
+        "seerfar_input.json:category_id",
+        "seerfar/run_summary.json:deepest_category_id",
+        "seerfar/category_top20.json:data.id"
+      ],
+      "dateRange": {
+        "startDate": "2026-06-26",
+        "endDate": "2026-07-26"
+      },
+      "requestDate": null,
+      "rawSellerType": 1,
+      "sellerTypeMeaning": null,
+      "currentDirectionSelected": false,
+      "currentFeeReusable": false
+    },
+    "nextEngineering": "Category identity and frozen-plan gates are implemented. Complete in-progress final-pricing verification, then rebuild the existing runtime review package. Real Seerfar activation still requires verified current category, data and billing evidence; do not fabricate references."
+  },
+  "c1DraftConfigurationPreparation": {
+    "status": "validated_not_activated",
+    "source": "/Users/shuaizhang/Documents/wb & ozon 选品/commission-reference-20260909/gateway-reuse-and-ozon-source-review.json",
+    "bindings": [
+      {
+        "schemaVersion": "c1-draft-service-binding-v1",
+        "provider": "terra",
+        "modelVersion": "gpt-5.6-terra",
+        "credentialAlias": "linlongs.primary",
+        "workerId": "worker:c1-draft:primary",
+        "workerVersion": "c1-draft-worker-v1",
+        "gatewayOrigin": "http://127.0.0.1:4318",
+        "configurationVersion": "c1-draft-config-20260909",
+        "leaseDurationMs": 90000
+      }
+    ],
+    "reused": {
+      "gatewayProvider": "linlongs",
+      "gatewayServiceVersion": "0.1.0",
+      "model": "gpt-5.6-terra",
+      "gatewayOrigin": "http://127.0.0.1:4318"
+    },
+    "engineeringChoices": [
+      "workerId",
+      "workerVersion",
+      "configurationVersion",
+      "leaseDurationMs"
+    ],
+    "credentialAliasMeaning": "App routing label mapped to the existing fixed gateway account; not proof of key validity or an external alias registry.",
+    "workerRegistered": false,
+    "secretRead": false,
+    "healthProbe": false,
+    "modelCall": false,
+    "productionConfigWritten": false,
+    "authorizationGranted": false
+  },
+  "keywordConfigurationPreparation": {
+    "status": "validated_not_activated",
+    "bindings": [
+      {
+        "schemaVersion": "c1-keyword-service-binding-v1",
+        "serviceId": "service:keyword-evidence",
+        "configurationVersion": "keyword-config-20260909",
+        "provider": "seerfar_open_api",
+        "workerId": "worker:keyword-evidence:primary",
+        "workerVersion": "keyword-worker-v1",
+        "leaseDurationMs": 120000,
+        "pumpIntervalMs": 1000,
+        "requestTimeoutMs": 30000
+      }
+    ],
+    "source": "existing keyword-evidence-runtime-services and normalizeKeywordEvidenceServiceBindings; technical values are explicit new draft choices",
+    "workerRegistered": false,
+    "secretRead": false,
+    "query": false,
+    "feeAuthorizationGranted": false,
+    "productionConfigWritten": false,
+    "combinedC1WorkerIsolationValidated": true,
+    "remaining": [
+      "current exact-SKU keyword scope and keyword-source evidence",
+      "current paid query budget and once authorization",
+      "deployment and real authorized verification"
+    ]
+  },
+  "engineeringProgress": {
+    "status": "stopped_for_github_checkpoint_ci_entry_blocked",
+    "firstSkuPriorities": [
+      "Seerfar current search contract and usable configuration",
+      "Prepare current verified release for activation review",
+      "1688 single-link capture readiness",
+      "GUOO route to Miska delivery mapping",
+      "First SKU applicable complete costs and profit",
+      "Final multi-sample pricing and profit revision consistency",
+      "D execution and E saleability and image verification"
+    ],
+    "notFirstSkuPrerequisites": [
+      "WB readiness",
+      "Downloading the complete Ozon commission table"
+    ],
+    "activeItems": [],
+    "nextExecutable": [],
+    "externalEvidenceBlocked": [
+      {
+        "item": 1,
+        "missing": "First SKU current category, RFBS and price-applicable official commission evidence; complete table not mandatory"
+      },
+      {
+        "item": 2,
+        "missing": "WB mode and price-condition applicability"
+      },
+      {
+        "item": 3,
+        "missing": "official category, period and API billing contract"
+      },
+      {
+        "item": 7,
+        "missing": "Current applicable withdrawal/payment/tax/remaining fees and matching real cost policy"
+      }
+    ],
+    "businessStagePending": [
+      4,
+      5,
+      8,
+      11,
+      12,
+      13
+    ],
+    "runtimeActivationPending": [
+      9,
+      10,
+      14
+    ],
+    "seerfarTwoPageRound": {
+      "roundId": "seerfar-public-docs-two-pages-20260909",
+      "authorization": "approved",
+      "consumption": 2,
+      "budget": 2,
+      "result": "tool_fetch_timeout_both_pages_no_body_no_new_contract_facts",
+      "receipt": "logs/first-sku-resumption-20260909/seerfar-two-page-result.json"
+    },
+    "latestC1OfflineValidation": {
+      "tests": 13,
+      "passed": 13,
+      "log": "logs/first-sku-resumption-20260909/c1-offline-owner-chain-verified.log"
+    },
+    "deploymentPerformed": false,
+    "realSkuStarted": false,
+    "wbCatalogValidation": {
+      "tests": 108,
+      "passed": 108,
+      "log": "logs/first-sku-resumption-20260909/wb-catalog-chain-verified.log",
+      "realWbFormalEvidence": false
+    },
+    "ozonCommissionThirdPartyReference": {
+      "receipt": "/Users/shuaizhang/Documents/wb & ozon 选品/commission-reference-20260909/third-party-unverified/receipt.json",
+      "rows": 80,
+      "groups": 9,
+      "productionUsable": false,
+      "status": "unverified_third_party_reference_only"
+    },
+    "latestValidation": {
+      "status": "local_engineering_verified_not_deployed",
+      "node": "/Users/shuaizhang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node",
+      "testCommandPrefix": "env -i PATH=/usr/bin:/bin SELECTION_REVIEW_TEST_PORT=43295 SELECTION_REVIEW_TEST_GATEWAY_PORT=43296 NODE --test --test-concurrency=1",
+      "files": [
+        "tests/global-pricing-policy.test.mjs",
+        "tests/profit-model.test.mjs",
+        "tests/product-lifecycle-schema.test.mjs",
+        "tests/lifecycle-b-input-bundle.test.mjs",
+        "tests/lifecycle-b-evidence-providers.test.mjs",
+        "tests/lifecycle-b-evidence-preparation.test.mjs",
+        "tests/lifecycle-b-evidence-runtime.test.mjs",
+        "tests/lifecycle-b-real-evidence-readers.test.mjs",
+        "tests/business-mutation-transaction.test.mjs",
+        "tests/real-a-b-c1-flow.test.mjs",
+        "tests/real-a-b-evidence-orchestration.test.mjs",
+        "tests/b-exact-commission-runtime-view.test.mjs",
+        "tests/b-exact-commission-recalculation-use-case.test.mjs",
+        "tests/b-exact-commission-recalculation-http.test.mjs",
+        "tests/real-a-b-c1-api.test.mjs",
+        "tests/a-product-detail-evidence.test.mjs",
+        "tests/real-a-confirmation-card.test.mjs",
+        "tests/frontend-review-behavior.test.mjs",
+        "tests/phase-2a-simulation.test.mjs",
+        "tests/phase-2a-api-guards.test.mjs",
+        "tests/c1-paid-draft-owner-api.test.mjs",
+        "tests/c1-gateway-source-binding.test.mjs",
+        "tests/c1-gateway-acceptance.test.mjs"
+      ],
+      "tests": 267,
+      "passed": 267,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 23867.814459,
+      "log": "logs/first-sku-resumption-20260909/b-cost-policy-final-regression.log",
+      "build": {
+        "modules": 85,
+        "durationMs": 666,
+        "log": "logs/first-sku-resumption-20260909/b-cost-policy-build.log"
+      },
+      "registry": {
+        "tests": 5,
+        "passed": 5,
+        "sourceArtifacts": 604
+      },
+      "isolatedPackage": {
+        "tests": 1,
+        "passed": 1,
+        "durationMs": 8506.21175,
+        "ports": [
+          43293,
+          43294
+        ]
+      },
+      "syntaxCount": 18,
+      "diffCheck": "passed",
+      "unresolvedErrors": 0,
+      "unresolvedWarnings": 0,
+      "fullRepositoryCI": false,
+      "releaseReview": "/Users/shuaizhang/.local/share/wb-ozon-engineering/20260907-single-product-baseline/integration/single-product-review-20260909-r3/RELEASE_REVIEW.md",
+      "deployment": false,
+      "realBusinessRun": false,
+      "formalCostPolicyConfigured": false
+    },
+    "nextProductBoundary": {
+      "item": 11,
+      "status": "implementing_final_pricing_review_with_frozen_profit_consistency",
+      "reason": "Owner clarified preliminary single-competitor A/B pricing is allowed; multiple samples apply to final pricing. No A three-sample gate or repeated decision request. Final comparison, changed-price profit revision and C1/C2 dependency rebuilding are being connected."
+    },
+    "releasePrepared": "r5_not_activated",
+    "browserTrial": {
+      "source": "owner instruction relayed by current human bridge",
+      "route": "Seerfar paid membership website category and filter trial; no API",
+      "controller": "current human bridge",
+      "engineeringBrowserControl": false,
+      "productionIntegrationVerified": false,
+      "scope": "Trial evidence only; a controlled worker and offline acceptance remain required for production"
+    },
+    "localFinalPricingCheckpoint": {
+      "tests": 139,
+      "pass": 139,
+      "package": "r4_not_activated",
+      "excludes": "Subsequent C1 historical result reuse and image draft reuse",
+      "evidence": "logs/first-sku-resumption-20260909/final-pricing-outcome.json"
+    },
+    "stopInstruction": "Owner requested finish current work then stop; human bridge owns Git review, commit and push. No new implementation, collection or deployment.",
+    "latestVerification": {
+      "targetedFiles": 23,
+      "targetedPass": 293,
+      "sourceArtifacts": 620,
+      "registryPass": 5,
+      "runtimePackagePass": 1,
+      "buildModules": 87,
+      "fullCI": {
+        "status": "blocked_before_full_suite",
+        "command": "env -i PATH=<bundled-node>:/usr/bin:/bin node scripts/run-ci-tests.mjs",
+        "error": "CI_API_TEST_BOUNDARY_MISSING:runtime-package-api.test.mjs",
+        "source": "scripts/ci-test-policy.mjs:15",
+        "log": "pre-github-ci-blocked.log",
+        "executedBy": "human_bridge",
+        "verifiedLog": true,
+        "repairDeferredByOwner": true
+      }
+    },
+    "releaseReview": "/Users/shuaizhang/.local/share/wb-ozon-engineering/20260907-single-product-baseline/integration/single-product-review-20260909-r5/RELEASE_REVIEW.md"
+  },
+  "costPolicyPreparation": {
+    "status": "draft_for_evidence_completion_not_runtime_configuration",
+    "target": {
+      "platform": "ozon",
+      "store": "miska",
+      "salesScheme": "rfbs",
+      "storeRef": null
+    },
+    "historicalApprovedSource": {
+      "path": "/Users/shuaizhang/Documents/wb & ozon 选品/docs/archive/owner-intent/WB and Ozon选品-老板意图无损决策整合稿-2026-08-28-v4.md",
+      "lines": [
+        2354,
+        2370
+      ],
+      "decisionDate": "2026-08-04"
+    },
+    "knownRules": {
+      "labelRmb": 1.5,
+      "advertisingRate": 0,
+      "advertisingCondition": "natural_traffic_no_separate_real_ad_plan",
+      "returnReserveRate": 0.05,
+      "damageReserveRate": 0.05,
+      "minimumUnitProfitRmb": 20,
+      "minimumProfitMargin": 0.15,
+      "thresholdLogic": "any"
+    },
+    "evidenceGaps": [
+      {
+        "item": "withdrawalFeeRate",
+        "status": "unknown",
+        "note": "Existing 2% is from pricing skill; current store applicability and settlement inclusion unverified"
+      },
+      {
+        "item": "fixedOtherRmb",
+        "status": "unknown",
+        "note": "Existing default zero does not establish complete applicable fixed charges"
+      },
+      {
+        "item": "acquiringRate",
+        "status": "unknown",
+        "note": "Need explicit payment/acquiring applicability or evidenced non-applicability"
+      },
+      {
+        "item": "taxRate",
+        "status": "unknown",
+        "note": "Need applicable business cost evidence; placeholder zero is not evidence"
+      },
+      {
+        "item": "otherRate",
+        "status": "unknown",
+        "note": "Need explicit remaining fee coverage, including applicable payment intermediary charges"
+      }
+    ],
+    "packaging": "current SKU-specific amount, not reusable commission data; actual SKU input deferred to A",
+    "includedInSettlement": "unsupported until the formula has a verified carrying charge/basis; do not turn into zero",
+    "runtimePolicyCreated": false,
+    "realProfitApproved": false,
+    "releasePrepared": "r5_not_activated"
+  }
+}

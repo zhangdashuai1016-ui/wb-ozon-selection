@@ -1,36 +1,21 @@
+import { sameStoreRef } from "./store-binding.mjs";
 import { createHash } from "node:crypto";
 import {
   assertValidProductionPlan,
+  projectProductionPlanInputs,
+  fingerprintProductionAuthorization,
   fingerprintProductionPlan,
   validateProductionPlanAuthorizationBinding
 } from "./production-plan.mjs";
 import {
-  assertValidProductionAuthorization,
+  assertCurrentProductionAuthorization,
   DRAFT_ONLY_PUBLISH_SCOPE,
   VALIDATION_MODERATION_PUBLISH_SCOPE,
   PRODUCTION_WRITE_FIELDS
 } from "./production-authorization.mjs";
-import { assertValidPlatformWritePreflight } from "./platform-write-preflight.mjs";
-
-export const PRODUCTION_RECORD_VERSION = "production-record-v1.1";
-
-const DRAFT_WRITE_FIELDS = Object.freeze([
-  "create_product",
-  "title",
-  "attributes",
-  "price",
-  "stock",
-  "assets.finalUploads",
-  "publish_scope"
-]);
-const MODERATION_WRITE_FIELDS = Object.freeze([
-  "create_product",
-  "title",
-  "attributes",
-  "price",
-  "assets.finalUploads",
-  "publish_scope"
-]);
+import { assertValidPlatformWritePreflight, assertCurrentProductionExecutionBinding } from "./platform-write-preflight.mjs";
+import { PRODUCTION_RECORD_VERSION, DRAFT_WRITE_FIELDS, MODERATION_WRITE_FIELDS, assertValidProductionRecord } from "./production-record-contract.mjs";
+export { PRODUCTION_RECORD_VERSION, validateProductionReadbackExpectation, validateProductionRecord, assertValidProductionRecord } from "./production-record-contract.mjs";
 
 function writeFieldsFor(plan) {
   return plan.publishScope === VALIDATION_MODERATION_PUBLISH_SCOPE ? MODERATION_WRITE_FIELDS : DRAFT_WRITE_FIELDS;
@@ -55,9 +40,6 @@ function deepFreeze(value) {
   return value;
 }
 
-function push(errors, path, message) {
-  errors.push({ path, message });
-}
 
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -96,23 +78,24 @@ function categoryValue(category, key) {
 }
 
 function validateDraftInputs(productionPlan, preflight) {
-  if (![DRAFT_ONLY_PUBLISH_SCOPE, VALIDATION_MODERATION_PUBLISH_SCOPE].includes(productionPlan.publishScope)) {
+  const inputs = projectProductionPlanInputs(productionPlan);
+  if (![DRAFT_ONLY_PUBLISH_SCOPE, VALIDATION_MODERATION_PUBLISH_SCOPE].includes(inputs.publishScope)) {
     throw new Error("DRAFT_SCOPE_REJECTED: 生产范围无效");
   }
-  if (productionPlan.allowedWriteFields.some((field) => !PRODUCTION_WRITE_FIELDS.includes(field))) {
+  if (inputs.allowedWriteFields.some((field) => !PRODUCTION_WRITE_FIELDS.includes(field))) {
     throw new Error("DRAFT_SCOPE_REJECTED: 生产计划包含未授权字段");
   }
-  const requiredWriteFields = writeFieldsFor(productionPlan);
-  const missing = requiredWriteFields.filter((field) => !productionPlan.allowedWriteFields.includes(field));
+  const requiredWriteFields = writeFieldsFor(inputs);
+  const missing = requiredWriteFields.filter((field) => !inputs.allowedWriteFields.includes(field));
   if (missing.length > 0) throw new Error(`DRAFT_SCOPE_REJECTED: 授权缺少草稿创建字段 ${missing.join(",")}`);
-  if (!requiredAttributesKnown(productionPlan.attributes)) throw new Error("DRAFT_DATA_GAP: 平台必填属性仍有unknown，禁止真实创建");
-  if (productionPlan.stock !== 100) throw new Error("DRAFT_DATA_GAP: 新品库存必须锁定为100");
-  if (!Array.isArray(productionPlan.finalUploads) || productionPlan.finalUploads.length === 0 ||
-      productionPlan.finalUploads.some((asset) => !nonEmptyString(asset.assetId) || !nonEmptyString(asset.assetRef) || asset.ownerConfirmed !== true || asset.productionEligible !== true)) {
+  if (!requiredAttributesKnown(inputs.attributes)) throw new Error("DRAFT_DATA_GAP: 平台必填属性仍有unknown，禁止真实创建");
+  if (inputs.stock !== 100) throw new Error("DRAFT_DATA_GAP: 新品库存必须锁定为100");
+  if (!Array.isArray(inputs.finalUploads) || inputs.finalUploads.length === 0 ||
+      inputs.finalUploads.some((asset) => !nonEmptyString(asset.assetId) || !nonEmptyString(asset.assetRef) || asset.ownerConfirmed !== true || asset.productionEligible !== true)) {
     throw new Error("DRAFT_DATA_GAP: 最终上传素材未完整锁定");
   }
-  const descriptionCategoryId = categoryValue(productionPlan.platformCategory, "descriptionCategoryId");
-  const typeId = categoryValue(productionPlan.platformCategory, "typeId");
+  const descriptionCategoryId = categoryValue(inputs.platformCategory, "descriptionCategoryId");
+  const typeId = categoryValue(inputs.platformCategory, "typeId");
   if (!nonEmptyString(String(descriptionCategoryId || "")) || descriptionCategoryId === "unknown" ||
       !nonEmptyString(String(typeId || "")) || typeId === "unknown") {
     throw new Error("DRAFT_DATA_GAP: 平台类目或商品类型未锁定");
@@ -122,7 +105,7 @@ function validateDraftInputs(productionPlan, preflight) {
     throw new Error("DRAFT_PREFLIGHT_STALE: 前置检查不属于当前ProductionPlan");
   }
   if (preflight.technicalStatus !== "completed" ||
-      preflight.storeIdentity.status !== "matched" ||
+      preflight.storeIdentity.status !== "matched" || !sameStoreRef(preflight.storeIdentity.expectedStoreRef, inputs.storeRef) || !sameStoreRef(preflight.storeIdentity.observedStoreRef, inputs.storeRef) ||
       preflight.permission.status !== "verified" ||
       preflight.priceCurrency?.status !== "matched" ||
       preflight.connectionStatus.api.status !== "connected") {
@@ -132,38 +115,6 @@ function validateDraftInputs(productionPlan, preflight) {
   if (unavailable.length > 0) throw new Error(`DRAFT_PREFLIGHT_NOT_READY: 平台当前不可写字段 ${unavailable.join(",")}`);
 }
 
-export function validateProductionRecord(record) {
-  const errors = [];
-  if (!isObject(record)) return { valid: false, errors: [{ path: "$", message: "必须是对象" }] };
-  if (record.schemaVersion !== PRODUCTION_RECORD_VERSION) push(errors, "schemaVersion", `必须是${PRODUCTION_RECORD_VERSION}`);
-  for (const field of [
-    "productionRecordId", "sourceProductionPlanId", "sourceProductionPlanFingerprint",
-    "sourceAuthorizationId", "sourceAuthorizationFingerprint", "platform", "store",
-    "skuPackageId", "supplierSkuId", "platformProductId", "platformEvidenceRef", "createdAt"
-  ]) if (!nonEmptyString(record[field])) push(errors, field, "必须是非空字符串");
-  if (!isoDateTime(record.createdAt)) push(errors, "createdAt", "必须是有效时间");
-  if (!["draft", "validation_or_moderation"].includes(record.status)) push(errors, "status", "平台状态无效");
-  if (!["single_sku_draft_only", "single_sku_create_and_moderate"].includes(record.executionMode)) push(errors, "executionMode", "只能执行单SKU授权范围");
-  const expectedFields = record.executionMode === "single_sku_create_and_moderate" ? MODERATION_WRITE_FIELDS : DRAFT_WRITE_FIELDS;
-  if (!sameStringArray(record.writtenFields, expectedFields)) push(errors, "writtenFields", "写入字段与授权范围不一致");
-  if (!["D_draft_created", "D_created_entered_validation_moderation"].includes(record.businessStateEffect)) push(errors, "businessStateEffect", "业务效果无效");
-  if (record.batchSize !== 1) push(errors, "batchSize", "只能创建一个SKU");
-  if (record.published !== false || record.activated !== false || record.advertisingOpened !== false) push(errors, "status", "禁止发布、激活或开广告");
-  if (record.executionMode === "single_sku_draft_only" && (record.inventoryModified !== true || record.stockWritten !== 100)) push(errors, "inventoryModified", "草稿模式必须记录库存100已写入");
-  if (record.executionMode === "single_sku_create_and_moderate" && (record.inventoryModified !== false || record.stockWritten !== null)) push(errors, "inventoryModified", "校验/审核模式必须记录库存未写");
-  if (!Number.isInteger(record.imagesUploaded) || record.imagesUploaded < 1) push(errors, "imagesUploaded", "必须记录草稿内最终图片写入数量");
-  if (!Array.isArray(record.finalUploadAssetIds) || record.finalUploadAssetIds.length !== record.imagesUploaded || record.finalUploadAssetIds.some((item) => !nonEmptyString(item))) push(errors, "finalUploadAssetIds", "必须按顺序记录已写入的最终素材");
-  if (!nonEmptyString(record.mainImageAssetId) || record.mainImageAssetId !== record.finalUploadAssetIds?.[0]) push(errors, "mainImageAssetId", "首图必须是最终素材顺序第一张");
-  if (record.independentReadbackVerified !== true || !nonEmptyString(record.platformWriteEvidenceRef) || !nonEmptyString(record.platformReadbackEvidenceRef)) push(errors, "independentReadbackVerified", "草稿创建后必须保存独立回读证据");
-  return { valid: errors.length === 0, errors };
-}
-
-export function assertValidProductionRecord(record) {
-  const result = validateProductionRecord(record);
-  if (!result.valid) throw new Error(`ProductionRecord校验失败：${result.errors.map((item) => `${item.path}: ${item.message}`).join("；")}`);
-  return record;
-}
-
 /**
  * 第13B-2阶段唯一真实写入口：一个SKU，只创建draft，并严格写入授权中的库存与最终素材。
  */
@@ -171,12 +122,13 @@ export async function executeSingleSkuDraftCreation({
   productionPlan,
   productionAuthorization,
   platformWritePreflight,
+  currentProductionBinding,
   createPlatformDraft,
   readbackPlatformDraft,
   executedAt
 }) {
   assertValidProductionPlan(productionPlan);
-  assertValidProductionAuthorization(productionAuthorization);
+  assertCurrentProductionAuthorization(productionAuthorization, { observedAt: executedAt });
   assertValidPlatformWritePreflight(platformWritePreflight);
   if (!isoDateTime(executedAt)) throw new Error("DRAFT_EXECUTION_INPUT_GAP: 执行时间无效");
   if (typeof createPlatformDraft !== "function") throw new Error("DRAFT_EXECUTION_ADAPTER_REQUIRED: 缺少真实平台草稿创建器");
@@ -185,28 +137,35 @@ export async function executeSingleSkuDraftCreation({
   const binding = validateProductionPlanAuthorizationBinding(productionPlan, productionAuthorization);
   if (!binding.valid) throw new Error("DRAFT_AUTHORIZATION_VERSION_CHANGED: 授权版本或内容已变化，拒绝执行");
   validateDraftInputs(productionPlan, platformWritePreflight);
+  assertCurrentProductionExecutionBinding({ productionAuthorization, currentProductionBinding, checkedAt: executedAt });
 
+  const inputs = projectProductionPlanInputs(productionPlan);
   const protectedPlan = structuredClone(productionPlan);
   const protectedAuthorization = structuredClone(productionAuthorization);
-  const moderationMode = productionPlan.publishScope === VALIDATION_MODERATION_PUBLISH_SCOPE;
+  const moderationMode = inputs.publishScope === VALIDATION_MODERATION_PUBLISH_SCOPE;
   const payload = deepFreeze({
     mode: moderationMode ? "single_sku_create_and_moderate" : "single_sku_draft_only",
-    platform: productionPlan.platform,
-    store: productionPlan.store,
-    skuPackageId: productionPlan.skuPackageId,
-    supplierSkuId: productionPlan.sku.supplierSkuId,
-    variantKey: productionPlan.sku.variantKey,
-    title: productionPlan.title,
-    titleVersion: productionPlan.titleVersion,
-    attributes: structuredClone(productionPlan.attributes),
-    attributeVersion: productionPlan.attributeVersion,
-    platformCategory: structuredClone(productionPlan.platformCategory),
-    buyerTargetPrice: structuredClone(productionPlan.buyerTargetPrice),
-    platformWritePrice: structuredClone(productionPlan.platformWritePrice),
-    priceConversion: structuredClone(productionPlan.priceConversion),
-    stock: productionPlan.stock,
-    finalUploads: structuredClone(productionPlan.finalUploads),
-    publishScope: productionPlan.publishScope,
+    platform: inputs.platform,
+    store: inputs.store,
+    skuPackageId: inputs.skuPackageId,
+    supplierSkuId: inputs.sku.supplierSkuId,
+    merchantSku: inputs.sku.merchantSku,
+    variantKey: inputs.sku.variantKey,
+    title: inputs.title,
+    titleVersion: inputs.titleVersion,
+    content: structuredClone(inputs.content),
+    contentVersion: inputs.contentVersion,
+    attributes: structuredClone(inputs.attributes),
+    attributeVersion: inputs.attributeVersion,
+    packing: structuredClone(inputs.packing),
+    schemaWriteBindings: structuredClone(inputs.schemaWriteBindings),
+    platformCategory: structuredClone(inputs.platformCategory),
+    buyerTargetPrice: structuredClone(inputs.buyerTargetPrice),
+    platformWritePrice: structuredClone(inputs.platformWritePrice),
+    priceConversion: structuredClone(inputs.priceConversion),
+    stock: inputs.stock,
+    finalUploads: structuredClone(inputs.finalUploads),
+    publishScope: inputs.publishScope,
     batchSize: 1,
     publish: false,
     activate: false,
@@ -230,41 +189,43 @@ export async function executeSingleSkuDraftCreation({
 
   const readback = await readbackPlatformDraft(deepFreeze({
     mode: moderationMode ? "independent_validation_moderation_readback" : "independent_draft_readback",
-    platform: productionPlan.platform,
-    store: productionPlan.store,
+    platform: inputs.platform,
+    store: inputs.store,
     productId: String(platformResult.productId),
-    supplierSkuId: productionPlan.sku.supplierSkuId,
-    expectedTitle: productionPlan.title,
-    expectedPrice: structuredClone(productionPlan.platformWritePrice),
-    expectedStock: moderationMode ? null : productionPlan.stock,
-    expectedFinalUploadAssetIds: productionPlan.finalUploads.map((asset) => asset.assetId),
-    expectedMainImageAssetId: productionPlan.finalUploads[0].assetId
+    supplierSkuId: inputs.sku.supplierSkuId,
+    merchantSku: inputs.sku.merchantSku,
+    expectedTitle: inputs.title,
+    expectedPrice: structuredClone(inputs.platformWritePrice),
+    expectedStock: moderationMode ? null : inputs.stock,
+    expectedFinalUploadAssetIds: inputs.finalUploads.map((asset) => asset.assetId),
+    expectedMainImageAssetId: inputs.finalUploads[0].assetId
   }));
   if (!isObject(readback) || readback.status !== expectedStatus || String(readback.productId || "") !== String(platformResult.productId) ||
-      readback.title !== productionPlan.title || (!moderationMode && readback.stock !== productionPlan.stock) || (moderationMode && readback.inventoryModified !== false) ||
-      !isObject(readback.price) || readback.price.amount !== productionPlan.platformWritePrice.amount || readback.price.currency !== productionPlan.platformWritePrice.currency ||
-      !sameStringArray(readback.finalUploadAssetIds, productionPlan.finalUploads.map((asset) => asset.assetId)) ||
-      readback.mainImageAssetId !== productionPlan.finalUploads[0].assetId || !nonEmptyString(readback.evidenceRef) ||
+      readback.title !== inputs.title || (!moderationMode && readback.stock !== inputs.stock) || (moderationMode && readback.inventoryModified !== false) ||
+      !isObject(readback.price) || readback.price.amount !== inputs.platformWritePrice.amount || readback.price.currency !== inputs.platformWritePrice.currency ||
+      !sameStringArray(readback.finalUploadAssetIds, inputs.finalUploads.map((asset) => asset.assetId)) ||
+      readback.mainImageAssetId !== inputs.finalUploads[0].assetId || !nonEmptyString(readback.evidenceRef) ||
       readback.published === true || readback.activated === true || (!moderationMode && readback.moderationSubmitted === true)) {
     throw new Error("DRAFT_READBACK_MISMATCH: 独立回读未证明授权状态、标题、价格、库存边界和最终素材完全一致");
   }
 
   const record = {
     schemaVersion: PRODUCTION_RECORD_VERSION,
-    productionRecordId: `production-record:${productionPlan.skuPackageId}:${fingerprint(platformResult).slice(0, 12)}`,
+    productionRecordId: `production-record:${inputs.skuPackageId}:${fingerprint(platformResult).slice(0, 12)}`,
     executionMode: moderationMode ? "single_sku_create_and_moderate" : "single_sku_draft_only",
     sourceProductionPlanId: productionPlan.planId,
     sourceProductionPlanFingerprint: fingerprintProductionPlan(productionPlan),
     sourceAuthorizationId: productionAuthorization.authorizationId,
-    sourceAuthorizationFingerprint: productionPlan.sourceAuthorizationFingerprint,
-    platform: productionPlan.platform,
-    store: productionPlan.store,
-    skuPackageId: productionPlan.skuPackageId,
-    supplierSkuId: productionPlan.sku.supplierSkuId,
+    sourceAuthorizationFingerprint: fingerprintProductionAuthorization(productionAuthorization),
+    platform: inputs.platform,
+    store: inputs.store,
+    skuPackageId: inputs.skuPackageId,
+    supplierSkuId: inputs.sku.supplierSkuId,
+    merchantSku: inputs.sku.merchantSku,
     platformProductId: String(platformResult.productId),
     platformOfferId: nonEmptyString(String(platformResult.offerId || "")) ? String(platformResult.offerId) : null,
     status: expectedStatus,
-    writtenFields: [...writeFieldsFor(productionPlan)],
+    writtenFields: [...writeFieldsFor(inputs)],
     platformEvidenceRef: readback.evidenceRef,
     platformWriteEvidenceRef: platformResult.writeEvidenceRef,
     platformReadbackEvidenceRef: readback.evidenceRef,
@@ -275,10 +236,10 @@ export async function executeSingleSkuDraftCreation({
     activated: false,
     advertisingOpened: false,
     inventoryModified: !moderationMode,
-    stockWritten: moderationMode ? null : productionPlan.stock,
-    imagesUploaded: productionPlan.finalUploads.length,
-    finalUploadAssetIds: productionPlan.finalUploads.map((asset) => asset.assetId),
-    mainImageAssetId: productionPlan.finalUploads[0].assetId,
+    stockWritten: moderationMode ? null : inputs.stock,
+    imagesUploaded: inputs.finalUploads.length,
+    finalUploadAssetIds: inputs.finalUploads.map((asset) => asset.assetId),
+    mainImageAssetId: inputs.finalUploads[0].assetId,
     independentReadbackVerified: true
   };
   assertValidProductionRecord(record);

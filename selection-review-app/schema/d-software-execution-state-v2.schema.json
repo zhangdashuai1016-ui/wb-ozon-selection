@@ -1,0 +1,1842 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "d-software-execution-state-v2",
+  "title": "D持久执行与有限平台观察 v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "candidateId",
+    "candidateDataRevision",
+    "authorizationId",
+    "productionPlanId",
+    "executionKey",
+    "status",
+    "attempt",
+    "mustPersistBeforeSellerApi",
+    "canCallSellerApiBeforePersist",
+    "attemptLimit",
+    "automaticRetry",
+    "retryAllowed",
+    "platformWrites",
+    "requestEncoding",
+    "productionPlan",
+    "executionRevision",
+    "expectedCandidateRevision",
+    "step",
+    "continuationBlocked",
+    "checkpoints"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "d-software-execution-state-v2"
+    },
+    "candidateId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "candidateDataRevision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "authorizationId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "productionPlanId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "executionKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "in_flight",
+        "unknown_outcome",
+        "succeeded",
+        "failed",
+        "waiting_platform"
+      ]
+    },
+    "attempt": {
+      "$ref": "#/$defs/attempt"
+    },
+    "mustPersistBeforeSellerApi": {
+      "const": true
+    },
+    "canCallSellerApiBeforePersist": {
+      "const": false
+    },
+    "attemptLimit": {
+      "const": 1
+    },
+    "automaticRetry": {
+      "const": false
+    },
+    "retryAllowed": {
+      "const": false
+    },
+    "platformWrites": {
+      "enum": [
+        0,
+        2,
+        "unknown",
+        1
+      ]
+    },
+    "requestEncoding": {
+      "const": "ozon-fixed-protocols-v1"
+    },
+    "productionPlan": {
+      "allOf": [
+        {
+          "$ref": "production-plan-v1.1"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "sourceAuthorization": {
+              "$ref": "production-authorization-v1.2"
+            }
+          }
+        }
+      ]
+    },
+    "executionRevision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "expectedCandidateRevision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "step": {
+      "enum": [
+        "intent_persisted",
+        "import_intent",
+        "import_task_received",
+        "import_result_observed",
+        "stock_intent",
+        "stock_receipt_observed",
+        "independent_readback_observed"
+      ]
+    },
+    "continuationBlocked": {
+      "type": "boolean"
+    },
+    "blockReason": {
+      "type": "string",
+      "maxLength": 256,
+      "pattern": "^(?:lease_expired|context_changed|candidate_changed_during_production|software_job_reconciliation_required|SOFTWARE_JOB_ADMISSION_DE_[A-Z_]+|SOFTWARE_JOB_LEASE_REJECTED|SOFTWARE_JOB_REVISION_CONFLICT|SOFTWARE_JOB_SKU_CONFLICT|WORKER_REGISTRY_WORKER_NOT_CURRENT|D_JOB_CURSOR_[A-Z_]+|DE_JOB_SCOPE_[A-Z_]+|D_JOB_HANDOFF_PERSISTED_SOURCE_CONFLICT|PRODUCTION_EXECUTION_BINDING_(?:REQUIRED|TIME_INVALID|DRIFT|UNVERIFIED)|PRODUCTION_BINDINGS_INVALID|STORE_BINDINGS_INVALID|C1_SKU_RIGHTS_REVIEW_[A-Z_]+|C1_SKU_RIGHTS_AUTHORIZATION_REQUIRED|D_EXECUTION_CONTEXT_REQUIRED|D_EXECUTION_AUTHORIZATION_SCOPE_MISMATCH|PRODUCTION_AUTHORIZATION_RECONFIRMATION_REQUIRED|D_EXECUTION_AUTHORIZATION_INVALID)$"
+    },
+    "settledAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "checkpoints": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "$ref": "#/$defs/checkpoint"
+      }
+    },
+    "softwareJobRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jobId",
+        "revision",
+        "workerId",
+        "leaseId"
+      ],
+      "properties": {
+        "jobId": {
+          "$ref": "software-job-v1.schema.json#/$defs/deSourceRef"
+        },
+        "revision": {
+          "$ref": "software-job-v1.schema.json#/$defs/deRevision"
+        },
+        "workerId": {
+          "$ref": "software-job-v1.schema.json#/$defs/deSourceRef"
+        },
+        "leaseId": {
+          "$ref": "software-job-v1.schema.json#/$defs/deSourceRef"
+        }
+      }
+    },
+    "platformContinuation": {
+      "$ref": "#/$defs/platformContinuation"
+    }
+  },
+  "description": "Current persisted execution records require requestEncoding and executionRevision. Older records are historical observations only and cannot be resumed or decoded for execution.",
+  "$defs": {
+    "storeRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stableStoreId",
+        "platformStoreId",
+        "mappingVersion"
+      ],
+      "properties": {
+        "stableStoreId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platformStoreId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mappingVersion": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "money": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "amount",
+        "currency"
+      ],
+      "properties": {
+        "amount": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "currency": {
+          "const": "CNY"
+        }
+      }
+    },
+    "resolvedAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assetId",
+        "sourceAssetRef",
+        "platformAcceptedUrl",
+        "sha256",
+        "order",
+        "role",
+        "evidenceRef",
+        "ownerConfirmed",
+        "productionEligible"
+      ],
+      "properties": {
+        "assetId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceAssetRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platformAcceptedUrl": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidenceRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ownerConfirmed": {
+          "const": true
+        },
+        "productionEligible": {
+          "const": true
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidateId",
+        "sourceProductionPlanId",
+        "sourceProductionPlanFingerprint",
+        "sourceAuthorizationId",
+        "sourceAuthorizationFingerprint",
+        "store",
+        "warehouseRef",
+        "credentialAlias",
+        "skuPackageId",
+        "merchantSku",
+        "supplierSkuId",
+        "assetsFinalUploadsVersion",
+        "executionKey",
+        "idempotencyKey",
+        "platform",
+        "storeRef",
+        "platformWritePrice",
+        "stock",
+        "finalUploads",
+        "publishScope",
+        "exclusions",
+        "allowedWriteFields",
+        "productImport",
+        "inventoryWrite",
+        "independentReadback",
+        "protocolEvidence",
+        "sourceAuthorizationVersion",
+        "executionProtocolVersion"
+      ],
+      "properties": {
+        "candidateId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceProductionPlanId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceProductionPlanFingerprint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceAuthorizationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceAuthorizationFingerprint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "store": {
+          "type": "string",
+          "minLength": 1
+        },
+        "warehouseRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "credentialAlias": {
+          "type": "string",
+          "minLength": 1
+        },
+        "skuPackageId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "merchantSku": {
+          "type": "string",
+          "minLength": 1
+        },
+        "supplierSkuId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "assetsFinalUploadsVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executionKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "idempotencyKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "const": "ozon"
+        },
+        "storeRef": {
+          "$ref": "#/$defs/storeRef"
+        },
+        "platformWritePrice": {
+          "$ref": "#/$defs/money"
+        },
+        "stock": {
+          "const": 100
+        },
+        "finalUploads": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/resolvedAsset"
+          }
+        },
+        "publishScope": {
+          "const": "create_and_allow_validation_moderation"
+        },
+        "exclusions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "allowedWriteFields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "productImport": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "protocolId",
+            "adapterVersion",
+            "schemaWriteBindings",
+            "body",
+            "batchSize",
+            "inventoryIncluded",
+            "published",
+            "activated"
+          ],
+          "properties": {
+            "protocolId": {
+              "const": "ozon-product-import-v3"
+            },
+            "adapterVersion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "schemaWriteBindings": {
+              "type": "object"
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "items"
+              ],
+              "properties": {
+                "items": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            "batchSize": {
+              "const": 1
+            },
+            "inventoryIncluded": {
+              "const": false
+            },
+            "published": {
+              "const": false
+            },
+            "activated": {
+              "const": false
+            }
+          }
+        },
+        "inventoryWrite": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "protocolId",
+            "warehouseId",
+            "protocolVersion",
+            "evidenceRef",
+            "stock"
+          ],
+          "properties": {
+            "protocolId": {
+              "const": "ozon-stock-write-v2"
+            },
+            "warehouseId": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            },
+            "protocolVersion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "evidenceRef": {
+              "type": "string",
+              "minLength": 1
+            },
+            "stock": {
+              "const": 100
+            }
+          }
+        },
+        "independentReadback": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "evidenceRef",
+            "expectedPrice",
+            "expectedStock",
+            "expectedImageCount",
+            "expectation"
+          ],
+          "properties": {
+            "evidenceRef": {
+              "type": "string",
+              "minLength": 1
+            },
+            "expectedPrice": {
+              "$ref": "#/$defs/money"
+            },
+            "expectedStock": {
+              "const": 100
+            },
+            "expectedImageCount": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "expectation": {
+              "$ref": "production-record-v1.1#/$defs/readbackExpectation"
+            }
+          }
+        },
+        "protocolEvidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "adapter",
+            "productImport",
+            "assetTransport",
+            "inventoryWrite",
+            "independentReadback"
+          ],
+          "properties": {
+            "adapter": {
+              "type": "string",
+              "minLength": 1
+            },
+            "productImport": {
+              "type": "string",
+              "minLength": 1
+            },
+            "assetTransport": {
+              "type": "string",
+              "minLength": 1
+            },
+            "inventoryWrite": {
+              "type": "string",
+              "minLength": 1
+            },
+            "independentReadback": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "sourceAuthorizationVersion": {
+          "const": "production-authorization-v1.2"
+        },
+        "executionProtocolVersion": {
+          "const": "ozon-single-sku-d-e-v3"
+        }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "store",
+        "skuPackageId",
+        "supplierSkuId",
+        "merchantSku",
+        "platformProductId",
+        "moderationStatus",
+        "validationStatus",
+        "saleStatus",
+        "platformEvidenceRef",
+        "warehouseRef",
+        "credentialAlias",
+        "storeRef",
+        "currentPrice",
+        "currentStock",
+        "imageCount",
+        "errors"
+      ],
+      "properties": {
+        "platform": {
+          "type": "string",
+          "minLength": 1
+        },
+        "store": {
+          "type": "string",
+          "minLength": 1
+        },
+        "skuPackageId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "supplierSkuId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "merchantSku": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platformProductId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "moderationStatus": {
+          "type": "string",
+          "minLength": 1
+        },
+        "validationStatus": {
+          "type": "string",
+          "minLength": 1
+        },
+        "saleStatus": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platformEvidenceRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "warehouseRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "credentialAlias": {
+          "type": "string",
+          "minLength": 1
+        },
+        "storeRef": {
+          "$ref": "#/$defs/storeRef"
+        },
+        "currentPrice": {
+          "$ref": "#/$defs/money"
+        },
+        "currentStock": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "const": "unknown"
+            }
+          ]
+        },
+        "imageCount": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "const": "unknown"
+            }
+          ]
+        },
+        "mediaObservation": {
+          "$ref": "e-verification-record-v1.1#/$defs/mediaObservation"
+        },
+        "inventoryObservation": {
+          "$ref": "e-verification-record-v1.1#/$defs/inventoryObservation"
+        },
+        "errors": {
+          "anyOf": [
+            {
+              "type": "array"
+            },
+            {
+              "const": "unknown"
+            }
+          ]
+        }
+      }
+    },
+    "checkpoint": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "observedAt"
+          ],
+          "properties": {
+            "kind": {
+              "const": "import_intent"
+            },
+            "observedAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "observedAt",
+            "taskId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "import_task_received"
+            },
+            "observedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "taskId": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "observedAt",
+            "taskId",
+            "productId",
+            "merchantSku",
+            "itemCount",
+            "status",
+            "errorCount",
+            "requestReceiptRef"
+          ],
+          "properties": {
+            "kind": {
+              "const": "import_result_observed"
+            },
+            "observedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "taskId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "productId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "merchantSku": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "itemCount": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "status": {
+              "type": "string",
+              "minLength": 1
+            },
+            "errorCount": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "requestReceiptRef": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "observedAt",
+            "taskId",
+            "productId",
+            "merchantSku",
+            "warehouseId",
+            "stock"
+          ],
+          "properties": {
+            "kind": {
+              "const": "stock_intent"
+            },
+            "observedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "taskId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "productId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "merchantSku": {
+              "type": "string",
+              "minLength": 1
+            },
+            "warehouseId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "stock": {
+              "const": 100
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "observedAt",
+            "taskId",
+            "productId",
+            "merchantSku",
+            "warehouseId",
+            "updated",
+            "itemCount",
+            "errorCount",
+            "inventoryReceiptRef"
+          ],
+          "properties": {
+            "kind": {
+              "const": "stock_receipt_observed"
+            },
+            "observedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "taskId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "productId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "merchantSku": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "warehouseId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "updated": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "itemCount": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "errorCount": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "inventoryReceiptRef": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "observedAt",
+            "observation"
+          ],
+          "properties": {
+            "kind": {
+              "const": "independent_readback_observed"
+            },
+            "observedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "observation": {
+              "$ref": "#/$defs/observation"
+            }
+          }
+        }
+      ]
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "attemptId",
+        "executionKey",
+        "status",
+        "startedAt",
+        "request",
+        "persistBeforeWrite",
+        "attemptNumber",
+        "retryAllowed",
+        "productionRecord"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "d-software-execution-v2"
+        },
+        "attemptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executionKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "in_flight",
+            "succeeded",
+            "failed",
+            "unknown_outcome",
+            "waiting_platform"
+          ]
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "request": {
+          "$ref": "#/$defs/request"
+        },
+        "persistBeforeWrite": {
+          "const": true
+        },
+        "attemptNumber": {
+          "const": 1
+        },
+        "retryAllowed": {
+          "const": false
+        },
+        "productionRecord": {
+          "anyOf": [
+            {
+              "$ref": "production-record-v1.1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "completedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "markedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "failure": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "layer",
+            "code",
+            "message"
+          ],
+          "properties": {
+            "layer": {
+              "type": "string",
+              "minLength": 1
+            },
+            "code": {
+              "type": "string",
+              "minLength": 1
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "platformResult": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "immediateReadback": {
+          "$ref": "#/$defs/observation"
+        },
+        "platformContinuation": {
+          "$ref": "#/$defs/platformContinuation"
+        }
+      }
+    },
+    "platformContinuation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "status",
+        "taskId",
+        "requestReceiptRef",
+        "productId",
+        "inventoryWriteState",
+        "observationHistory",
+        "policy",
+        "queryCount",
+        "activeObservationJobId"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "d-platform-continuation-v1"
+        },
+        "status": {
+          "enum": [
+            "waiting_import",
+            "waiting_price",
+            "waiting_inventory",
+            "prerequisites_observed",
+            "inventory_running",
+            "platform_failed",
+            "platform_skipped",
+            "unknown_outcome",
+            "blocked",
+            "query_budget_exhausted",
+            "inventory_not_sent_interrupted",
+            "completed"
+          ]
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "requestReceiptRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "productId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "inventoryWriteState": {
+          "enum": [
+            "not_sent",
+            "intent_persisted",
+            "succeeded",
+            "unknown"
+          ]
+        },
+        "observationHistory": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "schemaVersion",
+              "jobId",
+              "queryIndex",
+              "queryKind",
+              "sourceFingerprint",
+              "observedAt",
+              "result",
+              "sourceContextChanged"
+            ],
+            "properties": {
+              "schemaVersion": {
+                "const": "d-platform-observation-record-v1"
+              },
+              "jobId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "queryIndex": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "queryKind": {
+                "enum": [
+                  "import_task",
+                  "price_state",
+                  "inventory_prerequisites"
+                ]
+              },
+              "sourceFingerprint": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "observedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "result": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "classification",
+                      "gapCode",
+                      "importObservation",
+                      "inventoryPrerequisites"
+                    ],
+                    "properties": {
+                      "classification": {
+                        "enum": [
+                          "waiting_platform",
+                          "imported",
+                          "platform_failed",
+                          "platform_skipped",
+                          "unknown_outcome"
+                        ]
+                      },
+                      "gapCode": {
+                        "enum": [
+                          null,
+                          "import_task_identity_unverified",
+                          "import_task_response_invalid",
+                          "import_task_status_unknown",
+                          "import_task_errors_present"
+                        ]
+                      },
+                      "importObservation": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "kind",
+                          "taskId",
+                          "productId",
+                          "merchantSku",
+                          "itemCount",
+                          "status",
+                          "errorCount",
+                          "requestReceiptRef"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "const": "import_result_observed"
+                          },
+                          "taskId": {
+                            "type": "string",
+                            "pattern": "^[1-9][0-9]*$"
+                          },
+                          "productId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^[1-9][0-9]*$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "merchantSku": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "itemCount": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "status": {
+                            "enum": [
+                              "pending",
+                              "imported",
+                              "failed",
+                              "skipped",
+                              "unknown"
+                            ]
+                          },
+                          "errorCount": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "requestReceiptRef": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      },
+                      "inventoryPrerequisites": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "priceSent",
+                          "reservedObservation"
+                        ],
+                        "properties": {
+                          "priceSent": {
+                            "const": "unknown"
+                          },
+                          "reservedObservation": {
+                            "const": "not_queried"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "scope",
+                      "policy",
+                      "priceSent",
+                      "requestReceiptRef"
+                    ],
+                    "properties": {
+                      "scope": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "platform",
+                          "store",
+                          "warehouseRef",
+                          "credentialAlias",
+                          "merchantSku",
+                          "supplierSkuId",
+                          "executionKey",
+                          "requestReceiptRef",
+                          "storeRef",
+                          "taskId",
+                          "productId",
+                          "warehouseId"
+                        ],
+                        "properties": {
+                          "platform": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "store": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "warehouseRef": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "credentialAlias": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "merchantSku": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "supplierSkuId": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "executionKey": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "requestReceiptRef": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "storeRef": {
+                            "$ref": "#/$defs/storeRef"
+                          },
+                          "taskId": {
+                            "type": "string",
+                            "pattern": "^[1-9][0-9]*$"
+                          },
+                          "productId": {
+                            "type": "string",
+                            "pattern": "^[1-9][0-9]*$"
+                          },
+                          "warehouseId": {
+                            "type": "string",
+                            "pattern": "^[1-9][0-9]*$"
+                          }
+                        }
+                      },
+                      "policy": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "schemaVersion",
+                          "policyId",
+                          "version",
+                          "officialEvidenceRef",
+                          "priceSent",
+                          "reserved",
+                          "stockRequest"
+                        ],
+                        "properties": {
+                          "schemaVersion": {
+                            "const": "ozon-inventory-prerequisite-policy-v1"
+                          },
+                          "policyId": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "version": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "officialEvidenceRef": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "priceSent": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "protocolId",
+                              "field",
+                              "acceptedValues"
+                            ],
+                            "properties": {
+                              "protocolId": {
+                                "const": "ozon-product-info-v3"
+                              },
+                              "field": {
+                                "const": "statuses.status"
+                              },
+                              "acceptedValues": {
+                                "type": "array",
+                                "minItems": 1,
+                                "maxItems": 16,
+                                "uniqueItems": true,
+                                "items": {
+                                  "type": "string",
+                                  "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                                }
+                              }
+                            }
+                          },
+                          "reserved": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "protocolId",
+                              "sourceProtocol"
+                            ],
+                            "properties": {
+                              "protocolId": {
+                                "const": "ozon-product-stocks-by-warehouse-fbs-v2"
+                              },
+                              "sourceProtocol": {
+                                "const": "ozon-product-stocks-by-warehouse-fbs-v2"
+                              }
+                            }
+                          },
+                          "stockRequest": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "identityField",
+                              "quantSize"
+                            ],
+                            "properties": {
+                              "identityField": {
+                                "enum": [
+                                  "offer_id",
+                                  "product_id"
+                                ]
+                              },
+                              "quantSize": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": 1
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "priceSent": {
+                        "enum": [
+                          "verified",
+                          "unknown"
+                        ]
+                      },
+                      "requestReceiptRef": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "scope",
+                      "policy",
+                      "priceSent",
+                      "inventoryObservation",
+                      "reservedObservation",
+                      "requestReceiptRef"
+                    ],
+                    "properties": {
+                      "scope": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "platform",
+                          "store",
+                          "warehouseRef",
+                          "credentialAlias",
+                          "merchantSku",
+                          "supplierSkuId",
+                          "executionKey",
+                          "requestReceiptRef",
+                          "storeRef",
+                          "taskId",
+                          "productId",
+                          "warehouseId"
+                        ],
+                        "properties": {
+                          "platform": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "store": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "warehouseRef": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "credentialAlias": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "merchantSku": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "supplierSkuId": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "executionKey": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "requestReceiptRef": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "storeRef": {
+                            "$ref": "#/$defs/storeRef"
+                          },
+                          "taskId": {
+                            "type": "string",
+                            "pattern": "^[1-9][0-9]*$"
+                          },
+                          "productId": {
+                            "type": "string",
+                            "pattern": "^[1-9][0-9]*$"
+                          },
+                          "warehouseId": {
+                            "type": "string",
+                            "pattern": "^[1-9][0-9]*$"
+                          }
+                        }
+                      },
+                      "policy": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "schemaVersion",
+                              "policyId",
+                              "version",
+                              "officialEvidenceRef",
+                              "priceSent",
+                              "reserved",
+                              "stockRequest"
+                            ],
+                            "properties": {
+                              "schemaVersion": {
+                                "const": "ozon-inventory-prerequisite-policy-v1"
+                              },
+                              "policyId": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "version": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "officialEvidenceRef": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "priceSent": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "protocolId",
+                                  "field",
+                                  "acceptedValues"
+                                ],
+                                "properties": {
+                                  "protocolId": {
+                                    "const": "ozon-product-info-v3"
+                                  },
+                                  "field": {
+                                    "const": "statuses.status"
+                                  },
+                                  "acceptedValues": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "maxItems": 16,
+                                    "uniqueItems": true,
+                                    "items": {
+                                      "type": "string",
+                                      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                                    }
+                                  }
+                                }
+                              },
+                              "reserved": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "protocolId",
+                                  "sourceProtocol"
+                                ],
+                                "properties": {
+                                  "protocolId": {
+                                    "const": "ozon-product-stocks-by-warehouse-fbs-v2"
+                                  },
+                                  "sourceProtocol": {
+                                    "const": "ozon-product-stocks-by-warehouse-fbs-v2"
+                                  }
+                                }
+                              },
+                              "stockRequest": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "identityField",
+                                  "quantSize"
+                                ],
+                                "properties": {
+                                  "identityField": {
+                                    "enum": [
+                                      "offer_id",
+                                      "product_id"
+                                    ]
+                                  },
+                                  "quantSize": {
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": 1
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "priceSent": {
+                        "const": "unknown"
+                      },
+                      "inventoryObservation": {
+                        "$ref": "e-verification-record-v1.1#/$defs/inventoryObservationV2"
+                      },
+                      "reservedObservation": {
+                        "enum": [
+                          "observed",
+                          "unknown"
+                        ]
+                      },
+                      "requestReceiptRef": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "schemaVersion",
+                      "status",
+                      "failureClass",
+                      "requestSent"
+                    ],
+                    "properties": {
+                      "schemaVersion": {
+                        "const": "d-platform-observation-failure-v1"
+                      },
+                      "status": {
+                        "enum": [
+                          "unknown_outcome",
+                          "blocked"
+                        ]
+                      },
+                      "failureClass": {
+                        "enum": [
+                          "request_timeout",
+                          "request_cancelled",
+                          "transport_failure",
+                          "inventory_policy_missing",
+                          "system_failure",
+                          "context_changed"
+                        ]
+                      },
+                      "requestSent": {
+                        "type": "boolean"
+                      }
+                    }
+                  }
+                ]
+              },
+              "sourceContextChanged": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "policy": {
+          "anyOf": [
+            {
+              "$ref": "d-platform-observation-v1.schema.json#/$defs/policy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "queryCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "activeObservationJobId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "not": {
+          "properties": {
+            "softwareJobRef": {}
+          },
+          "required": [
+            "softwareJobRef"
+          ]
+        }
+      },
+      "then": {
+        "properties": {
+          "blockReason": {
+            "const": "candidate_changed_during_production"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "blockReason": {
+            "enum": [
+              "lease_expired",
+              "context_changed"
+            ]
+          }
+        },
+        "required": [
+          "blockReason"
+        ]
+      },
+      "then": {
+        "required": [
+          "softwareJobRef",
+          "platformContinuation",
+          "settledAt"
+        ],
+        "properties": {
+          "softwareJobRef": {
+            "$ref": "#/properties/softwareJobRef"
+          },
+          "platformContinuation": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/platformContinuation"
+              },
+              {
+                "properties": {
+                  "status": {
+                    "const": "blocked"
+                  },
+                  "inventoryWriteState": {
+                    "const": "not_sent"
+                  },
+                  "queryCount": {
+                    "const": 0
+                  },
+                  "observationHistory": {
+                    "maxItems": 0,
+                    "type": "array"
+                  },
+                  "activeObservationJobId": {
+                    "type": "null"
+                  },
+                  "policy": {
+                    "type": "null"
+                  },
+                  "productId": {
+                    "type": "null"
+                  }
+                },
+                "type": "object"
+              }
+            ]
+          },
+          "settledAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "const": "failed"
+          },
+          "continuationBlocked": {
+            "const": true
+          },
+          "step": {
+            "const": "import_task_received"
+          },
+          "platformWrites": {
+            "const": 1
+          },
+          "checkpoints": {
+            "minItems": 2,
+            "maxItems": 2,
+            "type": "array"
+          },
+          "attempt": {
+            "properties": {
+              "status": {
+                "const": "failed"
+              },
+              "productionRecord": {
+                "type": "null"
+              },
+              "request": {
+                "properties": {
+                  "executionProtocolVersion": {
+                    "const": "ozon-single-sku-d-e-v3"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createTrainCandidate } from "./helpers/legacy-candidate-fixture.mjs";
-import { prepareRealC1ForFinalAssets } from "../lib/real-c1-preparation.mjs";
+import * as legacyPreparation from "../lib/real-c1-preparation.mjs";
+import { readLegacyC1PreparationInputs } from "../lib/real-c1-preparation.mjs";
+import { createFormalC1C2Fixture } from "./fixtures/formal-c1-flow-fixture.mjs";
+import { SYNTHETIC_UNBRANDED, SYNTHETIC_NO_THIRD_PARTY_RIGHTS } from "./fixtures/c1-sku-rights-review-fixture.mjs";
+import { buildRealAConfirmationCard, validateRealAConfirmationSubmission } from "../lib/real-a-confirmation-card.mjs";
 import { validateSkuLifecyclePackage } from "../lib/product-lifecycle-schema.mjs";
 import { collectMockOzonSalesSnapshot } from "../lib/sales-snapshot.mjs";
 
@@ -70,49 +74,89 @@ async function fixtureCandidate() {
   return candidate;
 }
 
-test("real CX-20260803-010 builds C1 and stops at C2 final assets", async () => {
+function formalFixture(options = {}) {
+  return createFormalC1C2Fixture({ candidateRevision: 25, material: "DVP",
+    skuAttributes: { brand: "Нет бренда", piece_count: 320, mechanism: "mechanical_wind_up" },
+    rightsReviewOptions: { brand: SYNTHETIC_UNBRANDED, rights: SYNTHETIC_NO_THIRD_PARTY_RIGHTS }, ...options });
+}
+
+test("真实领域C1经已保存provider回执进入C2，旧本地草稿生产入口已退役", async () => {
   const candidate = await fixtureCandidate();
-  const before = JSON.stringify(candidate);
-  const result = prepareRealC1ForFinalAssets({ candidate, ownerFactConfirmation, preparedAt });
-  assert.equal(JSON.stringify(candidate), before);
-  assert.equal(result.sourceCandidateRevision, 25);
+  const before = structuredClone(candidate);
+  const legacy = readLegacyC1PreparationInputs({ candidate, ownerFactConfirmation, preparedAt });
+  assert.equal(legacy.sourceCandidateRevision, 25);
+  assert.equal(legacy.formalC1Ready, false);
+  assert.equal(legacy.status, "read_only_legacy_input");
+  assert.deepEqual(candidate, before);
+  for (const name of ["prepareRealC1ForFinalAssets", "reprepareRealC1AfterOwnerCorrection", "finalizeReal13CForOwnerCard"]) {
+    assert.equal(Object.hasOwn(legacyPreparation, name), false, name);
+  }
+  const fixture = formalFixture();
+  const result = fixture.c2;
+  assert.equal(fixture.candidate.dataRevision, 25);
   assert.equal(result.skuPackage.businessPhase, "C2");
   assert.equal(result.skuPackage.businessResult, "pending");
   assert.equal(result.skuPackage.technicalStatus, "completed");
   assert.equal(result.skuPackage.ownerAction, "provide_final_assets");
   assert.equal(result.skuPackage.supplierSkuId, "4993364145574");
   assert.equal(result.skuPackage.c1ProductPlan.status, "seo_draft_ready");
+  assert.equal(result.skuPackage.c1ProductPlan.draftOnlySeo.providerJobRef.jobId, fixture.receipt.gatewayJobId);
   assert.equal(result.skuPackage.c2FinalAssets.status, "awaiting_final_uploads");
   assert.equal(result.skuPackage.c2FinalAssets.assets.finalUploads.length, 0);
   assert.equal(result.skuPackage.productionAuthorization, null);
   assert.equal(result.skuPackage.productionRecord, null);
-  assert.equal(result.platformWrites, 0);
+  assert.equal(result.c2AssetLifecycle.platformUploads, 0);
+  assert.equal(fixture.receipt.productionWrites, 0);
+  assert.equal(fixture.receipt.externalPlatformAccesses, 0);
   assert.deepEqual(validateSkuLifecyclePackage(result.skuPackage), { valid: true, errors: [] });
 });
 
-test("real C1 keeps exact costs and owner facts without inventing direct 1688 price", async () => {
-  const result = prepareRealC1ForFinalAssets({ candidate: await fixtureCandidate(), ownerFactConfirmation, preparedAt });
+test("旧直接货价和运费保持unknown，正式B须精确输入并保留原利润及主人事实", async () => {
+  const candidate = await fixtureCandidate();
+  const legacy = readLegacyC1PreparationInputs({ candidate, ownerFactConfirmation, preparedAt });
+  assert.equal(legacy.supplierOption.supplierSkus[0].unitProductPrice, "unknown");
+  assert.equal(legacy.supplierOption.supplierSkus[0].unitDomesticFreight, "unknown");
+  assert.equal(legacy.supplierOption.supplierSkus[0].actualPurchaseCost, 41);
+  const card = buildRealAConfirmationCard(candidate);
+  const submission = validateRealAConfirmationSubmission(card, {
+    decision: "confirm", sourceCandidateId: candidate.id, sourceDataRevision: candidate.dataRevision, dataRevision: candidate.dataRevision,
+    targetPlatform: candidate.targetPlatform, storeRef: candidate.storeRef,
+    salesReview: { snapshotId: card.salesReview.snapshotId, comparability: "comparable", validityStatus: "current" },
+    supplierConfirmation: { productUrl: candidate.sourceUrl, supplierSkuId: "4993364145574", variantKey: "规格:豪华小火车",
+      unitProductPrice: "unknown", unitDomesticFreight: "unknown", otherPurchaseCosts: 0, actualPurchaseCost: 41,
+      weightKg: 0.3, dimensionsCm: candidate.dimensionsCm, ownerSupplyConfirmed: true }
+  });
+  assert.equal(submission.valid, false);
+  assert.deepEqual(submission.errors.map(error => error.field), ["unitProductPrice", "unitDomesticFreight"]);
+  const result = formalFixture().c2;
   const supply = result.skuPackage.selectedSupplySnapshot.supplierSku;
   const profit = result.skuPackage.profitModels[0];
-  const fields = new Map(result.skuPackage.c1ProductPlan.productAttributes.supplierAttributes.map((item) => [item.fieldKey, item.fact.value]));
-  assert.equal(supply.unitProductPrice, "unknown");
-  assert.equal(supply.unitDomesticFreight, "unknown");
+  const fields = new Map(result.skuPackage.c1ProductPlan.productAttributes.supplierAttributes.map(item => [item.fieldKey, item.fact.value]));
+  assert.equal(supply.unitProductPrice, 40);
+  assert.equal(supply.unitDomesticFreight, 1);
   assert.equal(supply.actualPurchaseCost, 41);
   assert.equal(supply.material, "DVP");
   assert.equal(supply.powerProfile.containsBattery, false);
   assert.equal(fields.get("brand"), "Нет бренда");
   assert.equal(fields.get("piece_count"), 320);
+  const rightsReview = result.skuPackage.c1ProductPlan.inputSnapshots.skuRightsReview;
+  assert.deepEqual(rightsReview.brand, SYNTHETIC_UNBRANDED);
+  assert.deepEqual(rightsReview.rights, SYNTHETIC_NO_THIRD_PARTY_RIGHTS);
+  assert.deepEqual(rightsReview.sourceIdentity, result.skuPackage.g1Identity);
+  assert.equal(rightsReview.sourceSupplySnapshotId, result.skuPackage.selectedSupplySnapshot.snapshotId);
   assert.equal(profit.recommendedSalePriceRub, 1831);
   assert.equal(profit.unitProfitRmb, 41.92);
   assert.equal(profit.profitMargin, 0.2762);
   assert.equal(profit.result, "passed");
+  assert.equal(profit.inputSnapshotRefs.length, 5);
+  assert.ok(profit.inputSnapshotRefs.includes(result.skuPackage.selectedSupplySnapshot.snapshotId));
 });
 
 test("real C1 rejects stale or conflicting source identity", async () => {
   const candidate = await fixtureCandidate();
   candidate.sourceCapture.offerId = "wrong";
   assert.throws(
-    () => prepareRealC1ForFinalAssets({ candidate, ownerFactConfirmation, preparedAt }),
+    () => readLegacyC1PreparationInputs({ candidate, ownerFactConfirmation, preparedAt }),
     /offerId不一致/
   );
 });
@@ -128,12 +172,16 @@ test("real C1 accepts a comparable unknown seller snapshot without rewriting its
       evidenceRef: "test:seller-identity:unknown"
     }
   };
-  const result = prepareRealC1ForFinalAssets({ candidate, ownerFactConfirmation, preparedAt });
-  assert.equal(result.opportunityPackage.marketAssessment.status, "passed");
-  assert.equal(result.opportunityPackage.marketAssessment.sampleSummaries[0].sellerType, "unknown");
-  assert.equal(result.opportunityPackage.marketAssessment.manualReviewRequired, false);
-  assert.equal(result.skuPackage.profitModels[0].result, "passed");
-  assert.equal(result.skuPackage.businessPhase, "C2");
+  const before = structuredClone(candidate);
+  const legacy = readLegacyC1PreparationInputs({ candidate, ownerFactConfirmation, preparedAt });
+  assert.equal(legacy.marketAssessment.status, "passed");
+  assert.equal(legacy.marketAssessment.sampleSummaries[0].sellerType, "unknown");
+  assert.equal(legacy.marketAssessment.manualReviewRequired, false);
+  assert.deepEqual(candidate, before);
+  const result = formalFixture({ sellerType: "unknown" });
+  assert.deepEqual(result.before.profitModels[0].marketSellerTypesUsed, ["unknown"]);
+  assert.equal(result.c2.skuPackage.profitModels[0].result, "passed");
+  assert.equal(result.c2.skuPackage.businessPhase, "C2");
 });
 
 test("real C1 keeps local_ru as background and stops when it is the only price sample", async () => {
@@ -148,7 +196,7 @@ test("real C1 keeps local_ru as background and stops when it is the only price s
     }
   };
   assert.throws(
-    () => prepareRealC1ForFinalAssets({ candidate, ownerFactConfirmation, preparedAt }),
+    () => readLegacyC1PreparationInputs({ candidate, ownerFactConfirmation, preparedAt }),
     /销售证据不足或商品可比性不足/
   );
 });

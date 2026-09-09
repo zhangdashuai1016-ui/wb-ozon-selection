@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "d-platform-observation-admission-v1.schema.json",
+  "title": "Admission for one bounded original D task observation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "admissionId",
+    "jobId",
+    "jobType",
+    "candidateId",
+    "skuPackageId",
+    "revision",
+    "scopeFingerprint",
+    "phase",
+    "observedAt",
+    "executionBindingSnapshot"
+  ],
+  "properties": {
+    "admissionId": {
+      "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+    },
+    "jobId": {
+      "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+    },
+    "candidateId": {
+      "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+    },
+    "skuPackageId": {
+      "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+    },
+    "schemaVersion": {
+      "const": "d-platform-observation-admission-v1"
+    },
+    "jobType": {
+      "const": "e_d_platform_observation"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "scopeFingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "phase": {
+      "enum": [
+        "enqueue_current",
+        "claim",
+        "external_request"
+      ]
+    },
+    "observedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "executionBindingSnapshot": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "software-job-admission-v1.schema.json#/$defs/deExecutionBindingSnapshot"
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "phase": {
+            "const": "enqueue_current"
+          }
+        },
+        "required": [
+          "phase"
+        ]
+      },
+      "then": {
+        "properties": {
+          "executionBindingSnapshot": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "executionBindingSnapshot": {
+            "$ref": "software-job-admission-v1.schema.json#/$defs/deExecutionBindingSnapshot"
+          }
+        }
+      }
+    }
+  ]
+}

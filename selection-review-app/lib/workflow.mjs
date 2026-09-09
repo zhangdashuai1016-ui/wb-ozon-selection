@@ -4,6 +4,13 @@ import {
   GLOBAL_PRICING_POLICY_VERSION,
   GLOBAL_WITHDRAWAL_FEE_RATE,
 } from "./global-pricing-policy.mjs";
+import { validateProfitModel } from "./profit-model.mjs";
+import { buildExecutionRuntimeView, validateExecutionRuntime } from "./software-execution-state.mjs";
+import { isDeepStrictEqual } from "node:util";
+import { isCompleteStoreRef, sameStoreRef, STORE_PLATFORMS } from "./store-binding.mjs";
+import { validateC2AssetLifecycle } from "./c2-asset-lifecycle.mjs";
+import { validateFinalProductPlanConfirmationCard } from "./final-product-plan-confirmation-card.mjs";
+import { validateProductionAuthorizationRecord, validateSkuLifecyclePackage } from "./product-lifecycle-schema.mjs";
 
 export const TIME_ZONE = "Asia/Shanghai";
 
@@ -735,6 +742,65 @@ export function processingStatusSummary(candidate, at = new Date(), queueInfo = 
   };
 }
 
+function maintenanceActivityField(candidate) {
+  if (candidate?.workflowStatus === "codex_processing") return "processing";
+  if (["listing_preparation", "ready_to_list"].includes(candidate?.workflowStatus)) return "listingHandoff";
+  return null;
+}
+
+// Process admission belongs to the server/dispatch selector. This predicate
+// validates the exact saved maintenance activity without adopting another run.
+export function currentMaintenanceActivity(candidate, dispatch, at = new Date()) {
+  const field = maintenanceActivityField(candidate);
+  const activity = field ? candidate[field] : null;
+  if (!candidate || typeof candidate.id !== "string" || !candidate.id.trim() || !dispatch || !["running", "permission_required"].includes(dispatch.status) ||
+      dispatch.candidateId !== candidate.id || !Number.isInteger(candidate.dataRevision) || candidate.dataRevision < 0 ||
+      dispatch.dataRevision !== candidate.dataRevision || dispatch.workflowStatusAtDispatch !== candidate.workflowStatus ||
+      activity?.state !== "running" || activity.manualHold === true || activity.claimRevision !== candidate.dataRevision ||
+      typeof dispatch.runId !== "string" || !dispatch.runId.trim() || dispatch.runId !== dispatch.turnId ||
+      activity.runId !== dispatch.runId || typeof activity.currentStep !== "string" || !activity.currentStep.trim() ||
+      typeof activity.startedAt !== "string" || typeof activity.lastProgressAt !== "string") return null;
+  const startedAt = Date.parse(activity.startedAt);
+  const progressAt = Date.parse(activity.lastProgressAt);
+  const progressAge = new Date(at).getTime() - progressAt;
+  if (!Number.isFinite(startedAt) || !Number.isFinite(progressAt) || progressAt < startedAt ||
+      !Number.isFinite(progressAge) || progressAge < 0 || progressAge > NO_PROGRESS_TIMEOUT_MINUTES * 60_000) return null;
+  const runtime = candidate.executionRuntime;
+  const exception = runtime?.exceptionCase;
+  if (!validateExecutionRuntime(runtime).valid || runtime.candidateId !== candidate.id ||
+      exception?.schemaVersion !== "exception-case-v2" || exception.status !== "open" ||
+      exception.candidateId !== candidate.id || exception.dispatchState !== "running" ||
+      typeof exception.maintenanceAuthorizationId !== "string" || !exception.maintenanceAuthorizationId.trim() ||
+      exception.turnId !== dispatch.turnId) return null;
+  return { field, activity };
+}
+
+export function recordCurrentMaintenanceProgress(candidate, activeDispatch, progress, at = new Date()) {
+  const current = currentMaintenanceActivity(candidate, activeDispatch, at);
+  if (!current || activeDispatch.status !== "running") throw new Error("MAINTENANCE_ACTIVITY_NOT_CURRENT");
+  if (progress?.dataRevision !== candidate.dataRevision) throw new Error("MAINTENANCE_PROGRESS_REVISION_CONFLICT");
+  if (progress.runId !== current.activity.runId) throw new Error("MAINTENANCE_PROGRESS_RUN_CONFLICT");
+  return { field: current.field, activity: recordProcessingProgress(current.activity, progress, at) };
+}
+
+export function currentProcessingStatusSummary(candidate, { activeDispatch = null, at = new Date(), queueInfo = {} } = {}) {
+  const field = maintenanceActivityField(candidate);
+  const record = field ? candidate[field] : null;
+  const saved = processingStatusSummary(record ? { ...candidate, processing: record } : candidate, at, queueInfo);
+  const current = currentMaintenanceActivity(candidate, activeDispatch, at);
+  if (current && activeDispatch.status === "running") {
+    return { ...saved, key: "running", classification: "running", label: "维护任务运行中", actualRunning: true, currentStep: current.activity.currentStep };
+  }
+  if (current && activeDispatch.status === "permission_required") {
+    return { ...saved, key: "permission_required", classification: "permission_required", label: "维护任务等待权限决定", actualRunning: false, currentStep: current.activity.currentStep };
+  }
+  if (activeDispatch?.status === "running" || ["running", "queued", "stalled", "state_anomaly"].includes(saved.key)) {
+    return { ...saved, key: "historical_unconfirmed", classification: "historical_unconfirmed", label: "历史记录 · 当前运行未确认", actualRunning: false,
+      currentStep: "保留历史步骤；当前服务未确认该执行，启动和刷新不会恢复旧作业" };
+  }
+  return { ...saved, actualRunning: false };
+}
+
 /**
  * Make persisted dispatch fields internally consistent without claiming work.
  * This is intentionally a manual-hold migration: a later automation run must
@@ -1319,6 +1385,94 @@ export function electricalGate(powered, assessment, scope = "平台/线路") {
   };
 }
 
+function currentLifecycleSku(candidate) {
+  const sku = candidate.lifecycleV11?.skuPackage;
+  const identity = sku?.g1Identity;
+  if (identity?.schemaVersion !== "g1-identity-v1" || identity.candidateId !== candidate.id ||
+      typeof candidate.id !== "string" || !candidate.id || typeof sku.skuPackageId !== "string" || !sku.skuPackageId ||
+      identity.skuPackageId !== sku.skuPackageId || identity.platform !== candidate.targetPlatform ||
+      STORE_PLATFORMS[candidate.targetStore] !== candidate.targetPlatform ||
+      sku.targetStore !== candidate.targetStore || !isCompleteStoreRef(candidate.storeRef, candidate.targetStore) ||
+      !sameStoreRef(identity.storeRef, candidate.storeRef)) return null;
+  return sku;
+}
+
+function confirmedC2At(sku) {
+  const c2 = sku.c2FinalAssets;
+  const confirmation = c2?.ownerFinalUploadConfirmation;
+  const preparation = c2?.productionAuthorizationPreparation;
+  if (c2?.status !== "completed" || !validateC2AssetLifecycle(c2).valid || confirmation?.status !== "confirmed" || confirmation.confirmedBy !== "owner" ||
+      preparation?.skuPackageId !== sku.skuPackageId || preparation.finalManifestSha256 !== confirmation.approvedManifestSha256 ||
+      preparation.ownerConfirmationAt !== confirmation.confirmedAt ||
+      !Number.isFinite(Date.parse(confirmation.confirmedAt))) return null;
+  return confirmation.confirmedAt;
+}
+
+function currentFinalCardMatches(sku) {
+  const card = sku.productionConfirmationCard;
+  const preparation = sku.c2FinalAssets?.productionAuthorizationPreparation;
+  if (!validateFinalProductPlanConfirmationCard(card).valid || !preparation) return false;
+  const identity = card.productInformation.sku.value;
+  const platform = card.productInformation.targetPlatform.value;
+  return card.cardId === `final-plan-card:${sku.skuPackageId}:${preparation.resultDataRevision}` &&
+    identity?.skuPackageId === sku.skuPackageId && identity.supplierSkuId === sku.supplierSkuId && identity.variantKey === sku.variantKey &&
+    platform?.platform === sku.targetPlatform && sameStoreRef(platform.storeRef, sku.g1Identity.storeRef) &&
+    isDeepStrictEqual(card.c2Assets.finalUploads, sku.c2FinalAssets.assets.finalUploads) &&
+    isDeepStrictEqual(card.c2Assets.ownerFinalUploadConfirmation, sku.c2FinalAssets.ownerFinalUploadConfirmation);
+}
+
+export function buildCurrentExecutionRuntimeView(candidate, options = {}) {
+  const view = buildExecutionRuntimeView(candidate, options);
+  const sku = currentLifecycleSku(candidate);
+  // The immutable handoff proves an owner decision, never a running D job.
+  // Preserve actual execution and failure records instead of projecting over them.
+  if (sku?.productionAuthorization?.schemaVersion === "production-authorization-v1.2" &&
+      !sku.productionRecord && !sku.dSoftwareExecution && !sku.dAssetTransport &&
+      !view.recordIssue && !view.historicalExecution && !view.exceptionCase && !view.technicalFailure &&
+      (!candidate.executionRuntime || (view.status === "waiting_owner" && view.stepId === "C2_OWNER_BUSINESS_CONFIRMATION"))) {
+    const valid = validateSkuLifecyclePackage(sku).valid && validateProductionAuthorizationRecord(sku.productionAuthorization, {
+      skuPackage: sku, candidateId: candidate.id, candidateRevision: candidate.dataRevision, lifecycleState: "persisted"
+    }).valid;
+    if (!valid) return { ...view, recordIssue: "production_authorization_handoff_invalid_or_stale" };
+    return { ...view, source: "production_authorization_handoff", executorType: "software", status: "not_started",
+      stepId: "D_TECHNICAL_ADMISSION", inputRevision: candidate.dataRevision, outputRevision: null };
+  }
+  // Older C2 confirmations without a runtime still need a read-only owner view.
+  if (candidate.executionRuntime) return view;
+  if (!sku || sku.businessPhase !== "C2" || sku.c2FinalAssets?.status !== "completed" ||
+      sku.productionAuthorization || sku.productionRecord) return view;
+  if (!confirmedC2At(sku) || !currentFinalCardMatches(sku) ||
+      sku.c2FinalAssets.productionAuthorizationPreparation.resultDataRevision !== sku.dataRevision) {
+    return { ...view, recordIssue: "final_confirmation_record_invalid_or_wrong_sku" };
+  }
+  if (sku.productionConfirmationCard.status !== "awaiting_owner_business_confirmation") return view;
+  return { ...view, source: "confirmed_c2_card", executorType: "owner", status: "waiting_owner",
+    stepId: "C2_OWNER_BUSINESS_CONFIRMATION" };
+}
+
+function finalCardReady(sku) {
+  const card = sku.productionConfirmationCard;
+  if (!currentFinalCardMatches(sku) || sku.productionRecord) return false;
+  const preparation = sku.c2FinalAssets.productionAuthorizationPreparation;
+  const frozen = preparation.finalCardInputSnapshot;
+  const profit = frozen?.activeProfitModel;
+  const activeModels = Array.isArray(sku.profitModels)
+    ? sku.profitModels.filter(model => model.profitModelVersion === sku.activeProfitModelVersion) : [];
+  if (!profit || activeModels.length !== 1 || !validateProfitModel(profit).valid ||
+      profit.result !== "passed" || profit.commissionMode !== "exact" ||
+      frozen.activeProfitModelVersion !== profit.profitModelVersion || sku.activeProfitModelVersion !== profit.profitModelVersion ||
+      !isDeepStrictEqual(activeModels[0], profit)) return false;
+  const profitFields = [
+    ["recommendedSalePrice", { rub: profit.recommendedSalePriceRub ?? null, cny: profit.recommendedSalePriceCny ?? null }],
+    ["unitProfitRmb", profit.unitProfitRmb], ["profitMargin", profit.profitMargin],
+    ["result", profit.result], ["commissionMode", profit.commissionMode]
+  ];
+  return card.profitResult.profitModelVersion === profit.profitModelVersion &&
+    profitFields.every(([field, value]) => isDeepStrictEqual(card.profitResult[field], { value, sourceRefs: [profit.profitModelVersion] })) &&
+    card.riskAndUnknowns.status === "no_recorded_gaps" && card.riskAndUnknowns.unknownFields.length === 0 &&
+    Array.isArray(card.riskAndUnknowns.materialRisks) && card.riskAndUnknowns.materialRisks.length === 0;
+}
+
 export function dailySummary(candidates, rules = DEFAULT_RULES, date = businessDate()) {
   const targets = rules.dailyTargets;
   const queueCounts = Object.fromEntries(WORKFLOW_STATUSES.map((status) => [status, 0]));
@@ -1378,15 +1532,30 @@ export function dailySummary(candidates, rules = DEFAULT_RULES, date = businessD
       userSampleReviewThreshold: Number(directionRule.userSampleReviewThreshold || 0)
     };
   }
-  const bPassed = candidates.filter((candidate) => {
-    const at = candidate.bPassedAt || candidate.reviewedAt;
-    return at && businessDate(at) === date && ["listing_preparation", "ready_to_list", "listed"].includes(candidate.workflowStatus);
+  const skus = new Map();
+  for (const candidate of candidates) {
+    const sku = currentLifecycleSku(candidate);
+    if (sku) skus.set(sku.skuPackageId, sku);
+  }
+  const bPassed = [];
+  let unclassifiedProfitPassed = 0;
+  for (const sku of skus.values()) {
+    const models = (sku.profitModels || []).filter(model => model.profitModelVersion === sku.activeProfitModelVersion);
+    if (models.length !== 1) continue;
+    const model = models[0];
+    if (model.result !== "passed" || !validateProfitModel(model).valid || businessDate(model.calculatedAt) !== date) continue;
+    if (!["exact", "estimated"].includes(model.commissionMode)) {
+      unclassifiedProfitPassed += 1;
+      continue;
+    }
+    if (model.commissionMode !== "exact") continue;
+    bPassed.push(model);
+  }
+  const cCompleted = [...skus.values()].filter(sku => {
+    const at = confirmedC2At(sku);
+    return at !== null && businessDate(at) === date;
   });
-  const cCompleted = candidates.filter((candidate) => {
-    const at = candidate.cCompletedAt || candidate.readyAt;
-    return at && businessDate(at) === date && ["ready_to_list", "listed"].includes(candidate.workflowStatus);
-  });
-  const estimated = bPassed.filter((candidate) => candidate.codexReview?.commission?.sourceType === "estimated").length;
+  const estimated = bPassed.filter(model => model.commissionMode === "estimated").length;
   const target = Number(targets.combinedProfitPassed || 10);
   return {
     businessDate: date,
@@ -1397,15 +1566,12 @@ export function dailySummary(candidates, rules = DEFAULT_RULES, date = businessD
       profitPassed: bPassed.length,
       exactProfitPassed: bPassed.length - estimated,
       estimatedProfitPassed: estimated,
+      unclassifiedProfitPassed,
       cCompleted: cCompleted.length,
-      readyToList: candidates.filter((candidate) =>
-        candidate.workflowStatus === "ready_to_list" &&
-        candidate.listingPreparation?.status === "prepared" &&
-        Boolean(candidate.cCompletedAt)
-      ).length,
+      readyToList: [...skus.values()].filter(sku => confirmedC2At(sku) !== null && finalCardReady(sku)).length,
       legacyReadyPendingC: candidates.filter((candidate) =>
         candidate.workflowStatus === "ready_to_list" &&
-        !(candidate.listingPreparation?.status === "prepared" && candidate.cCompletedAt)
+        (!currentLifecycleSku(candidate) || confirmedC2At(currentLifecycleSku(candidate)) === null)
       ).length,
       remaining: Math.max(0, target - bPassed.length)
     }

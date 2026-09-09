@@ -1,22 +1,15 @@
+import { VARIANT, phase7PassedState, platformSchemaEvidence, createFormalC1C2Fixture } from "./fixtures/formal-c1-flow-fixture.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { adaptLegacyCandidateToOpportunity } from "../lib/legacy-candidate-adapter.mjs";
-import { sanitize1688Evidence } from "../lib/source-capture.mjs";
-import { adapt1688CaptureToSupplierOption } from "../lib/supplier-option.mjs";
-import {
-  createOwnerSupplyConfirmation,
-  createSkuLifecycleFromConfirmedSupply,
-  recommendSupplierOption
-} from "../lib/supplier-selection-flow.mjs";
-import { runSkuProfitModel } from "../lib/profit-model.mjs";
 import {
   C1_PRODUCT_PLAN_SCHEMA_VERSION,
   C1_FACT_VERIFICATION_VERSION,
   createC1ProductPlan,
   validateC1ProductPlan,
   validatePlatformSchemaEvidence,
-  verifyC1ProductFacts
+  verifyC1ProductFacts,
+  collectC1UnknownManifest
 } from "../lib/c1-product-plan.mjs";
 import { validateSkuLifecyclePackage } from "../lib/product-lifecycle-schema.mjs";
 import {
@@ -26,9 +19,6 @@ import {
 } from "../lib/c1-seo-draft.mjs";
 import {
   C2_ASSET_LIFECYCLE_VERSION,
-  addAiDraftAssets,
-  confirmFinalUploads,
-  createC2AssetLifecycle,
   selectConfirmedFinalUploadsForProduction,
   validateC2AssetLifecycle
 } from "../lib/c2-asset-lifecycle.mjs";
@@ -38,149 +28,16 @@ import {
   validateFinalProductPlanConfirmationCard
 } from "../lib/final-product-plan-confirmation-card.mjs";
 import {
-  DEFAULT_NEW_PRODUCT_STOCK,
   PRODUCTION_AUTHORIZATION_VERSION,
   createProductionAuthorization,
   readAuthorizedProductionSnapshot,
   validateProductionAuthorization
 } from "../lib/production-authorization.mjs";
-import { attachPassedMarketAssessment } from "./helpers/market-assessment-fixture.mjs";
-import { createTrainCandidate } from "./helpers/legacy-candidate-fixture.mjs";
+import { packageFixture, assetRegions, finalAssets, ownerDecision, productionAuthorizationInputFixture, authorizedProductionFixture, historicalAuthorizedProductionFixture } from "./helpers/c2-software-fixture.mjs";
+import { loadPublishedSchemaValidator } from "./helpers/published-schema-validator.mjs";
+import { createC2SoftwareContainer, prepareC2FinalUploadManifest, confirmC2SoftwareFinalUploads } from "../lib/c2-software-orchestrator.mjs";
+import { isCanonicalFrozenRef } from "../lib/production-contract-primitives.mjs";
 
-const VARIANT = "规格:豪华小火车";
-
-async function phase7PassedState({ sellerType = "cross_border_cn" } = {}) {
-  const candidate = createTrainCandidate({ lifecycle: false });
-  const opportunity = structuredClone(adaptLegacyCandidateToOpportunity(candidate));
-  opportunity.salesSnapshots[0].platform = "ozon";
-  opportunity.salesSnapshots[0].sellerType = sellerType;
-  opportunity.salesSnapshots[0].sellerIdentityEvidence = {
-    status: sellerType === "unknown" ? "unverified" : "verified",
-    evidenceRef: sellerType === "unknown" ? "test:seller-identity:unknown" : "test:cross-border-cn"
-  };
-  attachPassedMarketAssessment(opportunity, { sellerType });
-  const evidence = sanitize1688Evidence({
-    offerId: "712421624571",
-    observedAt: "2026-08-12T12:00:00.000Z",
-    title: "机械发条木质火车",
-    supplierSalesEvidence: { salesVolume: 500, stabilityScore: 80 },
-    supplierBadges: ["牛头供应商"],
-    skus: [{
-      sourceSkuId: "4993364145574",
-      propPath: VARIANT,
-      attributes: { 规格: "豪华小火车" },
-      priceCny: null,
-      priceSource: null,
-      stock: null,
-      stockSource: null,
-      imageUrl: null
-    }]
-  }, "712421624571");
-  evidence.supplierSalesEvidence = { salesVolume: 500, stabilityScore: 80 };
-  evidence.supplierBadges = ["牛头供应商"];
-  evidence.skus[0].weight = { value: 0.3, unit: "kg" };
-  evidence.skus[0].dimensions = { length: 23, width: 16, height: 3, unit: "cm" };
-  evidence.skus[0].material = "DVP木纤维板";
-  evidence.skus[0].powerProfile = { powered: false };
-  const option = structuredClone(adapt1688CaptureToSupplierOption(evidence, {
-    evidenceRef: "source-capture:SC-8f132e8e-425e-401a-8c72-13c32290d8b8"
-  }));
-  option.supplierSalesEvidence = evidence.supplierSalesEvidence;
-  option.supplierBadges = evidence.supplierBadges;
-  option.supplierSkus[0].actualPurchaseCost = 41;
-
-  opportunity.businessPhase = "A";
-  opportunity.businessResult = "passed";
-  opportunity.technicalStatus = "completed";
-  opportunity.ownerAction = "confirm_supplier_option";
-  opportunity.supplierOptions = [option];
-  opportunity.recommendedSupplierOptionId = null;
-  opportunity.confirmedSupplierOptionId = null;
-
-  const recommendation = recommendSupplierOption({
-    opportunityPackage: opportunity,
-    targetVariantKey: VARIANT,
-    scoredAt: "2026-08-12T12:10:00.000Z"
-  });
-  const confirmation = createOwnerSupplyConfirmation({
-    recommendedOpportunityPackage: recommendation.opportunityPackage,
-    recommendation,
-    ownerDecision: {
-      status: "confirmed",
-      confirmedBy: "owner",
-      supplierOptionId: option.supplierOptionId,
-      supplierSkuId: option.supplierSkus[0].supplierSkuId,
-      variantKey: VARIANT
-    },
-    confirmedAt: "2026-08-12T12:11:00.000Z"
-  });
-  const skuPackage = createSkuLifecycleFromConfirmedSupply({
-    opportunityPackage: confirmation.opportunityPackage,
-    ownerSupplyConfirmation: confirmation.confirmation,
-    skuPackageId: "sku-lifecycle:CX-20260803-010:4993364145574",
-    createdAt: "2026-08-12T12:12:00.000Z"
-  });
-  const result = runSkuProfitModel({
-    opportunityPackage: confirmation.opportunityPackage,
-    skuPackage,
-    salesSelection: {
-      salesSnapshotId: "legacy-sales:CX-20260803-010",
-      pricePath: "marketEvidence.exactTarget.lowestOtherOfferRub",
-      currency: "RUB"
-    },
-    platformFeeEvidence: {
-      evidenceId: "platform-fees:ozon:dandanshu:17028665:rfbs:2026-08-12",
-      commissionRate: 0.14,
-      sourceType: "real_same_description_category_seller_api",
-      otherCosts: {
-        packagingRmb: 1.5,
-        labelRmb: 1.5,
-        fixedOtherRmb: 0,
-        advertisingRate: 0,
-        returnReserveRate: 0.05,
-        damageReserveRate: 0.05,
-        withdrawalFeeRate: 0.02,
-        targetMarginRate: 0.15,
-        minimumUnitProfitRmb: 20,
-        priceIncrementCny: 1,
-        thresholdLogic: "any",
-        pricingPolicyVersion: "ozon-wb-global-pricing-2026-08-21-v3-project-or-threshold-v1"
-      }
-    },
-    logisticsEvidence: {
-      evidenceId: "logistics:guoo:economy-small:2026-07-20:0.3kg",
-      route: "GUOO Economy Small PUDO/Courier",
-      amountRmb: 26.4,
-      billableWeightKg: 0.3,
-      effectiveDate: "2026-07-20"
-    },
-    exchangeRateEvidence: {
-      evidenceId: "fx:cbr:2026-08-07:RUB-CNY",
-      rubPerCny: 12.0637,
-      sourceType: "official"
-    },
-    calculatedAt: "2026-08-12T12:20:00.000Z"
-  });
-  return { opportunityPackage: confirmation.opportunityPackage, skuPackage: result.skuPackage };
-}
-
-function platformSchemaEvidence() {
-  return {
-    evidenceId: "schema:ozon:dandanshu:17028665:92935:2026-08-12",
-    platform: "ozon",
-    store: "dandanshu",
-    descriptionCategoryId: "17028665",
-    typeId: "92935",
-    categoryName: "3D-пазл",
-    schemaRevision: "ozon-schema:17028665:92935:2026-08-12",
-    requiredFields: [
-      { fieldKey: "brand", label: "品牌", required: true },
-      { fieldKey: "model_name", label: "模型名", required: true },
-      { fieldKey: "type", label: "类型", required: true }
-    ],
-    collectedAt: "2026-08-12T02:30:00.000Z"
-  };
-}
 
 async function phase8InputsReadyState() {
   const state = await phase7PassedState();
@@ -190,6 +47,25 @@ async function phase8InputsReadyState() {
     createdAt: "2026-08-12T12:30:00.000Z"
   });
 }
+
+test("旧v1估算通过记录保留可读但不得创建新的C1", async () => {
+  const state = await phase7PassedState();
+  const skuPackage = structuredClone(state.skuPackage);
+  const profit = skuPackage.profitModels.find(item => item.profitModelVersion === skuPackage.activeProfitModelVersion);
+  profit.calculation.version = "profit-calculation-v1-unrounded";
+  profit.commissionMode = "estimated";
+  profit.exactCommissionRequiredAtC = true;
+  delete profit.calculationType;
+  delete profit.exactCommissionRequiredForFormalB;
+  const before = JSON.stringify(skuPackage);
+  const validation = validateSkuLifecyclePackage(skuPackage);
+  assert.equal(validation.valid, true, JSON.stringify(validation.errors));
+  assert.throws(() => createC1ProductPlan({
+    opportunityPackage: state.opportunityPackage, skuPackage,
+    platformSchemaEvidence: platformSchemaEvidence(), createdAt: "2026-08-12T12:30:00.000Z"
+  }), /C1_GATE_REJECTED/);
+  assert.equal(JSON.stringify(skuPackage), before);
+});
 
 async function phase9AFactsCheckedState() {
   const phase8 = await phase8InputsReadyState();
@@ -266,64 +142,6 @@ function keywordEvidence() {
   };
 }
 
-async function phase9BSeoDraftState() {
-  const phase9A = await phase9AFactsCheckedState();
-  return createC1SeoDraft({
-    skuPackage: phase9A.skuPackage,
-    competitorTextSnapshot: competitorTextSnapshot(),
-    keywordEvidence: keywordEvidence(),
-    createdAt: "2026-08-12T13:05:00.000Z"
-  });
-}
-
-async function phase10FinalAssetsConfirmedState() {
-  const phase9B = await phase9BSeoDraftState();
-  const initialized = createC2AssetLifecycle({
-    skuPackage: phase9B.skuPackage,
-    collectedAssets: [{
-      assetId: "collected:ozon:CX-20260803-010:main",
-      mediaType: "image",
-      assetRef: "https://ir.ozone.ru/reference-only.jpg",
-      sourcePlatform: "ozon",
-      sourceEvidenceRef: "legacy-sales:CX-20260803-010#imageUrl"
-    }],
-    createdAt: "2026-08-12T13:10:00.000Z"
-  });
-  return confirmFinalUploads({
-    skuPackage: initialized.skuPackage,
-    finalUploadAssets: [{
-      assetId: "final:CX-20260803-010:main",
-      mediaType: "image",
-      assetRef: "/owner-confirmed/CX-20260803-010-main.jpg",
-      sourceType: "owner_provided_final_upload"
-    }],
-    ownerDecision: {
-      status: "confirmed",
-      confirmedBy: "owner",
-      approvedAssetIds: ["final:CX-20260803-010:main"],
-      confirmationNote: "单SKU确认卡测试素材"
-    },
-    confirmedAt: "2026-08-12T13:12:00.000Z"
-  });
-}
-
-async function phase11ConfirmationCardState() {
-  const phase10 = await phase10FinalAssetsConfirmedState();
-  return createFinalProductPlanConfirmationCard({
-    skuPackage: phase10.skuPackage,
-    createdAt: "2026-08-12T13:20:00.000Z"
-  });
-}
-
-function ownerProductionApproval(cardId) {
-  return {
-    cardId,
-    selectedOption: "approve_for_production_authorization",
-    confirmedBy: "owner",
-    note: "仅授权测试锁定范围"
-  };
-}
-
 test("CX-20260803-010 enters C1 from exactly four frozen upstream inputs", async () => {
   const state = await phase7PassedState();
   const result = createC1ProductPlan({
@@ -347,6 +165,32 @@ test("CX-20260803-010 enters C1 from exactly four frozen upstream inputs", async
   assert.equal(plan.inputSnapshots.platformSchemaRules.requiredFields.length, 3);
   assert.deepEqual(validateC1ProductPlan(plan), { valid: true, errors: [] });
   assert.deepEqual(validatePlatformSchemaEvidence(plan.inputSnapshots.platformSchemaRules), { valid: true, errors: [] });
+});
+
+test("C1 plan validation reports malformed frozen required fields and source keys without throwing", () => {
+  const { checked } = createFormalC1C2Fixture();
+  const malformedFields = [null, {}, "brand", true, [null], ["brand"], [[]], [{}], [{ fieldKey: 1 }], Array(1),
+    [{ fieldKey: " " }], [{ fieldKey: "brand", label: null, required: true }],
+    [{ fieldKey: "brand", label: " ", required: true }], [{ fieldKey: "brand", label: "品牌", required: "true" }],
+    [{ fieldKey: "brand", label: "品牌", required: true }, { fieldKey: "brand", label: "品牌", required: true }]];
+  const malformedKeys = [null, {}, "brand", true, 1, [null], [{}], [[]], [1], [" "], Array(1)];
+  const cases = [
+    ...malformedFields.map((value, index) => [`requiredFields case ${index}`, schema => { schema.requiredFields = value; }]),
+    ...malformedKeys.map((value, index) => [`sourceAttributeKeys case ${index}`, schema => { schema.requiredFields[0].sourceAttributeKeys = value; }])
+  ];
+  for (const [label, corrupt] of cases) {
+    const plan = structuredClone(checked.c1ProductPlan);
+    corrupt(plan.inputSnapshots.platformSchemaRules);
+    const before = structuredClone(plan);
+    const schemaResult = validatePlatformSchemaEvidence(plan.inputSnapshots.platformSchemaRules);
+    assert.equal(schemaResult.valid, false, label);
+    assert.ok(schemaResult.errors.some(error => error.path.startsWith("requiredFields")), label);
+    const result = validateC1ProductPlan(plan);
+    assert.equal(result.valid, false, label);
+    assert.ok(result.errors.some(error => error.path.startsWith("inputSnapshots.platformSchemaRules.requiredFields")), label);
+    assert.ok(result.errors.some(error => error.path === "platformCompliance.skuRightsReview" && error.message === "C1_SKU_RIGHTS_REVIEW_INVALID"), label);
+    assert.deepEqual(plan, before, label);
+  }
 });
 
 test("unknown卖家样本经A正式放行且B利润达标后正常进入C1", async () => {
@@ -466,6 +310,24 @@ test("published C1 schema freezes the four inputs and all phase-8 exclusions", a
   }
   for (const field of ["finalSeo", "finalAttributes", "complianceDecision", "generatedAssets", "productionPayload"]) {
     assert.equal(schema.properties[field].type, "null");
+  }
+});
+
+test("C1 category identity is sourced from the frozen Schema and absent IDs remain unknown", async () => {
+  const state = await phase7PassedState();
+  for (const categoryId of ["category:synthetic:3d-puzzle", undefined]) {
+    const evidence = platformSchemaEvidence();
+    if (categoryId !== undefined) evidence.categoryId = categoryId;
+    else { delete evidence.descriptionCategoryId; delete evidence.typeId; }
+    const inputs = createC1ProductPlan({ ...state, platformSchemaEvidence: evidence, createdAt: "2026-08-12T12:30:00.000Z" });
+    const before = structuredClone(inputs);
+    const result = verifyC1ProductFacts({ skuPackage: inputs.skuPackage, verifiedAt: "2026-08-12T12:40:00.000Z" });
+    const field = result.c1ProductPlan.platformCategory.categoryId;
+    assert.equal(field.value, categoryId ?? "unknown");
+    assert.equal(field.verificationStatus, categoryId === undefined ? "unknown" : "confirmed");
+    assert.deepEqual(field.sourceRefs, [`${evidence.evidenceId}#/categoryId`]);
+    assert.equal(result.c1ProductPlan.platformCategory.status.value, categoryId === undefined ? "incomplete" : "identified");
+    assert.deepEqual(inputs, before);
   }
 });
 
@@ -664,278 +526,149 @@ test("9B stops if keyword evidence has no fact binding or is not verified reusab
   }), /C1_SEO_INPUT_GAP: 关键词证据无效/);
 });
 
-test("10 creates three independent C2 asset regions without generation or production", async () => {
-  const phase9B = await phase9BSeoDraftState();
-  const result = createC2AssetLifecycle({
-    skuPackage: phase9B.skuPackage,
-    collectedAssets: [
-      {
-        assetId: "collected:ozon:CX-20260803-010:main",
-        mediaType: "image",
-        assetRef: "https://ir.ozone.ru/reference-only.jpg",
-        sourcePlatform: "ozon",
-        sourceEvidenceRef: "legacy-sales:CX-20260803-010#imageUrl"
-      },
-      {
-        assetId: "collected:1688:712421624571:main",
-        mediaType: "image",
-        assetRef: "https://cbu01.alicdn.com/reference-only.jpg",
-        sourcePlatform: "1688",
-        sourceEvidenceRef: "source-capture:SC-8f132e8e-425e-401a-8c72-13c32290d8b8"
-      }
-    ],
-    createdAt: "2026-08-12T13:10:00.000Z"
-  });
-  const lifecycle = result.c2AssetLifecycle;
+const C2_TIME = "2026-08-22T07:00:00.000Z";
+function initializedC2(source = packageFixture({ stableStoreId: "dandanshu", executableOzon: true })) {
+  return createC2SoftwareContainer({ skuPackage: source, expectedDataRevision: 7, assetRegions: assetRegions(), createdAt: C2_TIME });
+}
+function confirmInput() {
+  const initialized = initializedC2();
+  const finalManifest = prepareC2FinalUploadManifest({ skuPackage: initialized.skuPackage, expectedDataRevision: 8, finalUploadAssets: finalAssets(), preparedAt: C2_TIME });
+  return { skuPackage: initialized.skuPackage, expectedDataRevision: 8, finalManifest, ownerDecision: ownerDecision(finalManifest), confirmedAt: C2_TIME };
+}
+function cardSource() {
+  const input = productionAuthorizationInputFixture();
+  const sku = structuredClone(input.skuPackage);
+  sku.productionConfirmationCard = null;
+  return sku;
+}
 
-  assert.equal(lifecycle.schemaVersion, C2_ASSET_LIFECYCLE_VERSION);
-  assert.equal(lifecycle.status, "awaiting_final_uploads");
-  assert.equal(lifecycle.assets.collected.length, 2);
-  assert.deepEqual(lifecycle.assets.aiDrafts, []);
-  assert.deepEqual(lifecycle.assets.finalUploads, []);
-  assert.equal(lifecycle.generationIntegrations.xiaohouzi, "not_connected");
-  assert.equal(lifecycle.platformUploads, 0);
-  assert.equal(lifecycle.productionStarted, false);
+test("10 creates three independent C2 asset regions without generation or production", () => {
+  const result = initializedC2();
+  const c2 = result.skuPackage.c2FinalAssets;
+  assert.equal(c2.schemaVersion, C2_ASSET_LIFECYCLE_VERSION);
+  assert.equal(c2.status, "awaiting_final_uploads");
+  assert.equal(c2.assets.collected.length, 1);
+  assert.equal(c2.assets.aiDrafts.length, 1);
+  assert.deepEqual(c2.assets.finalUploads, []);
+  assert.equal(c2.platformUploads, 0);
+  assert.equal(c2.productionStarted, false);
   assert.equal(result.skuPackage.businessPhase, "C2");
-  assert.equal(result.skuPackage.ownerAction, "provide_final_assets");
-  assert.deepEqual(validateC2AssetLifecycle(lifecycle), { valid: true, errors: [] });
+  assert.deepEqual(validateC2AssetLifecycle(c2), { valid: true, errors: [] });
 });
 
-test("10 never exposes collected assets to the future D asset selector", async () => {
-  const phase9B = await phase9BSeoDraftState();
-  const result = createC2AssetLifecycle({
-    skuPackage: phase9B.skuPackage,
-    collectedAssets: [{
-      assetId: "collected:ozon:CX-20260803-010:main",
-      mediaType: "image",
-      assetRef: "https://ir.ozone.ru/reference-only.jpg",
-      sourcePlatform: "ozon",
-      sourceEvidenceRef: "legacy-sales:CX-20260803-010#imageUrl"
-    }],
-    createdAt: "2026-08-12T13:10:00.000Z"
-  });
-  assert.equal(result.c2AssetLifecycle.assets.collected[0].productionEligible, false);
-  assert.throws(
-    () => selectConfirmedFinalUploadsForProduction(result.c2AssetLifecycle),
-    /C2_OWNER_CONFIRMATION_REQUIRED/
-  );
+test("10 never exposes collected assets to the future D asset selector", () => {
+  const sku = initializedC2().skuPackage;
+  assert.equal(sku.c2FinalAssets.assets.collected[0].productionEligible, false);
+  assert.throws(() => selectConfirmedFinalUploadsForProduction(sku), /C2_OWNER_CONFIRMATION_REQUIRED/);
 });
 
-test("10 keeps AI drafts isolated and does not promote them into finalUploads", async () => {
-  const phase9B = await phase9BSeoDraftState();
-  const initialized = createC2AssetLifecycle({
-    skuPackage: phase9B.skuPackage,
-    collectedAssets: [],
-    createdAt: "2026-08-12T13:10:00.000Z"
-  });
-  const withAi = addAiDraftAssets({
-    skuPackage: initialized.skuPackage,
-    aiDraftAssets: [{
-      assetId: "ai-draft:CX-20260803-010:concept-1",
-      mediaType: "image",
-      assetRef: "local-draft://concept-1",
-      generatorRef: "future-ai-placeholder"
-    }],
-    addedAt: "2026-08-12T13:11:00.000Z"
-  });
-
-  assert.equal(withAi.c2AssetLifecycle.assets.aiDrafts.length, 1);
-  assert.equal(withAi.c2AssetLifecycle.assets.aiDrafts[0].productionEligible, false);
-  assert.deepEqual(withAi.c2AssetLifecycle.assets.finalUploads, []);
-  assert.throws(
-    () => selectConfirmedFinalUploadsForProduction(withAi.c2AssetLifecycle),
-    /C2_OWNER_CONFIRMATION_REQUIRED/
-  );
+test("10 keeps draft images isolated and does not promote them into finalUploads", () => {
+  const sku = initializedC2().skuPackage;
+  assert.equal(sku.c2FinalAssets.assets.aiDrafts[0].productionEligible, false);
+  assert.deepEqual(sku.c2FinalAssets.assets.finalUploads, []);
+  const assets = finalAssets(); assets[0].sourceType = "ai_generated_draft";
+  assert.throws(() => prepareC2FinalUploadManifest({ skuPackage: sku, expectedDataRevision: 8, finalUploadAssets: assets, preparedAt: C2_TIME }), /C2_/);
+  assert.equal(sku.c2FinalAssets.status, "awaiting_final_uploads");
 });
 
-test("10 requires owner confirmation and accepts only owner-provided final upload assets", async () => {
-  const phase9B = await phase9BSeoDraftState();
-  const initialized = createC2AssetLifecycle({
-    skuPackage: phase9B.skuPackage,
-    collectedAssets: [],
-    createdAt: "2026-08-12T13:10:00.000Z"
-  });
-  const finalAssets = [{
-    assetId: "final:CX-20260803-010:main",
-    mediaType: "image",
-    assetRef: "/owner-confirmed/CX-20260803-010-main.jpg",
-    sourceType: "owner_provided_final_upload"
-  }];
-
-  assert.throws(() => confirmFinalUploads({
-    skuPackage: initialized.skuPackage,
-    finalUploadAssets: finalAssets,
-    ownerDecision: null,
-    confirmedAt: "2026-08-12T13:12:00.000Z"
-  }), /C2_OWNER_CONFIRMATION_REQUIRED/);
-
-  const aiAsFinal = structuredClone(finalAssets);
-  aiAsFinal[0].sourceType = "ai_generated_draft";
-  assert.throws(() => confirmFinalUploads({
-    skuPackage: initialized.skuPackage,
-    finalUploadAssets: aiAsFinal,
-    ownerDecision: { status: "confirmed", confirmedBy: "owner", approvedAssetIds: [aiAsFinal[0].assetId] },
-    confirmedAt: "2026-08-12T13:12:00.000Z"
-  }), /不能自动成为finalUploads/);
-
-  const confirmed = confirmFinalUploads({
-    skuPackage: initialized.skuPackage,
-    finalUploadAssets: finalAssets,
-    ownerDecision: {
-      status: "confirmed",
-      confirmedBy: "owner",
-      approvedAssetIds: ["final:CX-20260803-010:main"],
-      confirmationNote: "单SKU基础设施测试确认"
-    },
-    confirmedAt: "2026-08-12T13:12:00.000Z"
-  });
-  assert.equal(confirmed.c2AssetLifecycle.status, "completed");
-  assert.equal(confirmed.c2AssetLifecycle.assets.finalUploads[0].ownerConfirmed, true);
-
-  const futureDInput = selectConfirmedFinalUploadsForProduction(confirmed.c2AssetLifecycle);
-  assert.equal(futureDInput.sourceArea, "assets.finalUploads");
-  assert.equal(futureDInput.assets.length, 1);
-  assert.equal(futureDInput.collectedIncluded, false);
-  assert.equal(futureDInput.aiDraftsIncluded, false);
-  assert.equal(futureDInput.productionExecuted, false);
+test("10 requires owner confirmation and accepts only the approved final upload manifest", () => {
+  const input = confirmInput();
+  const before = structuredClone(input);
+  for (const owner of [null, { ...input.ownerDecision, approvedAssetIds: input.ownerDecision.approvedAssetIds.toReversed() }]) {
+    assert.throws(() => confirmC2SoftwareFinalUploads({ ...input, ownerDecision: owner }), /C2_/);
+  }
+  const confirmed = confirmC2SoftwareFinalUploads(input);
+  const selected = selectConfirmedFinalUploadsForProduction(confirmed.skuPackage);
+  assert.equal(selected.assets.length, 2);
+  assert.equal(selected.sourceArea, "assets.finalUploads");
+  assert.equal(selected.collectedIncluded, false);
+  assert.equal(selected.aiDraftsIncluded, false);
+  assert.equal(selected.productionExecuted, false);
+  assert.deepEqual(input, before);
 });
 
-test("10 preserves product facts, C1 SEO drafts and B profit throughout C2 setup", async () => {
-  const phase9B = await phase9BSeoDraftState();
-  const c1Before = structuredClone(phase9B.skuPackage.c1ProductPlan);
-  const profitBefore = structuredClone(phase9B.skuPackage.profitModels);
-  const result = createC2AssetLifecycle({
-    skuPackage: phase9B.skuPackage,
-    collectedAssets: [],
-    createdAt: "2026-08-12T13:10:00.000Z"
-  });
-  assert.deepEqual(result.skuPackage.c1ProductPlan, c1Before);
-  assert.deepEqual(result.skuPackage.profitModels, profitBefore);
+test("10 preserves product facts, C1 drafts and B profit throughout C2 setup", () => {
+  const source = packageFixture({ stableStoreId: "dandanshu", executableOzon: true });
+  const before = structuredClone(source);
+  const result = initializedC2(source);
+  assert.deepEqual(result.skuPackage.c1ProductPlan, before.c1ProductPlan);
+  assert.deepEqual(result.skuPackage.profitModels, before.profitModels);
   assert.equal(result.skuPackage.productionAuthorization, null);
   assert.equal(result.skuPackage.productionRecord, null);
-  assert.equal(result.c2AssetLifecycle.platformUploads, 0);
-  assert.equal(result.c2AssetLifecycle.productionStarted, false);
+  assert.deepEqual(source, before);
 });
 
 test("published C2 schema freezes the three regions and D read policy", async () => {
-  const url = new URL("../schema/c2-asset-lifecycle-v1.1.schema.json", import.meta.url);
-  const schema = JSON.parse(await readFile(url, "utf8"));
+  const schema = JSON.parse(await readFile(new URL("../schema/c2-asset-lifecycle-v1.1.schema.json", import.meta.url), "utf8"));
   assert.deepEqual(schema.properties.assets.required, ["collected", "aiDrafts", "finalUploads"]);
-  assert.equal(schema.properties.dReadPolicy.properties.onlyAllowedArea.const, "assets.finalUploads");
-  assert.equal(schema.properties.dReadPolicy.properties.collectedAllowed.const, false);
-  assert.equal(schema.properties.dReadPolicy.properties.aiDraftsAllowed.const, false);
-  assert.equal(schema.properties.dReadPolicy.properties.ownerConfirmationRequired.const, true);
   assert.equal(schema.properties.platformUploads.const, 0);
   assert.equal(schema.properties.productionStarted.const, false);
 });
 
-test("10 rejects a fake completed C2 shell at the lifecycle D gate", async () => {
-  const phase9B = await phase9BSeoDraftState();
-  const fake = structuredClone(phase9B.skuPackage);
-  fake.businessPhase = "D";
-  fake.c1ProductPlan.status = "completed";
-  fake.c2FinalAssets = { status: "completed" };
-  fake.productionAuthorization = { status: "confirmed", confirmedAt: "2026-08-12T13:15:00.000Z" };
-  const validation = validateSkuLifecyclePackage(fake);
-  assert.equal(validation.valid, false);
-  assert.ok(validation.errors.some((error) => error.path === "c2FinalAssets.schemaVersion"));
-  assert.ok(validation.errors.some((error) => error.path === "c2FinalAssets.assets.finalUploads"));
+test("10 rejects a fake completed C2 shell at the final card gate", () => {
+  const source = initializedC2().skuPackage;
+  const fake = structuredClone(source); fake.c2FinalAssets.status = "completed";
+  assert.throws(() => createFinalProductPlanConfirmationCard({ skuPackage: fake, createdAt: C2_TIME }), /C2|生命周期/);
+  assert.equal(source.productionAuthorization, null);
 });
 
-test("11 creates one complete owner-facing final product plan confirmation card", async () => {
-  const phase10 = await phase10FinalAssetsConfirmedState();
-  const result = createFinalProductPlanConfirmationCard({
-    skuPackage: phase10.skuPackage,
-    createdAt: "2026-08-12T13:20:00.000Z"
-  });
+test("11 creates one complete owner-facing final product plan confirmation card", () => {
+  const result = createFinalProductPlanConfirmationCard({ skuPackage: cardSource(), createdAt: C2_TIME });
   const card = result.confirmationCard;
-
   assert.equal(card.schemaVersion, FINAL_PRODUCT_PLAN_CONFIRMATION_CARD_VERSION);
   assert.equal(card.status, "awaiting_owner_business_confirmation");
   assert.equal(card.ownerDecision, null);
-  assert.ok(card.productInformation.productName.value);
-  assert.equal(card.productInformation.sku.value.supplierSkuId, "4993364145574");
-  assert.equal(card.productInformation.supplierOption.value.offerId, "712421624571");
+  assert.equal(card.productInformation.sku.value.supplierSkuId, "SHELF-WHITE");
   assert.equal(card.productInformation.targetPlatform.value.platform, "ozon");
   assert.equal(card.productInformation.targetPlatform.value.store, "dandanshu");
-  assert.equal(card.profitResult.recommendedSalePrice.value.rub, 1831);
-  assert.equal(card.profitResult.unitProfitRmb.value, 41.92);
-  assert.equal(card.profitResult.profitMargin.value, 0.2762);
+  assert.equal(card.profitResult.recommendedSalePrice.value.cny, 151.78);
   assert.deepEqual(validateFinalProductPlanConfirmationCard(card), { valid: true, errors: [] });
 });
 
-test("11 card combines exact C1 facts and all four SEO drafts without changing them", async () => {
-  const phase10 = await phase10FinalAssetsConfirmedState();
-  const c1Before = structuredClone(phase10.skuPackage.c1ProductPlan);
-  const result = createFinalProductPlanConfirmationCard({
-    skuPackage: phase10.skuPackage,
-    createdAt: "2026-08-12T13:20:00.000Z"
-  });
+test("11 card reads frozen C1 facts and all four drafts rather than later mutable fields", () => {
+  const source = cardSource();
+  const frozen = structuredClone(source.c2FinalAssets.productionAuthorizationPreparation.finalCardInputSnapshot.c1Snapshot);
+  source.c1ProductPlan.seoTitleDraft.text = "Later unapproved text";
+  const before = structuredClone(source);
+  const result = createFinalProductPlanConfirmationCard({ skuPackage: source, createdAt: C2_TIME });
   const card = result.confirmationCard;
-
-  assert.equal(card.c1Facts.exactSku.supplierSkuId.value, "4993364145574");
-  assert.equal(card.c1Facts.platformCategory.descriptionCategoryId.value, "17028665");
-  assert.deepEqual(card.c1Facts.productAttributes, c1Before.productAttributes);
-  assert.deepEqual(card.c1Facts.batteryStatus, c1Before.batteryAssessment);
-  assert.deepEqual(card.c1Facts.platformCompliance, c1Before.platformCompliance);
-  assert.deepEqual(card.seoDraft.title, c1Before.seoTitleDraft);
-  assert.deepEqual(card.seoDraft.description, c1Before.descriptionDraft);
-  assert.deepEqual(card.seoDraft.bulletPoints, c1Before.bulletPointsDraft);
-  assert.deepEqual(card.seoDraft.searchKeywords, c1Before.searchKeywordsDraft);
-  assert.deepEqual(result.skuPackage.c1ProductPlan, c1Before);
+  assert.deepEqual(card.c1Facts.productAttributes, frozen.productAttributes);
+  assert.deepEqual(card.c1Facts.batteryStatus, frozen.batteryAssessment);
+  assert.deepEqual(card.c1Facts.platformCompliance, frozen.platformCompliance);
+  assert.deepEqual(card.seoDraft.title, frozen.seoTitleDraft);
+  assert.deepEqual(card.seoDraft.description, frozen.descriptionDraft);
+  assert.deepEqual(card.seoDraft.bulletPoints, frozen.bulletPointsDraft);
+  assert.deepEqual(card.seoDraft.searchKeywords, frozen.searchKeywordsDraft);
+  assert.deepEqual(source, before);
 });
 
-test("11 card reads only owner-confirmed assets.finalUploads and excludes collected and AI areas", async () => {
-  const phase10 = await phase10FinalAssetsConfirmedState();
-  const result = createFinalProductPlanConfirmationCard({
-    skuPackage: phase10.skuPackage,
-    createdAt: "2026-08-12T13:20:00.000Z"
-  });
-  const assets = result.confirmationCard.c2Assets;
-
-  assert.equal(assets.sourceArea, "assets.finalUploads");
-  assert.equal(assets.finalUploads.length, 1);
-  assert.equal(assets.finalUploads[0].assetId, "final:CX-20260803-010:main");
-  assert.equal(assets.finalUploads[0].ownerConfirmed, true);
-  assert.equal("collected" in assets, false);
-  assert.equal("aiDrafts" in assets, false);
-  assert.doesNotMatch(JSON.stringify(assets), /reference-only/);
+test("11 card only reads owner-confirmed finalUploads and excludes reference regions", () => {
+  const source = cardSource();
+  const card = createFinalProductPlanConfirmationCard({ skuPackage: source, createdAt: C2_TIME }).confirmationCard;
+  assert.deepEqual(card.c2Assets.finalUploads.map(asset => asset.assetId), finalAssets().map(asset => asset.assetId));
+  assert.equal(Object.hasOwn(card.c2Assets, "collected"), false);
+  assert.equal(Object.hasOwn(card.c2Assets, "aiDrafts"), false);
+  assert.ok(card.c2Assets.finalUploads.every(asset => asset.ownerConfirmed && asset.productionEligible));
 });
 
-test("11 card surfaces risks and every unknown fact for one-card business review", async () => {
-  const phase10 = await phase10FinalAssetsConfirmedState();
-  const result = createFinalProductPlanConfirmationCard({
-    skuPackage: phase10.skuPackage,
-    createdAt: "2026-08-12T13:20:00.000Z"
-  });
-  const section = result.confirmationCard.riskAndUnknowns;
-
-  assert.equal(section.status, "owner_review_required");
-  assert.ok(section.materialRisks.includes("battery_status_unknown"));
-  assert.ok(section.materialRisks.includes("category_restrictions_unknown"));
-  assert.ok(section.materialRisks.includes("platform_compliance_unknown"));
-  assert.ok(section.materialRisks.includes("required_platform_attributes_incomplete"));
-  assert.ok(section.unknownCount > 0);
-  assert.ok(section.unknownFields.every((item) => item.value === "unknown" && item.sourceRefs.length > 0));
-  assert.ok(section.unknownFields.some((item) => item.fieldKey === "brand" && item.label === "品牌"));
+test("11 unverified required C1 facts stop before a final business card can be approved", () => {
+  const source = packageFixture({ stableStoreId: "dandanshu", executableOzon: true });
+  source.c1ProductPlan.productAttributes.requiredPlatformFields[0].fact = { value: "unknown", verificationStatus: "unknown", sourceRefs: [] };
+  const before = structuredClone(source);
+  assert.throws(() => productionAuthorizationInputFixture({ sourceSkuPackage: source }), /C2素材包校验失败|C2_/);
+  assert.deepEqual(source, before);
 });
 
-test("11 remains C2 and cannot create D authorization, writes, uploads, or automatic owner approval", async () => {
-  const phase10 = await phase10FinalAssetsConfirmedState();
-  const c2Before = structuredClone(phase10.skuPackage.c2FinalAssets);
-  const profitBefore = structuredClone(phase10.skuPackage.profitModels);
-  const result = createFinalProductPlanConfirmationCard({
-    skuPackage: phase10.skuPackage,
-    createdAt: "2026-08-12T13:20:00.000Z"
-  });
-
+test("11 remains C2 without D authorization, writes, uploads, automatic approval or SKU revision drift", () => {
+  const source = cardSource();
+  const before = structuredClone(source);
+  const result = createFinalProductPlanConfirmationCard({ skuPackage: source, createdAt: C2_TIME });
   assert.equal(result.skuPackage.businessPhase, "C2");
-  assert.equal(result.skuPackage.businessResult, "pending");
-  assert.equal(result.skuPackage.ownerAction, "confirm_c1_plan");
+  assert.equal(result.skuPackage.dataRevision, before.dataRevision);
   assert.equal(result.skuPackage.productionAuthorization, null);
   assert.equal(result.skuPackage.productionRecord, null);
-  assert.deepEqual(result.skuPackage.c2FinalAssets, c2Before);
-  assert.deepEqual(result.skuPackage.profitModels, profitBefore);
+  assert.deepEqual(result.skuPackage.c2FinalAssets, before.c2FinalAssets);
+  assert.deepEqual(result.skuPackage.profitModels, before.profitModels);
   assert.equal(result.confirmationCard.productionBoundary.productionAuthorized, false);
   assert.equal(result.confirmationCard.productionBoundary.dStarted, false);
   assert.equal(result.confirmationCard.productionBoundary.platformWrites, 0);
@@ -943,208 +676,348 @@ test("11 remains C2 and cannot create D authorization, writes, uploads, or autom
   assert.equal(result.confirmationCard.ownerDecision, null);
 });
 
-test("11 refuses to generate the card before finalUploads are owner-confirmed", async () => {
-  const phase9B = await phase9BSeoDraftState();
-  const awaiting = createC2AssetLifecycle({
-    skuPackage: phase9B.skuPackage,
-    collectedAssets: [],
-    createdAt: "2026-08-12T13:10:00.000Z"
-  });
-  assert.throws(() => createFinalProductPlanConfirmationCard({
-    skuPackage: awaiting.skuPackage,
-    createdAt: "2026-08-12T13:20:00.000Z"
-  }), /FINAL_PLAN_CARD_GATE_REJECTED/);
+test("11 refuses to generate a card before the final manifest is owner-confirmed", () => {
+  const awaiting = initializedC2().skuPackage;
+  assert.throws(() => createFinalProductPlanConfirmationCard({ skuPackage: awaiting, createdAt: C2_TIME }), /FINAL_PLAN_CARD_GATE_REJECTED/);
 });
 
 test("published final confirmation card schema freezes owner and production boundaries", async () => {
-  const url = new URL("../schema/final-product-plan-confirmation-card-v1.1.schema.json", import.meta.url);
-  const schema = JSON.parse(await readFile(url, "utf8"));
+  const schema = JSON.parse(await readFile(new URL("../schema/final-product-plan-confirmation-card-v1.1.schema.json", import.meta.url), "utf8"));
   assert.ok(schema.properties.status.enum.includes("awaiting_owner_business_confirmation"));
-  assert.ok(schema.properties.status.enum.includes("owner_business_approved"));
   assert.equal(schema.properties.c2Assets.properties.sourceArea.const, "assets.finalUploads");
-  assert.equal(schema.properties.productionBoundary.properties.productionAuthorized.const, false);
-  assert.equal(schema.properties.productionBoundary.properties.dStarted.const, false);
+  for (const field of ["productionAuthorized", "dStarted"]) assert.equal(schema.properties.productionBoundary.properties[field].const, false);
   assert.equal(schema.properties.productionBoundary.properties.platformWrites.const, 0);
   assert.equal(schema.properties.productionBoundary.properties.requiresSeparateExactAuthorization.const, true);
 });
 
-test("12 converts the exact owner-approved confirmation card into a locked ProductionAuthorization", async () => {
-  const phase11 = await phase11ConfirmationCardState();
-  const result = createProductionAuthorization({
-    skuPackage: phase11.skuPackage,
-    ownerDecision: ownerProductionApproval(phase11.confirmationCard.cardId),
-    buyerTargetPrice: { amount: 1831, currency: "RUB" },
-    platformWritePrice: { amount: 151.78, currency: "CNY" },
-    priceConversion: { rubPerCny: 12.0637, evidenceRef: "fx:cbr:2026-08-07:RUB-CNY", checkedAt: "2026-08-07T00:00:00.000Z" },
-    publishScope: "create_draft_only",
-    exclusions: ["no_publish_or_activation", "no_moderation_submission", "no_promotion_change", "no_advertising_change"],
-    confirmedAt: "2026-08-12T13:30:00.000Z"
-  });
+test("12 converts one exact authenticated owner decision into a locked authorization", () => {
+  const input = productionAuthorizationInputFixture({ publishScope: "create_draft_only" });
+  const result = createProductionAuthorization(input);
   const authorization = result.productionAuthorization;
-
   assert.equal(authorization.schemaVersion, PRODUCTION_AUTHORIZATION_VERSION);
   assert.equal(authorization.status, "confirmed");
   assert.equal(authorization.confirmedBy, "owner");
-  assert.equal(authorization.sourceConfirmationCardId, phase11.confirmationCard.cardId);
-  assert.equal(authorization.authorizedDataRevision, phase11.skuPackage.dataRevision);
-  assert.equal(authorization.lockedScope.platform, "ozon");
-  assert.equal(authorization.lockedScope.store, "dandanshu");
-  assert.equal(authorization.lockedScope.skuPackageId, "sku-lifecycle:CX-20260803-010:4993364145574");
-  assert.equal(authorization.lockedScope.supplierSkuId, "4993364145574");
-  assert.match(authorization.lockedScope.titleVersion, /^c1-seo-draft-v1\.1:/);
-  assert.match(authorization.lockedScope.attributeVersion, /^c1-fact-verification-v1\.1:/);
-  assert.deepEqual(authorization.lockedScope.platformCategory, result.skuPackage.c1ProductPlan.platformCategory);
-  assert.deepEqual(authorization.lockedScope.recommendedPrice, { rub: 1831, cny: 151.78 });
+  assert.equal(authorization.confirmedByActorId, authorization.authorizedByActorId);
+  assert.equal(authorization.ownerConfirmation.schemaVersion, "production-owner-confirmation-v2");
+  assert.equal(authorization.ownerAuthorization.role, "owner");
+  assert.equal(Object.hasOwn(authorization, "technicalAuthorization"), false);
+  assert.equal(authorization.sourceCandidateRevision, input.sourceCandidateRevision);
+  assert.equal(authorization.authorizedDataRevision, input.skuPackage.dataRevision);
+  assert.deepEqual(authorization.lockedScope.storeRef, input.skuPackage.g1Identity.storeRef);
+  assert.equal(authorization.lockedScope.supplierSkuId, "SHELF-WHITE");
+  assert.equal(authorization.lockedScope.merchantSku, "MERCHANT-SHELF-001");
   assert.deepEqual(authorization.lockedScope.buyerTargetPrice, { amount: 1831, currency: "RUB" });
   assert.deepEqual(authorization.lockedScope.platformWritePrice, { amount: 151.78, currency: "CNY" });
-  assert.equal(authorization.lockedScope.stock, DEFAULT_NEW_PRODUCT_STOCK);
-  assert.match(authorization.lockedScope.assetsFinalUploadsVersion, /^c2-assets:.*2026-08-12T13:12/);
-  assert.equal(authorization.lockedScope.finalUploads.length, 1);
+  assert.equal(authorization.lockedScope.stock, 100);
+  assert.equal(authorization.lockedScope.finalUploads.length, 2);
   assert.equal(authorization.lockedScope.publishScope, "create_draft_only");
-  assert.deepEqual(authorization.lockedScope.exclusions, ["no_publish_or_activation", "no_moderation_submission", "no_promotion_change", "no_advertising_change"]);
   assert.deepEqual(validateProductionAuthorization(authorization), { valid: true, errors: [] });
 });
 
-test("12 requires the owner to approve the exact card and never auto-authorizes", async () => {
-  const phase11 = await phase11ConfirmationCardState();
-  const common = {
-    skuPackage: phase11.skuPackage,
-    buyerTargetPrice: { amount: 1831, currency: "RUB" },
-    platformWritePrice: { amount: 151.78, currency: "CNY" },
-    priceConversion: { rubPerCny: 12.0637, evidenceRef: "fx:cbr:2026-08-07:RUB-CNY", checkedAt: "2026-08-07T00:00:00.000Z" },
-    publishScope: "create_draft_only",
-    exclusions: [],
-    confirmedAt: "2026-08-12T13:30:00.000Z"
-  };
-  assert.throws(() => createProductionAuthorization({ ...common, ownerDecision: null }), /OWNER_CONFIRMATION_REQUIRED/);
-  assert.throws(() => createProductionAuthorization({
-    ...common,
-    ownerDecision: { ...ownerProductionApproval("wrong-card"), cardId: "wrong-card" }
-  }), /OWNER_CONFIRMATION_REQUIRED/);
-  assert.equal(phase11.skuPackage.productionAuthorization, null);
-  assert.equal(phase11.confirmationCard.ownerDecision, null);
+test("12 requires owner approval of the exact card and never auto-authorizes", () => {
+  const input = productionAuthorizationInputFixture();
+  const before = structuredClone(input);
+  for (const change of [
+    value => { value.commercialDecision = null; }, value => { value.ownerActor = null; },
+    value => { value.skuPackage.productionConfirmationCard.cardId = "another"; },
+    value => { value.skuPackage.c2FinalAssets.productionAuthorizationPreparation.preparationFingerprint = "a".repeat(64); }
+  ]) {
+    const changed = structuredClone(input); change(changed);
+    assert.throws(() => createProductionAuthorization(changed), /PRODUCTION_|ProductionAuthorization|ACTOR_|C2素材包校验失败:productionAuthorizationPreparation/);
+  }
+  assert.deepEqual(input, before);
 });
 
-test("12 blocks production while the active B result still uses an estimated commission", async () => {
-  const phase11 = await phase11ConfirmationCardState();
-  const blocked = structuredClone(phase11.skuPackage);
-  blocked.productionConfirmationCard.riskAndUnknowns.materialRisks.push("exact_commission_required_before_production");
-  blocked.productionConfirmationCard.riskAndUnknowns.status = "owner_review_required";
-  assert.throws(() => createProductionAuthorization({
-    skuPackage: blocked,
-    ownerDecision: ownerProductionApproval(blocked.productionConfirmationCard.cardId),
-    buyerTargetPrice: { amount: 1831, currency: "RUB" },
-    platformWritePrice: { amount: 151.78, currency: "CNY" },
-    priceConversion: { rubPerCny: 12.0637, evidenceRef: "fx:cbr:test", checkedAt: "2026-08-12T13:30:00.000Z" },
-    publishScope: "create_draft_only",
-    exclusions: [],
-    confirmedAt: "2026-08-12T13:30:00.000Z"
-  }), /C阶段尚未补取当前精确佣金/);
+test("12 blocks production when the frozen B result uses an estimated commission", () => {
+  const source = packageFixture({ stableStoreId: "dandanshu", executableOzon: true });
+  source.profitModels[0].commissionMode = "estimated";
+  assert.throws(() => authorizedProductionFixture({ sourceSkuPackage: source }), /commission|佣金|PRODUCTION_|C2_/);
+  assert.equal(source.productionAuthorization, null);
 });
 
-test("12 locks SKU, title, attributes, price, stock, final assets and authorization scope against later source changes", async () => {
-  const phase11 = await phase11ConfirmationCardState();
-  const result = createProductionAuthorization({
-    skuPackage: phase11.skuPackage,
-    ownerDecision: ownerProductionApproval(phase11.confirmationCard.cardId),
-    buyerTargetPrice: { amount: 1900, currency: "RUB" },
-    platformWritePrice: { amount: 157.5, currency: "CNY" },
-    priceConversion: { rubPerCny: 12.0634920635, evidenceRef: "fx:test", checkedAt: "2026-08-07T00:00:00.000Z" },
-    publishScope: "create_draft_only",
-    exclusions: ["do_not_publish"],
-    confirmedAt: "2026-08-12T13:30:00.000Z"
-  });
-  const expected = readAuthorizedProductionSnapshot(result.productionAuthorization);
-  const mutatedLivePackage = structuredClone(result.skuPackage);
-  mutatedLivePackage.supplierSkuId = "replacement-sku";
-  mutatedLivePackage.c1ProductPlan.seoTitleDraft.text = "替换标题";
-  mutatedLivePackage.c1ProductPlan.productAttributes = { replaced: true };
-  mutatedLivePackage.c2FinalAssets.assets.finalUploads = [{ assetId: "replacement-asset" }];
-
-  const actual = readAuthorizedProductionSnapshot(mutatedLivePackage.productionAuthorization);
-  assert.deepEqual(actual, expected);
-  assert.equal(actual.lockedScope.supplierSkuId, "4993364145574");
-  assert.notEqual(actual.lockedScope.title, "替换标题");
-  assert.equal(actual.lockedScope.finalUploads[0].assetId, "final:CX-20260803-010:main");
-  assert.equal(actual.lockedScope.stock, 100);
-  assert.equal(actual.lockedScope.publishScope, "create_draft_only");
-  assert.deepEqual(actual.lockedScope.exclusions, ["do_not_publish"]);
+test("12 blocks authorization when required C1 facts remain unknown", () => {
+  const source = packageFixture({ stableStoreId: "dandanshu", executableOzon: true });
+  source.c1ProductPlan.platformCompliance.assessment = { value: "unknown", verificationStatus: "unknown", sourceRefs: [] };
+  assert.throws(() => authorizedProductionFixture({ sourceSkuPackage: source }), /C2素材包校验失败|C2_|PRODUCTION_/);
+  assert.equal(source.productionAuthorization, null);
 });
 
-test("12 rejects scope expansion and records all mutation or replacement controls as false", async () => {
-  const phase11 = await phase11ConfirmationCardState();
-  assert.throws(() => createProductionAuthorization({
-    skuPackage: phase11.skuPackage,
-    ownerDecision: ownerProductionApproval(phase11.confirmationCard.cardId),
-    buyerTargetPrice: { amount: 1831, currency: "RUB" },
-    platformWritePrice: { amount: 151.78, currency: "CNY" },
-    priceConversion: { rubPerCny: 12.0637, evidenceRef: "fx:cbr:2026-08-07:RUB-CNY", checkedAt: "2026-08-07T00:00:00.000Z" },
-    publishScope: "create_draft_only",
-    exclusions: [],
-    allowedWriteFields: ["title", "delete_product"],
-    confirmedAt: "2026-08-12T13:30:00.000Z"
-  }), /SCOPE_REJECTED/);
+test("12 locks SKU, content, price, stock and final assets against later source changes", () => {
+  const input = structuredClone(productionAuthorizationInputFixture());
+  const result = createProductionAuthorization(input);
+  const frozen = structuredClone(result.productionAuthorization);
+  input.skuPackage.c1ProductPlan.seoTitleDraft.text = "Later text";
+  input.commercialDecision.platformWritePrice.amount = 1;
+  assert.deepEqual(result.productionAuthorization, frozen);
+  assert.throws(() => { result.productionAuthorization.lockedScope.stock = 1; }, TypeError);
+  const readback = readAuthorizedProductionSnapshot({ productionAuthorization: result.productionAuthorization, candidateId: input.candidateId,
+    candidateRevision: result.productionAuthorization.resultCandidateRevision, skuPackage: result.skuPackage, checkedAt: C2_TIME });
+  assert.deepEqual(readback, frozen);
+});
 
-  const result = createProductionAuthorization({
-    skuPackage: phase11.skuPackage,
-    ownerDecision: ownerProductionApproval(phase11.confirmationCard.cardId),
-    buyerTargetPrice: { amount: 1831, currency: "RUB" },
-    platformWritePrice: { amount: 151.78, currency: "CNY" },
-    priceConversion: { rubPerCny: 12.0637, evidenceRef: "fx:cbr:2026-08-07:RUB-CNY", checkedAt: "2026-08-07T00:00:00.000Z" },
-    publishScope: "create_draft_only",
-    exclusions: [],
-    confirmedAt: "2026-08-12T13:30:00.000Z"
-  });
-  const authorization = result.productionAuthorization;
-  assert.equal(authorization.scopeExpansionAllowed, false);
-  assert.equal(authorization.fieldMutationAllowed, false);
-  assert.equal(authorization.skuReplacementAllowed, false);
-  assert.equal(authorization.assetReplacementAllowed, false);
+test("12 rejects scope expansion and records replacement controls as false", () => {
+  const input = productionAuthorizationInputFixture();
+  const expanded = structuredClone(input); expanded.commercialDecision.allowedWriteFields.push("advertising");
+  assert.throws(() => createProductionAuthorization(expanded), /PRODUCTION_|ProductionAuthorization/);
+  const authorization = createProductionAuthorization(input).productionAuthorization;
+  for (const field of ["scopeExpansionAllowed", "fieldMutationAllowed", "skuReplacementAllowed", "assetReplacementAllowed"]) assert.equal(authorization[field], false);
   assert.equal(authorization.readPolicy, "authorization_snapshot_only");
 });
 
-test("12 stays in C2 and performs no D, E, upload, product creation, or platform write", async () => {
-  const phase11 = await phase11ConfirmationCardState();
-  const c1Before = structuredClone(phase11.skuPackage.c1ProductPlan);
-  const c2Before = structuredClone(phase11.skuPackage.c2FinalAssets);
-  const profitBefore = structuredClone(phase11.skuPackage.profitModels);
-  const result = createProductionAuthorization({
-    skuPackage: phase11.skuPackage,
-    ownerDecision: ownerProductionApproval(phase11.confirmationCard.cardId),
-    buyerTargetPrice: { amount: 1831, currency: "RUB" },
-    platformWritePrice: { amount: 151.78, currency: "CNY" },
-    priceConversion: { rubPerCny: 12.0637, evidenceRef: "fx:cbr:2026-08-07:RUB-CNY", checkedAt: "2026-08-07T00:00:00.000Z" },
-    publishScope: "create_draft_only",
-    exclusions: ["do_not_submit", "do_not_publish"],
-    confirmedAt: "2026-08-12T13:30:00.000Z"
-  });
-
+test("12 stays in C2 and creates no execution intent, upload, product, D or E write", () => {
+  const input = productionAuthorizationInputFixture();
+  const before = structuredClone(input);
+  const result = createProductionAuthorization(input);
   assert.equal(result.skuPackage.businessPhase, "C2");
   assert.equal(result.skuPackage.businessResult, "passed");
   assert.equal(result.skuPackage.ownerAction, "none");
   assert.equal(result.skuPackage.productionRecord, null);
-  assert.deepEqual(result.skuPackage.c1ProductPlan, c1Before);
-  assert.deepEqual(result.skuPackage.c2FinalAssets, c2Before);
-  assert.deepEqual(result.skuPackage.profitModels, profitBefore);
+  assert.deepEqual(result.skuPackage.c1ProductPlan, before.skuPackage.c1ProductPlan);
+  assert.deepEqual(result.skuPackage.profitModels, before.skuPackage.profitModels);
   assert.equal(result.productionAuthorization.productionExecuted, false);
   assert.equal(result.productionAuthorization.platformWrites, 0);
-  assert.equal(result.skuPackage.readbackHistory.length, 0);
+  assert.equal(result.dHandoff.status, "awaiting_explicit_d_start");
+  for (const field of ["productionPlanCreated", "executionIntentCreated", "softwareJobCreated", "dWritePermissionGranted"]) assert.equal(result.dHandoff[field], false);
+  assert.equal(result.dHandoff.externalRequests, 0);
+  assert.equal(result.dHandoff.platformWrites, 0);
+  assert.deepEqual(input, before);
 });
 
 test("published ProductionAuthorization schema freezes every required lock and no-write boundary", async () => {
-  const url = new URL("../schema/production-authorization-v1.1.schema.json", import.meta.url);
-  const schema = JSON.parse(await readFile(url, "utf8"));
-  for (const field of [
-    "platform", "store", "skuPackageId", "supplierSkuId", "titleVersion", "attributeVersion",
-    "platformCategory", "recommendedPrice", "buyerTargetPrice", "platformWritePrice", "priceConversion", "stock", "assetsFinalUploadsVersion", "finalUploads",
-    "publishScope", "exclusions", "allowedWriteFields"
-  ]) assert.ok(schema.properties.lockedScope.required.includes(field), field);
-  assert.equal(schema.properties.lockedScope.properties.stock.const, 100);
-  assert.equal(schema.properties.scopeExpansionAllowed.const, false);
-  assert.equal(schema.properties.fieldMutationAllowed.const, false);
-  assert.equal(schema.properties.skuReplacementAllowed.const, false);
-  assert.equal(schema.properties.assetReplacementAllowed.const, false);
+  const schema = JSON.parse(await readFile(new URL("../schema/production-authorization-v1.1.schema.json", import.meta.url), "utf8"));
+  const scope = schema.$defs.lockedScope;
+  for (const field of ["platform", "storeRef", "skuPackageId", "supplierSkuId", "merchantSku", "warehouseRef", "credentialAlias", "finalCardInputSnapshot",
+    "buyerTargetPrice", "platformWritePrice", "priceConversion", "stock", "finalManifestVersion", "finalUploads", "publishScope", "exclusions", "allowedWriteFields"]) assert.ok(scope.required.includes(field), field);
+  assert.equal(scope.properties.stock.type, "integer");
+  assert.equal(scope.properties.stock.minimum, 0);
+  for (const field of ["scopeExpansionAllowed", "fieldMutationAllowed", "skuReplacementAllowed", "assetReplacementAllowed", "productionExecuted"]) assert.equal(schema.properties[field].const, false);
   assert.equal(schema.properties.readPolicy.const, "authorization_snapshot_only");
-  assert.equal(schema.properties.productionExecuted.const, false);
   assert.equal(schema.properties.platformWrites.const, 0);
+});
+
+test("正式C1从B实际创建和核验，经已保存AI回执合并自然进入C2，不预测媒体revision", async () => {
+  const { before, schema, created, checked, merged, c2 } = await createFormalC1C2Fixture();
+  assert.equal(checked.c1ProductPlan.unknownManifest.some(item => item.blocksC2Handoff), false,
+    JSON.stringify(checked.c1ProductPlan.unknownManifest));
+  assert.equal(checked.c1ProductPlan.draftOnlySeo, null);
+  assert.deepEqual(created.c1ProductPlan.revisionRefs, { sourceRevision: before.dataRevision, resultRevision: before.dataRevision + 1 });
+  assert.deepEqual(merged.skuPackage.profitModels, before.profitModels);
+  assert.deepEqual(merged.skuPackage.selectedSupplySnapshot, before.selectedSupplySnapshot);
+  assert.deepEqual(merged.skuPackage.g1Identity, before.g1Identity);
+  assert.equal(c2.skuPackage.businessPhase, "C2");
+  assert.equal(c2.skuPackage.c2FinalAssets.mediaRequirements.sourceDataRevision, merged.skuPackage.dataRevision);
+  assert.equal(Object.hasOwn(schema.mediaRequirements, "sourceDataRevision"), false);
+  assert.deepEqual(c2.skuPackage.c1ProductPlan.inputSnapshots.platformSchemaRules, schema);
+  assert.deepEqual(c2.skuPackage.profitModels, before.profitModels);
+  assert.equal(c2.skuPackage.productionAuthorization, null);
+  for (const sku of [before, created.skuPackage, checked.skuPackage, merged.skuPackage, c2.skuPackage]) {
+    const validation = validateSkuLifecyclePackage(sku);
+    assert.equal(validation.valid, true, JSON.stringify(validation.errors));
+  }
+  const { default: Ajv2020 } = await import("ajv/dist/2020.js");
+  const { default: addFormats } = await import("ajv-formats");
+  const ajv = new Ajv2020({ strict: true, allErrors: true }); addFormats(ajv);
+  ajv.addSchema(JSON.parse(await readFile(new URL("../schema/c1-sku-rights-review-v1.schema.json", import.meta.url), "utf8")));
+  const published = JSON.parse(await readFile(new URL("../schema/c1-product-plan-v1.1.schema.json", import.meta.url), "utf8"));
+  const validate = ajv.compile(published);
+  for (const plan of [created.c1ProductPlan, checked.c1ProductPlan, merged.c1ProductPlan]) {
+    assert.equal(validate(plan), true, JSON.stringify(validate.errors));
+  }
+  ajv.addSchema(JSON.parse(await readFile(new URL("../schema/software-job-admission-v1.schema.json", import.meta.url), "utf8")));
+  const validateC2 = ajv.compile(JSON.parse(await readFile(new URL("../schema/c2-asset-lifecycle-v1.1.schema.json", import.meta.url), "utf8")));
+  assert.equal(validateC2(c2.skuPackage.c2FinalAssets), true, JSON.stringify(validateC2.errors));
+});
+
+test("唯一正式fixture创建当前单主人授权，历史fixture保留旧双人合同且分别通过严格Schema", async () => {
+  const validator = await loadPublishedSchemaValidator();
+  for (const factory of [authorizedProductionFixture, historicalAuthorizedProductionFixture]) {
+    const result = factory();
+    const authorization = result.productionAuthorization;
+    const validate = validator.getSchema(authorization.schemaVersion);
+    assert.equal(validate(authorization), true, JSON.stringify(validate.errors));
+    const validateSku = validator.getSchema("product-lifecycle-v1.1");
+    assert.equal(validateSku(result.skuPackage), true, JSON.stringify(validateSku.errors));
+    assert.equal(authorization.lockedScope.platformWritePrice.amount, 151.78);
+    assert.equal(authorization.productionExecuted, false);
+    if (factory === historicalAuthorizedProductionFixture) {
+      assert.equal(authorization.schemaVersion, "production-authorization-v1.1");
+      assert.notEqual(authorization.confirmedByActorId, authorization.authorizedByActorId);
+      assert.equal(authorization.technicalAuthorization.role, "production_authorizer");
+      assert.equal(authorization.ownerConfirmation.schemaVersion, "production-owner-confirmation-v1");
+      assert.equal(Object.hasOwn(authorization, "ownerAuthorization"), false);
+    } else {
+      assert.equal(authorization.schemaVersion, "production-authorization-v1.2");
+      assert.equal(authorization.confirmedByActorId, authorization.authorizedByActorId);
+      assert.equal(Object.hasOwn(authorization, "technicalAuthorization"), false);
+    }
+  }
+});
+
+test("正式链fixture在出生前绑定另一候选、供应SKU与完整店铺，所有冻结引用由领域函数生成", async () => {
+  const storeRef = { stableStoreId: "miska", platformStoreId: "fixture-seller-miska", mappingVersion: "fixture-stores-v2" };
+  const fixture = await createFormalC1C2Fixture({ candidateId: "FORMAL-C1-GENERIC", supplierSkuId: "SUPPLIER-BLUE",
+    variantKey: "颜色:蓝色", storeRef, softwareJobId: "software-job:formal-generic:1", gatewayJobId: "gateway-job:formal-generic:1" });
+  for (const sku of [fixture.before, fixture.checked.skuPackage, fixture.merged.skuPackage, fixture.c2.skuPackage]) {
+    assert.equal(sku.g1Identity.candidateId, "FORMAL-C1-GENERIC");
+    assert.equal(sku.g1Identity.supplierSkuId, "SUPPLIER-BLUE");
+    assert.equal(sku.variantKey, "颜色:蓝色");
+    assert.deepEqual(sku.g1Identity.storeRef, storeRef);
+    const validation = validateSkuLifecyclePackage(sku);
+    assert.equal(validation.valid, true, JSON.stringify(validation.errors));
+  }
+  assert.equal(fixture.request.sourceIdentity.candidateId, fixture.candidate.id);
+  assert.equal(fixture.merged.c1ProductPlan.draftOnlySeo.providerJobRef.jobId, "gateway-job:formal-generic:1");
+  assert.deepEqual(fixture.c2.skuPackage.profitModels, fixture.before.profitModels);
+  assert.deepEqual(fixture.schema.storeRef, storeRef);
+});
+
+test("动态供应字段保留原始键和值，集合来源引用可完成正式C2确认", () => {
+  const attributes = { 规格: "小号", "цвет": "синий", "size/~%2F": "large" };
+  const fixture = createFormalC1C2Fixture({ variantKey: "规格:小号", skuAttributes: attributes });
+  const facts = fixture.checked.c1ProductPlan.productAttributes.supplierAttributes;
+  for (const [fieldKey, value] of Object.entries(attributes)) {
+    const item = facts.find(fact => fact.fieldKey === fieldKey);
+    assert.equal(item.fact.value, value);
+    assert.deepEqual(item.fact.sourceRefs, [`${fixture.checked.c1ProductPlan.inputRefs.selectedSupplySnapshotId}#/supplierSku/attributes`]);
+    assert.ok(item.fact.sourceRefs.every(isCanonicalFrozenRef));
+  }
+  const before = structuredClone(fixture.merged.skuPackage);
+  const input = productionAuthorizationInputFixture({ sourceSkuPackage: fixture.merged.skuPackage });
+  assert.equal(input.skuPackage.c2FinalAssets.status, "completed");
+  assert.deepEqual(fixture.merged.skuPackage, before);
+  assert.deepEqual(input.skuPackage.c1ProductPlan.productAttributes.supplierAttributes, facts);
+});
+
+test("缺失的动态必填字段以原始fieldKey报告阻塞，来源引用不拼接任意键", () => {
+  const state = phase7PassedState({ fullC1Facts: true });
+  const schema = platformSchemaEvidence();
+  const keys = ["材质", "размер", "size/~%2F"];
+  schema.requiredFields = keys.map(fieldKey => ({ fieldKey, label: fieldKey, required: true, sourceAttributeKeys: ["missing"] }));
+  const created = createC1ProductPlan({ ...state, platformSchemaEvidence: schema, createdAt: "2026-08-12T13:00:00.000Z" });
+  const checked = verifyC1ProductFacts({ skuPackage: created.skuPackage, verifiedAt: "2026-08-12T13:00:00.000Z" });
+  assert.deepEqual(checked.c1ProductPlan.productAttributes.requiredPlatformFields.map(item => item.fieldKey), keys);
+  for (const item of checked.c1ProductPlan.productAttributes.requiredPlatformFields) {
+    assert.equal(item.fact.verificationStatus, "unknown");
+    assert.ok(item.fact.sourceRefs.every(isCanonicalFrozenRef));
+    assert.ok(item.fact.sourceRefs.includes(`${schema.evidenceId}#/requiredFields`));
+  }
+  assert.equal(checked.c1ProductPlan.unknownManifest.some(item => item.blocksC2Handoff), true);
+});
+
+
+function attributeDecisionFacts({ material = 'unknown', requiredMaterial = false, powerProfile = { powered: false, containsBattery: false } } = {}) {
+  const state = structuredClone(phase7PassedState({ fullC1Facts: true, material }));
+  state.skuPackage.selectedSupplySnapshot.supplierSku.powerProfile = structuredClone(powerProfile);
+  const schema = platformSchemaEvidence();
+  schema.requiredFields = requiredMaterial ? [{ fieldKey: 'material', label: '材质', required: true, sourceAttributeKeys: ['material'] }] : [];
+  const created = createC1ProductPlan({ ...state, platformSchemaEvidence: schema, createdAt: '2026-08-12T13:00:00.000Z' });
+  return verifyC1ProductFacts({ skuPackage: created.skuPackage, verifiedAt: '2026-08-12T13:00:00.000Z' });
+}
+
+test('schema-optional material stays unknown without becoming a C2 blocking claim', () => {
+  const { c1ProductPlan: plan } = attributeDecisionFacts();
+  assert.equal(plan.productAttributes.material.value, 'unknown');
+  assert.equal(plan.productAttributes.material.verificationStatus, 'unknown');
+  const material = collectC1UnknownManifest(plan).find(item => item.fieldPath === 'productAttributes.material');
+  assert.equal(material.blockingScope, 'informational');
+  assert.equal(material.blocksC2Handoff, false);
+  assert.equal(plan.finalSeo, null);
+});
+
+test('schema-required material cannot be made optional by a forged saved unknown manifest', () => {
+  const plan = structuredClone(attributeDecisionFacts({ requiredMaterial: true }).c1ProductPlan);
+  assert.ok(plan.productAttributes.requiredPlatformFields.some(item => item.fieldKey === 'material' && item.fact.verificationStatus === 'unknown'));
+  plan.unknownManifest = plan.unknownManifest.map(item => ({ ...item, blockingScope: 'informational', blocksC2Handoff: false }));
+  const recomputed = collectC1UnknownManifest(plan);
+  assert.ok(recomputed.some(item => item.fieldPath.startsWith('productAttributes.requiredPlatformFields') && item.blocksC2Handoff));
+});
+
+test('verified no-battery product does not require unknown battery type count and capacity', () => {
+  const { c1ProductPlan: plan } = attributeDecisionFacts();
+  assert.equal(plan.batteryAssessment.containsBattery.value, false);
+  assert.equal(plan.batteryAssessment.assessment.value, 'no_battery');
+  for (const field of ['batteryType', 'batteryCount', 'batteryCapacity']) {
+    assert.equal(plan.batteryAssessment[field].verificationStatus, 'unknown');
+    const gap = collectC1UnknownManifest(plan).find(item => item.fieldPath === `batteryAssessment.${field}`);
+    assert.equal(gap.blocksC2Handoff, false, field);
+  }
+});
+
+for (const powerProfile of [{ powered: false }, { powered: true, containsBattery: true }]) {
+  test(`battery safety gaps stay blocking when containsBattery is ${powerProfile.containsBattery ?? 'unknown'}`, () => {
+    const { c1ProductPlan: plan } = attributeDecisionFacts({ powerProfile });
+    const gaps = collectC1UnknownManifest(plan).filter(item => item.fieldPath.startsWith('batteryAssessment.'));
+    assert.ok(gaps.some(item => item.blocksC2Handoff));
+  });
+}
+
+test('legacy final card without unknown classification cannot authorize production', () => {
+  const input = structuredClone(productionAuthorizationInputFixture());
+  delete input.skuPackage.productionConfirmationCard.riskAndUnknowns.classificationVersion;
+  assert.equal(validateFinalProductPlanConfirmationCard(input.skuPackage.productionConfirmationCard).valid, true);
+  assert.throws(() => createProductionAuthorization(input), /FINAL_CARD_CLASSIFICATION_REQUIRED/);
+});
+
+test('forged final-card nonblocking flags cannot bypass a required fact', () => {
+  const input = structuredClone(productionAuthorizationInputFixture());
+  const risks = input.skuPackage.productionConfirmationCard.riskAndUnknowns;
+  risks.unknownFields.push({ path: 'c1Facts.productAttributes.requiredPlatformFields[0].fact', fieldKey: 'material', label: '材质', value: 'unknown', reason: 'synthetic unknown', sourceRefs: [],
+    blockingScope: 'informational', blocksProductionAuthorization: false });
+  risks.blockingUnknownCount = 0;
+  assert.throws(() => createProductionAuthorization(input), /CARD_DRIFT/);
+});
+
+function optionalMaterialAuthorizationSource() {
+  const source = structuredClone(createFormalC1C2Fixture().merged.skuPackage);
+  const plan = source.c1ProductPlan;
+
+  plan.productAttributes.material = { value: 'unknown', verificationStatus: 'unknown', sourceRefs: [...plan.productAttributes.material.sourceRefs], reason: 'Synthetic material not supplied' };
+  plan.productAttributes.requiredPlatformFields = [];
+  plan.inputSnapshots.platformSchemaRules.requiredFields = [];
+  plan.inputSnapshots.platformSchemaRules.writeBindings.requiredAttributes = [];
+  plan.schemaSnapshot.writeBindings.value.requiredAttributes = [];
+  plan.unknownManifest = collectC1UnknownManifest(plan);
+  return source;
+}
+
+test('optional unknown material survives final card and authorization without an invented material value', () => {
+  const source = optionalMaterialAuthorizationSource();
+  const before = structuredClone(source);
+  const input = productionAuthorizationInputFixture({ sourceSkuPackage: source });
+  const card = input.skuPackage.productionConfirmationCard;
+  assert.equal(card.riskAndUnknowns.classificationVersion, 'c1-schema-aware-unknown-v1');
+  const material = card.riskAndUnknowns.unknownFields.find(item => item.path.endsWith('productAttributes.material'));
+  assert.equal(material.blocksProductionAuthorization, false);
+  assert.equal(card.riskAndUnknowns.blockingUnknownCount, 0);
+  const result = createProductionAuthorization(input);
+  assert.equal(result.productionAuthorization.status, 'confirmed');
+  assert.equal(result.skuPackage.c1ProductPlan.productAttributes.material.value, 'unknown');
+  assert.deepEqual(source, before);
+});
+
+
+test('contradictory frozen battery evidence cannot receive the no-battery exemption', () => {
+  const plan = structuredClone(attributeDecisionFacts().c1ProductPlan);
+  plan.inputSnapshots.confirmedSupplierSkuSnapshot.supplierSku.powerProfile.batteryIncluded = true;
+  const gaps = collectC1UnknownManifest(plan);
+  for (const field of ['batteryType', 'batteryCount', 'batteryCapacity']) {
+    assert.equal(gaps.find(item => item.fieldPath === `batteryAssessment.${field}`).blocksC2Handoff, true);
+  }
+});
+
+ test('direct production authorization rejects current C1 required-schema drift despite an optional frozen card', () => {
+  for (const mutate of [
+    plan => { plan.inputSnapshots.platformSchemaRules.requiredFields = [{ fieldKey: 'material', label: '材质', required: true, sourceAttributeKeys: ['material'] }]; },
+    plan => { plan.schemaSnapshot.writeBindings.value.requiredAttributes = [{ fieldKey: 'material', attributeId: 'synthetic-required-material' }]; }
+  ]) {
+    const input = structuredClone(productionAuthorizationInputFixture({ sourceSkuPackage: optionalMaterialAuthorizationSource() }));
+    const sku = input.skuPackage;
+    assert.equal(sku.productionConfirmationCard.riskAndUnknowns.blockingUnknownCount, 0);
+    mutate(sku.c1ProductPlan);
+    const before = JSON.stringify(input);
+    assert.throws(() => createProductionAuthorization(input), /C1.*(CHANGED|DRIFT)|PREPARATION_.*(CHANGED|DRIFT)/);
+    assert.equal(JSON.stringify(input), before);
+    assert.equal(sku.productionAuthorization, null);
+    assert.equal(sku.dHandoff, undefined);
+  }
 });

@@ -1,3 +1,15 @@
+import { createInitialCandidate, queuedProcessing } from "./lib/candidate-initialization.mjs";
+import { createADiscoveryRuntimeServices } from './lib/a-discovery-runtime-services.mjs';
+import { supplierImageSearchAvailability, readSupplierImageSearchPreparation, requireSupplierImageSearchPreparation,
+  SupplierImageSearchPreparationError } from './lib/a-supplier-image-search-runtime-services.mjs';
+import { ADiscoveryError } from './lib/a-discovery-contract.mjs';
+import { createLinkfoxDiscoverySecretReader, createSeerfarDiscoverySecretReader } from './lib/linkfox-discovery-credentials.mjs';
+import { createADiscoveryCandidateImportUseCase } from './lib/a-discovery-candidate-import.mjs';
+import { createAProductDetailRuntimeServices } from './lib/a-product-detail-runtime-services.mjs';
+import { createAProductDetailApplicationUseCase } from './lib/a-product-detail-application.mjs';
+import { AProductDetailError } from './lib/a-product-detail-contract.mjs';
+import { readAProductDetailSupplierEvidence } from './lib/a-product-detail-evidence.mjs';
+import { normalizeEvidenceScope, evidenceScopeKey, evidenceScopeMatches, buildExpectedEvidenceScope } from "./lib/lifecycle-evidence-scope.mjs";
 import http from "node:http";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import fs from "node:fs/promises";
@@ -5,9 +17,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
-  DEFAULT_PACKAGING_COST_RMB,
   DEFAULT_AUTOMATION_CONCURRENCY_LIMIT,
-  NO_PROGRESS_TIMEOUT_MINUTES,
   DEFAULT_RULES,
   WORKFLOW_STATUSES,
   promotionPricingGate,
@@ -15,13 +25,14 @@ import {
   profitReviewGate,
   codexAutoEliminationGate,
   businessDate,
+  buildCurrentExecutionRuntimeView,
   claimEligible,
   dailySummary,
   dispatchQueueSummary,
   filterUserNeededFields,
-  processingStatusSummary,
+  currentProcessingStatusSummary,
   isActualProcessingRun,
-  recordProcessingProgress,
+  recordCurrentMaintenanceProgress,
   registerProcessingAttempt,
   recentAvoidanceFeedback,
   requiredInputFields,
@@ -29,7 +40,6 @@ import {
   purchaseCeilingSummary,
   queueUserDispatch,
   sortDispatchQueue,
-  stopNoProgressRuns,
   technicalFailureDisposition,
   validateListingRecord,
   validateListingReadback,
@@ -38,10 +48,9 @@ import {
 import {
   ACTIVE_DISPATCH_STATES,
   RECOVERABLE_TERMINAL_DISPATCH_STATES,
-  activeDispatchForCandidate,
+  activeDispatchForCandidate as selectCurrentDispatch,
   candidateActiveNode,
   collaborationSummary,
-  dispatchDeliveryGroups,
   dispatchOwnerForNode,
   ensureCollaborationData,
   isDisabledLegacyCDispatch,
@@ -68,18 +77,28 @@ import {
   sourceCaptureFailureMessage
 } from "./lib/source-capture.mjs";
 import {
-  canonicalOzonProductUrl,
-  extractOzonProductId,
   ozonCaptureFailureMessage,
   sanitizeOzonCaptureEvidence
 } from "./lib/ozon-sales-capture.mjs";
 import { adaptLegacyCandidateToOpportunity } from "./lib/legacy-candidate-adapter.mjs";
 import { buildRealLifecycleEntryPreview } from "./lib/real-lifecycle-entry-preview.mjs";
-import { buildRealAConfirmationCard } from "./lib/real-a-confirmation-card.mjs";
+import { buildRealAConfirmationCard, validateRealAConfirmationSubmission } from "./lib/real-a-confirmation-card.mjs";
+import { resolveConfiguredStoreRef, assertCandidateStoreBinding, sameStoreRef } from "./lib/store-binding.mjs";
+import {
+  AStageTerraGatewayError,
+  runAStageTerraAssist
+} from "./lib/a-stage-terra-gateway.mjs";
 import { applyLifecycleBEvidenceContext } from "./lib/lifecycle-b-evidence-context.mjs";
 import { runRealAConfirmationWithSystemEvidence } from "./lib/real-a-b-evidence-orchestration.mjs";
+import { GuooRouteComparisonError, appendGuooRouteComparison, assertGuooComparisonReadyForEvidence } from "./lib/guoo-route-comparison.mjs";
+import { BExactCommissionRecalculationError, assertCurrentBCommissionEvidence } from "./lib/real-a-b-c1-flow.mjs";
+import { createBExactCommissionRecalculationUseCase } from "./lib/b-exact-commission-recalculation-use-case.mjs";
+import { createFinalPricingReviewUseCase } from "./lib/final-pricing-review-use-case.mjs";
+import { buildBExactCommissionRuntimeView } from "./lib/b-exact-commission-runtime-view.mjs";
 import {
   inspectLifecycleBInputReadiness,
+  resolveLifecycleEvidenceContext,
+  isCommissionEstimateAuthorizationForScope,
   validateLifecycleEvidenceData
 } from "./lib/lifecycle-b-input-bundle.mjs";
 import {
@@ -89,53 +108,246 @@ import {
 import { createLifecycleBRealEvidenceProviderRegistry } from "./lib/lifecycle-b-real-evidence-readers.mjs";
 import {
   buildLifecycleBExplicitOtherCosts,
+  resolveLifecycleBProfitRule,
+  assertLifecycleBCostsCurrent,
+  inspectLifecycleBCostReadiness,
   commitLifecycleBEvidencePacks
 } from "./lib/lifecycle-b-evidence-runtime.mjs";
+import { completeC1AndStartC2 } from "./lib/lifecycle-c-stage.mjs";
+import { createC1DraftRuntimeServices } from "./lib/c1-draft-runtime-services.mjs";
+import { buildC1DraftRuntimeView } from "./lib/c1-draft-runtime-view.mjs";
+import { createC1SkuRightsReviewUseCase } from "./lib/c1-sku-rights-review-submission.mjs";
+import { C1SkuRightsReviewError } from "./lib/c1-sku-rights-review.mjs";
+import { C1DraftRuntimeUnavailableError } from "./lib/c1-draft-software-runtime.mjs";
+import { prepareC1FactKeywordRuntime } from "./lib/c1-fact-keyword-runtime.mjs";
+import { buildC1FactKeywordAtomicPatch } from "./lib/c1-fact-keyword-persistence.mjs";
+import { acceptC1KeywordEvidenceReadyEvent } from "./lib/c1-keyword-evidence-auto-trigger.mjs";
 import {
-  finalizeReal13CForOwnerCard as finalizeLegacyFireTrain13CForOwnerCard,
-  prepareRealC1ForFinalAssets as prepareLegacyFireTrainC1ForFinalAssets
-} from "./lib/real-c1-preparation.mjs";
+  buildC1KeywordSoftwareJobPlan
+} from "./lib/c1-keyword-software-job-planner.mjs";
 import {
-  completeC1AndStartC2,
-  completeC2AndCreateConfirmationCard
-} from "./lib/lifecycle-c-stage.mjs";
-import { persistJsonThroughRealTarget } from "./lib/atomic-json-persistence.mjs";
+  enqueueC1PaidKeywordEvidenceJob
+} from "./lib/c1-keyword-software-use-case.mjs";
+import { runC1KeywordPlanningEvidenceProduction } from "./lib/c1-keyword-planning-software-use-case.mjs";
+import { createSeerfarRuntimeTransport, SEERFAR_RUNTIME_CONNECTOR_VERSION } from "./lib/seerfar-runtime-connector.mjs";
 import {
-  createProductionAuthorization,
-  reviseProductionAuthorization,
-  reviseProductionAuthorizationPriceSemantics
-} from "./lib/production-authorization.mjs";
+  confirmC2SoftwareFinalUploads,
+  createC2SoftwareContainer,
+  prepareC2FinalUploadManifest
+} from "./lib/c2-software-orchestrator.mjs";
+import { createFinalProductPlanConfirmationCard } from "./lib/final-product-plan-confirmation-card.mjs";
+import { createConfiguredBusinessStateRepository } from "./lib/business-state-repository.mjs";
+import { createSelectionReviewRuntimeConfiguration, createDPlatformObservationPolicyResolver } from "./lib/runtime-configuration.mjs";
+import {
+  assertTrustedApiRequest,
+  isTrustedInternalApiRequest,
+  normalizeHttpErrorResponse,
+  parseHttpRequestTarget,
+  readJsonRequestBody
+} from "./lib/http-api-boundary.mjs";
+import {
+  normalizeCandidateCodexCreateInput,
+  normalizeCandidateUserCreateInput,
+  normalizeCandidateUserPatchInput
+} from "./lib/candidate-user-fields.mjs";
+import { normalizeCandidateCommentInput } from "./lib/candidate-comment-boundary.mjs";
+import {
+  listingPreparationCStageFields,
+  listingPreparationInheritedFields,
+  normalizeListingPreparationReviewInput
+} from "./lib/listing-preparation-review-boundary.mjs";
+import { createConfiguredIdentityProvider, OwnerIdentityError } from "./lib/runtime-identity-provider.mjs";
+import { createActorContext } from "./lib/runtime-identity.mjs";
+import { createRepositoryBackedSoftwareJobStore } from "./lib/software-job-repository.mjs";
+import { createLocalDevelopmentWorkerRegistry } from "./lib/worker-registry.mjs";
+import { assertRuntimeBoundaries } from "./lib/multi-user-central-runtime.mjs";
+import { commitSingleOwnerProductionAuthorization, PRODUCTION_AUTHORIZATION_VERSION } from "./lib/production-authorization.mjs";
+import { createDEProductionRuntimeServices, DERuntimeUnavailableError } from "./lib/d-e-runtime-services.mjs";
+import { buildDESavedJobRuntimeView } from "./lib/d-e-runtime-view.mjs";
+import { buildProductionOwnerPreparationView, resolveProductionOwnerPreparation, ProductionOwnerPreparationError } from "./lib/production-owner-preparation.mjs";
+import { buildC1ReviewPresentation } from "./lib/c1-review-presentation.mjs";
+import { createSystemEReadbackSoftwareRuntime, EReadbackRuntimeUnavailableError } from "./lib/e-readback-software-use-case.mjs";
 import { assertValidLifecyclePackage } from "./lib/product-lifecycle-schema.mjs";
-import {
-  createExternalListingRecord,
-  verifyExternalListing,
-  verifySystemCreatedListing
-} from "./lib/e-stage-readback.mjs";
 import {
   phase2ADemoCard,
   phase2AResultSummary,
   runPhase2AConfirmation
 } from "./lib/phase-2a-simulation.mjs";
+import {
+  blockExecutionForTechnicalFailure,
+  codexDispatchGate,
+  completeExecutionStep,
+  createSoftwareExecutionRuntime,
+  openExceptionCase,
+  recordExceptionMaintenanceStarted,
+  startSoftwareStep,
+  startThirdPartyAiStep,
+  simulateNormalSoftwarePath,
+  waitForOwner
+} from "./lib/software-execution-state.mjs";
+import {
+  EXCEPTION_MAINTENANCE_PATH,
+  NORMAL_PRODUCTION_PATH,
+  assertRuntimeCodexDependencyAllowed,
+  codexOfflineModeFromEnvironment
+} from "./lib/codex-independence.mjs";
+import { buildThreeStoreMapView } from "./lib/three-store-map.mjs";
+import { buildDESoftwareIntegrationView } from "./lib/d-e-software-integration.mjs";
+import { assertCurrentProductionExecutionBinding } from "./lib/platform-write-preflight.mjs";
+import { assertCurrentC2UploadDraft, reserveC2Upload, settleC2Upload, saveC2UploadSelection, selectedC2DraftAssets, resolveRegisteredC2FinalAsset, LOCAL_UPLOAD_MAX_BYTES } from "./lib/c2-upload-draft.mjs";
+import { createC2LocalAssetStore, normalizeC2LocalUpload } from "./lib/c2-local-asset-store.mjs";
+import {
+  createPersistableAliyunOssAssetIntent,
+  executeAliyunOssAssetIntent,
+  markAliyunOssAssetIntentPersisted,
+  settleAliyunOssAssetIntent
+} from "./lib/aliyun-oss-d-asset-integration.mjs";
+import { createAliyunOssRuntimeProvider } from "./lib/aliyun-oss-runtime-provider.mjs";
+import { createOzonDEHttpTransport } from "./lib/ozon-de-http-transport.mjs";
+import { createOzonDEPreflightProvider } from "./lib/ozon-de-preflight-provider.mjs";
+import { createRepositoryBackedOzonDEPreflightEvidenceReader } from "./lib/ozon-de-preflight-evidence-reader.mjs";
+import { createOzonAccountReadBindingResolver } from "./lib/ozon-account-read-preparation.mjs";
+import { createOzonAccountReadEvidenceSource } from "./lib/ozon-account-read-evidence.mjs";
+import { createOzonAccountReadServices } from "./lib/ozon-account-read-services.mjs";
+import { createConfiguredOzonAccountDiscoveryRuntime } from './lib/ozon-account-discovery-runtime.mjs';
+import { OzonAccountReadError } from "./lib/ozon-account-read-contract.mjs";
+import { C1KeywordContinuationRevisionConflictError, createKeywordEvidenceRuntimeServices } from "./lib/keyword-evidence-runtime-services.mjs";
 
 const appDir = path.dirname(fileURLToPath(import.meta.url));
-const dataFile = process.env.SELECTION_REVIEW_DATA_FILE || path.join(appDir, "data", "candidates.json");
-const workflowMapFile = process.env.SELECTION_REVIEW_WORKFLOW_MAP_FILE || path.join(appDir, "data", "workflow-map.json");
+const runtimeConfiguration = createSelectionReviewRuntimeConfiguration({ env: process.env, appDir, argv: process.argv });
+const dataFile = runtimeConfiguration.dataFile;
+const workflowMapFile = runtimeConfiguration.workflowMapFile;
 const imagesDir = path.join(appDir, "product-images");
+const c2FinalUploadsDir = runtimeConfiguration.c2FinalUploadsDir;
+const c2LocalAssetStore = createC2LocalAssetStore({ directory: c2FinalUploadsDir });
+let c2UploadInProgress = false;
 const distDir = path.join(appDir, "dist");
-const apiOnly = process.argv.includes("--api-only");
-const port = apiOnly ? Number(process.env.SELECTION_REVIEW_API_PORT || 4318) : Number(process.env.SELECTION_REVIEW_PORT || 4317);
-const host = "127.0.0.1";
+const apiOnly = runtimeConfiguration.apiOnly;
+const port = runtimeConfiguration.port;
+const host = runtimeConfiguration.bindHost;
 const automationConcurrencyLimit = Math.min(
   DEFAULT_AUTOMATION_CONCURRENCY_LIMIT,
   Math.max(1, Number(process.env.SELECTION_REVIEW_CONCURRENCY_LIMIT || DEFAULT_AUTOMATION_CONCURRENCY_LIMIT))
 );
-const explicitDispatchDeliveryEnabled = process.env.SELECTION_REVIEW_AUTO_DELIVER !== "off";
+const codexOfflineEnabled = codexOfflineModeFromEnvironment(process.env);
+const explicitDispatchDeliveryEnabled = !codexOfflineEnabled && ["on", "true"].includes(
+  String(process.env.SELECTION_REVIEW_AUTO_DELIVER || "").trim().toLowerCase()
+);
+const aiGatewayUrl = runtimeConfiguration.aiGatewayUrl;
+const aiGatewayDeploymentMode = runtimeConfiguration.deploymentMode;
+const allowedReviewOrigins = new Set(runtimeConfiguration.allowedOrigins);
+const trustedServiceOrigins = new Set([
+  runtimeConfiguration.publicOrigin,
+  localHttpOrigin(host, port)
+]);
+const allowedExtensionOrigins = new Set(runtimeConfiguration.allowedExtensionOrigins);
+const internalApiRequestToken = randomBytes(32).toString("base64url");
+const businessStateRepository = createConfiguredBusinessStateRepository(runtimeConfiguration);
+const runtimeIdentityProvider = createConfiguredIdentityProvider({
+  configuration: runtimeConfiguration,
+  clock: () => new Date().toISOString()
+});
+await runtimeIdentityProvider.initialize();
+const workerRegistry = createLocalDevelopmentWorkerRegistry({ clock: () => new Date().toISOString() });
+const softwareJobStore = createRepositoryBackedSoftwareJobStore({
+  businessStateRepository,
+  serverClock: () => new Date().toISOString(),
+  workerRegistry
+});
+const c1SkuRightsReviewUseCase = createC1SkuRightsReviewUseCase({ repository: businessStateRepository,
+  runtimeMode: runtimeConfiguration.deploymentMode, serverClock: () => now() });
+// Register only explicitly configured capabilities. Construction starts no work.
+const bExactCommissionRecalculation = createBExactCommissionRecalculationUseCase({
+  repository: businessStateRepository, runtimeMode: runtimeConfiguration.deploymentMode, serverClock: now
+});
+const finalPricingReviewUseCase = createFinalPricingReviewUseCase({
+  repository: businessStateRepository, runtimeMode: runtimeConfiguration.deploymentMode, serverClock: now
+});
+const c1DraftRuntimeServices = createC1DraftRuntimeServices({
+  repository: businessStateRepository, runtimeMode: runtimeConfiguration.deploymentMode,
+  serverClock: () => now(), workerRegistry,
+  serviceBindings: runtimeConfiguration.c1DraftServiceBindings
+});
+const keywordEvidenceRuntimeServices = createKeywordEvidenceRuntimeServices({
+  repository: businessStateRepository, softwareJobStore, runtimeMode: runtimeConfiguration.deploymentMode,
+  serverClock: now, workerRegistry, serviceBindings: runtimeConfiguration.keywordEvidenceServiceBindings,
+  createTransport: ({ binding, beforeRequestSend, signal }) => createSeerfarRuntimeTransport({
+    timeoutMs: binding.requestTimeoutMs, beforeRequestSend, signal
+  }),
+  onEvidenceReady: (candidateId, revision) => continueC1SoftwareWhenEvidenceReady(candidateId, revision, { reportConfigurationBlock: true }),
+  onError: () => { console.error("C1_KEYWORD_RUNTIME_STOPPED: 关键词服务因异常停止，请核对已保存作业。"); }
+});
+const aDiscoveryCandidateImport = createADiscoveryCandidateImportUseCase({repository:businessStateRepository,
+  serverClock:now,storeBindings:runtimeConfiguration.storeBindings});
+const aDiscoveryRuntime = createADiscoveryRuntimeServices({repository:businessStateRepository,softwareJobStore,
+  runtimeMode:runtimeConfiguration.deploymentMode,serverClock:now,workerRegistry,
+  serviceBindings:runtimeConfiguration.aDiscoveryServiceBindings,connectorBindings:runtimeConfiguration.aDiscoveryConnectorBindings,
+  plans:runtimeConfiguration.aDiscoveryPlans,getEvidenceRecords:()=>runtimeConfiguration.aDiscoveryEvidenceRecords,
+  readSecret:(runtimeConfiguration.aDiscoveryConnectorBindings[0]?.provider==='seerfar' ? createSeerfarDiscoverySecretReader : createLinkfoxDiscoverySecretReader)({bindings:runtimeConfiguration.aDiscoveryCredentialBindings,runtimeMode:runtimeConfiguration.deploymentMode}),
+  fetchImpl:fetch,onBatchReady:input=>aDiscoveryCandidateImport.importBatch(input),
+  onError:()=>{console.error('A_DISCOVERY_RUNTIME_STOPPED: 商品发现服务因异常停止，请核对已保存的批次和作业。');}
+});
+const aProductDetailApplication = createAProductDetailApplicationUseCase({repository:businessStateRepository,serverClock:now});
+const aProductDetailRuntime = createAProductDetailRuntimeServices({repository:businessStateRepository,softwareJobStore,
+  runtimeMode:runtimeConfiguration.deploymentMode,serverClock:now,workerRegistry,
+  serviceBindings:runtimeConfiguration.aProductDetailServiceBindings,connectorBindings:runtimeConfiguration.aProductDetailConnectorBindings,
+  readSecret:createLinkfoxDiscoverySecretReader({bindings:runtimeConfiguration.aProductDetailCredentialBindings,runtimeMode:runtimeConfiguration.deploymentMode}),
+  fetchImpl:fetch,onDetailsReady:input=>aProductDetailApplication.applyDetails(input),
+  onError:()=>{console.error('A_PRODUCT_DETAIL_RUNTIME_STOPPED: 商品详情服务因异常停止，请核对已保存的作业和回执。');}
+});
+const eReadbackSoftwareRuntime = createSystemEReadbackSoftwareRuntime({
+  repository: businessStateRepository, runtimeMode: runtimeConfiguration.deploymentMode,
+  serverClock: now, readPlatform: null
+});
+const ozonDETransport = createOzonDEHttpTransport({ productionBindings: runtimeConfiguration.productionBindings,
+  discoveryBindings: runtimeConfiguration.ozonAccountDiscoveryBindings,
+  credentialBindings: runtimeConfiguration.ozonDECredentialBindings, runtimeMode: runtimeConfiguration.deploymentMode });
+const ossRuntimeProvider = createAliyunOssRuntimeProvider({ config: runtimeConfiguration.ossRuntimeConfiguration,
+  localAssetStore: c2LocalAssetStore, now });
+const ozonAccountEvidenceSource = createOzonAccountReadEvidenceSource({ repository: businessStateRepository,
+  loadCurrentReadBinding: createOzonAccountReadBindingResolver(runtimeConfiguration) });
+const ozonDEPreflightProvider = createOzonDEPreflightProvider({ serverClock: now,
+  verifySourceSnapshot: ozonAccountEvidenceSource.verifySnapshot,
+  readEvidence: createRepositoryBackedOzonDEPreflightEvidenceReader({ repository: businessStateRepository,
+    verifySourceReceipt: ozonAccountEvidenceSource.verifySourceReceipt }) });
+const deRuntimeServices = createDEProductionRuntimeServices({
+  repository: businessStateRepository, runtimeMode: runtimeConfiguration.deploymentMode,
+  serverClock: now, workerRegistry, deServiceBindings: runtimeConfiguration.deServiceBindings,
+  productionBindings: runtimeConfiguration.productionBindings,
+  requestJson: runtimeConfiguration.ozonDECredentialBindings.length > 0 ? ozonDETransport.requestJson : null,
+  inspectPlatform: ozonDEPreflightProvider.inspectPlatform,
+  loadAdapterCapabilities: ozonDEPreflightProvider.loadAdapterCapabilities,
+  preflightRequestMode: "persisted_evidence_only",
+  upload: ossRuntimeProvider.upload, resolveLocalAsset: ossRuntimeProvider.resolveLocalAsset,
+  loadCurrentProductionBinding: currentProductionBinding,
+  loadDPlatformObservationPolicy: createDPlatformObservationPolicyResolver(runtimeConfiguration),
+  verifyInventoryPrerequisiteSource: ozonDEPreflightProvider.verifyInventoryPrerequisiteSource,
+  observationPumpIntervalMs: runtimeConfiguration.dPlatformObservation.pumpIntervalMs,
+  eReadbackPumpIntervalMs: runtimeConfiguration.eReadbackPumpIntervalMs,
+  onReadbackError: () => { console.error("E_READBACK_RUNTIME_STOPPED: 独立回读服务因异常停止，请核对已保存作业。"); },
+  onObservationError: () => { console.error('D_OBSERVATION_RUNTIME_STOPPED: 状态查询服务因异常停止，请核对已保存作业。'); }
+});
+const ozonAccountDiscovery = createConfiguredOzonAccountDiscoveryRuntime({configuration:runtimeConfiguration,
+  repository:businessStateRepository,workerRegistry,serverClock:now,requestJson:ozonDETransport.requestJson});
+const ozonAccountReadServices = createOzonAccountReadServices({ configuration: runtimeConfiguration,
+  repository: businessStateRepository, workerRegistry, serverClock: now, requestJson: ozonDETransport.requestJson,
+  evidenceSource: ozonAccountEvidenceSource, preflightProvider: ozonDEPreflightProvider, deRuntimeServices });
+const runtimeArchitecture = assertRuntimeBoundaries({
+  configuration: runtimeConfiguration,
+  businessStateRepository,
+  identityProvider: runtimeIdentityProvider,
+  softwareJobStore,
+  workerRegistry,
+  legacyBusinessMutationPathsPresent: true
+});
 const dispatchSkillCatalog = createDispatchSkillCatalog({
   directory: process.env.SELECTION_REVIEW_DISPATCH_SKILLS_DIR
 });
 // Historical fire-train adapters are retained for audit/unit tests only.
 // They must never be re-enabled from the production review-app runtime.
-const legacyFireTrainAdapterEnabled = false;
+const legacyManualC1InputEnabled = process.env.SELECTION_REVIEW_LEGACY_MANUAL_C1_INPUT === "true";
+const seerfarSoftwareExecutionEnabled = false;
+const c1PaidKeywordGenericQueueEnabled = true;
 
 const USER_FIELDS = [
   "targetStore",
@@ -174,11 +386,16 @@ const DEFAULTED_USER_FIELDS = new Set([
   "authorizationStatus"
 ]);
 
-let mutationQueue = Promise.resolve();
 const sourceCaptureSessions = new Map();
 const salesCaptureSessions = new Map();
 const sourceCaptureJobTimers = new Map();
 const dispatchDeliveriesInFlight = new Set();
+// Only dispatches actually admitted by this process can represent current maintenance.
+const currentMaintenanceDispatchIds = new Set();
+
+function activeDispatchForCandidate(data, candidateId) {
+  return selectCurrentDispatch(data, candidateId, { activeDispatchIds: currentMaintenanceDispatchIds });
+}
 const SOURCE_CAPTURE_TTL_MS = 3 * 60 * 1000;
 const SOURCE_CAPTURE_JOB_QUEUE_TTL_MS = Math.max(50, Number(process.env.SELECTION_REVIEW_SOURCE_JOB_QUEUE_TTL_MS || 2 * 60 * 1000));
 const SOURCE_CAPTURE_JOB_EXECUTION_TTL_MS = Math.max(50, Number(process.env.SELECTION_REVIEW_SOURCE_JOB_EXECUTION_TTL_MS || 60 * 1000));
@@ -242,12 +459,13 @@ function captureControlSnapshot(timestamp = Date.now()) {
   }
   return {
     status: "busy",
-    label: `正在采集 ${active.candidateId}（${active.platform}）`,
+    label: `商品采集控制已由 ${active.candidateId} 占用（${active.platform}）`,
     candidateId: active.candidateId,
     captureId: active.captureId,
     platform: active.platform,
     captureKind: active.captureKind,
-    startedAt: new Date(active.createdAt).toISOString(),
+    startedAt: active.jobStatus === "claimed" && Number.isFinite(active.claimedAt)
+      ? new Date(active.claimedAt).toISOString() : null,
     expiresAt: new Date(active.expiresAt).toISOString()
   };
 }
@@ -282,11 +500,6 @@ function currentProfitRule(persisted, current) {
   };
 }
 
-function candidateProfitRule(candidate, rules) {
-  if (candidate.targetStore === "miska") return rules.ozonMiska;
-  if (candidate.targetStore === "wb") return rules.wbCrossListing;
-  return rules.ozonDandanshu;
-}
 
 function now() {
   return new Date().toISOString();
@@ -359,32 +572,86 @@ function json(res, status, responseBody, extraHeaders = {}) {
 }
 
 async function requestBody(req) {
-  let raw = "";
+  return readJsonRequestBody(req, { maxBytes: 2_000_000, requireJsonContentType: true });
+}
+
+async function requestBinaryBody(req, maxBytes = 100 * 1024 * 1024) {
+  const declaredLength = Number(req.headers["content-length"] || 0);
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) throw httpError(413, "最终素材文件过大");
+  const chunks = [];
+  let bytes = 0;
   for await (const chunk of req) {
-    raw += chunk;
-    if (raw.length > 2_000_000) throw httpError(413, "请求内容过大");
+    bytes += chunk.length;
+    if (bytes > maxBytes) throw httpError(413, "最终素材文件过大");
+    chunks.push(chunk);
   }
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw);
-  } catch {
-    throw httpError(400, "请求不是有效JSON");
+  if (bytes === 0) throw httpError(400, "最终素材文件为空");
+  return Buffer.concat(chunks, bytes);
+}
+
+async function verifyAndAuthorizeStagedC2Assets({ candidate, dataRevision, draftRevision, assets }) {
+  const { draft } = assertCurrentC2UploadDraft(candidate, { dataRevision, draftRevision });
+  const selections = draft?.selection;
+  if (!Array.isArray(assets) || !selections?.length || assets.length !== selections.length ||
+      assets.some((asset, index) => !asset || Object.keys(asset).some(key => !["assetId", "slotId", "order"].includes(key)) ||
+        asset.assetId !== selections[index].assetId || asset.slotId !== selections[index].slotId || asset.order !== selections[index].order)) {
+    throw httpError(409, "确认内容必须与已保存的素材、槽位和顺序完全一致", { code: "c2_upload_selection_changed" });
   }
+  const slots = [...candidate.lifecycleV11.skuPackage.c2FinalAssets.mediaRequirements.imageSlots,
+    ...candidate.lifecycleV11.skuPackage.c2FinalAssets.mediaRequirements.videoSlots];
+  const verified = [];
+  for (const asset of selectedC2DraftAssets(draft)) {
+    await c2LocalAssetStore.read(asset, { verifyContent: true });
+    const slot = slots.find(slot => slot.slotId === asset.slotId && slot.mediaType === asset.mediaType);
+    if (!slot) throw httpError(422, "每个最终素材必须选择当前平台的明确槽位");
+    const item = {};
+    for (const key of ["assetId", "mediaType", "assetRef", "fileName", "assetVersion", "sha256", "byteSize", "sourceEvidenceRef", "stableUrlEvidenceRef", "sourceType", "width", "height", "slotId", "order"]) {
+      if (asset[key] !== undefined) item[key] = structuredClone(asset[key]);
+    }
+    verified.push({ ...item, role: slot.role, addedAt: asset.stagedAt,
+      usageAuthorization: { status: "owner_authorized_for_listing", evidenceRef: `owner-confirmation:c2:${candidate.id}:${dataRevision}` }
+    });
+  }
+  return verified;
 }
 
 function httpError(status, message, extra = {}) {
   return Object.assign(new Error(message), { status, extra });
 }
 
+function respondWithError(req, res, error) {
+  const normalized = normalizeHttpErrorResponse(error);
+  if (normalized.shouldLogStack) console.error(error);
+  return json(res, normalized.status, normalized.body, chromeExtensionCors(req));
+}
+
+function localHttpOrigin(bindHost, listenPort) {
+  const normalizedHost = String(bindHost || "").trim();
+  const originHost = normalizedHost.includes(":") && !normalizedHost.startsWith("[")
+    ? `[${normalizedHost}]`
+    : normalizedHost;
+  return `http://${originHost}:${listenPort}`;
+}
+
 function chromeExtensionCors(req) {
-  const origin = String(req.headers.origin || "");
-  if (!/^chrome-extension:\/\/[a-p]{32}$/.test(origin)) return {};
+  const origin = String(req.headers.origin || "").trim();
+  if (!allowedExtensionOrigins.has(origin)) return {};
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Vary": "Origin"
   };
+}
+
+function assertClaimedCaptureResultOrigin(session, req, label) {
+  const origin = String(req.headers.origin || "").trim();
+  if (!session?.claimedExtensionOrigin) {
+    throw httpError(409, `${label}作业尚未由插件后台原子领取，不能回传结果`, { code: "capture_job_not_claimed" });
+  }
+  if (session?.claimedExtensionOrigin && session.claimedExtensionOrigin !== origin) {
+    throw httpError(409, `${label}回传来源与领取来源不一致`, { code: "capture_extension_origin_mismatch" });
+  }
 }
 
 function recordExtensionHeartbeat(input) {
@@ -414,6 +681,23 @@ function captureSession(candidateId, captureId = "") {
   return [...sourceCaptureSessions.values()].find((session) => session.candidateId === candidateId) || null;
 }
 
+function currentSourceCaptureForCandidate(candidate) {
+  const capture = candidate.sourceCapture;
+  const session = sourceCaptureSessions.get(capture?.captureId);
+  const observedAt = Date.now();
+  if (!session || session.jobStatus !== "claimed" || session.attempt !== 1 ||
+      session.candidateId !== candidate.id || session.dataRevision !== candidate.dataRevision ||
+      capture.status !== "capturing" || capture.jobStatus !== "claimed" || capture.attempt !== 1 ||
+      !Number.isFinite(session.claimedAt) || !Number.isFinite(session.expiresAt) ||
+      session.claimedAt > observedAt || session.expiresAt <= observedAt || session.claimedAt >= session.expiresAt ||
+      Date.parse(capture.claimedAt) !== session.claimedAt) return null;
+  return {
+    currentExecutionConfirmed: true, candidateId: candidate.id, candidateRevision: candidate.dataRevision,
+    captureId: session.captureId, claimedAt: new Date(session.claimedAt).toISOString(),
+    expiresAt: new Date(session.expiresAt).toISOString()
+  };
+}
+
 function captureSessionPublic(session) {
   return {
     captureId: session.captureId,
@@ -431,8 +715,7 @@ function captureSessionPublic(session) {
       expectedOfferId: session.expectedOfferId,
       sourceUrl: session.sourceUrl,
       mode: session.mode,
-      allowShortLinkResolution: session.mode === "a_supplier_capture" && !session.expectedOfferId,
-      token: session.token
+      allowShortLinkResolution: session.mode === "a_supplier_capture" && !session.expectedOfferId
     }
   };
 }
@@ -515,6 +798,11 @@ async function enqueueASupplierCaptureJob({ candidateId, requestRevision, reques
     const data = await readData();
     const current = data.candidates.find((item) => item.id === candidateId);
     if (!current) throw httpError(404, "候选不存在", { code: "candidate_not_found" });
+    const requestedSource = normalize1688CaptureSource(requestedSourceUrl);
+    if (Number(current.dataRevision) !== existing.dataRevision || requestedSource.sourceUrl !== existing.sourceUrl ||
+        current.sourceCapture?.captureId !== existing.captureId) {
+      throw httpError(409, "当前资料与已有采集作业不一致，不能沿用旧作业", { code: "capture_job_state_conflict" });
+    }
     return { candidate: publicCandidate(current, data.rules), captureJob: sourceCaptureJobPublic(existing), duplicate: true };
   }
   ensureCaptureControlAvailable(candidateId);
@@ -554,6 +842,11 @@ async function enqueueASupplierCaptureJob({ candidateId, requestRevision, reques
       if (!sourceCaptureAllowed(current, session.mode)) {
         throw httpError(409, "当前商品状态不能建立A阶段供应采集作业", { code: "business_state_rejected" });
       }
+      if (["waiting_extension", "capturing", "extension_version_mismatch"].includes(current.sourceCapture?.status) ||
+          ["queued", "claimed", "unknown_outcome"].includes(current.sourceCapture?.jobStatus) ||
+          current.sourceCapture?.failureCode === "unknown_outcome") {
+        throw httpError(409, "该商品仍有未核实的历史采集记录，请先处理这条记录", { code: "previous_capture_requires_review" });
+      }
       if (activeDispatchForCandidate(data, current.id)) {
         throw httpError(409, "当前SKU已有任务等待或运行，不能建立供应采集作业", { code: "candidate_busy" });
       }
@@ -589,58 +882,33 @@ async function enqueueASupplierCaptureJob({ candidateId, requestRevision, reques
   return { candidate, captureJob: sourceCaptureJobPublic(session), duplicate: false };
 }
 
-function claimPendingASupplierCaptureJob(extensionVersion, extensionOrigin) {
+function claimASupplierCaptureJob(captureId, extensionVersion, extensionOrigin) {
   const operation = sourceCaptureJobClaimQueue.then(async () => {
-    const claimed = [...sourceCaptureSessions.values()]
-      .find((item) => item.mode === "a_supplier_capture" && item.jobStatus === "claimed" && item.attempt === 1);
-    if (claimed) return { captureJob: null, jobNotice: null };
-    const session = [...sourceCaptureSessions.values()]
-      .filter((item) => item.mode === "a_supplier_capture" && item.jobStatus === "queued" && item.attempt === 0)
-      .sort((left, right) => left.createdAt - right.createdAt)[0];
-    if (!session) return { captureJob: null, jobNotice: null };
-    if (String(extensionVersion) !== session.requiredExtensionVersion) {
-      await mutateDataWhenChanged((data) => {
-        const current = data.candidates.find((item) => item.id === session.candidateId);
-        if (!current || current.sourceCapture?.captureId !== session.captureId) return { changed: false };
-        if (current.sourceCapture.status === "extension_version_mismatch" &&
-          current.sourceCapture.observedExtensionVersion === String(extensionVersion)) return { changed: false };
-        current.sourceCapture = {
-          ...current.sourceCapture,
-          status: "extension_version_mismatch",
-          jobStatus: "queued",
-          failureCode: "extension_version_mismatch",
-          reason: `当前插件v${String(extensionVersion || "未知")}，作业要求v${session.requiredExtensionVersion}`,
-          observedExtensionVersion: String(extensionVersion || ""),
-          writeOccurred: false,
-          businessStateEffect: "unchanged"
-        };
-        current.dataRevision = Number(current.dataRevision || 0) + 1;
-        session.dataRevision = current.dataRevision;
-        current.updatedAt = now();
-        current.lastModifiedBy = "system";
-        return { changed: true };
-      });
-      return {
-        captureJob: null,
-        jobNotice: {
-          code: "extension_version_mismatch",
-          candidateId: session.candidateId,
-          requiredExtensionVersion: session.requiredExtensionVersion
-        }
-      };
+    const session = sourceCaptureSessions.get(captureId);
+    if (!session || session.mode !== "a_supplier_capture") {
+      throw httpError(409, "当前服务没有这次明确创建的采集作业", { code: "capture_job_not_current" });
     }
-    session.jobStatus = "claimed";
+    if (session.jobStatus !== "queued" || session.attempt !== 0 || session.expiresAt <= Date.now()) {
+      throw httpError(409, "该采集作业已领取、失效或结果待核实，不能再次执行", { code: "capture_job_not_claimable" });
+    }
+    if (String(extensionVersion) !== session.requiredExtensionVersion) {
+      throw httpError(409, `本次采集要求插件v${session.requiredExtensionVersion}`, { code: "extension_version_mismatch" });
+    }
+    session.jobStatus = "claim_pending";
     session.attempt = 1;
     session.claimedAt = Date.now();
     session.claimedExtensionVersion = String(extensionVersion);
     session.claimedExtensionOrigin = String(extensionOrigin || "");
     clearSourceCaptureJobTimer(session.captureId);
     try {
-      await mutateData((data) => {
+      const claimedRevision = await mutateData((data) => {
+        if (session.expiresAt <= Date.now()) throw httpError(409, "采集作业等待期限已结束", { code: "capture_job_expired" });
         const current = data.candidates.find((item) => item.id === session.candidateId);
         if (!current) throw httpError(404, "候选不存在", { code: "candidate_not_found" });
         if (current.sourceCapture?.captureId !== session.captureId ||
-          !["waiting_extension", "extension_version_mismatch"].includes(current.sourceCapture.status)) {
+          current.sourceCapture.status !== "waiting_extension" ||
+          current.sourceCapture.jobStatus !== "queued" || current.sourceCapture.attempt !== 0 ||
+          current.sourceCapture.sourceUrl !== session.sourceUrl || current.sourceUrl !== session.sourceUrl) {
           throw httpError(409, "当前候选不再等待该采集作业", { code: "capture_job_state_conflict" });
         }
         if (Number(current.dataRevision) !== Number(session.dataRevision)) {
@@ -659,25 +927,25 @@ function claimPendingASupplierCaptureJob(extensionVersion, extensionOrigin) {
           businessStateEffect: "unchanged"
         };
         current.dataRevision = Number(current.dataRevision || 0) + 1;
-        session.dataRevision = current.dataRevision;
         current.updatedAt = now();
         current.lastModifiedBy = "system";
-        return null;
+        return current.dataRevision;
       });
+      session.dataRevision = claimedRevision;
+      session.jobStatus = "claimed";
     } catch (error) {
-      session.jobStatus = "queued";
-      session.attempt = 0;
-      session.claimedAt = null;
-      session.claimedExtensionVersion = "";
-      session.claimedExtensionOrigin = "";
-      scheduleSourceCaptureJobExpiry(session, "queued", SOURCE_CAPTURE_JOB_QUEUE_TTL_MS);
+      // A failed durable write can have an uncertain outcome. Never reopen this claim.
+      session.jobStatus = "unknown_outcome";
+      session.consumedAt = Date.now();
+      sourceCaptureSessions.delete(session.captureId);
       throw error;
     }
     session.expiresAt = Date.now() + SOURCE_CAPTURE_JOB_EXECUTION_TTL_MS;
     scheduleSourceCaptureJobExpiry(session, "claimed", SOURCE_CAPTURE_JOB_EXECUTION_TTL_MS);
     return { captureJob: sourceCaptureJobPayload(session), jobNotice: null };
   });
-  sourceCaptureJobClaimQueue = operation.catch(() => undefined);
+  // Keep the serialization tail usable; the original rejecting operation reaches its caller.
+  sourceCaptureJobClaimQueue = operation.then(() => undefined, () => undefined);
   return operation;
 }
 
@@ -700,8 +968,7 @@ function salesCaptureSessionPublic(session) {
       candidateId: session.candidateId,
       dataRevision: session.dataRevision,
       expectedProductId: session.expectedProductId,
-      productUrl: session.productUrl,
-      token: session.token
+      productUrl: session.productUrl
     }
   };
 }
@@ -743,22 +1010,11 @@ function sourceCaptureAllowed(candidate, mode = "listing_preparation") {
   ].includes(candidate.listingHandoff?.state) || legacyReadyPendingC;
 }
 
-function normalizedEvidenceScope(scope = {}) {
-  const entries = Object.entries(scope)
-    .filter(([, value]) => value !== null && value !== undefined && String(value).trim())
-    .map(([key, value]) => [String(key), String(value).trim()])
-    .sort(([a], [b]) => a.localeCompare(b));
-  return Object.fromEntries(entries);
-}
-
-function evidenceScopeKey(kind, scope) {
-  return `${kind}|${JSON.stringify(normalizedEvidenceScope(scope))}`;
-}
-
 function evidencePackApplies(pack, candidate, timestamp = Date.now()) {
   if (!pack || pack.status !== "active") return false;
   if (pack.expiresAt && new Date(pack.expiresAt).getTime() <= timestamp) return false;
   const scope = pack.scope || {};
+  if (["commission", "schema"].includes(pack.kind) && !sameStoreRef(scope.storeRef, candidate.storeRef)) return false;
   const expectedPlatform = candidate.targetStore === "wb" ? "wb" : "ozon";
   const category = String(candidate.codexReview?.category || candidate.codexReview?.productType || candidate.listingPreparation?.category || "").trim().toLowerCase();
   const salesScheme = String(candidate.codexReview?.salesScheme || candidate.listingPreparation?.salesScheme || "").trim().toLowerCase();
@@ -792,8 +1048,8 @@ function attachReusableEvidence(data, candidate) {
   }));
 }
 
-async function readData() {
-  const data = JSON.parse(await fs.readFile(dataFile, "utf8"));
+function normalizeBusinessStateDocument(document) {
+  const data = structuredClone(document);
   if (Number(data.meta?.version || 1) !== 2) {
     throw new Error("候选数据尚未迁移到v2");
   }
@@ -881,86 +1137,28 @@ async function readData() {
   return ensureCollaborationData(data);
 }
 
-async function persistData(data) {
-  await persistJsonThroughRealTarget(dataFile, data);
+async function readData() {
+  return normalizeBusinessStateDocument(await businessStateRepository.readSnapshot());
 }
 
 function mutateData(mutator) {
-  const operation = mutationQueue.then(async () => {
-    const data = await readData();
+  return businessStateRepository.transact(async (document) => {
+    const data = normalizeBusinessStateDocument(document);
     const result = await mutator(data);
     data.meta.updatedAt = now();
     data.meta.date = businessDate();
-    await persistData(data);
-    return result;
+    return { changed: true, document: data, result };
   });
-  mutationQueue = operation.catch(() => undefined);
-  return operation;
 }
 
 function mutateDataWhenChanged(mutator) {
-  const operation = mutationQueue.then(async () => {
-    const data = await readData();
+  return businessStateRepository.transact(async (document) => {
+    const data = normalizeBusinessStateDocument(document);
     const outcome = await mutator(data);
-    if (!outcome?.changed) return outcome?.result;
+    if (!outcome?.changed) return { changed: false, result: outcome?.result };
     data.meta.updatedAt = now();
     data.meta.date = businessDate();
-    await persistData(data);
-    return outcome.result;
-  });
-  mutationQueue = operation.catch(() => undefined);
-  return operation;
-}
-
-function orphanedASupplierCaptureKind(sourceCapture) {
-  if (sourceCapture?.mode !== "a_supplier_capture") return null;
-  if (sourceCapture.status === "waiting_extension" && sourceCapture.jobStatus === "queued") return "queued";
-  if (sourceCapture.status === "capturing" && sourceCapture.jobStatus === "claimed") return "claimed";
-  return null;
-}
-
-async function reconcileOrphanedASupplierCaptureJobsAfterRestart() {
-  return mutateDataWhenChanged((data) => {
-    const timestamp = now();
-    const reconciled = [];
-    for (const current of data.candidates || []) {
-      const kind = orphanedASupplierCaptureKind(current.sourceCapture);
-      if (!kind) continue;
-      const previous = current.sourceCapture;
-      const { token: _discardedToken, extensionRequest: _discardedRequest, ...safePrevious } = previous;
-      const failureCode = kind === "claimed" ? "unknown_outcome" : "service_restarted_before_claim";
-      const reason = sourceCaptureFailureMessage(failureCode);
-      current.sourceCapture = {
-        ...safePrevious,
-        status: "failed",
-        jobStatus: kind === "claimed" ? "unknown_outcome" : "failed",
-        technicalStatus: kind === "claimed" ? "unknown_outcome" : "system_error",
-        failureCode,
-        failureLayer: "selection_review_service_restart",
-        reason,
-        stoppedAt: timestamp,
-        restartRecoveredAt: timestamp,
-        writeOccurred: false,
-        businessStateEffect: "unchanged",
-        automaticRetryAllowed: false,
-        requiresOwnerNewAuthorization: true
-      };
-      current.dataRevision = Number(current.dataRevision || 0) + 1;
-      current.updatedAt = timestamp;
-      current.lastModifiedBy = "system";
-      addHistory(
-        current,
-        "system",
-        kind === "claimed" ? "aSupplierCaptureUnknownAfterRestart" : "aSupplierCaptureStoppedAfterRestart",
-        `${reason}；旧内存会话、一次性令牌和领取资格均未恢复。A阶段业务状态保持不变；以后只能由主人基于新修订号重新授权，不自动重建、领取、重试、运行B/C1或派发任务。`,
-        timestamp
-      );
-      reconciled.push({ candidateId: current.id, failureCode });
-    }
-    return {
-      changed: reconciled.length > 0,
-      result: { count: reconciled.length, items: reconciled }
-    };
+    return { changed: true, document: data, result: outcome.result };
   });
 }
 
@@ -1003,10 +1201,49 @@ function appendNodeReply(data, dispatch, message, status = "responded") {
   dispatch.replyCommentId = comment.id;
 }
 
+function maintenanceProgressInput(input, { candidateRequired = false } = {}) {
+  const fields = ["runId", "dataRevision", "progressType", "currentStep", "evidenceRef"];
+  if (candidateRequired) fields.push("candidateId");
+  if (!input || typeof input !== "object" || Array.isArray(input) ||
+      Object.keys(input).some(field => !fields.includes(field)) ||
+      !Number.isInteger(input.dataRevision) || input.dataRevision < 0 ||
+      !["step_change", "new_evidence"].includes(input.progressType) ||
+      ["runId", "currentStep", ...(candidateRequired ? ["candidateId"] : [])].some(field =>
+        typeof input[field] !== "string" || !input[field].trim() || input[field].length > 1000) ||
+      (input.evidenceRef !== undefined && (typeof input.evidenceRef !== "string" || input.evidenceRef.length > 1000))) {
+    throw httpError(400, "实质进展必须锁定运行编号、资料修订号、进展类型、当前步骤及新证据引用");
+  }
+  return input;
+}
+
+function applyMaintenanceProgress(candidate, dispatch, input, timestamp) {
+  let next;
+  try {
+    next = recordCurrentMaintenanceProgress(candidate, dispatch, input, timestamp);
+  } catch (error) {
+    if (/MAINTENANCE_|已记录|没有实质变化|runId/.test(error.message)) throw httpError(409, error.message);
+    if (/只有真实运行|实质进展必须|实质进展类型|新证据进展必须/.test(error.message)) throw httpError(400, error.message);
+    throw error;
+  }
+  candidate[next.field] = next.activity;
+  dispatch.currentStep = next.activity.currentStep;
+  dispatch.lastProgressAt = next.activity.lastProgressAt;
+  dispatch.lastEventAt = next.activity.lastProgressAt;
+  dispatch.progressEvents = structuredClone(next.activity.progressEvents);
+  candidate.updatedAt = next.activity.lastProgressAt;
+  candidate.lastModifiedBy = "system";
+  addHistory(candidate, "system", "progress", input.progressType === "new_evidence"
+    ? `取得新证据：${input.evidenceRef.trim()}；当前步骤：${next.activity.currentStep}`
+    : `执行步骤更新：${next.activity.currentStep}`, timestamp);
+}
+
 async function postLocalDispatchResult(pathname, payload) {
-  const response = await fetch(`http://${host}:${port}${pathname}`, {
+  const response = await fetch(`${localHttpOrigin(host, port)}${pathname}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "x-selection-review-internal-token": internalApiRequestToken
+    },
     body: JSON.stringify(payload)
   });
   const text = await response.text();
@@ -1022,56 +1259,118 @@ async function postLocalDispatchResult(pathname, payload) {
   return body;
 }
 
+function maintenanceCompletionInput(input) {
+  const fields = ["runId", "status", "reply", "evidence"];
+  if (!input || typeof input !== "object" || Array.isArray(input) ||
+      Object.keys(input).some(field => !fields.includes(field)) ||
+      !["completed", "blocked", "needs_decision"].includes(input.status) ||
+      ["runId", "reply"].some(field => typeof input[field] !== "string" || !input[field].trim() || input[field].length > 12000) ||
+      (input.evidence !== undefined && (typeof input.evidence !== "string" || input.evidence.length > 12000))) {
+    throw httpError(400, "收口派发必须只包含运行编号、状态、回复及证据说明");
+  }
+  return input;
+}
+
+function maintenanceCompletionBinding(data, dispatchId) {
+  const dispatch = data.dispatches.find(item => item.id === dispatchId);
+  const active = dispatch && activeDispatchForCandidate(data, dispatch.candidateId);
+  if (!active || active.id !== dispatchId) throw httpError(409, "该派发不是本次正式领取的有效任务");
+  return Object.freeze({ dispatchId, candidateId: dispatch.candidateId, runId: dispatch.runId,
+    turnId: dispatch.turnId, dataRevision: dispatch.dataRevision, workflowStatusAtDispatch: dispatch.workflowStatusAtDispatch });
+}
+
+function assertCurrentMaintenanceWrite(data, candidateId, runId) {
+  const active = activeDispatchForCandidate(data, candidateId);
+  if (!active || active.runId !== runId) throw httpError(409, "结构化结果不属于当前正式领取的任务");
+}
+
+function completeCurrentMaintenanceDispatch(data, dispatchId, input, { sourceBinding = null, structuredResultApplied = false } = {}) {
+  const dispatch = data.dispatches.find(item => item.id === dispatchId);
+  if (!dispatch) throw httpError(404, "一次性派发不存在");
+  const binding = sourceBinding || maintenanceCompletionBinding(data, dispatchId);
+  if (!currentMaintenanceDispatchIds.has(dispatchId) || binding.dispatchId !== dispatchId ||
+      binding.candidateId !== dispatch.candidateId || binding.runId !== dispatch.runId || binding.turnId !== dispatch.turnId ||
+      binding.dataRevision !== dispatch.dataRevision || binding.workflowStatusAtDispatch !== dispatch.workflowStatusAtDispatch ||
+      dispatch.runId !== input.runId.trim() || dispatch.runId !== dispatch.turnId ||
+      !["running", "permission_required"].includes(dispatch.status)) {
+    throw httpError(409, "只能收口本次进程中同一运行编号的派发");
+  }
+  const candidate = data.candidates.find(item => item.id === dispatch.candidateId);
+  if (!candidate) throw httpError(404, "派发对应商品不存在");
+  const timestamp = now();
+  const finalStatus = input.status === "completed" && !structuredResultApplied ? "responded_unverified" : input.status;
+  const candidateStillBound = candidate.dataRevision === binding.dataRevision &&
+    candidate.workflowStatus === binding.workflowStatusAtDispatch &&
+    activeDispatchForCandidate(data, candidate.id)?.id === dispatchId;
+  // A successful domain write already owns its candidate transition. A late
+  // completion may settle this dispatch, but cannot alter the newer candidate.
+  if (!structuredResultApplied && candidateStillBound) {
+    const needsDecision = finalStatus === "needs_decision";
+    const needsCommissionDecision = needsDecision && candidate.workflowStatus === "codex_processing" &&
+      /估算佣金|佣金.*授权|允许.*佣金/.test(input.reply);
+    const message = finalStatus === "responded_unverified" ? "负责人已回复，但没有服务端验证并保存的结构化业务结果" : input.reply.trim();
+    const recoveryDecision = fixedRecoveryDecision(needsDecision ? "business_decision" : "result_unverified", message,
+      needsCommissionDecision ? ["allow_estimated_commission", "keep_stopped"] : ["retry_current_stage_once", "keep_stopped"]);
+    if (["listing_preparation", "ready_to_list"].includes(candidate.workflowStatus) && candidate.listingHandoff?.runId === binding.runId) {
+      candidate.listingHandoff = { ...candidate.listingHandoff, state: needsDecision ? "needs_decision" : "blocked",
+        runId: null, currentStep: "任务已停止，等待核对结果", lastProgressAt: timestamp,
+        blockReason: message, userAction: "请在UI选择固定处理方式", recoveryDecision, stoppedAt: timestamp };
+    } else if (candidate.processing?.runId === binding.runId) {
+      candidate.processing = { ...queuedProcessing(candidate.processing), state: "blocked", runId: null, startedAt: null,
+        currentStep: "任务已停止，等待核对结果", lastRunId: binding.runId, lastProgressAt: timestamp,
+        dispatchState: finalStatus, manualHold: true, blockReason: message, userAction: "请在UI选择固定处理方式", recoveryDecision };
+    }
+    candidate.updatedAt = timestamp;
+    candidate.lastModifiedBy = dispatch.assigneeRole;
+    addHistory(candidate, "system", "oneShotCompleted", `一次性派发${finalStatus}：${input.reply.trim()}`, timestamp);
+    appendNodeReply(data, dispatch, input.reply.trim(), needsDecision ? "needs_decision" : "responded");
+  }
+  dispatch.status = finalStatus;
+  dispatch.agentReply = input.reply.trim();
+  dispatch.completionEvidence = String(input.evidence || "").trim();
+  dispatch.completedAt = timestamp;
+  dispatch.lastEventAt = timestamp;
+  dispatch.pendingApproval = null;
+  return { dispatch: dispatchPublic(dispatch), candidate: publicCandidate(candidate, data.rules) };
+}
+
 async function applyStructuredDispatchResult(dispatchId) {
   const data = await readData();
-  const dispatch = (data.dispatches || []).find((item) => item.id === dispatchId);
+  const dispatch = data.dispatches.find(item => item.id === dispatchId);
   const result = dispatch?.structuredResult;
   if (!dispatch || !result) return false;
   if (!["running", "permission_required"].includes(dispatch.status)) return true;
-
+  const sourceBinding = maintenanceCompletionBinding(data, dispatchId);
   let resultPayload = null;
   if (result.resultJson) {
-    try {
-      resultPayload = JSON.parse(result.resultJson);
-    } catch {
-      throw new Error("负责人返回的业务结果JSON无法解析");
-    }
+    try { resultPayload = JSON.parse(result.resultJson); }
+    catch { throw new Error("负责人返回的业务结果JSON无法解析"); }
   }
-
+  let structuredResultApplied = false;
   if (result.resultType === "selection_review") {
-    if (result.status !== "completed" || !resultPayload || typeof resultPayload !== "object") {
+    if (result.status !== "completed" || !resultPayload || typeof resultPayload !== "object" || Array.isArray(resultPayload)) {
       throw new Error("选品业务回写缺少完整selection_review结果");
     }
     await postLocalDispatchResult(`/api/candidates/${encodeURIComponent(dispatch.candidateId)}/codex-review`, {
-      ...resultPayload,
-      dataRevision: Number(dispatch.dataRevision),
-      runId: dispatch.runId
+      ...resultPayload, dataRevision: sourceBinding.dataRevision, runId: sourceBinding.runId
     });
+    structuredResultApplied = true;
   } else if (result.resultType === "listing_preparation_review") {
-    if (!resultPayload || typeof resultPayload !== "object") {
+    if (!resultPayload || typeof resultPayload !== "object" || Array.isArray(resultPayload)) {
       throw new Error("C阶段业务回写缺少listing_preparation_review结果");
     }
     const expectedCaptureId = dispatch.candidateSnapshot?.sourceCapture?.captureId || null;
-    if (expectedCaptureId && resultPayload.sourceCaptureId !== expectedCaptureId) {
-      throw new Error("C阶段结果没有带回本轮1688采集编号，不能验收");
-    }
+    if (expectedCaptureId && resultPayload.sourceCaptureId !== expectedCaptureId) throw new Error("C阶段结果没有带回本轮1688采集编号，不能验收");
     await postLocalDispatchResult(`/api/candidates/${encodeURIComponent(dispatch.candidateId)}/listing-preparation-review`, {
-      ...resultPayload,
-      status: resultPayload.status || (result.status === "completed" ? "prepared" : result.status),
+      ...resultPayload, status: resultPayload.status || (result.status === "completed" ? "prepared" : result.status),
       reason: resultPayload.reason || (result.status === "completed" ? "" : result.reply),
-      dataRevision: Number(dispatch.dataRevision),
-      runId: dispatch.runId
+      dataRevision: sourceBinding.dataRevision, runId: sourceBinding.runId
     });
-  } else if (result.status === "completed") {
-    return false;
+    structuredResultApplied = true;
   }
-
-  await postLocalDispatchResult(`/api/dispatches/${encodeURIComponent(dispatch.id)}/complete`, {
-    runId: dispatch.runId,
-    status: result.status,
-    reply: result.reply,
-    evidence: result.evidenceSummary || (result.resultType !== "none" ? `已接收${result.resultType}结构化结果` : "")
-  });
+  const input = maintenanceCompletionInput({ runId: sourceBinding.runId, status: result.status, reply: result.reply,
+    evidence: result.evidenceSummary || "" });
+  await mutateData(current => completeCurrentMaintenanceDispatch(current, dispatchId, input, { sourceBinding, structuredResultApplied }));
   return true;
 }
 
@@ -1143,7 +1442,9 @@ async function handleDispatcherEvent(event) {
         candidate.lastModifiedBy = dispatch.assigneeRole;
       } else if (
         ["listing_preparation", "ready_to_list"].includes(candidate?.workflowStatus) &&
-        candidate.listingHandoff?.runId === dispatch.runId
+        candidate.listingHandoff?.runId === dispatch.runId &&
+        candidate.dataRevision === dispatch.dataRevision &&
+        candidate.workflowStatus === dispatch.workflowStatusAtDispatch
       ) {
         candidate.listingHandoff = {
           ...(candidate.listingHandoff || {}),
@@ -1160,12 +1461,14 @@ async function handleDispatcherEvent(event) {
         };
         candidate.updatedAt = timestamp;
       }
-      appendNodeReply(
-        data,
-        dispatch,
-        dispatch.agentReply || (event.error ? `任务失败：${event.error}` : "任务已回复，但没有取得可验证的数据回写。"),
-        dispatch.status === "needs_decision" ? "needs_decision" : "responded"
-      );
+      if (!candidate || candidate.dataRevision === dispatch.dataRevision && candidate.workflowStatus === dispatch.workflowStatusAtDispatch) {
+        appendNodeReply(
+          data,
+          dispatch,
+          dispatch.agentReply || (event.error ? `任务失败：${event.error}` : "任务已回复，但没有取得可验证的数据回写。"),
+          dispatch.status === "needs_decision" ? "needs_decision" : "responded"
+        );
+      }
     } else {
       return { changed: false };
     }
@@ -1173,10 +1476,9 @@ async function handleDispatcherEvent(event) {
   });
 }
 
-const codexDispatcher = new CodexDispatcher({
-  onEvent: (event) => handleDispatcherEvent(event),
-  skillCatalog: dispatchSkillCatalog
-});
+const codexDispatcher = explicitDispatchDeliveryEnabled
+  ? new CodexDispatcher({ onEvent: (event) => handleDispatcherEvent(event), skillCatalog: dispatchSkillCatalog })
+  : null;
 
 async function deliverDispatch(dispatchId) {
   if (dispatchDeliveriesInFlight.has(dispatchId)) return null;
@@ -1184,18 +1486,30 @@ async function deliverDispatch(dispatchId) {
   const queuedDispatch = snapshot.dispatches.find((item) => item.id === dispatchId);
   if (isDisabledLegacyCDispatch(queuedDispatch)) return null;
   if (!queuedDispatch || !["queued", "waiting_assignee"].includes(queuedDispatch.status)) return null;
-  dispatchDeliveriesInFlight.add(dispatchId);
   const delivery = {
     dispatch: { ...queuedDispatch },
     route: { ...snapshot.taskRoutes[queuedDispatch.assigneeRole] },
     candidate: queuedDispatch.candidateId ? snapshot.candidates.find((item) => item.id === queuedDispatch.candidateId) : null
   };
+  const gate = delivery.candidate ? codexDispatchGate(delivery.candidate) : null;
+  if (delivery.candidate && !gate.allowed) return null;
+  if (delivery.candidate) {
+    assertRuntimeCodexDependencyAllowed({
+      codexOffline: codexOfflineEnabled,
+      pathType: gate.mode === "exception" ? EXCEPTION_MAINTENANCE_PATH : NORMAL_PRODUCTION_PATH,
+      skuPackageId: delivery.candidate.lifecycleV11?.skuPackage?.skuPackageId || `candidate:${delivery.candidate.id}`,
+      dependencyType: "dispatch",
+      evidenceRef: `dispatch:${delivery.dispatch.id}`
+    });
+  }
+  if (!codexDispatcher) return null;
+  dispatchDeliveriesInFlight.add(dispatchId);
 
   const map = await readWorkflowMap(workflowMapFile);
   const node = map.nodes.find((item) => item.id === delivery.dispatch.nodeId);
   try {
     const outcome = await codexDispatcher.deliver(delivery.dispatch, delivery.route, node, delivery.candidate);
-    return await mutateDataWhenChanged((data) => {
+    const savedDelivery = await mutateDataWhenChanged((data) => {
       const dispatch = data.dispatches.find((item) => item.id === dispatchId);
       if (!dispatch || !["queued", "waiting_assignee"].includes(dispatch.status)) return { changed: false, result: null };
       if (
@@ -1216,6 +1530,13 @@ async function deliverDispatch(dispatchId) {
       const candidate = dispatch.candidateId
         ? data.candidates.find((item) => item.id === dispatch.candidateId)
         : null;
+      if (outcome.status === "running" && candidate?.executionRuntime?.exceptionCase?.schemaVersion === "exception-case-v2" && gate?.exceptionId) {
+        candidate.executionRuntime = recordExceptionMaintenanceStarted(candidate.executionRuntime, {
+          exceptionId: gate.exceptionId,
+          turnId: outcome.turnId,
+          at: timestamp
+        });
+      }
       if (outcome.status === "blocked") {
         dispatch.failureLayer = outcome.failureLayer || "codex_dispatch";
         dispatch.error = outcome.detail || "负责人任务派发已停止";
@@ -1273,6 +1594,9 @@ async function deliverDispatch(dispatchId) {
           owner: dispatch.assigneeRole,
           runId: outcome.turnId,
           startedAt: timestamp,
+          claimRevision: candidate.dataRevision,
+          lastProgressAt: timestamp,
+          progressEvents: [],
           currentStep: dispatch.nodeId === "M07" ? "上架任务已开始C阶段" : "上架负责人任务已启动",
           requiredSkills: dispatch.requiredSkills || [],
           attachedSkills: dispatch.attachedSkills,
@@ -1287,6 +1611,8 @@ async function deliverDispatch(dispatchId) {
       route.lastError = outcome.status === "blocked" ? dispatch.error : "";
       return { changed: true, result: dispatchPublic(dispatch) };
     });
+    if (gate?.mode === "exception" && savedDelivery?.status === "running") currentMaintenanceDispatchIds.add(dispatchId);
+    return savedDelivery;
   } catch (error) {
     return mutateDataWhenChanged((data) => {
       const dispatch = data.dispatches.find((item) => item.id === dispatchId);
@@ -1382,19 +1708,18 @@ async function deliverDispatch(dispatchId) {
   }
 }
 
-async function deliverWaitingDispatches() {
-  const data = await readData();
-  const waiting = (data.dispatches || []).filter((item) =>
-    ["queued", "waiting_assignee"].includes(item.status) &&
-    !isDisabledLegacyCDispatch(item)
-  );
-  const groups = dispatchDeliveryGroups(waiting, data.taskRoutes);
-  await Promise.all(groups.map(async (group) => {
-    for (const dispatch of group) await deliverDispatch(dispatch.id);
-  }));
-}
-
 function createDispatchRecord(data, { node, scope, candidate = null, message, commentId = null, trigger = "node_comment" }) {
+  if (candidate) {
+    const gate = codexDispatchGate(candidate);
+    if (!gate.allowed) throw httpError(409, gate.reason);
+    assertRuntimeCodexDependencyAllowed({
+      codexOffline: codexOfflineEnabled,
+      pathType: gate.mode === "exception" ? EXCEPTION_MAINTENANCE_PATH : NORMAL_PRODUCTION_PATH,
+      skuPackageId: candidate.lifecycleV11?.skuPackage?.skuPackageId || `candidate:${candidate.id}`,
+      dependencyType: "dispatch",
+      evidenceRef: `candidate-dispatch:${candidate.id}:${candidate.dataRevision}`
+    });
+  }
   const assigneeRole = dispatchOwnerForNode(node, scope);
   if (candidate && assigneeRole === "control_task") {
     throw httpError(409, "当前SKU必须直接派给最终选品或上架负责人，不能绕到总控任务");
@@ -1488,23 +1813,6 @@ function appendControlAlert(data, alert) {
   return true;
 }
 
-async function stopRunsWithoutProgress() {
-  return mutateDataWhenChanged((data) => {
-    const alerts = stopNoProgressRuns(data.candidates, new Date(), NO_PROGRESS_TIMEOUT_MINUTES);
-    if (!alerts.length) return { changed: false, result: [] };
-    for (const alert of alerts) {
-      const candidate = data.candidates.find((item) => item.id === alert.candidateId);
-      if (candidate) {
-        addHistory(candidate, "system", "stoppedNoProgress", alert.message, alert.createdAt);
-        candidate.updatedAt = alert.createdAt;
-        candidate.lastModifiedBy = "system";
-      }
-      appendControlAlert(data, alert);
-    }
-    return { changed: true, result: alerts };
-  });
-}
-
 function cleanUrl(value) {
   if (!value || typeof value !== "string") return "";
   try {
@@ -1558,41 +1866,6 @@ function addHistory(candidate, actor, action, detail, at = now()) {
   });
 }
 
-function queuedProcessing(previous = {}) {
-  return {
-    state: "queued",
-    runId: null,
-    startedAt: null,
-    claimRevision: null,
-    attempts: Number(previous.attempts || 0),
-    attemptsToday: Number(previous.attemptsToday || 0),
-    lastAttemptAt: previous.lastAttemptAt || null,
-    lastError: previous.lastError || null,
-    blockReason: previous.blockReason || null,
-    userAction: previous.userAction || "",
-    readAttempts: Array.isArray(previous.readAttempts) ? previous.readAttempts : [],
-    deferredUntil: previous.deferredUntil || null,
-    deferredRunId: previous.deferredRunId || null,
-    lastAttemptRevision: previous.lastAttemptRevision ?? null,
-    lastAttemptBusinessDate: previous.lastAttemptBusinessDate || null,
-    dispatchState: previous.dispatchState || null,
-    dispatchPriority: previous.dispatchPriority || null,
-    dispatchRequestedAt: previous.dispatchRequestedAt || null,
-    dispatchTrigger: previous.dispatchTrigger || null,
-    manualHold: previous.manualHold === true,
-    normalizedAt: previous.normalizedAt || null,
-    normalizedFrom: previous.normalizedFrom || null,
-    recoveryOptions: Array.isArray(previous.recoveryOptions) ? previous.recoveryOptions : [],
-    currentStep: previous.currentStep || "",
-    lastProgressAt: previous.lastProgressAt || null,
-    progressEvents: Array.isArray(previous.progressEvents) ? previous.progressEvents : [],
-    attemptLedger: Array.isArray(previous.attemptLedger) ? previous.attemptLedger : [],
-    lastRunId: previous.lastRunId || null,
-    stoppedAt: previous.stoppedAt || null,
-    stopReason: previous.stopReason || "",
-    controlAlertKey: previous.controlAlertKey || ""
-  };
-}
 
 function capturedSkuLabel(sku) {
   const attributes = Object.entries(sku?.attributes || {}).map(([key, value]) => `${key}:${value}`).join(" · ");
@@ -1616,7 +1889,8 @@ function markSourceCaptureFailure(current, session, code, detail = "", observedA
     reason,
     mode: session.mode,
     jobId: session.jobStatus ? session.captureId : null,
-    jobStatus: session.jobStatus ? "failed" : null,
+    jobStatus: code === "unknown_outcome" ? "unknown_outcome" : session.jobStatus ? "failed" : null,
+    technicalStatus: code === "unknown_outcome" ? "unknown_outcome" : "failed",
     attempt: Number(session.attempt || 0),
     requiredExtensionVersion: session.requiredExtensionVersion || null,
     writeOccurred: false
@@ -1895,7 +2169,13 @@ function effectiveNeededFields(candidate) {
   ));
 }
 
-function publicCandidate(candidate, rules, queueInfo = {}, evidencePacks = []) {
+function publicCandidate(candidate, rules, queueInfo = {}, evidencePacks = [], currentCommissionCatalogs = []) {
+  const stripCaptureCredentials = capture => {
+    if (!capture) return capture;
+    const { token: _token, extensionRequest: _extensionRequest, ...publicState } = capture;
+    return publicState;
+  };
+  candidate = { ...candidate, sourceCapture: stripCaptureCredentials(candidate.sourceCapture), salesCapture: stripCaptureCredentials(candidate.salesCapture) };
   const userDecision = candidate.userEvaluation?.decision || null;
   const codexDecision = candidate.codexReview?.decision || null;
   const opinionsDiffer =
@@ -1913,20 +2193,81 @@ function publicCandidate(candidate, rules, queueInfo = {}, evidencePacks = []) {
   let evidenceContextFailure = null;
   if (realAEligible) {
     try {
+      const comparison = Array.isArray(candidate.guooRouteComparisonsV1) ? candidate.guooRouteComparisonsV1.at(-1) : null;
       evidenceCandidate = applyLifecycleBEvidenceContext(candidate, {
-        guooFilePath: process.env.SELECTION_REVIEW_GUOO_TARIFF_FILE
+        guooFilePath: runtimeConfiguration.guooTariffFile,
+        ...(comparison?.resultRevision === candidate.dataRevision && comparison.selectedRoute
+          ? { route: comparison.selectedRoute } : {})
       }).candidate;
     } catch (error) {
       evidenceContextFailure = error instanceof Error ? error.message : String(error);
     }
   }
   const systemEvidenceReadiness = realAEligible
-    ? inspectLifecycleBInputReadiness({ candidate: evidenceCandidate, evidencePacks })
+    ? inspectLifecycleBInputReadiness({ candidate: evidenceCandidate, evidencePacks, currentCommissionCatalogs })
     : null;
+  let c1KeywordSoftwarePlanningView = null;
+  if (candidate.lifecycleV11?.skuPackage?.businessPhase === "C1") {
+    const readinessReceipt = candidate.lifecycleV11?.c1KeywordPlanningProductionV1;
+    if (["not_ready", "blocked"].includes(readinessReceipt?.status) &&
+        readinessReceipt.resultCandidateRevision === candidate.dataRevision) {
+      c1KeywordSoftwarePlanningView = {
+        status: "not_ready",
+        readinessClass: readinessReceipt.status,
+        mode: null,
+        gaps: structuredClone(readinessReceipt.gaps || []),
+        providerCalls: 0,
+        automaticRetries: 0,
+        browserFallbackAllowed: false,
+        codexDispatchAllowed: false
+      };
+    } else try {
+      const plan = buildC1KeywordSoftwareJobPlan({
+        candidate,
+        expectedRevision: candidate.dataRevision,
+        plannedAt: now(),
+        existingPlan: candidate.lifecycleV11?.c1KeywordSoftwareJobPlanV1 ?? null
+      });
+      c1KeywordSoftwarePlanningView = {
+        status: plan.status,
+        readinessClass: plan.readinessClass,
+        mode: plan.mode,
+        gaps: structuredClone(plan.gaps || []),
+        providerCalls: plan.executionPolicy?.provider === "seerfar_open_api" ? 1 : 0,
+        automaticRetries: plan.executionPolicy?.automaticRetries ?? 0,
+        browserFallbackAllowed: false,
+        codexDispatchAllowed: false
+      };
+    } catch {
+      c1KeywordSoftwarePlanningView = {
+        status: "not_ready",
+        readinessClass: "planner_rejected_current_data",
+        mode: null,
+        gaps: [{ code: "planner_rejected_current_data", field: "lifecycleV11", message: "当前C1冻结数据未通过服务端计划校验" }],
+        providerCalls: 0,
+        automaticRetries: 0,
+        browserFallbackAllowed: false,
+        codexDispatchAllowed: false
+      };
+    }
+  }
+  const eReadbackRuntimeView = deRuntimeServices.readbackView(candidate);
   return {
     ...candidate,
+    c1KeywordSoftwarePlanningView,
+    c1ReviewPresentation: buildC1ReviewPresentation({ candidate, observedAt: now() }),
+    eReadbackRuntimeView,
+    productionOwnerPreparation: candidate.lifecycleV11?.skuPackage?.productionConfirmationCard
+      ? buildProductionOwnerPreparationView({ candidate, configuration: runtimeConfiguration, evidencePacks, observedAt: now() })
+      : null,
+    executionRuntimeView: buildCurrentExecutionRuntimeView(candidate),
+    bExactCommissionRuntimeView: buildBExactCommissionRuntimeView({ candidate, evidencePacks, currentCommissionCatalogs, rules, observedAt: now() }),
+    dESoftwareRuntimeView: buildDESoftwareIntegrationView({ candidate, eReadbackRuntimeView,
+      currentProductionBinding: currentProductionBinding(candidate), inspectedAt: now() }),
     lifecycleEntryPreview: realAEligible ? buildRealLifecycleEntryPreview(candidate) : null,
+    supplierImageSearchPreparation: realAEligible ? supplierImageSearchAvailability() : null,
     realAConfirmationCard: realAEligible ? buildRealAConfirmationCard(candidate, {
+      costPolicyReadiness: inspectLifecycleBCostReadiness({ candidate: evidenceCandidate, rules, asOf: now() }),
       systemEvidenceReadiness: evidenceContextFailure ? {
         ...systemEvidenceReadiness,
         contextFailure: evidenceContextFailure
@@ -1934,10 +2275,11 @@ function publicCandidate(candidate, rules, queueInfo = {}, evidencePacks = []) {
       systemEvidencePreparationPlan: buildLifecycleBEvidencePreparationPlan({
         candidate: evidenceCandidate,
         evidencePacks,
+        currentCommissionCatalogs,
         plannedAt: systemEvidenceReadiness.checkedAt
       })
     }) : null,
-    processingStatus: processingStatusSummary(candidate, new Date(), queueInfo),
+    processingStatus: currentProcessingStatusSummary(candidate, { queueInfo }),
     owner:
       ["listing_preparation", "ready_to_list", "listed"].includes(candidate.workflowStatus)
         ? "listing_task"
@@ -1962,20 +2304,451 @@ function publicCandidate(candidate, rules, queueInfo = {}, evidencePacks = []) {
   };
 }
 
-function responseState(data) {
+function projectC1PaidKeywordSoftwareJob(candidate, runtime) {
+  const ref = candidate?.lifecycleV11?.c1PaidKeywordEvidenceJobRefV1;
+  if (!ref || ref.jobType !== "c1_paid_keyword_evidence") return null;
+  const job = (runtime?.softwareJobs || []).find((entry) =>
+    entry.jobId === ref.jobId &&
+    entry.jobType === ref.jobType &&
+    entry.candidateId === ref.candidateId &&
+    entry.skuPackageId === ref.skuPackageId &&
+    entry.revision === ref.resultRevision
+  );
+  if (!job) {
+    return {
+      schemaVersion: "c1-paid-keyword-software-job-view-v1",
+      jobRef: structuredClone(ref),
+      status: "not_found",
+      externalRequestState: "not_sent",
+      jobId: ref.jobId,
+      failureClass: "software_job_not_found",
+      automaticRetryAllowed: false
+    };
+  }
+  const activeExecution = keywordEvidenceRuntimeServices.activeExecution;
+  const admissionFailure = keywordEvidenceRuntimeServices.lastAdmissionRejection;
+  return {
+    schemaVersion: "c1-paid-keyword-software-job-view-v1",
+    jobRef: structuredClone(ref),
+    jobId: job.jobId,
+    status: job.status,
+    currentExecutionConfirmed: activeExecution?.jobId === job.jobId &&
+      activeExecution.workerId === job.workerId && activeExecution.leaseId === job.leaseId &&
+      Date.parse(job.leaseExpiresAt) > Date.parse(now()) && ["claimed", "waiting_platform"].includes(job.status),
+    serviceStatus: keywordEvidenceRuntimeServices.status,
+    admissionFailure: admissionFailure?.jobId === job.jobId ? admissionFailure : null,
+    externalRequestState: job.externalRequestState,
+    requestedByUserId: job.requestedByUserId,
+    ownerUserId: job.ownerUserId,
+    workerId: job.workerId,
+    createdAt: job.createdAt,
+    startedAt: job.startedAt,
+    completedAt: job.completedAt,
+    failureClass: job.failureClass,
+    automaticRetryAllowed: job.automaticRetryAllowed === true
+  };
+}
+
+function aiFailureDisposition(error) {
+  const code = String(error?.code || "A_TERRA_UNEXPECTED_FAILURE");
+  const layer = String(error?.layer || "integration");
+  if (code === "MODEL_OUTPUT_SCHEMA_MISMATCH" || layer === "output_schema" || layer === "receipt") {
+    return { type: "exception_case", reasonCode: "output_schema_mismatch" };
+  }
+  const unknownOutcome = Boolean(error?.jobId) && ["gateway_status", "inference"].includes(layer);
+  return {
+    type: "technical_failure",
+    kind: unknownOutcome ? "unknown_outcome" : "external_dependency"
+  };
+}
+
+async function enrichCapturedSalesSnapshotWithTerra(candidateId, expectedRevision, snapshotId) {
+  const snapshotData = await readData();
+  const source = snapshotData.candidates.find((item) => item.id === candidateId);
+  if (!source || Number(source.dataRevision) !== Number(expectedRevision)) {
+    throw httpError(409, "销售快照保存后商品资料发生变化，Terra辅助整理未启动");
+  }
+  const salesSnapshot = (source.salesSnapshotsV11 || []).find((item) => item.snapshotId === snapshotId);
+  if (!salesSnapshot) throw httpError(409, "刚保存的销售快照不存在，Terra辅助整理未启动");
+  if ((salesSnapshot.auxiliaryDrafts || []).some((item) => item.provider === "terra")) {
+    return publicCandidate(source, snapshotData.rules, {}, snapshotData.evidencePacks || [], snapshotData.currentCommissionCatalogs ?? []);
+  }
+
+  let assisted;
+  try {
+    assisted = await runAStageTerraAssist({
+      candidate: source,
+      snapshot: salesSnapshot,
+      gatewayUrl: aiGatewayUrl,
+      gatewayDeploymentMode: aiGatewayDeploymentMode
+    });
+  } catch (error) {
+    const failure = error instanceof AStageTerraGatewayError
+      ? error
+      : new AStageTerraGatewayError("A_TERRA_UNEXPECTED_FAILURE", "integration", String(error?.message || error));
+    return mutateData((data) => {
+      const current = data.candidates.find((item) => item.id === candidateId);
+      if (!current) throw httpError(404, "候选不存在");
+      if (Number(current.dataRevision) !== Number(expectedRevision)) {
+        throw httpError(409, "Terra失败回写前商品资料已变化，本轮异常状态未覆盖新数据");
+      }
+      const timestamp = now();
+      const base = current.executionRuntime || createSoftwareExecutionRuntime({
+        candidateId: current.id,
+        dataRevision: current.dataRevision,
+        businessPhase: "A",
+        stepId: "A_TERRA_SALES_ASSIST",
+        at: timestamp
+      });
+      const disposition = aiFailureDisposition(failure);
+      current.executionRuntime = disposition.type === "exception_case"
+        ? openExceptionCase(base, {
+          exceptionId: `exception:${current.id}:${current.dataRevision}:a-terra`,
+          reasonCode: disposition.reasonCode,
+          failureLayer: failure.layer || "integration",
+          evidenceRefs: [salesSnapshot.evidenceRef],
+          softwareJobId: failure.jobId || null,
+          sourceRevision: current.dataRevision,
+          at: timestamp
+        })
+        : blockExecutionForTechnicalFailure(base, {
+          failureId: `technical-failure:${current.id}:${current.dataRevision}:a-terra`,
+          kind: disposition.kind,
+          errorCode: failure.code,
+          failureLayer: failure.layer || "integration",
+          evidenceRefs: [salesSnapshot.evidenceRef],
+          softwareJobId: failure.jobId || null,
+          sourceRevision: current.dataRevision,
+          at: timestamp
+        });
+      current.aStageAi = {
+        status: "failed",
+        taskType: "sales_comparability_assist",
+        model: "gpt-5.6-terra",
+        jobId: failure.jobId || null,
+        attempt: 1,
+        failure: {
+          code: failure.code,
+          layer: failure.layer,
+          safeMessageKey: disposition.type === "exception_case"
+            ? `exception.${disposition.reasonCode}`
+            : `technical_failure.${disposition.kind}`
+        },
+        businessStateEffect: "unchanged",
+        stoppedAt: timestamp
+      };
+      current.dataRevision += 1;
+      current.updatedAt = timestamp;
+      current.lastModifiedBy = "system";
+      addHistory(current, "system", "aTerraAssistFailed", `Terra辅助整理在${failure.layer}层停止；A阶段业务结论未改变，未换模型、未重试`, timestamp);
+      return publicCandidate(current, data.rules, {}, data.evidencePacks || [], data.currentCommissionCatalogs ?? []);
+    });
+  }
+
+  return mutateData((data) => {
+    const current = data.candidates.find((item) => item.id === candidateId);
+    if (!current) throw httpError(404, "候选不存在");
+    if (Number(current.dataRevision) !== Number(expectedRevision)) {
+      throw httpError(409, "Terra结果返回前商品资料已变化，本轮结果未保存");
+    }
+    const index = (current.salesSnapshotsV11 || []).findIndex((item) => item.snapshotId === snapshotId);
+    if (index < 0) throw httpError(409, "Terra结果对应的销售快照不存在");
+    const timestamp = assisted.receipt.completedAt || now();
+    current.salesSnapshotsV11[index] = structuredClone(assisted.snapshot);
+    const base = current.executionRuntime || createSoftwareExecutionRuntime({
+      candidateId: current.id,
+      dataRevision: current.dataRevision,
+      businessPhase: "A",
+      stepId: "A_TERRA_SALES_ASSIST",
+      at: timestamp
+    });
+    const running = startThirdPartyAiStep(base, {
+      stepId: "A_TERRA_SALES_ASSIST",
+      inputRevision: current.dataRevision,
+      inferenceJobId: assisted.jobId,
+      at: assisted.receipt.requestedAt || timestamp
+    });
+    current.executionRuntime = completeExecutionStep(running, {
+      outputRevision: current.dataRevision + 1,
+      inferenceReceiptId: assisted.receiptId,
+      at: timestamp
+    });
+    current.inferenceReceiptsV1 ||= [];
+    if (!current.inferenceReceiptsV1.some((item) => item.receiptId === assisted.receiptId)) {
+      current.inferenceReceiptsV1.push({
+        receiptId: assisted.receiptId,
+        jobId: assisted.jobId,
+        model: "gpt-5.6-terra",
+        taskType: "sales_comparability_assist",
+        attempt: 1,
+        evidenceRefs: structuredClone(assisted.receipt.evidenceRefs || []),
+        requestHash: assisted.receipt.requestHash,
+        outputSchemaHash: assisted.receipt.outputSchemaHash || null,
+        validation: structuredClone(assisted.receipt.validation),
+        usage: assisted.receipt.usage ?? "unknown",
+        completedAt: timestamp
+      });
+    }
+    current.aStageAi = {
+      status: "completed",
+      taskType: "sales_comparability_assist",
+      model: "gpt-5.6-terra",
+      jobId: assisted.jobId,
+      receiptId: assisted.receiptId,
+      attempt: 1,
+      authoritative: false,
+      businessStateEffect: "unchanged",
+      completedAt: timestamp
+    };
+    current.dataRevision += 1;
+    current.updatedAt = timestamp;
+    current.lastModifiedBy = "system";
+    addHistory(current, "system", "aTerraAssistCompleted", "Terra已基于公开销售快照生成不可覆盖真实字段的A阶段辅助草稿；未作商业决定、未唤醒Codex", timestamp);
+    return publicCandidate(current, data.rules, {}, data.evidencePacks || [], data.currentCommissionCatalogs ?? []);
+  });
+}
+
+async function continueC1SoftwareWhenEvidenceReady(candidateId, expectedRevision, { reportConfigurationBlock = false } = {}) {
+  const snapshotData = await readData();
+  let source = snapshotData.candidates.find((item) => item.id === candidateId);
+  if (!source || Number(source.dataRevision) !== Number(expectedRevision)) {
+    throw new C1KeywordContinuationRevisionConflictError();
+  }
+  if (!source.lifecycleV11?.c1KeywordPlanningEvidenceV1) {
+    const producedAt = now();
+    const planning = await runC1KeywordPlanningEvidenceProduction({
+      repository: businessStateRepository,
+      runtimeMode: runtimeConfiguration.deploymentMode,
+      actor: createActorContext({
+        userId: "selection-review-software",
+        sessionId: `c1-keyword-planning:${source.id}:${source.dataRevision}`,
+        actorType: "software",
+        roles: ["operator"],
+        source: "selection_review_state_machine",
+        authenticatedAt: producedAt
+      }),
+      candidateId: source.id,
+      expectedRevision: source.dataRevision,
+      producedAt,
+      codexOffline: true
+    });
+    if (["committed", "already_current", "idempotent_replay"].includes(planning.status)) {
+      source = planning.candidate;
+      // Planning alone grants no paid permission. The configured keyword worker consumes only separately authorized jobs.
+      return publicCandidate(source, snapshotData.rules, {}, snapshotData.evidencePacks || [], snapshotData.currentCommissionCatalogs ?? []);
+    }
+    return publicCandidate(source, snapshotData.rules, {}, snapshotData.evidencePacks || [], snapshotData.currentCommissionCatalogs ?? []);
+  }
+  const skuPackage = source.lifecycleV11?.skuPackage;
+  const evidence = source.lifecycleV11?.c1SoftwareEvidenceV1;
+  if (!skuPackage || !evidence || skuPackage.businessPhase !== "C1") {
+    return publicCandidate(source, snapshotData.rules, {}, snapshotData.evidencePacks || [], snapshotData.currentCommissionCatalogs ?? []);
+  }
+  if (skuPackage.c1ProductPlan?.status === "seo_draft_ready") {
+    return publicCandidate(source, snapshotData.rules, {}, snapshotData.evidencePacks || [], snapshotData.currentCommissionCatalogs ?? []);
+  }
+  try {
+    const savedJobRef = source.lifecycleV11.c1AiDraftJobRefV1;
+    if (savedJobRef) {
+      await c1DraftRuntimeServices.continueSavedCurrent({ candidateId, expectedRevision: savedJobRef.resultRevision, jobId: savedJobRef.jobId });
+    } else if (!source.lifecycleV11.c1AiDraftRequestV1) {
+      await c1DraftRuntimeServices.prepareCurrent({
+        actor: createActorContext({ userId: "selection-review-software", sessionId: `c1-draft-prepare:${candidateId}:${source.dataRevision}`,
+          actorType: "software", roles: ["operator"], source: "selection_review_state_machine", authenticatedAt: now() }),
+        input: { candidateId, expectedRevision: source.dataRevision,
+          idempotencyKey: `c1-draft-prepare:${candidateId}:${source.dataRevision}`, auditEventId: `c1-draft-prepare-audit:${candidateId}:${source.dataRevision}` }
+      });
+    }
+  } catch (error) {
+    // Configuration is a visible technical prerequisite; an earlier saved owner
+    // decision must not be reported as rolled back merely because it is missing.
+    if (error instanceof C1DraftRuntimeUnavailableError && reportConfigurationBlock) return { status: "blocked", failureClass: "C1_DRAFT_RUNTIME_UNAVAILABLE" };
+    if (error instanceof C1DraftRuntimeUnavailableError) return {
+      ...publicCandidate(source, snapshotData.rules, {}, snapshotData.evidencePacks || [], snapshotData.currentCommissionCatalogs ?? []),
+      c1DraftRuntimeView: buildC1DraftRuntimeView({ candidate: source, runtime: snapshotData.runtime,
+        serviceBindings: runtimeConfiguration.c1DraftServiceBindings, observedAt: now() })
+    };
+    throw error;
+  }
+  const saved = await readData();
+  const current = saved.candidates.find(item => item.id === candidateId);
+  if (!current) throw httpError(404, "候选不存在");
+  return publicCandidate(current, saved.rules, {}, saved.evidencePacks || [], saved.currentCommissionCatalogs ?? []);
+}
+
+async function prepareAndContinueC1FactKeywordEvidence(candidateId, input, { triggerReceipt = null } = {}) {
+  const snapshotData = await readData();
+  const source = snapshotData.candidates.find((item) => item.id === candidateId);
+  if (!source) throw httpError(404, "候选不存在");
+  if (Number(source.dataRevision) !== Number(input.dataRevision)) {
+    throw httpError(409, "C1事实与关键词流水线启动前商品资料已变化，请刷新后重新生成当前证据");
+  }
+  const skuPackage = source.lifecycleV11?.skuPackage;
+  if (!skuPackage || skuPackage.businessPhase !== "C1") {
+    throw httpError(409, "当前商品没有可进入C1事实与关键词流水线的冻结SKU包");
+  }
+  if (source.lifecycleV11?.c1SoftwareEvidenceV1) {
+    return continueC1SoftwareWhenEvidenceReady(candidateId, source.dataRevision);
+  }
+
+  const timestamp = now();
+  let prepared;
+  try {
+    prepared = await prepareC1FactKeywordRuntime({
+      candidateId,
+      skuPackage,
+      input,
+      preparedAt: timestamp,
+      existingEvidence: null
+    });
+  } catch (error) {
+    throw httpError(422, String(error?.message || error));
+  }
+  if (prepared.result.status !== "ready_for_atomic_persist") {
+    const reason = prepared.result.gaps?.map((item) => item.message).filter(Boolean).join("；") || "C1事实或关键词证据尚未完整";
+    throw httpError(422, `C1_FACT_KEYWORD_NOT_READY: ${reason}`);
+  }
+
+  const staged = await mutateData((data) => {
+    const current = data.candidates.find((item) => item.id === candidateId);
+    if (!current) throw httpError(404, "候选不存在");
+    if (Number(current.dataRevision) !== Number(input.dataRevision)) {
+      throw httpError(409, "C1事实与关键词结果返回前商品资料已变化，本轮没有保存任何证据");
+    }
+    const currentSku = current.lifecycleV11?.skuPackage;
+    if (!currentSku || currentSku.skuPackageId !== skuPackage.skuPackageId ||
+        currentSku.dataRevision !== skuPackage.dataRevision) {
+      throw httpError(409, "C1事实与关键词结果对应的SKU包已经变化，本轮没有保存任何证据");
+    }
+    const patch = buildC1FactKeywordAtomicPatch({
+      candidate: current,
+      expectedRevision: input.dataRevision,
+      sourceSkuPackage: skuPackage,
+      prepared,
+      triggerReceipt,
+      stagedAt: timestamp
+    });
+    current.lifecycleV11 = patch.lifecycleV11;
+    current.listingPreparation = patch.listingPreparation;
+    current.processing = { ...queuedProcessing(current.processing), ...patch.processing };
+    current.dataRevision = patch.nextRevision;
+    current.updatedAt = patch.updatedAt;
+    current.lastModifiedBy = patch.lastModifiedBy;
+    addHistory(current, "system", "c1FactKeywordEvidenceAtomicallyStaged", "C1事实、关键词来源、K3评分与软件证据已一次性保存；未派发Codex、未访问销售或供应平台、未进入C2/D/E", timestamp);
+    return { nextRevision: current.dataRevision };
+  });
+  return continueC1SoftwareWhenEvidenceReady(candidateId, staged.nextRevision);
+}
+
+async function continueC1FromKeywordEvidenceReadyEvent(candidateId, event) {
+  const snapshotData = await readData();
+  const source = snapshotData.candidates.find((item) => item.id === candidateId);
+  if (!source) throw httpError(404, "候选不存在");
+  let accepted;
+  try {
+    accepted = acceptC1KeywordEvidenceReadyEvent({ candidate: source, event, acceptedAt: now() });
+  } catch (error) {
+    throw httpError(409, String(error?.message || error));
+  }
+  if (accepted.status === "idempotent_replay") {
+    return publicCandidate(source, snapshotData.rules, {}, snapshotData.evidencePacks || [], snapshotData.currentCommissionCatalogs ?? []);
+  }
+  return prepareAndContinueC1FactKeywordEvidence(candidateId, accepted.runtimeInput, {
+    triggerReceipt: accepted.triggerReceipt
+  });
+}
+
+async function runC1KeywordEvidenceSoftwareJob(candidateId, input, request) {
+  const timestamp = now();
+  const snapshot = await readData();
+  const source = snapshot.candidates.find((item) => item.id === candidateId);
+  if (!source) throw httpError(404, "候选不存在");
+  const actor = runtimeIdentityProvider.resolveActor({ request });
+  let outcome;
+  try {
+    outcome = await enqueueC1PaidKeywordEvidenceJob({
+      repository: businessStateRepository,
+      runtimeMode: "local_development",
+      actor,
+      candidateId,
+      expectedRevision: source.dataRevision,
+      clientInput: input,
+      serverTime: timestamp,
+      serverClock: () => now(),
+      // This schema has one shared Seerfar service; the job separately locks its exact store scope.
+      allowedWorkerIds: runtimeConfiguration.keywordEvidenceServiceBindings.map(binding => binding.workerId)
+    });
+  } catch (error) {
+    const message = String(error?.message || error);
+    throw httpError(message.includes("CLIENT_INPUT_REJECTED") ? 400 : message.includes("REVISION_CONFLICT") ? 409 : 422, message);
+  }
+  if (outcome.status === "reuse_ready") {
+    return prepareAndContinueC1FactKeywordEvidence(candidateId, outcome.reuseInput);
+  }
+  if (outcome.status === "not_ready") {
+    throw httpError(422, "C1_KEYWORD_SOFTWARE_NOT_READY: 服务端冻结证据尚未达到执行门槛", {
+      readinessClass: outcome.readinessClass,
+      gaps: outcome.gaps
+    });
+  }
+  const data = await readData();
+  const current = data.candidates.find((item) => item.id === candidateId);
+  if (!current) throw httpError(404, "候选不存在");
+  return publicCandidate(current, data.rules, {}, data.evidencePacks || [], data.currentCommissionCatalogs ?? []);
+}
+
+function currentProductionBinding(candidate) {
+  const bindingId = candidate.lifecycleV11?.skuPackage?.productionAuthorization?.executionBinding?.bindingId;
+  return runtimeConfiguration.productionBindings.find(binding => binding.bindingId === bindingId);
+}
+
+function savedDEJobView(candidate, runtime) {
+  const view = buildDESavedJobRuntimeView({ candidate, runtime: { ...runtime, workers: workerRegistry.snapshot() },
+    serviceBindings: runtimeConfiguration.deServiceBindings, productionBindings: runtimeConfiguration.productionBindings,
+    dependencyView: deRuntimeServices.dependencyView, observedAt: now() });
+  return ozonAccountReadServices.gateSavedView({ candidate, document: { candidates: [candidate], runtime }, view });
+}
+
+function publicSavedDECandidate(candidate, data) {
+  return { ...publicCandidate(candidate, data.rules, {}, data.evidencePacks || [], data.currentCommissionCatalogs ?? []),
+    dESavedJobRuntimeView: savedDEJobView(candidate, data.runtime),
+    ozonAccountReadPreparation: ozonAccountReadServices.preparation({ candidate, document: data }) };
+}
+
+function responseState(data, request) {
   const rules = data.rules || DEFAULT_RULES;
   const dispatch = dispatchQueueSummary(data.candidates, new Date(), automationConcurrencyLimit);
-    const candidates = data.candidates.map((candidate) => {
+  for (const id of currentMaintenanceDispatchIds) {
+    const record = data.dispatches.find(item => item.id === id);
+    if (!record || !ACTIVE_DISPATCH_STATES.has(record.status)) currentMaintenanceDispatchIds.delete(id);
+  }
+  const candidates = data.candidates.map((candidate) => {
     const publicValue = publicCandidate(
       candidate,
       rules,
       dispatch.positions[candidate.id] || {},
-      data.evidencePacks || []
+      data.evidencePacks || [],
+      data.currentCommissionCatalogs ?? []
     );
     const activeDispatch = activeDispatchForCandidate(data, candidate.id);
     const latestDispatch = latestDispatchForCandidate(data, candidate.id);
+    const runtime = candidate.executionRuntime;
+    const activeExecutionReference = activeDispatch && runtime ? {
+      status: activeDispatch.status,
+      candidateId: candidate.id, candidateRevision: candidate.dataRevision, stepId: runtime.stepId,
+      inputRevision: runtime.inputRevision, updatedAt: runtime.updatedAt,
+      inferenceJobId: runtime.inferenceJobId, exceptionTurnId: activeDispatch.turnId
+    } : null;
     return {
       ...publicValue,
+      executionRuntimeView: buildCurrentExecutionRuntimeView(candidate, { activeExecutionReference }),
+      processingStatus: currentProcessingStatusSummary(candidate, { activeDispatch, queueInfo: dispatch.positions[candidate.id] || {} }),
+      c1PaidKeywordSoftwareJob: projectC1PaidKeywordSoftwareJob(candidate, data.runtime),
+      c1DraftRuntimeView: buildC1DraftRuntimeView({ candidate, runtime: data.runtime,
+        serviceBindings: runtimeConfiguration.c1DraftServiceBindings, observedAt: now() }),
+      dESavedJobRuntimeView: savedDEJobView(candidate, data.runtime),
+      ozonAccountReadPreparation: ozonAccountReadServices.preparation({ candidate, document: data }),
+      currentSourceCapture: currentSourceCaptureForCandidate(candidate),
       activeDispatch: dispatchPublic(activeDispatch),
       latestDispatch: dispatchPublic(latestDispatch)
     };
@@ -1985,11 +2758,34 @@ function responseState(data) {
     rules,
     extensionHeartbeat: extensionHeartbeatSnapshot(),
     captureControl: captureControlSnapshot(),
+    runtimeArchitecture: {
+      ...runtimeArchitecture,
+      c1DraftServices: c1DraftRuntimeServices.configurationView,
+      currentUser: (() => {
+        const access = runtimeIdentityProvider.publicAccessState({ request });
+        if (access.status !== "authenticated" && access.status !== "development_only") return {
+          userId: null, roles: [], authenticated: false, canSaveProductionOwnerDecision: false, canSaveC1RightsReview: false, canAuthorizeC1PaidCall: false, canAuthorizeProduction: false
+        };
+        const actor = runtimeIdentityProvider.resolveActor({ request });
+        const authenticated = actor.source === "authenticated_identity_provider" && actor.actorType === "human";
+        return { userId: actor.userId, roles: actor.roles, authenticated,
+          canSaveProductionOwnerDecision: authenticated && actor.roles.includes("owner"),
+          canSaveC1RightsReview: authenticated && actor.roles.includes("owner"),
+          canAuthorizeC1PaidCall: authenticated && actor.roles.includes("owner"),
+          canAuthorizeProduction: authenticated && actor.roles.includes("owner") };
+      })(),
+      workers: workerRegistry.snapshot().map((worker) => ({
+        workerId: worker.workerId,
+        capabilities: worker.capabilities,
+        status: worker.status,
+        heartbeatCurrent: worker.heartbeatCurrent
+      }))
+    },
     summary: {
       ...dailySummary(data.candidates, rules),
       dispatch: {
         ...dispatch,
-        processingCounts: collaborationSummary(data, dispatch.processingCounts)
+        processingCounts: collaborationSummary(data, dispatch.processingCounts, { activeDispatchIds: currentMaintenanceDispatchIds })
       },
       controlAlertsPending: (data.controlAlerts || []).filter((item) => !item.acknowledgedAt).length
     },
@@ -2013,67 +2809,50 @@ function validateStore(store) {
   }
 }
 
-function initialCandidate(input, source, id, timestamp) {
-  return {
-    id,
-    source,
-    group: source === "user" ? "userAdded" : input.group || "evergreen",
-    targetStore: input.targetStore,
-    productName: input.productName?.trim() || (source === "user" ? "用户添加的待识别商品" : "Codex新增候选"),
-    productUrl: input.productUrl?.trim() || "",
-    sourceUrl: input.sourceUrl?.trim() || "",
-    competitorUrl: input.competitorUrl?.trim() || "",
-    purchasePriceRmb: input.purchasePriceRmb ?? null,
-    domesticShippingRmb: input.domesticShippingRmb ?? null,
-    packagingCostRmb: input.packagingCostRmb ?? DEFAULT_PACKAGING_COST_RMB,
-    moq: input.moq ?? null,
-    netWeightKg: input.netWeightKg ?? null,
-    packedWeightKg: input.packedWeightKg ?? null,
-    dimensionsCm: input.dimensionsCm || { length: null, width: null, height: null },
-    materialsAndAge: input.materialsAndAge?.trim() || "",
-    powered: input.powered ?? "unknown",
-    complianceStatus: input.complianceStatus || "clear",
-    authorizationStatus: input.authorizationStatus || "clear",
-    expectedPriceRub: input.expectedPriceRub ?? null,
-    sellerRevenueCny: input.sellerRevenueCny ?? null,
-    purchaseCeiling: input.purchaseCeiling || {
-      status: "unavailable",
-      scope: "purchase_plus_domestic_shipping",
-      missing: ["Codex尚未完成方向采购价反算"]
-    },
-    acceptedTestRisk: input.acceptedTestRisk === true,
-    imageUrl: input.imageUrl?.trim() || "",
-    notes: input.notes?.trim() || "",
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    reviewedAt: null,
-    lastModifiedBy: source,
-    userEvaluation: null,
-    codexReview: null,
-    comments: [],
-    history: [],
-    workflowStatus: source === "user" ? "codex_processing" : "awaiting_user_direction",
-    processing:
-      source === "user"
-        ? queueUserDispatch({}, timestamp, "candidate_entry_auto")
-        : { ...queuedProcessing(), state: "idle" },
-    dataRevision: 1,
-    selectionDate: businessDate(timestamp),
-    readyAt: null,
-    bPassedAt: null,
-    cCompletedAt: null,
-    listingPreparation: null,
-    defaultStock: 100,
-    eliminatedAt: null,
-    eliminationReason: "",
-    wbAssessment: null,
-    sourceSearchAttempts: Number(input.sourceSearchAttempts || 0),
-    sourceSearchAttemptLimit: 3
-  };
-}
 
 async function handleApi(req, res, pathname) {
-  if (req.method === "OPTIONS" && (pathname === "/api/extension/heartbeat" || /^\/api\/candidates\/[^/]+\/(?:source-capture|sales-capture)\/result$/.test(pathname))) {
+  assertTrustedApiRequest({
+    method: req.method,
+    pathname,
+    headers: req.headers,
+    trustedServiceOrigins: [...trustedServiceOrigins],
+    allowedReviewOrigins: [...allowedReviewOrigins],
+    allowedExtensionOrigins: [...allowedExtensionOrigins],
+    internalRequestToken: internalApiRequestToken
+  });
+  if (pathname === "/api/owner-access" && req.method === "GET") {
+    return json(res, 200, runtimeIdentityProvider.publicAccessState({ request: req }));
+  }
+  const ownerAccessAction = pathname.match(/^\/api\/owner-access\/(setup|login|logout)$/);
+  if (ownerAccessAction && req.method === "POST") {
+    // Authentication endpoints accept the review page, never an internal-token bypass.
+    assertTrustedApiRequest({ method: req.method, pathname, headers: req.headers,
+      trustedServiceOrigins: [...trustedServiceOrigins], allowedReviewOrigins: [...allowedReviewOrigins] });
+    if (runtimeIdentityProvider.providerType !== "local_owner_password") {
+      return json(res, 503, { code: "owner_identity_not_configured", message: "本地主人登录尚未配置。" });
+    }
+    const input = await readJsonRequestBody(req, { maxBytes: 8192, requireJsonContentType: true });
+    const action = ownerAccessAction[1];
+    const fields = action === "logout" ? [] : ["password"];
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== fields.length ||
+        fields.some(field => !Object.hasOwn(input, field)) || (action !== "logout" && typeof input.password !== "string")) {
+      throw httpError(400, "登录请求字段无效", { code: "owner_identity_input_invalid" });
+    }
+    const result = action === "setup" ? await runtimeIdentityProvider.setup(input)
+      : action === "login" ? await runtimeIdentityProvider.login(input) : runtimeIdentityProvider.logout({ request: req });
+    const access = action === "logout" ? runtimeIdentityProvider.publicAccessState({}) : {
+      providerType: runtimeIdentityProvider.providerType, status: "authenticated", user: { userId: result.actor.userId }
+    };
+    return json(res, 200, access, { "Set-Cookie": result.setCookie });
+  }
+  const extensionCallback = pathname === "/api/extension/heartbeat" ||
+    /^\/api\/extension\/capture-jobs\/[A-Za-z0-9_-]{1,160}\/claim$/.test(pathname) ||
+    /^\/api\/candidates\/[^/]+\/(?:source-capture|sales-capture)\/result$/.test(pathname);
+  if (runtimeIdentityProvider.providerType === "local_owner_password" && ["POST", "PUT", "PATCH", "DELETE"].includes(req.method) &&
+      !extensionCallback && !isTrustedInternalApiRequest(req.headers, internalApiRequestToken)) {
+    runtimeIdentityProvider.resolveActor({ request: req, touch: true });
+  }
+  if (req.method === "OPTIONS" && (pathname === "/api/extension/heartbeat" || /^\/api\/extension\/capture-jobs\/[A-Za-z0-9_-]{1,160}\/claim$/.test(pathname) || /^\/api\/candidates\/[^/]+\/(?:source-capture|sales-capture)\/result$/.test(pathname))) {
     const headers = chromeExtensionCors(req);
     if (!headers["Access-Control-Allow-Origin"]) throw httpError(403, "只接受本机Chrome扩展回传");
     res.writeHead(204, headers);
@@ -2084,13 +2863,20 @@ async function handleApi(req, res, pathname) {
     const headers = chromeExtensionCors(req);
     if (!headers["Access-Control-Allow-Origin"]) throw httpError(403, "只接受本机Chrome扩展心跳");
     const heartbeat = recordExtensionHeartbeat(await requestBody(req));
-    const claim = heartbeat.backgroundReady
-      ? await claimPendingASupplierCaptureJob(heartbeat.version, String(req.headers.origin || ""))
-      : { captureJob: null, jobNotice: null };
-    return json(res, 200, { accepted: true, heartbeat, ...claim }, headers);
+    return json(res, 200, { accepted: true, heartbeat, captureJob: null, jobNotice: null }, headers);
+  }
+  const captureClaimRoute = pathname.match(/^\/api\/extension\/capture-jobs\/([A-Za-z0-9_-]{1,160})\/claim$/);
+  if (req.method === "POST" && captureClaimRoute) {
+    const headers = chromeExtensionCors(req);
+    if (!headers["Access-Control-Allow-Origin"]) throw httpError(403, "只接受已配置的Chrome扩展领取作业");
+    const input = await requestBody(req);
+    if (Object.keys(input).length !== 1 || typeof input.version !== "string" || !/^\d+\.\d+\.\d+$/.test(input.version)) {
+      throw httpError(400, "领取请求必须只包含插件版本", { code: "capture_claim_invalid" });
+    }
+    const claim = await claimASupplierCaptureJob(captureClaimRoute[1], input.version, String(req.headers.origin));
+    return json(res, 200, { accepted: true, ...claim }, headers);
   }
   if (req.method === "GET" && pathname === "/api/health") {
-    await fs.access(dataFile);
     const data = await readData();
     return json(res, 200, {
       ok: true,
@@ -2105,6 +2891,19 @@ async function handleApi(req, res, pathname) {
 
   if (req.method === "GET" && pathname === "/api/simulations/phase-2a") {
     return json(res, 200, { card: phase2ADemoCard() });
+  }
+
+  if (req.method === "GET" && pathname === "/api/simulations/software-execution") {
+    return json(res, 200, {
+      result: simulateNormalSoftwarePath(),
+      persistence: {
+        sharedCandidatesWritten: 0,
+        dispatchesCreated: 0,
+        codexTasksWoken: 0,
+        platformAccesses: 0,
+        platformWrites: 0
+      }
+    });
   }
 
   if (req.method === "POST" && pathname === "/api/simulations/phase-2a/confirm") {
@@ -2123,7 +2922,116 @@ async function handleApi(req, res, pathname) {
   }
 
   if (req.method === "GET" && pathname === "/api/state") {
-    return json(res, 200, responseState(await readData()));
+    return json(res, 200, responseState(await readData(), req));
+  }
+
+  const aDiscoveryRoute = pathname.match(/^\/api\/product-discovery\/(create|authorize|continue)$/);
+  if (req.method === 'GET' && pathname === '/api/product-discovery' || req.method === 'POST' && aDiscoveryRoute) {
+    const actor = runtimeIdentityProvider.resolveActor({request:req});
+    if (actor.source !== 'authenticated_identity_provider' || actor.actorType !== 'human' || !actor.roles.includes('owner')) {
+      throw httpError(403, '请先登录主人身份后查看商品发现计划。');
+    }
+    try {
+      let operationResult = null;
+      if (req.method === 'POST') {
+        const input = await readJsonRequestBody(req, {maxBytes:8192,requireJsonContentType:true});
+        const actions = {create:'createBatch',authorize:'authorizeAndRun',continue:'continueSavedCurrent'};
+        operationResult = await aDiscoveryRuntime[actions[aDiscoveryRoute[1]]]({actor,input});
+      }
+      const document = await readData();
+      return json(res,200,{...aDiscoveryRuntime.view({document,actor}),operationResult});
+    } catch (error) {
+      if (!(error instanceof ADiscoveryError)) throw error;
+      const status = error.code === 'SERVICE_NOT_CONFIGURED' ? 503 :
+        ['INPUT_INVALID','PLAN_INVALID','IMPORT_INPUT_INVALID'].includes(error.code) ? 400 : 409;
+      return json(res,status,{code:error.code,message:'商品发现未继续，请核对当前计划、批次版本及已保存的执行结果。'});
+    }
+  }
+
+  const imageSearchRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/supplier-image-search(?:\/(authorize))?$/);
+  if (imageSearchRoute && (req.method === 'GET' && !imageSearchRoute[2] || req.method === 'POST' && imageSearchRoute[2])) {
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== 'authenticated_identity_provider' || actor.actorType !== 'human' || !actor.roles.includes('owner')) {
+      throw httpError(403, '请先登录主人身份后查看1688图搜准备。');
+    }
+    try {
+      const candidateId = decodeURIComponent(imageSearchRoute[1]);
+      const document = await readData();
+      const input = req.method === 'POST'
+        ? await readJsonRequestBody(req, { maxBytes: 8192, requireJsonContentType: true })
+        : { candidateId, expectedRevision: new URL(req.url, runtimeConfiguration.publicOrigin).searchParams.get('revision') };
+      if (req.method === 'GET') {
+        if (!/^(0|[1-9][0-9]*)$/.test(input.expectedRevision ?? '')) throw new SupplierImageSearchPreparationError('INPUT_INVALID');
+        input.expectedRevision = Number(input.expectedRevision);
+      }
+      if (input === null || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 2 ||
+          !Object.hasOwn(input, 'candidateId') || !Object.hasOwn(input, 'expectedRevision')) {
+        throw new SupplierImageSearchPreparationError('INPUT_INVALID');
+      }
+      if (input?.candidateId !== candidateId) throw new SupplierImageSearchPreparationError('INPUT_INVALID');
+      const preparationInput = { document, actor, candidateId, expectedRevision: input.expectedRevision };
+      if (req.method === 'POST') requireSupplierImageSearchPreparation(preparationInput);
+      return json(res, 200, readSupplierImageSearchPreparation(preparationInput));
+    } catch (error) {
+      if (!(error instanceof SupplierImageSearchPreparationError)) throw error;
+      return json(res, error.code === 'PAGE_CONTRACT_UNCONFIGURED' ? 503 : error.code === 'INPUT_INVALID' ? 400 : 409,
+        { code: error.code, message: '1688图搜尚未就绪；没有创建授权、作业或执行页面操作。' });
+    }
+  }
+
+  const aProductDetailRoute=pathname.match(/^\/api\/candidates\/([^/]+)\/product-details(?:\/(authorize|continue))?$/);
+  if(aProductDetailRoute && (req.method==='GET'&&!aProductDetailRoute[2] || req.method==='POST'&&aProductDetailRoute[2])) {
+    const actor=runtimeIdentityProvider.resolveActor({request:req});
+    if(actor.source!=='authenticated_identity_provider'||actor.actorType!=='human'||!actor.roles.includes('owner')) {
+      throw httpError(403,'请先登录主人身份后查看商品详情准备。');
+    }
+    const candidateId=decodeURIComponent(aProductDetailRoute[1]);
+    try {
+      let operationResult=null;
+      if(req.method==='POST') {
+        const input=await readJsonRequestBody(req,{maxBytes:8192,requireJsonContentType:true});
+        if(input?.candidateId!==candidateId)throw new AProductDetailError('INPUT_INVALID');
+        const method=aProductDetailRoute[2]==='authorize'?'authorizeAndRun':'continueSavedCurrent';
+        operationResult=await aProductDetailRuntime[method]({actor,input});
+      }
+      const document=await readData(),candidate=document.candidates.find(value=>value.id===candidateId);
+      if(!candidate)throw httpError(404,'当前商品不存在。');
+      const revisionText=new URL(req.url, runtimeConfiguration.publicOrigin).searchParams.get('revision');
+      if(req.method==='GET'&&(!/^(0|[1-9][0-9]*)$/.test(revisionText??'')||!Number.isSafeInteger(Number(revisionText)))) {
+        throw new AProductDetailError('INPUT_INVALID');
+      }
+      const expectedRevision=req.method==='GET'?Number(revisionText):candidate.dataRevision;
+      return json(res,200,{...aProductDetailRuntime.view({document,actor,candidateId,expectedRevision}),operationResult});
+    }catch(error) {
+      if(!(error instanceof AProductDetailError))throw error;
+      return json(res,error.code==='SERVICE_NOT_CONFIGURED'?503:error.code==='INPUT_INVALID'?400:409,
+        {code:error.code,message:'商品详情未继续，请核对当前商品版本、许可和已保存的回执。'});
+    }
+  }
+
+  const accountPreparationRoute=pathname.match(/^\/api\/account-preparations\/(create|authorize|continue|select-warehouse)$/);
+  if(req.method==='GET'&&pathname==='/api/account-preparations'||req.method==='POST'&&accountPreparationRoute) {
+    const actor=runtimeIdentityProvider.resolveActor({request:req});
+    if(actor.source!=='authenticated_identity_provider'||actor.actorType!=='human'||!actor.roles.includes('owner'))throw httpError(403,'请先登录主人身份后准备账户。');
+    if(req.method==='POST') {
+      if(String(req.headers['content-type']||'').split(';')[0].trim().toLowerCase()!=='application/json')throw httpError(415,'账户准备只接受当前确认卡提交。');
+      const origin=String(req.headers.origin||'');
+      if(origin&&!allowedReviewOrigins.has(origin))throw httpError(403,'账户准备拒绝其他网页来源。');
+    }
+    try {
+      if(req.method==='POST') {
+        const input=await requestBody(req);
+        if(!input||typeof input!=='object'||Array.isArray(input))throw httpError(400,'账户准备输入无效。');
+        const actions={create:'createPreparation',authorize:'authorizeAndRun',continue:'continueSavedRead','select-warehouse':'selectWarehouse'};
+        await ozonAccountDiscovery[actions[accountPreparationRoute[1]]]({actor,input});
+      }
+      const document=await readData();
+      return json(res,200,ozonAccountDiscovery.view({document,actor}));
+    }catch(error) {
+      if(!(error instanceof OzonAccountReadError))throw error;
+      const status=/NOT_CONFIGURED/.test(error.code)?503:/CHANGED|CONFLICT|EXPIRED|AMBIGUOUS|ALREADY_EXISTS/.test(error.code)?409:422;
+      return json(res,status,{code:error.code,message:'账户准备未完成，请核对当前账户配置、准备记录与已保存的读取结果。'});
+    }
   }
 
   const lifecycleBEvidencePrepareRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/b-evidence\/prepare$/);
@@ -2133,24 +3041,34 @@ async function handleApi(req, res, pathname) {
     const snapshot = await readData();
     const candidate = snapshot.candidates.find((item) => item.id === candidateId);
     if (!candidate) throw httpError(404, "候选不存在");
-    if (Number(input.dataRevision) !== Number(candidate.dataRevision)) {
+    if (!Number.isSafeInteger(input.dataRevision) || input.dataRevision !== candidate.dataRevision) {
       throw httpError(409, "商品资料已变化，请刷新后重新开始一次只读取证");
     }
     if (activeDispatchForCandidate(snapshot, candidate.id)) {
       throw httpError(409, "当前SKU已有负责人任务，不能同时启动系统证据读取");
     }
 
-    const otherCosts = buildLifecycleBExplicitOtherCosts(candidate, candidateProfitRule(candidate, snapshot.rules));
+    assertCandidateStoreBinding(candidate, runtimeConfiguration.storeBindings);
+    try {
+      assertGuooComparisonReadyForEvidence(candidate, runtimeConfiguration.guooTariffRuleVersion);
+    } catch (error) {
+      if (!(error instanceof GuooRouteComparisonError) || !["COMPARISON_REQUIRED", "COMPARISON_NOT_READY",
+        "SAVED_RESULT_STALE", "RULE_VERSION_CONFLICT", "FROZEN_CANDIDATE_REVIEW_REQUIRED", "TRANSPORT_EVIDENCE_REQUIRED"].includes(error.code)) throw error;
+      throw httpError(422, `${error.message}: 当前版本的物流比较尚未就绪，未调用外部证据提供器。`);
+    }
     const plannedAt = now();
+    const costReadiness = inspectLifecycleBCostReadiness({ candidate, rules: snapshot.rules, asOf: plannedAt });
+    if (!costReadiness.ready) throw httpError(422, `B_COST_POLICY_REQUIRED: ${costReadiness.missing.join("、")}`, { costPolicyReadiness: costReadiness });
+    const preparedCosts = buildLifecycleBExplicitOtherCosts(candidate, resolveLifecycleBProfitRule(candidate, snapshot.rules), { asOf: plannedAt });
     const providers = createLifecycleBRealEvidenceProviderRegistry({
-      otherCosts,
-      ozonServiceUrl: process.env.SELECTION_REVIEW_OZON_EVIDENCE_SERVICE_URL,
-      guooFilePath: process.env.SELECTION_REVIEW_GUOO_TARIFF_FILE,
+      ozonServiceUrl: runtimeConfiguration.ozonEvidenceServiceUrl,
+      guooFilePath: runtimeConfiguration.guooTariffFile,
       cbrSourceUrl: process.env.SELECTION_REVIEW_CBR_FX_URL,
     });
     const run = await runLifecycleBEvidencePreparation({
       candidate,
       evidencePacks: snapshot.evidencePacks || [],
+      currentCommissionCatalogs: snapshot.currentCommissionCatalogs ?? [],
       providers,
       plannedAt,
     });
@@ -2160,6 +3078,14 @@ async function handleApi(req, res, pathname) {
       });
     }
     if (run.evidencePacksToCommit.length === 0) {
+      const currentSnapshot = await readData();
+      const current = currentSnapshot.candidates.find(item => item.id === candidateId);
+      if (!current || current.dataRevision !== input.dataRevision) throw httpError(409, "取证期间商品资料已变化，复用结果已失效");
+      try { assertLifecycleBCostsCurrent({ candidate: current, rules: currentSnapshot.rules, otherCosts: preparedCosts, asOf: now() }); }
+      catch (error) {
+        if (error.code !== "B_EVIDENCE_COST_POLICY_INCOMPLETE" && !error.code?.startsWith("B_COST_POLICY_")) throw error;
+        throw httpError(409, error.message);
+      }
       return json(res, 200, {
         evidencePreparation: run,
         evidencePacks: [],
@@ -2172,14 +3098,21 @@ async function handleApi(req, res, pathname) {
     const committed = await mutateData((data) => {
       const current = data.candidates.find((item) => item.id === candidateId);
       if (!current) throw httpError(404, "候选不存在");
-      if (Number(current.dataRevision) !== Number(input.dataRevision)) {
+      if (current.dataRevision !== input.dataRevision) {
         throw httpError(409, "取证期间商品资料已变化，本轮结果未保存");
       }
       if (activeDispatchForCandidate(data, current.id)) {
         throw httpError(409, "取证期间SKU已被负责人领取，本轮结果未保存");
       }
+      assertCandidateStoreBinding(current, runtimeConfiguration.storeBindings);
+      try { assertLifecycleBCostsCurrent({ candidate: current, rules: data.rules, otherCosts: preparedCosts, asOf: now() }); }
+      catch (error) {
+        if (error.code !== "B_EVIDENCE_COST_POLICY_INCOMPLETE" && !error.code?.startsWith("B_COST_POLICY_")) throw error;
+        throw httpError(409, error.message);
+      }
       return commitLifecycleBEvidencePacks(data, run.evidencePacksToCommit, {
         createdAt: now(),
+        currentCommissionCatalogs: data.currentCommissionCatalogs ?? [],
         createdBy: "selection_review_b_evidence"
       });
     });
@@ -2221,7 +3154,12 @@ async function handleApi(req, res, pathname) {
       if (!data.rules.evidenceReuse?.reusableKinds?.includes(kind)) {
         throw httpError(422, "该证据类型不能跨SKU复用");
       }
-      const scope = normalizedEvidenceScope(input.scope);
+      let scope;
+      try { scope = normalizeEvidenceScope(kind, input.scope); }
+      catch (error) {
+        if (error.code !== "EVIDENCE_SCOPE_INVALID") throw error;
+        throw httpError(422, error.message);
+      }
       const requiredScope = {
         commission: ["platform", "store", "category", "salesScheme"],
         exchange_rate: ["pair"],
@@ -2250,7 +3188,7 @@ async function handleApi(req, res, pathname) {
       }
       const scopeKey = evidenceScopeKey(kind, scope);
       const timestamp = now();
-      const existing = (data.evidencePacks || []).find((pack) => pack.scopeKey === scopeKey && pack.status === "active");
+      const existing = (data.evidencePacks || []).find((pack) => pack.kind === kind && evidenceScopeMatches(kind, pack.scope, scope) && pack.status === "active");
       if (existing) existing.status = "superseded";
       const pack = {
         id: `EP-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -2274,11 +3212,20 @@ async function handleApi(req, res, pathname) {
     return json(res, 201, { evidencePack: result });
   }
 
+  if (req.method === "GET" && pathname === "/api/three-store-map") {
+    return json(res, 200, buildThreeStoreMapView({
+      runtimeArchitecture,
+      seerfarSoftwareExecutionEnabled
+    }));
+  }
+
+  // Legacy dispatch/comment compatibility only. This candidate progress view is
+  // not the user-facing 全店能力地图 and must not be used as code-health evidence.
   if (req.method === "GET" && pathname === "/api/workflow-map") {
     const requestUrl = new URL(req.url, `http://${host}:${port}`);
     const selectedCandidateId = requestUrl.searchParams.get("candidateId") || "";
     const data = await readData();
-    const state = responseState(data);
+    const state = responseState(data, req);
     const map = await readWorkflowMap(workflowMapFile);
     return json(res, 200, workflowMapView(map, data, state.candidates, selectedCandidateId));
   }
@@ -2424,6 +3371,8 @@ async function handleApi(req, res, pathname) {
       }
       const candidate = data.candidates.find((item) => item.id === dispatch.candidateId);
       if (!candidate) throw httpError(404, "原派发对应商品不存在");
+      const gate = codexDispatchGate(candidate);
+      if (!gate.allowed) throw httpError(409, gate.reason);
       if (Number(candidate.dataRevision) !== input.dataRevision || Number(dispatch.dataRevision) !== input.dataRevision) {
         throw httpError(409, "商品资料或原派发修订号已变化，不能继续旧派发", {
           currentRevision: candidate.dataRevision,
@@ -2492,69 +3441,9 @@ async function handleApi(req, res, pathname) {
   if (req.method === "POST" && salesCaptureStartRoute) {
     const input = await requestBody(req);
     if (!Number.isInteger(input.dataRevision)) throw httpError(400, "Ozon采集必须提供当前数据修订号");
-    const candidateId = salesCaptureStartRoute[1];
-    const existing = salesCaptureSession(candidateId);
-    if (existing && [existing.requestRevision, existing.dataRevision].includes(input.dataRevision)) {
-      const data = await readData();
-      const current = data.candidates.find((item) => item.id === candidateId);
-      if (!current) throw httpError(404, "候选不存在");
-      return json(res, 200, { candidate: publicCandidate(current, data.rules), ...salesCaptureSessionPublic(existing) });
-    }
-    ensureCaptureControlAvailable(candidateId);
-
-    const session = {
-      captureId: `OSC-${randomUUID()}`,
-      token: randomBytes(32).toString("base64url"),
-      candidateId,
-      requestRevision: input.dataRevision,
-      dataRevision: null,
-      expectedProductId: "",
-      productUrl: "",
-      createdAt: Date.now(),
-      expiresAt: Date.now() + SOURCE_CAPTURE_TTL_MS
-    };
-    salesCaptureSessions.set(session.captureId, session);
-    let candidate;
-    try {
-      candidate = await mutateData((data) => {
-        const current = data.candidates.find((item) => item.id === candidateId);
-        if (!current) throw httpError(404, "候选不存在");
-        if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后再采集Ozon");
-        if (!["awaiting_user_direction", "codex_processing", "needs_user_data"].includes(current.workflowStatus)) {
-          throw httpError(409, "Ozon销售快照只允许在A/B研究阶段采集");
-        }
-        if (current.lifecycleV11?.skuPackage) throw httpError(409, "当前商品已进入SKU生命周期，不能回到A阶段重新采集");
-        if (activeDispatchForCandidate(data, current.id)) throw httpError(409, "当前SKU已有任务正在等待或运行");
-        const productId = extractOzonProductId(current.productUrl);
-        const productUrl = canonicalOzonProductUrl(current.productUrl, productId);
-        if (!productId || !productUrl) throw httpError(422, "当前销售端不是可识别的Ozon精确商品链接");
-        const timestamp = now();
-        session.expectedProductId = productId;
-        session.productUrl = String(current.productUrl);
-        current.salesCapture = {
-          captureId: session.captureId,
-          platform: "ozon",
-          status: "waiting_extension",
-          technicalStatus: "running",
-          productId,
-          productUrl: session.productUrl,
-          startedAt: timestamp,
-          businessStateEffect: "unchanged",
-          retryAttempted: false,
-          writeOccurred: false
-        };
-        current.dataRevision = Number(current.dataRevision || 0) + 1;
-        session.dataRevision = current.dataRevision;
-        current.updatedAt = timestamp;
-        current.lastModifiedBy = "user";
-        addHistory(current, "user", "ozonSalesCaptureStarted", "主人从评审台启动当前商品的一次性Ozon销售快照采集；不推进业务阶段", timestamp);
-        return publicCandidate(current, data.rules);
-      });
-    } catch (error) {
-      salesCaptureSessions.delete(session.captureId);
-      throw error;
-    }
-    return json(res, 201, { candidate, ...salesCaptureSessionPublic(session) });
+    throw httpError(409, "Ozon采集等待插件后台claim协议接线，本次没有创建采集会话或业务写入", {
+      code: "sales_capture_claim_protocol_required"
+    });
   }
 
   const salesCaptureResultRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/sales-capture\/result$/);
@@ -2562,11 +3451,12 @@ async function handleApi(req, res, pathname) {
     const input = await requestBody(req);
     const session = salesCaptureSession(salesCaptureResultRoute[1], String(input.captureId || ""));
     if (!session || session.candidateId !== salesCaptureResultRoute[1]) throw httpError(409, "Ozon采集会话不存在或已失效");
+    assertClaimedCaptureResultOrigin(session, req, "Ozon采集");
     if (!validCaptureToken(session.token, input.token)) throw httpError(403, "Ozon采集令牌无效");
     if (!Number.isInteger(input.dataRevision) || input.dataRevision !== session.dataRevision) throw httpError(409, "Ozon采集修订号不一致");
     if (!["captured", "failed"].includes(input.status)) throw httpError(400, "Ozon采集状态无效");
 
-    const candidate = await mutateData((data) => {
+    let candidate = await mutateData((data) => {
       const current = data.candidates.find((item) => item.id === session.candidateId);
       if (!current) throw httpError(404, "候选不存在");
       if (Number(current.dataRevision) !== session.dataRevision) throw httpError(409, "商品资料已变化，本次Ozon采集结果已拒绝");
@@ -2582,7 +3472,7 @@ async function handleApi(req, res, pathname) {
           status: "failed",
           technicalStatus: salesCaptureTechnicalStatus(code),
           failureCode: code,
-          reason: String(input.message || ozonCaptureFailureMessage(code)).trim().slice(0, 1500),
+          reason: ozonCaptureFailureMessage(code),
           observedAt,
           stoppedAt: timestamp,
           businessStateEffect: "unchanged",
@@ -2677,6 +3567,13 @@ async function handleApi(req, res, pathname) {
       addHistory(current, "system", "ozonSalesSnapshotCaptured", `已保存Ozon商品${session.expectedProductId}的当前销售快照；未推进业务阶段`, timestamp);
       return publicCandidate(current, data.rules);
     });
+    if (input.status === "captured" && candidate.salesCapture?.status === "verified" && candidate.salesCapture?.snapshotId) {
+      candidate = await enrichCapturedSalesSnapshotWithTerra(
+        candidate.id,
+        candidate.dataRevision,
+        candidate.salesCapture.snapshotId
+      );
+    }
     session.consumedAt = Date.now();
     salesCaptureSessions.delete(session.captureId);
     return json(res, 200, { candidate, dispatch: null }, chromeExtensionCors(req));
@@ -2690,6 +3587,11 @@ async function handleApi(req, res, pathname) {
     if (input.mode === "a_supplier_capture") {
       throw httpError(409, "A阶段独立采集按钮已停用：请在新版A确认卡保存供应链接，服务端会建立单候选作业并由插件后台自动领取", {
         code: "manual_a_supplier_capture_retired"
+      });
+    }
+    if (input.mode === "listed_evidence_recovery") {
+      throw httpError(409, "已上架1688补采等待插件后台claim协议接线，本次没有创建采集会话或业务写入", {
+        code: "listed_source_capture_claim_protocol_required"
       });
     }
     if (!input.mode) {
@@ -2796,6 +3698,7 @@ async function handleApi(req, res, pathname) {
     const input = await requestBody(req);
     const session = captureSession(sourceCaptureResultRoute[1], String(input.captureId || ""));
     if (!session || session.candidateId !== sourceCaptureResultRoute[1]) throw httpError(409, "1688采集会话不存在或已失效", { code: "capture_session_invalid" });
+    assertClaimedCaptureResultOrigin(session, req, "1688采集");
     if (!validCaptureToken(session.token, input.token)) throw httpError(403, "1688采集令牌无效", { code: "capture_token_invalid" });
     if (!Number.isInteger(input.dataRevision) || input.dataRevision !== session.dataRevision) throw httpError(409, "1688采集修订号不一致", { code: "revision_conflict" });
     if (session.mode === "a_supplier_capture" && session.jobStatus &&
@@ -2932,21 +3835,36 @@ async function handleApi(req, res, pathname) {
   const realAConfirmationRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/a-confirm$/);
   if (req.method === "POST" && realAConfirmationRoute) {
     const input = await requestBody(req);
+    if (!["confirm", "reject"].includes(input.decision)) throw httpError(400, "请选择确认或淘汰");
     if (!Number.isInteger(input.dataRevision)) throw httpError(400, "A确认必须提供当前数据修订号");
     const snapshot = await readData();
     const snapshotCandidate = snapshot.candidates.find((item) => item.id === realAConfirmationRoute[1]);
     if (!snapshotCandidate) throw httpError(404, "候选不存在");
     if (Number(snapshotCandidate.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后重新确认A阶段");
+    if (input.sourceCandidateId !== snapshotCandidate.id || input.sourceDataRevision !== snapshotCandidate.dataRevision) {
+      throw httpError(409, "确认卡候选身份或源修订不一致");
+    }
+    if (input.decision !== "reject") {
+      assertCandidateStoreBinding(snapshotCandidate, runtimeConfiguration.storeBindings);
+      const bindingValidation = validateRealAConfirmationSubmission(buildRealAConfirmationCard(snapshotCandidate), input);
+      if (bindingValidation.errors.some(item => item.field === "storeRef")) throw httpError(409, "确认卡平台或店铺绑定不一致");
+    }
     if (activeDispatchForCandidate(snapshot, snapshotCandidate.id)) throw httpError(409, "当前SKU已有任务等待或运行，不能同时确认A阶段");
-    if (snapshotCandidate.lifecycleV11?.skuPackage) throw httpError(409, "当前商品已经进入SKU生命周期，不能重复确认或生成第二次C1交接");
+    if (input.decision !== "reject" && snapshotCandidate.executionRuntime?.exceptionCase?.status === "open") {
+      throw httpError(409, "当前SKU存在尚未解决的有证据异常；业务结论未改变，不能继续进入B");
+    }
     if (input.decision !== "reject") {
       const requestedSourceUrl = String(input.supplierConfirmation?.productUrl || snapshotCandidate.sourceUrl || "").trim();
       const requestedSource = normalize1688CaptureSource(requestedSourceUrl);
       const capture = snapshotCandidate.sourceCapture;
+      const detailEvidence = readAProductDetailSupplierEvidence(snapshotCandidate);
+      if (detailEvidence && requestedSource.sourceUrl !== detailEvidence.supplierOption.productUrl) {
+        throw httpError(409, '请在当前A卡核对本轮详情保存的精确供货来源。');
+      }
       const captureReadyForSameSource = capture?.mode === "a_supplier_capture" &&
         capture?.status === "captured_waiting_owner_selection" &&
         normalize1688CaptureSource(capture.sourceUrl).sourceUrl === requestedSource.sourceUrl;
-      if (requestedSource.type !== "invalid" && !captureReadyForSameSource) {
+      if (requestedSource.type !== "invalid" && !captureReadyForSameSource && !detailEvidence) {
         const queued = await enqueueASupplierCaptureJob({
           candidateId: snapshotCandidate.id,
           requestRevision: input.dataRevision,
@@ -2956,6 +3874,7 @@ async function handleApi(req, res, pathname) {
           status: "supplier_capture_job_queued",
           candidate: queued.candidate,
           captureJob: queued.captureJob,
+          duplicate: queued.duplicate,
           dispatch: null,
           bStarted: false,
           c1Created: false
@@ -2964,36 +3883,40 @@ async function handleApi(req, res, pathname) {
     }
     const timestamp = now();
     let providers = {};
+    let profitRule;
     let commissionEstimate = null;
     if (input.decision !== "reject") {
       if (input.commissionEstimate !== undefined) {
-        const rate = Number(input.commissionEstimate?.commissionRate);
+        const rate = input.commissionEstimate?.commissionRate;
         if (input.commissionEstimate?.authorized !== true || input.commissionEstimate?.confirmedBy !== "owner") {
           throw httpError(400, "估算佣金必须由主人对当前SKU明确授权");
         }
         if (!Number.isFinite(rate) || rate < 0 || rate >= 1) {
           throw httpError(400, "估算佣金率必须在0到1之间");
         }
+        const contextual = applyLifecycleBEvidenceContext(snapshotCandidate, {
+          submission: input, guooFilePath: runtimeConfiguration.guooTariffFile
+        });
+        const estimateContext = resolveLifecycleEvidenceContext(contextual.candidate);
+        if (!estimateContext.ready) throw httpError(422, "当前SKU费用适用范围不完整，不能进行条件测算。");
         commissionEstimate = {
           authorized: true,
           confirmedBy: "owner",
           commissionRate: rate,
-          authorizationRef: `owner-a-confirmation:commission-estimate:${snapshotCandidate.id}`
+          authorizationRef: `owner-a-confirmation:commission-estimate:${snapshotCandidate.id}:${snapshotCandidate.dataRevision}`,
+          candidateId: snapshotCandidate.id,
+          candidateRevision: snapshotCandidate.dataRevision,
+          scope: buildExpectedEvidenceScope("commission", estimateContext.values)
         };
       }
-      let otherCosts;
       try {
-        otherCosts = buildLifecycleBExplicitOtherCosts(
-          snapshotCandidate,
-          candidateProfitRule(snapshotCandidate, snapshot.rules)
-        );
+        profitRule = resolveLifecycleBProfitRule(snapshotCandidate, snapshot.rules);
       } catch (error) {
         throw httpError(422, error instanceof Error ? error.message : String(error));
       }
       providers = createLifecycleBRealEvidenceProviderRegistry({
-        otherCosts,
-        ozonServiceUrl: process.env.SELECTION_REVIEW_OZON_EVIDENCE_SERVICE_URL,
-        guooFilePath: process.env.SELECTION_REVIEW_GUOO_TARIFF_FILE,
+        ozonServiceUrl: runtimeConfiguration.ozonEvidenceServiceUrl,
+        guooFilePath: runtimeConfiguration.guooTariffFile,
         cbrSourceUrl: process.env.SELECTION_REVIEW_CBR_FX_URL,
         commissionEstimate
       });
@@ -3004,31 +3927,80 @@ async function handleApi(req, res, pathname) {
         candidate: snapshotCandidate,
         submission: input,
         evidencePacks: snapshot.evidencePacks || [],
+        currentCommissionCatalogs: snapshot.currentCommissionCatalogs ?? [],
+        profitRule,
         providers,
         confirmedAt: timestamp,
-        guooFilePath: process.env.SELECTION_REVIEW_GUOO_TARIFF_FILE
+        guooFilePath: runtimeConfiguration.guooTariffFile
       });
     } catch (error) {
       throw httpError(422, error instanceof Error ? error.message : String(error));
     }
     if (orchestration.status !== "completed") {
+      if (orchestration.guooRouteComparison) {
+        await mutateData((data) => {
+          const current = data.candidates.find(item => item.id === snapshotCandidate.id);
+          if (!current || current.dataRevision !== input.dataRevision) throw httpError(409, "商品资料已变化，本轮物流比较未保存，请刷新。");
+          assertCandidateStoreBinding(current, runtimeConfiguration.storeBindings);
+          if (activeDispatchForCandidate(data, current.id)) throw httpError(409, "当前SKU已有任务，不能同时保存物流比较。");
+          Object.assign(current, appendGuooRouteComparison(current, orchestration.guooRouteComparison, { recordedAt: timestamp }));
+          current.updatedAt = timestamp;
+          addHistory(current, "system", "guooRouteComparisonBlocked", "已保存指定版本的物流比较及证据缺口；未形成利润结论或进入C1。", timestamp);
+        });
+      }
       throw httpError(422, `A确认后的B系统证据准备已停止：${orchestration.evidencePreparation?.failure?.reason || "未知失败"}`, {
-        evidencePreparation: orchestration.evidencePreparation
+        evidencePreparation: orchestration.evidencePreparation,
+        guooRouteComparison: orchestration.guooRouteComparison || null
       });
     }
     const result = orchestration.result;
+    if (result.idempotentReplay === true) {
+      return json(res, 200, {
+        candidate: publicCandidate(snapshotCandidate, snapshot.rules, {}, snapshot.evidencePacks || [], snapshot.currentCommissionCatalogs ?? []),
+        idempotentReplay: true
+      });
+    }
+    if (result.decision === "confirm" && result.profitModel.commissionMode === "estimated") {
+      const binding = result.systemEvidenceBundle.platformFeeEvidence.commissionEstimateAuthorization;
+      if (!commissionEstimate || !isCommissionEstimateAuthorizationForScope(binding, {
+        candidateId: snapshotCandidate.id, candidateRevision: input.dataRevision,
+        commissionRate: commissionEstimate.commissionRate
+      }) || binding.authorizationRef !== commissionEstimate.authorizationRef ||
+          result.profitModel.commissionRate !== commissionEstimate.commissionRate) {
+        throw httpError(422, "条件测算缺少本轮当前SKU、修订号和相同费率的明确授权；未保存结果。");
+      }
+    }
     const originalEvidencePacks = JSON.stringify(snapshot.evidencePacks || []);
     const candidate = await mutateData((data) => {
       const current = data.candidates.find((item) => item.id === realAConfirmationRoute[1]);
       if (!current) throw httpError(404, "候选不存在");
       if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后重新确认A阶段");
+      if (input.decision !== "reject") assertCandidateStoreBinding(current, runtimeConfiguration.storeBindings);
       if (activeDispatchForCandidate(data, current.id)) throw httpError(409, "当前SKU已有任务等待或运行，不能同时确认A阶段");
-      if (current.lifecycleV11?.skuPackage) throw httpError(409, "当前商品已经进入SKU生命周期，不能重复确认或生成第二次C1交接");
       if (JSON.stringify(data.evidencePacks || []) !== originalEvidencePacks) {
         throw httpError(409, "B证据在本轮读取期间发生变化，本轮结果未保存；请刷新后重新确认一次");
       }
+      if (result.decision === "confirm") {
+        try {
+          assertLifecycleBCostsCurrent({ candidate: { ...current, lifecycleEvidenceContextV11: orchestration.evidenceContext },
+            rules: data.rules, asOf: now(), otherCosts: { ...result.systemEvidenceBundle.platformFeeEvidence.otherCosts,
+              costPolicySnapshot: result.systemEvidenceBundle.platformFeeEvidence.costPolicySnapshot } });
+        } catch (error) {
+          if (error.code !== "B_EVIDENCE_COST_POLICY_INCOMPLETE" && !error.code?.startsWith("B_COST_POLICY_")) throw error;
+          throw httpError(409, error.message);
+        }
+        try {
+          assertCurrentBCommissionEvidence({ bundle: result.systemEvidenceBundle,
+            evidencePacks: [...(data.evidencePacks || []), ...orchestration.evidencePacksToCommit],
+            currentCommissionCatalogs: data.currentCommissionCatalogs ?? [], asOf: now() });
+        } catch (error) {
+          if (!error.code?.startsWith("B_COMMISSION_")) throw error;
+          throw httpError(409, error.message);
+        }
+      }
       commitLifecycleBEvidencePacks(data, orchestration.evidencePacksToCommit, {
         createdAt: timestamp,
+        currentCommissionCatalogs: data.currentCommissionCatalogs ?? [],
         createdBy: "real_a_confirmation_system_evidence"
       });
 
@@ -3061,22 +4033,28 @@ async function handleApi(req, res, pathname) {
       }
 
       const bPassed = result.profitModel.result === "passed";
+      if (orchestration.guooRouteComparison) {
+        current.guooRouteComparisonsV1 = appendGuooRouteComparison(current, orchestration.guooRouteComparison, {
+          recordedAt: timestamp
+        }).guooRouteComparisonsV1;
+      }
+      const bConditional = result.profitModel.calculationType === "conditional";
       const usedCommissionEstimate = result.profitModel.commissionMode === "estimated";
       if (usedCommissionEstimate) {
         current.acceptedEstimatedCommission = true;
         current.estimatedCommissionAuthorization = {
-          commissionRate: commissionEstimate.commissionRate,
+          ...structuredClone(result.systemEvidenceBundle.platformFeeEvidence.commissionEstimateAuthorization),
           confirmedBy: "owner",
           confirmedAt: timestamp,
           sourceCandidateRevision: input.dataRevision,
-          exactCommissionRequiredAtC: true
+          exactCommissionRequiredForFormalB: true
         };
       }
       current.lifecycleEvidenceContextV11 = structuredClone(orchestration.evidenceContext);
       current.lifecycleV11 = {
         ...(current.lifecycleV11 || {}),
         schemaVersion: "product-lifecycle-v1.1",
-        status: bPassed ? "b_passed_auto_c1" : "b_rejected",
+        status: bPassed ? "b_passed_auto_c1" : bConditional ? "b_conditional_awaiting_exact_commission" : "b_rejected",
         aConfirmationReceipt: {
           receiptId: result.confirmationReceiptId,
           decision: "confirm",
@@ -3091,16 +4069,31 @@ async function handleApi(req, res, pathname) {
         externalAccesses: structuredClone(orchestration.externalAccesses),
         platformWrites: 0
       };
+      const runtimeBase = current.executionRuntime || createSoftwareExecutionRuntime({
+        candidateId: current.id,
+        dataRevision: current.dataRevision,
+        businessPhase: "A",
+        stepId: "A_CONFIRMATION",
+        at: timestamp
+      });
+      const bRuntime = startSoftwareStep(runtimeBase, {
+        stepId: "B_DETERMINISTIC_PROFIT",
+        inputRevision: current.dataRevision,
+        at: timestamp
+      });
+      current.executionRuntime = completeExecutionStep(bRuntime, {
+        outputRevision: current.dataRevision + 1,
+        at: timestamp
+      });
+      current.executionRuntime.businessPhase = bPassed ? "C1" : "B";
       current.bPassedAt = bPassed ? timestamp : null;
       current.processing = { ...queuedProcessing(current.processing), state: "idle", manualHold: false };
       if (bPassed) {
         current.workflowStatus = "listing_preparation";
         current.listingPreparation = {
           status: "c1_inputs_ready",
-          reason: usedCommissionEstimate
-            ? "主人一次确认A阶段后，B已使用明确标注的估算佣金自动计算并通过；C1输入已创建，生产前必须补取当前精确佣金。"
-            : "主人一次确认A阶段后，B已只读冻结证据自动计算并通过；C1输入已原子创建。",
-          decisionItems: usedCommissionEstimate ? ["C阶段补取当前店铺、类目和RFBS模式的精确佣金"] : [],
+          reason: "主人一次确认A阶段后，B已只读冻结证据自动计算并通过；C1输入已原子创建。",
+          decisionItems: [],
           writeOccurred: false,
           platformWrites: 0
         };
@@ -3115,6 +4108,17 @@ async function handleApi(req, res, pathname) {
           handoffId: result.c1Handoff.handoffId,
           realTaskDispatched: false
         };
+      } else if (bConditional) {
+        current.workflowStatus = "needs_user_data";
+        current.neededFields = ["系统待取得当前店铺、类目和销售模式的精确佣金；现有结果仅为条件测算，未通过正式B。"];
+        current.listingPreparation = null;
+        current.listingHandoff = null;
+        current.executionRuntime = blockExecutionForTechnicalFailure(current.executionRuntime, {
+          failureId: `b-exact-commission-required:${current.id}:${current.dataRevision + 1}`,
+          kind: "external_dependency", errorCode: "B_EXACT_COMMISSION_REQUIRED",
+          failureLayer: "b_commission_evidence", sourceRevision: current.dataRevision + 1,
+          evidenceRefs: [result.systemEvidenceBundle.platformFeeEvidence.evidenceId], at: timestamp
+        });
       } else {
         current.workflowStatus = "eliminated";
         current.eliminatedAt = timestamp;
@@ -3128,34 +4132,337 @@ async function handleApi(req, res, pathname) {
       addHistory(
         current,
         "system",
-        bPassed ? "realAAutoBPassedAndC1Created" : "realAAutoBRejected",
+        bPassed ? "realAAutoBPassedAndC1Created" : bConditional ? "realABConditionalEstimateSaved" : "realAAutoBRejected",
         bPassed
           ? `A确认后系统只读准备B证据并自动通过，创建唯一C1交接${result.c1Handoff.handoffId}；负责人切换为上架任务；未派发真实任务、零平台写入`
+          : bConditional ? "A供货确认与条件测算已保存，缺精确佣金；未形成正式B通过、未淘汰、未创建C1。"
           : `A确认后系统只读准备B证据并自动计算，未通过当前利润门槛；未创建C1、未派发任务、零平台写入`,
         timestamp
       );
       return publicCandidate(current, data.rules);
     });
-    return json(res, 200, { candidate });
+    const completedCandidate = result.decision === "confirm" && result.profitModel?.result === "passed"
+      ? await continueC1SoftwareWhenEvidenceReady(candidate.id, candidate.dataRevision)
+      : candidate;
+    return json(res, 200, { candidate: completedCandidate });
   }
 
   const listingPreparationReviewRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/listing-preparation-review$/);
+  const finalPricingReviewRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/final-pricing\/review$/);
+  if (req.method === "POST" && finalPricingReviewRoute) {
+    const input = await readJsonRequestBody(req, { maxBytes: 65536, requireJsonContentType: true });
+    if (input?.candidateId !== finalPricingReviewRoute[1]) return json(res, 400, { code: "FINAL_PRICING_INPUT_INVALID", message: "商品身份不一致。" });
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      return json(res, 403, { code: "FINAL_PRICING_OWNER_REQUIRED", message: "请登录主人身份后提交最终定价复核。", externalRequests: 0 });
+    }
+    let transaction;
+    try { transaction = await finalPricingReviewUseCase.review({ actor, input }); }
+    catch (error) {
+      if (error.message?.startsWith("REAL_A_SYSTEM_EVIDENCE_GAP:") || error.message?.startsWith("B_INPUT_GAP:")) {
+        return json(res, 409, { code: "FINAL_PRICING_SOURCE_EVIDENCE_REQUIRED", message: "当前费用或冻结商品证据未通过校验，未保存本次定价。", externalRequests: 0, platformWrites: 0 });
+      }
+      if (typeof error.code === "string" && (error.code.startsWith("FINAL_PRICING_") || error.code.startsWith("B_COST_POLICY_") ||
+          ["B_EVIDENCE_COST_POLICY_INCOMPLETE", "BUSINESS_MUTATION_REVISION_CONFLICT", "BUSINESS_MUTATION_IDEMPOTENCY_CONFLICT"].includes(error.code))) {
+        return json(res, error.code.endsWith("INPUT_INVALID") ? 400 : 409, { code: error.code,
+          message: "最终定价资料、当前成本或商品版本尚不满足复核条件；原价格和利润未改变。", externalRequests: 0, platformWrites: 0 });
+      }
+      throw error;
+    }
+    const saved = await readData();
+    const current = saved.candidates.find(candidate => candidate.id === input.candidateId);
+    if (!current) throw httpError(500, "最终定价保存结果待核对：未取得当前商品回读。");
+    return json(res, 200, { pricingStatus: transaction.result.status, transactionStatus: transaction.status,
+      candidate: publicCandidate(current, saved.rules), externalRequests: 0, platformWrites: 0 });
+  }
+  const bExactRecalculationRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/b\/exact-commission\/recalculate$/);
+  if (req.method === "POST" && bExactRecalculationRoute) {
+    const input = await readJsonRequestBody(req, { maxBytes: 8192, requireJsonContentType: true });
+    const fields = ["candidateId", "expectedRevision", "skuPackageId", "failureId", "idempotencyKey", "auditEventId"];
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== fields.length ||
+        fields.some(field => !Object.hasOwn(input, field)) || input.candidateId !== bExactRecalculationRoute[1] ||
+        !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 1 ||
+        fields.filter(field => field !== "expectedRevision").some(field => typeof input[field] !== "string" || !input[field].trim())) {
+      return json(res, 400, { code: "B_EXACT_RECALCULATION_INPUT_INVALID", message: "请从当前商品卡提交正式复算。", externalRequests: 0 });
+    }
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      return json(res, 403, { code: "B_EXACT_RECALCULATION_OWNER_REQUIRED", message: "请先登录主人身份后复算。", externalRequests: 0 });
+    }
+    let transaction;
+    try { transaction = await bExactCommissionRecalculation.recalculate({ actor, input }); }
+    catch (error) {
+      if (error.code === "B_EVIDENCE_COST_POLICY_INCOMPLETE" || error.code?.startsWith("B_COST_POLICY_")) return json(res, 409, {
+        code: error.code, message: "当前商品成本或店铺规则不完整，原利润结果未改变。", externalRequests: 0
+      });
+      if (error instanceof BExactCommissionRecalculationError) return json(res,
+        error.code === "B_EXACT_RECALCULATION_INPUT_INVALID" ? 400 : error.code === "B_EXACT_RECALCULATION_AUTHENTICATED_OWNER_REQUIRED" ? 403 : 409, {
+        code: error.code, message: "当前费用证据或保存的商品记录尚不满足正式复算，原结果未改变。", externalRequests: 0
+      });
+      if (["BUSINESS_MUTATION_REVISION_CONFLICT", "BUSINESS_MUTATION_IDEMPOTENCY_CONFLICT"].includes(error.code ?? error.message)) {
+        return json(res, 409, { code: error.code ?? error.message, message: "商品记录已变化，请刷新核对；未重复计算。", externalRequests: 0 });
+      }
+      throw error;
+    }
+    if (transaction.status === "committed" && transaction.result.status === "passed") {
+      await continueC1SoftwareWhenEvidenceReady(input.candidateId, transaction.candidate.dataRevision);
+    }
+    const saved = await readData();
+    const candidate = saved.candidates.find(value => value.id === input.candidateId);
+    if (!candidate) throw httpError(500, "正式复算结果待核对：未取得当前商品独立回读。");
+    return json(res, 200, { recalculationStatus: transaction.status, result: transaction.result,
+      candidate: publicCandidate(candidate, saved.rules, {}, saved.evidencePacks || [], saved.currentCommissionCatalogs ?? []) });
+  }
+  const c1KeywordHandoffRetryRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/keyword-handoff\/retry$/);
+  if (req.method === "POST" && c1KeywordHandoffRetryRoute) {
+    const input = await readJsonRequestBody(req, { maxBytes: 8192, requireJsonContentType: true });
+    const fields = ["candidateId", "expectedRevision", "keywordJobId", "failureId", "idempotencyKey", "auditEventId"];
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== fields.length ||
+        fields.some(field => !Object.hasOwn(input, field)) || input.candidateId !== c1KeywordHandoffRetryRoute[1] ||
+        !Number.isInteger(input.expectedRevision) || fields.filter(field => field !== "expectedRevision").some(field => typeof input[field] !== "string" || !input[field].trim())) {
+      return json(res, 400, { code: "C1_KEYWORD_HANDOFF_RETRY_INPUT_INVALID", message: "请从当前商品卡继续准备文案。", externalRequests: 0 });
+    }
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      return json(res, 403, { code: "C1_DRAFT_AUTHENTICATED_OWNER_REQUIRED", message: "请先登录主人身份后继续准备文案。", externalRequests: 0 });
+    }
+    let transaction;
+    try { transaction = await c1DraftRuntimeServices.retryKeywordHandoff({ actor, input }); }
+    catch (error) {
+      if (error instanceof C1DraftRuntimeUnavailableError) return json(res, 503, {
+        code: error.code, message: "文案配置尚未就绪，交接保持停止，未发起任何付费调用。", externalRequests: 0
+      });
+      const code = error.code ?? error.message;
+      const conflicts = ["BUSINESS_MUTATION_REVISION_CONFLICT", "BUSINESS_MUTATION_IDEMPOTENCY_CONFLICT",
+        "C1_KEYWORD_HANDOFF_RETRY_SOURCE_CONFLICT",
+        "C1_PAID_KEYWORD_CONTINUATION_SOURCE_CONFLICT", "C1_KEYWORD_HANDOFF_RECOVERY_REJECTED",
+        "C1_DRAFT_CURRENT_JOB_UNRESOLVED", "C1_DRAFT_EVIDENCE_REQUIRED", "C1_DRAFT_EVIDENCE_NOT_CURRENT"];
+      if (conflicts.includes(code)) return json(res, 409, {
+        code, message: "当前证据或交接记录未通过核对，未再次查询关键词或调用文案服务。", externalRequests: 0
+      });
+      throw error;
+    }
+    const saved = await readData();
+    const candidate = saved.candidates.find(value => value.id === input.candidateId);
+    if (!candidate) throw httpError(500, "交接结果待核对：未取得当前商品独立回读。");
+    return json(res, 200, { handoffStatus: transaction.status,
+      candidate: { ...publicCandidate(candidate, saved.rules, {}, saved.evidencePacks || [], saved.currentCommissionCatalogs ?? []),
+        c1DraftRuntimeView: buildC1DraftRuntimeView({ candidate, runtime: saved.runtime,
+          serviceBindings: runtimeConfiguration.c1DraftServiceBindings, observedAt: now() }) } });
+  }
+  const c1SavedDraftContinuationRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/paid-draft\/continue-saved$/);
+  if (req.method === "POST" && c1SavedDraftContinuationRoute) {
+    const input = await requestBody(req);
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== 3 ||
+        !["candidateId", "expectedRevision", "jobId"].every(field => Object.hasOwn(input, field)) ||
+        input.candidateId !== c1SavedDraftContinuationRoute[1] || !Number.isInteger(input.expectedRevision)) {
+      return json(res, 400, { code: "C1_DRAFT_SAVED_CONTINUATION_INPUT_INVALID", message: "继续请求必须准确引用当前已保存任务。", externalRequests: 0 });
+    }
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      return json(res, 403, { code: "C1_DRAFT_AUTHENTICATED_OWNER_REQUIRED", message: "请先登录主人身份后继续已许可任务。", externalRequests: 0 });
+    }
+    const snapshot = await readData();
+    const candidate = snapshot.candidates.find(value => value.id === input.candidateId);
+    if (!candidate || candidate.dataRevision !== input.expectedRevision) throw httpError(409, "当前商品资料已变化，未继续旧任务。");
+    const view = buildC1DraftRuntimeView({ candidate, runtime: snapshot.runtime,
+      serviceBindings: runtimeConfiguration.c1DraftServiceBindings, observedAt: now() });
+    if (!view?.canContinueSaved || view.jobId !== input.jobId || view.jobRevision !== input.expectedRevision) {
+      return json(res, 409, { code: "C1_DRAFT_SAVED_CONTINUATION_BLOCKED", message: view?.message || "本任务当前不可继续，请核对已有结果和卡点。", externalRequests: 0 });
+    }
+    // This consumes the existing permission/job. It creates no new authorization,
+    // and the use case rereads admission and claims once under its transaction.
+    const execution = await c1DraftRuntimeServices.continueSavedCurrent(input);
+    const saved = await readData();
+    const current = saved.candidates.find(value => value.id === input.candidateId);
+    if (!current) throw httpError(500, "继续结果待核对：未取得当前商品独立回读。");
+    return json(res, 200, { executionStatus: execution.status,
+      candidate: { ...publicCandidate(current, saved.rules, {}, saved.evidencePacks || [], saved.currentCommissionCatalogs ?? []),
+        c1DraftRuntimeView: buildC1DraftRuntimeView({ candidate: current, runtime: saved.runtime,
+          serviceBindings: runtimeConfiguration.c1DraftServiceBindings, observedAt: now() }) } });
+  }
+  const c1PaidDraftAuthorizationRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/paid-draft\/authorize$/);
+  if (req.method === "POST" && c1PaidDraftAuthorizationRoute) {
+    const input = await requestBody(req);
+    if (input?.candidateId !== c1PaidDraftAuthorizationRoute[1]) throw httpError(400, "许可与当前商品不一致，未保存");
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      return json(res, 403, { code: "C1_DRAFT_AUTHENTICATED_OWNER_REQUIRED", message: "请先登录主人身份，再确认本件商品的一次付费调用。", externalRequests: 0 });
+    }
+    let transaction;
+    try { transaction = await c1DraftRuntimeServices.authorizeAndEnqueue({ actor, input }); }
+    catch (error) {
+      if (error instanceof C1DraftRuntimeUnavailableError) return json(res, 503, {
+        code: error.code, message: "文案服务尚未配置，本次许可未保存，也没有发起付费调用。", externalRequests: 0
+      });
+      const code = error.code ?? error.message;
+      const invalidInput = ["C1_DRAFT_AUTHORIZE_INPUT_INVALID", "C1_DRAFT_PAID_CONFIRMATION_INVALID"];
+      const currentConflict = ["BUSINESS_MUTATION_REVISION_CONFLICT", "BUSINESS_MUTATION_IDEMPOTENCY_CONFLICT",
+        "C1_DRAFT_SAVED_REQUEST_CONFLICT", "C1_DRAFT_REQUEST_SOURCE_CONFLICT", "C1_DRAFT_EXECUTION_BINDING_PROVIDER_CONFLICT"];
+      const prerequisite = ["C1_DRAFT_SAVED_REQUEST_REQUIRED", "C1_DRAFT_REQUEST_INVALID", "C1_DRAFT_EVIDENCE_REQUIRED",
+        "C1_DRAFT_EVIDENCE_NOT_CURRENT", "C1_DRAFT_AUTHORIZATION_EXPIRED", "C1_DRAFT_WORKER_NOT_CURRENT",
+        "C1_DRAFT_RESTRICTED_AUTHORIZATION_UNSUPPORTED"];
+      if (invalidInput.includes(code) || currentConflict.includes(code) || prerequisite.includes(code)) return json(res,
+        invalidInput.includes(code) ? 400 : currentConflict.includes(code) ? 409 : 422,
+        { code, message: "本次许可未保存：请核对当前请求、证据、已有许可限制与服务配置。", externalRequests: 0 });
+      throw error;
+    }
+    const ref = transaction.result.softwareJobRef;
+    const execution = await c1DraftRuntimeServices.continueSavedCurrent({
+      candidateId: input.candidateId, expectedRevision: ref.revision, jobId: ref.jobId
+    });
+    const saved = await readData();
+    const candidate = saved.candidates.find(value => value.id === input.candidateId);
+    if (!candidate) throw httpError(500, "许可或执行结果待核对：未取得当前商品独立回读");
+    return json(res, 200, { authorizationStatus: transaction.status, executionStatus: execution.status,
+      candidate: { ...publicCandidate(candidate, saved.rules, {}, saved.evidencePacks || [], saved.currentCommissionCatalogs ?? []),
+        c1DraftRuntimeView: buildC1DraftRuntimeView({ candidate, runtime: saved.runtime,
+          serviceBindings: runtimeConfiguration.c1DraftServiceBindings, observedAt: now() }) } });
+  }
+  const c1RightsReviewRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/rights-review$/);
+  if (req.method === "POST" && c1RightsReviewRoute) {
+    const input = await requestBody(req);
+    if (input?.candidateId !== c1RightsReviewRoute[1]) throw httpError(400, "声明与当前商品不一致，未保存");
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      return json(res, 403, { code: "C1_RIGHTS_OWNER_REQUIRED", message: "请先登录主人身份后保存本件商品声明", externalRequests: 0 });
+    }
+    let transaction;
+    try { transaction = await c1SkuRightsReviewUseCase.submit({ actor, input }); }
+    catch (error) {
+      if (error instanceof C1SkuRightsReviewError) {
+        const status = /INPUT_INVALID/.test(error.code) ? 400 : /CONFLICT|REPLACEMENT|ACTIVE_JOB|SCOPE_MISMATCH/.test(error.code) ? 409 : 422;
+        return json(res, status, { code: error.code, message: "声明未保存：请核对当前商品、权利情况与有效期；冻结计划须明确生成替代版本。", externalRequests: 0 });
+      }
+      if (["BUSINESS_MUTATION_REVISION_CONFLICT", "BUSINESS_MUTATION_IDEMPOTENCY_CONFLICT"].includes(error.code)) {
+        return json(res, 409, { code: error.code, message: "当前商品资料或本次提交已经变化，请刷新并核对已保存声明。", externalRequests: 0 });
+      }
+      throw error;
+    }
+    const saved = await readData();
+    const candidate = saved.candidates.find(item => item.id === input.candidateId);
+    if (!candidate) throw httpError(500, "声明保存结果待核对：未取得当前商品独立回读");
+    return json(res, 200, { status: transaction.status, result: transaction.result,
+      candidate: publicCandidate(candidate, saved.rules, {}, saved.evidencePacks || [], saved.currentCommissionCatalogs ?? []), externalRequests: 0, platformWrites: 0 });
+  }
   const retiredFireTrainC1Route = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1-owner-facts$/);
   const retiredFireTrainFinalAssetsRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/final-assets$/);
   const legacyFireTrainC1Route = pathname.match(/^\/api\/legacy\/fire-train\/candidates\/([^/]+)\/lifecycle\/c1-owner-facts$/);
   const legacyFireTrainFinalAssetsRoute = pathname.match(/^\/api\/legacy\/fire-train\/candidates\/([^/]+)\/lifecycle\/final-assets$/);
   const genericC1CompleteRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/complete$/);
+  const c1FactKeywordPipelineRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/fact-keyword-pipeline$/);
+  const c1KeywordEvidenceReadyRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/keyword-evidence-ready$/);
+  const c1KeywordEvidenceSoftwareRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/keyword-evidence-software-run$/);
+  const c1SoftwareEvidenceStageRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/software-evidence$/);
+  const genericC2FinalAssetUploadRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c2\/final-assets\/upload$/);
   const genericC2FinalAssetsRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c2\/final-assets$/);
+  const realProductionOwnerDecisionRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/production-owner-decision$/);
+  const productionOwnerPreparationRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/production-owner-preparation$/);
   const realProductionAuthorizationRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/production-authorization$/);
   const realProductionAuthorizationRevisionRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/production-authorization\/revise$/);
   const realProductionAuthorizationPriceRepairRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/production-authorization\/repair-price-semantics$/);
+  const realDAssetTransportRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/d\/asset-transport$/);
+  const savedDEContinuationRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/d-e\/continue-saved$/);
+  const accountReadRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/account-read\/(authorize|continue)$/);
+  if (req.method === "POST" && accountReadRoute) {
+    const contentType = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+    if (contentType !== "application/json") throw httpError(415, "账户核验只接受当前确认卡提交");
+    const origin = String(req.headers.origin || "");
+    if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, "账户核验拒绝其他网页来源");
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      throw httpError(403, "请先登录主人身份后确认本次账户读取");
+    }
+    const input = await requestBody(req);
+    if (!input || typeof input !== "object" || Array.isArray(input) || input.candidateId !== accountReadRoute[1]) {
+      throw httpError(400, "账户读取必须准确对应当前商品");
+    }
+    let execution;
+    try {
+      execution = accountReadRoute[2] === "authorize"
+        ? await ozonAccountReadServices.authorizeAndRun({ actor, input })
+        : await ozonAccountReadServices.continueSavedRead(input);
+    } catch (error) {
+      if (!(error instanceof OzonAccountReadError)) throw error;
+      const status = /NOT_CONFIGURED/.test(error.code) ? 503 : /CHANGED|CONFLICT|EXPIRED|AMBIGUOUS/.test(error.code) ? 409 : 422;
+      return json(res, status, { code: error.code, message: "账户读取未完成，请核对当前确认范围及已保存作业。" });
+    }
+    const document = await readData(), candidate = document.candidates.find(value => value.id === input.candidateId);
+    if (!candidate) throw httpError(500, "账户读取结果待核对：当前商品独立回读缺失");
+    return json(res, 200, { ...execution, candidate: publicSavedDECandidate(candidate, document) });
+  }
+  if (req.method === "POST" && savedDEContinuationRoute) {
+    const input = await requestBody(req);
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== 3 ||
+        !["candidateId", "expectedRevision", "jobId"].every(field => Object.hasOwn(input, field)) ||
+        input.candidateId !== savedDEContinuationRoute[1] || !Number.isSafeInteger(input.expectedRevision)) {
+      throw httpError(400, "继续请求必须准确引用当前已保存任务");
+    }
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      throw httpError(403, "请先登录主人身份后继续已保存任务");
+    }
+    const before = await readData(), candidate = before.candidates.find(item => item.id === input.candidateId);
+    if (!candidate || candidate.dataRevision !== input.expectedRevision) throw httpError(409, "商品资料已变化，请核对当前记录");
+    const view = savedDEJobView(candidate, before.runtime);
+    if (!view?.canContinueSaved || view.continueJobId !== input.jobId) {
+      throw httpError(409, view?.message || "当前任务不可继续，请核对已保存结果和卡点");
+    }
+    try {
+      const execution = await ozonAccountReadServices.continueProduction(input);
+      const after = await readData(), current = after.candidates.find(item => item.id === input.candidateId);
+      if (!current) throw httpError(500, "执行结果待核对：当前商品独立回读缺失");
+      return json(res, 200, { executionStatus: execution.status, candidate: publicSavedDECandidate(current, after) });
+    } catch (error) {
+      if (error instanceof DERuntimeUnavailableError) throw httpError(503, "执行服务配置尚未齐备，已保存任务保持原状态");
+      throw error;
+    }
+  }
   if (req.method === "POST" && (retiredFireTrainC1Route || retiredFireTrainFinalAssetsRoute)) {
     await requestBody(req);
     throw httpError(410, "旧火车专属C阶段入口已隔离，不得用于新版生命周期；请使用通用C1/C2入口");
   }
-  if (req.method === "POST" && (legacyFireTrainC1Route || legacyFireTrainFinalAssetsRoute) && !legacyFireTrainAdapterEnabled) {
+  if (req.method === "POST" && c1FactKeywordPipelineRoute) {
     await requestBody(req);
-    throw httpError(410, "火车专属历史适配器已永久隔离，只保留旧数据审计与单元测试，不得进入通用生产路径");
+    throw httpError(410, "旧C1事实关键词注入入口已停用；新版流程只接受服务端按当前revision生成的单次软件计划");
+  }
+  if (req.method === "POST" && c1KeywordEvidenceReadyRoute) {
+    await requestBody(req);
+    throw httpError(410, "旧关键词就绪事件注入入口已停用；外部事件只能由当前服务端单次作业内部接续");
+  }
+  if (req.method === "GET" && pathname === "/api/integrations/seerfar/runtime-status") {
+    return json(res, 200, {
+      connectorVersion: SEERFAR_RUNTIME_CONNECTOR_VERSION,
+      configured: null,
+      credentialStatus: "not_checked",
+      softwareExecutionEnabled: keywordEvidenceRuntimeServices.status === "running",
+      softwareJobQueueEnabled: c1PaidKeywordGenericQueueEnabled,
+      consumerConnected: keywordEvidenceRuntimeServices.status === "running",
+      serviceStatus: keywordEvidenceRuntimeServices.status,
+      executionBlocker: keywordEvidenceRuntimeServices.status === "running" ? null
+        : keywordEvidenceRuntimeServices.status === "failed" ? "runtime_failed" : "awaiting_runtime_binding",
+      directProviderExecutionEnabled: false,
+      automaticRetries: 0,
+      browserFallbackEnabled: false,
+      secretExposed: false
+    });
+  }
+  if (req.method === "POST" && c1KeywordEvidenceSoftwareRoute) {
+    const contentType = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+    if (contentType !== "application/json") throw httpError(415, "关键词软件作业只接受application/json");
+    const origin = String(req.headers.origin || "");
+    if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, "关键词软件作业拒绝非评审台页面来源");
+    const input = await requestBody(req);
+    const candidate = await runC1KeywordEvidenceSoftwareJob(c1KeywordEvidenceSoftwareRoute[1], input, req);
+    return json(res, 200, { candidate });
+  }
+  if (req.method === "POST" && c1SoftwareEvidenceStageRoute) {
+    await requestBody(req);
+    throw httpError(410, "旧C1软件证据手工冻结入口已停用；新版流程只读取服务端冻结证据");
+  }
+  if (req.method === "POST" && genericC1CompleteRoute && !legacyManualC1InputEnabled) {
+    await requestBody(req);
+    throw httpError(410, "旧手工提交Schema、竞品文字和关键词的C1入口已停用；新版C1只读取A/B冻结数据与已保存证据并由软件自动执行");
   }
   if (req.method === "POST" && genericC1CompleteRoute) {
     const input = await requestBody(req);
@@ -3220,6 +4527,75 @@ async function handleApi(req, res, pathname) {
     });
     return json(res, 200, { candidate });
   }
+  const c2UploadDraftRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c2\/upload-draft$/);
+  const c2LocalAssetPreviewRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c2\/local-assets\/([^/]+)$/);
+  if (req.method === "GET" && c2LocalAssetPreviewRoute) {
+    const data = await readData();
+    const current = data.candidates.find(item => item.id === c2LocalAssetPreviewRoute[1]);
+    const asset = current?.lifecycleV11?.c2UploadDraft?.uploads.find(item => item.assetId === c2LocalAssetPreviewRoute[2] && item.status === "ready");
+    if (!asset) throw httpError(404, "当前商品没有该本地素材");
+    const file = await c2LocalAssetStore.read(asset);
+    res.writeHead(200, { "Content-Type": file.contentType, "Content-Length": file.body.length, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
+    res.end(file.body);
+    return;
+  }
+  if (req.method === "POST" && c2UploadDraftRoute) {
+    const input = await requestBody(req);
+    const draft = await mutateData(data => {
+      const current = data.candidates.find(item => item.id === c2UploadDraftRoute[1]);
+      if (!current) throw httpError(404, "候选不存在");
+      const saved = saveC2UploadSelection(current, input);
+      current.lifecycleV11.c2UploadDraft = saved;
+      return structuredClone(current.lifecycleV11.c2UploadDraft);
+    });
+    return json(res, 200, { candidateId: draft.candidateId, dataRevision: draft.sourceCandidateRevision, draft, businessPhaseChanged: false, platformWrites: 0 });
+  }
+  if (req.method === "POST" && genericC2FinalAssetUploadRoute) {
+    if (c2UploadInProgress) throw httpError(409, "本机正在接收另一份素材，请在其结束后上传", { code: "c2_upload_busy" });
+    c2UploadInProgress = true;
+    try {
+      const requestUrl = new URL(req.url, `http://${host}:${port}`);
+      const revisionText = requestUrl.searchParams.get("dataRevision");
+      const draftRevisionText = requestUrl.searchParams.get("draftRevision");
+      if (!/^\d+$/.test(revisionText || "") || !/^\d+$/.test(draftRevisionText || "")) throw httpError(400, "上传必须提供商品和素材清单的当前修订号");
+      const dataRevision = Number(revisionText);
+      const draftRevision = Number(draftRevisionText);
+      const metadata = normalizeC2LocalUpload(requestUrl.searchParams.get("fileName"), req.headers["content-type"]);
+      const candidateId = genericC2FinalAssetUploadRoute[1];
+      const uploadId = randomUUID();
+      const reserved = await mutateData(data => {
+        const current = data.candidates.find(item => item.id === candidateId);
+        if (!current) throw httpError(404, "候选不存在");
+        const draft = reserveC2Upload(current, { dataRevision, draftRevision, uploadId, ...metadata, startedAt: now() });
+        current.lifecycleV11.c2UploadDraft = draft;
+        return draft.uploads.find(item => item.uploadId === uploadId);
+      });
+      let asset;
+      let failureCode = "upload_incomplete";
+      try {
+        const body = await requestBinaryBody(req, LOCAL_UPLOAD_MAX_BYTES);
+        failureCode = "file_storage_unconfirmed";
+        asset = await c2LocalAssetStore.write(reserved, body);
+      } catch (error) {
+        const rejectedCode = ["c2_upload_content_invalid", "c2_video_validation_unavailable", "c2_upload_animation_unsupported", "c2_upload_decoder_busy"].includes(error.extra?.code) ? error.extra.code : null;
+        if (rejectedCode) failureCode = "upload_rejected";
+        await mutateData(data => {
+          const current = data.candidates.find(item => item.id === candidateId);
+          if (!current?.lifecycleV11?.c2UploadDraft) throw httpError(409, "上传失败且原登记已变化，需要核对本地文件", { code: "c2_upload_receipt_conflict" });
+          current.lifecycleV11.c2UploadDraft = settleC2Upload(current.lifecycleV11.c2UploadDraft, { uploadId, failureCode, rejectedCode, settledAt: now() });
+          return null;
+        });
+        throw error;
+      }
+      const draft = await mutateData(data => {
+        const current = data.candidates.find(item => item.id === candidateId);
+        if (!current?.lifecycleV11?.c2UploadDraft) throw httpError(409, "文件已保存但上传登记已变化，需要核对", { code: "c2_upload_receipt_conflict" });
+        current.lifecycleV11.c2UploadDraft = settleC2Upload(current.lifecycleV11.c2UploadDraft, { uploadId, asset, settledAt: now() });
+        return structuredClone(current.lifecycleV11.c2UploadDraft);
+      });
+      return json(res, 201, { candidateId, dataRevision, asset, draft, businessPhaseChanged: false, platformWrites: 0 });
+    } finally { c2UploadInProgress = false; }
+  }
   if (req.method === "POST" && genericC2FinalAssetsRoute) {
     const input = await requestBody(req);
     if (!Number.isInteger(input.dataRevision)) throw httpError(400, "C2素材确认必须提供当前数据修订号");
@@ -3230,10 +4606,21 @@ async function handleApi(req, res, pathname) {
     if (!Array.isArray(input.approvedAssetIds) || input.approvedAssetIds.length === 0) {
       throw httpError(400, "必须提供主人确认的素材ID顺序");
     }
+    const confirmationSnapshot = await readData();
+    const confirmationCandidate = confirmationSnapshot.candidates.find((item) => item.id === genericC2FinalAssetsRoute[1]);
+    if (!confirmationCandidate) throw httpError(404, "候选不存在");
+    if (Number(confirmationCandidate.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后重新确认素材");
+    const verifiedFinalUploadAssets = await verifyAndAuthorizeStagedC2Assets({
+      candidate: confirmationCandidate,
+      dataRevision: input.dataRevision,
+      draftRevision: input.draftRevision,
+      assets: input.finalUploadAssets
+    });
     const candidate = await mutateData((data) => {
       const current = data.candidates.find((item) => item.id === genericC2FinalAssetsRoute[1]);
       if (!current) throw httpError(404, "候选不存在");
       if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后重新确认素材");
+      assertCurrentC2UploadDraft(current, { dataRevision: input.dataRevision, draftRevision: input.draftRevision });
       const skuPackage = current.lifecycleV11?.skuPackage;
       if (!skuPackage) throw httpError(409, "当前商品缺少新版SKU生命周期包");
       if (skuPackage.productionAuthorization || skuPackage.productionRecord) {
@@ -3242,17 +4629,44 @@ async function handleApi(req, res, pathname) {
       const timestamp = now();
       let result;
       try {
-        result = completeC2AndCreateConfirmationCard({
+        const manifest = prepareC2FinalUploadManifest({
           skuPackage,
-          finalUploadAssets: input.finalUploadAssets,
+          expectedDataRevision: skuPackage.dataRevision,
+          finalUploadAssets: verifiedFinalUploadAssets,
+          preparedAt: timestamp
+        });
+        if (JSON.stringify(input.approvedAssetIds) !== JSON.stringify(manifest.approvedAssetIds)) {
+          throw new Error("C2_SOFTWARE_OWNER_CONFIRMATION_REQUIRED: 主人确认的素材ID及顺序必须与冻结清单完全一致");
+        }
+        if (input.approvedMainImageAssetId !== manifest.mainImageAssetId || input.approvedVideoDisposition !== manifest.videoDisposition) {
+          throw new Error("C2_SOFTWARE_OWNER_CONFIRMATION_REQUIRED: 主人必须明确确认清单首图与视频处置");
+        }
+        const confirmed = confirmC2SoftwareFinalUploads({
+          skuPackage,
+          expectedDataRevision: skuPackage.dataRevision,
+          finalManifest: manifest,
           ownerDecision: {
             status: "confirmed",
             confirmedBy: "owner",
-            approvedAssetIds: input.approvedAssetIds,
+            approvedManifestVersion: manifest.schemaVersion,
+            approvedManifestSha256: manifest.manifestSha256,
+            approvedAssetIds: manifest.approvedAssetIds,
+            approvedMediaRequirementsFingerprint: manifest.mediaRequirementsFingerprint,
+            approvedMainImageAssetId: input.approvedMainImageAssetId,
+            approvedVideoDisposition: input.approvedVideoDisposition,
             confirmationNote: input.confirmationNote || null
           },
-          completedAt: timestamp
+          confirmedAt: timestamp
         });
+        const card = createFinalProductPlanConfirmationCard({
+          skuPackage: confirmed.skuPackage,
+          createdAt: timestamp
+        });
+        result = {
+          skuPackage: card.skuPackage,
+          confirmationCard: card.confirmationCard,
+          finalManifest: manifest
+        };
       } catch (error) {
         throw httpError(422, error.message);
       }
@@ -3284,407 +4698,225 @@ async function handleApi(req, res, pathname) {
       current.dataRevision = Number(current.dataRevision || 0) + 1;
       current.updatedAt = timestamp;
       current.lastModifiedBy = "user";
-      addHistory(current, "user", "genericC2FinalAssetsConfirmed", `主人确认${result.confirmationCard.c2Assets.finalUploads.length}个最终素材；已生成通用确认卡；零平台写入`, timestamp);
+      const runtime = current.executionRuntime || createSoftwareExecutionRuntime({
+        candidateId: current.id, dataRevision: input.dataRevision, businessPhase: "C2", at: timestamp
+      });
+      if (runtime.candidateId !== current.id) throw httpError(409, "执行记录与当前商品不一致，请先核对原记录");
+      current.executionRuntime = waitForOwner({ ...runtime, businessPhase: "C2", dataRevision: current.dataRevision }, {
+        stepId: "C2_OWNER_BUSINESS_CONFIRMATION", inputRevision: current.dataRevision, at: timestamp,
+        detail: "最终素材与商品方案卡已保存，等待主人确认准确生产范围"
+      });
+      addHistory(current, "user", "c2SoftwareFinalAssetsConfirmed", `主人确认${result.confirmationCard.c2Assets.finalUploads.length}个最终素材及清单指纹${result.finalManifest.manifestSha256}；已生成通用确认卡；未创建生产授权，零平台写入`, timestamp);
       return publicCandidate(current, data.rules);
     });
     return json(res, 200, { candidate });
   }
-  if (req.method === "POST" && realProductionAuthorizationPriceRepairRoute) {
+  if (req.method === "POST" && realDAssetTransportRoute) {
     const input = await requestBody(req);
-    if (!Number.isInteger(input.dataRevision)) throw httpError(400, "价格语义修复必须提供当前数据修订号");
-    if (input.confirmed !== true) throw httpError(400, "必须由主人明确确认修复当前授权的价格币种语义");
-    const candidate = await mutateData((data) => {
-      const current = data.candidates.find((item) => item.id === realProductionAuthorizationPriceRepairRoute[1]);
+    const currentSnapshot = await readData();
+    const savedCandidate = currentSnapshot.candidates.find(item => item.id === realDAssetTransportRoute[1]);
+    if (savedCandidate?.lifecycleV11?.skuPackage?.dHandoff?.schemaVersion === "c2-d-handoff-v2" ||
+        currentSnapshot.runtime?.softwareJobs?.some(job => job.jobType === "d_production_execution" && job.candidateId === savedCandidate?.id)) {
+      throw httpError(409, "素材传输属于已保存的生产任务，请查看该任务的当前进展");
+    }
+    if (!Number.isInteger(input.dataRevision)) throw httpError(400, "OSS素材准备必须提供当前数据修订号");
+    if (input.confirmed !== true) throw httpError(400, "必须由主人明确确认当前授权素材执行一次OSS准备");
+    if (!input.authorizationId || !Array.isArray(input.finalUploadAssetIds) || input.finalUploadAssetIds.length === 0) {
+      throw httpError(400, "必须锁定当前生产授权和完整最终素材顺序");
+    }
+
+    const persisted = await mutateData((data) => {
+      const current = data.candidates.find((item) => item.id === realDAssetTransportRoute[1]);
       if (!current) throw httpError(404, "候选不存在");
-      if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后重新确认价格语义修复");
+      if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后重新确认OSS素材准备");
       if (activeDispatchForCandidate(data, current.id)) throw httpError(409, "当前SKU已有任务正在等待或运行");
       const skuPackage = current.lifecycleV11?.skuPackage;
-      if (!skuPackage?.productionAuthorization || skuPackage.productionRecord) throw httpError(409, "当前SKU缺少可修复授权或已存在生产记录");
-      const conversion = input.priceConversion;
-      if (!Number.isFinite(conversion?.rubPerCny) || !conversion?.checkedAt || !conversion?.evidenceRef) {
-        throw httpError(400, "价格语义修复必须提供准确汇率、证据引用和核验时间");
-      }
-      const recommended = skuPackage.productionAuthorization.lockedScope?.recommendedPrice;
-      if (!Number.isFinite(recommended?.rub) || !Number.isFinite(recommended?.cny)) {
-        throw httpError(409, "当前授权缺少双币种建议价，不能自动修复");
+      if (!skuPackage?.productionAuthorization || skuPackage.productionRecord) throw httpError(409, "当前SKU缺少有效生产授权或已经生产");
+      if (skuPackage.dAssetTransport?.assetTransport?.status === "verified") throw httpError(409, "当前授权素材已经取得OSS稳定地址，禁止重复上传");
+      if (["in_flight", "unknown_outcome"].includes(skuPackage.dAssetTransport?.intent?.status)) {
+        throw httpError(409, "当前授权素材已有执行中或结果未知的OSS记录，禁止重复上传");
       }
       const timestamp = now();
-      let result;
+      let intent;
       try {
-        result = reviseProductionAuthorizationPriceSemantics({
-          skuPackage,
-          buyerTargetPrice: { amount: recommended.rub, currency: "RUB" },
-          platformWritePrice: { amount: recommended.cny, currency: "CNY" },
-          priceConversion: conversion,
-          repairedAt: timestamp
+        assertCurrentProductionExecutionBinding({ productionAuthorization: skuPackage.productionAuthorization,
+          currentProductionBinding: currentProductionBinding(current), checkedAt: timestamp });
+        intent = createPersistableAliyunOssAssetIntent({
+          candidate: current,
+          expectedDataRevision: input.dataRevision,
+          ownerDecision: {
+            confirmed: true,
+            confirmedBy: "owner",
+            authorizationId: input.authorizationId,
+            skuPackageId: skuPackage.skuPackageId,
+            finalUploadAssetIds: input.finalUploadAssetIds
+          },
+          startedAt: timestamp
         });
       } catch (error) {
         throw httpError(422, error.message);
       }
-      current.lifecycleV11.skuPackage = structuredClone(result.skuPackage);
-      current.lifecycleV11.status = "production_authorized_price_semantics_repaired";
-      current.lifecycleV11.platformWrites = 0;
-      current.listingPreparation = {
-        ...(current.listingPreparation || {}),
-        status: "production_authorized",
-        reason: `价格币种已修复：买家目标价${recommended.rub} RUB；Ozon中国卖家后台写入价${recommended.cny} CNY。未产生店铺写入。`,
-        decisionItems: [],
-        writeOccurred: false,
+      const persistedCandidateRevision = Number(current.dataRevision) + 1;
+      const persistedIntent = markAliyunOssAssetIntentPersisted({
+        intent,
+        persistedAt: timestamp,
+        persistedCandidateRevision
+      });
+      skuPackage.dAssetTransport = {
+        schemaVersion: "aliyun-oss-d-asset-state-v1",
+        status: "in_flight",
+        executionRevision: 1,
+        intent: structuredClone(persistedIntent),
+        assetTransport: null,
+        automaticRetry: false,
         platformWrites: 0
       };
-      current.listingHandoff = {
-        ...(current.listingHandoff || {}),
-        state: "awaiting_production_start",
-        owner: "listing_task",
-        runId: null,
-        currentStep: `价格币种硬门禁已通过：平台字段只允许写${recommended.cny} CNY`,
-        blockReason: null,
-        userAction: "无需重新确认商业售价；下一生产轮必须使用修复后的授权",
-        decisionItems: []
-      };
-      current.processing = { ...queuedProcessing(current.processing), state: "idle" };
-      current.dataRevision = Number(current.dataRevision || 0) + 1;
+      current.dataRevision = persistedCandidateRevision;
       current.updatedAt = timestamp;
       current.lastModifiedBy = "system";
-      addHistory(current, "system", "productionAuthorizationPriceSemanticsRepaired", `将${recommended.rub} RUB买家目标价与${recommended.cny} CNY后台写入价分离；零平台写入`, timestamp);
-      return publicCandidate(current, data.rules);
+      addHistory(current, "system", "ossAssetTransportIntentPersisted", `已持久化当前授权${input.finalUploadAssetIds.length}个最终素材的一次OSS传输意图；尚未写Ozon`, timestamp);
+      return { candidate: structuredClone(current), intent: structuredClone(persistedIntent) };
     });
-    return json(res, 200, { candidate });
-  }
-  if (req.method === "POST" && realProductionAuthorizationRevisionRoute) {
-    const input = await requestBody(req);
-    if (!Number.isInteger(input.dataRevision)) throw httpError(400, "生产授权修订必须提供当前数据修订号");
-    if (input.confirmed !== true) throw httpError(400, "必须由主人明确确认新的生产范围");
+
+    const result = await executeAliyunOssAssetIntent({
+      persistedIntent: persisted.intent,
+      candidate: persisted.candidate,
+      currentProductionBinding: currentProductionBinding(persisted.candidate),
+      resolveLocalAsset: asset => c2LocalAssetStore.read(resolveRegisteredC2FinalAsset(persisted.candidate, asset), { verifyContent: true }),
+      serverClock: now
+    });
+
     const candidate = await mutateData((data) => {
-      const current = data.candidates.find((item) => item.id === realProductionAuthorizationRevisionRoute[1]);
+      const current = data.candidates.find((item) => item.id === realDAssetTransportRoute[1]);
       if (!current) throw httpError(404, "候选不存在");
-      if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后重新确认生产范围");
-      if (activeDispatchForCandidate(data, current.id)) throw httpError(409, "当前SKU已有任务正在等待或运行");
-      const skuPackage = current.lifecycleV11?.skuPackage;
-      if (!skuPackage?.productionAuthorization || skuPackage.productionRecord) throw httpError(409, "当前SKU缺少可修订授权或已存在生产记录");
       const timestamp = now();
-      let result;
-      try {
-        result = reviseProductionAuthorization({
-          skuPackage,
-          ownerDecision: { confirmed: true, confirmedBy: "owner" },
-          publishScope: input.publishScope,
-          exclusions: input.exclusions,
-          allowedWriteFields: input.allowedWriteFields,
-          confirmedAt: timestamp
-        });
-      } catch (error) {
-        throw httpError(422, error.message);
-      }
-      current.lifecycleV11.skuPackage = structuredClone(result.skuPackage);
-      current.lifecycleV11.status = "production_authorized_awaiting_d_start";
-      current.lifecycleV11.platformWrites = 0;
-      current.listingPreparation = {
-        ...(current.listingPreparation || {}),
-        status: "production_authorized",
-        reason: `主人已版本化确认生产范围：${result.productionAuthorization.lockedScope.publishScope}；D阶段尚未启动。`,
-        decisionItems: ["另行确认后启动当前SKU的D阶段"],
-        writeOccurred: false,
-        platformWrites: 0
-      };
-      current.listingHandoff = {
-        ...(current.listingHandoff || {}),
-        state: "awaiting_production_start",
-        owner: "listing_task",
-        runId: null,
-        currentStep: "新版生产授权已锁定，等待继续D阶段",
-        blockReason: null,
-        userAction: "无需再次确认相同范围",
-        decisionItems: []
-      };
-      current.processing = { ...queuedProcessing(current.processing), state: "idle" };
-      current.dataRevision = Number(current.dataRevision || 0) + 1;
+      const settled = settleAliyunOssAssetIntent({ candidate: current, persistedIntent: persisted.intent, result, settledAt: timestamp });
+      current.lifecycleV11.skuPackage.dAssetTransport = settled.lifecycleV11.skuPackage.dAssetTransport;
+      current.dataRevision = Number(current.dataRevision) + 1;
       current.updatedAt = timestamp;
-      current.lastModifiedBy = "user";
-      addHistory(current, "user", "lifecycleProductionAuthorizationRevised", `主人修订当前SKU生产范围为${result.productionAuthorization.lockedScope.publishScope}；零平台写入`, timestamp);
+      current.lastModifiedBy = "system";
+      addHistory(
+        current,
+        "system",
+        result.status === "verified" ? "ossAssetTransportVerified"
+          : result.status === "failed" ? "ossAssetTransportNotAttempted" : "ossAssetTransportUnknownOutcome",
+        result.status === "verified"
+          ? `当前授权${result.assetTransport.resolvedAssets.length}个最终素材已取得稳定HTTPS地址；Ozon写入仍为0`
+          : result.status === "failed"
+            ? "OSS素材执行条件检查未通过，本轮未发起上传；Ozon写入仍为0"
+            : "OSS素材传输结果未知，已停止且禁止自动重试；Ozon写入仍为0",
+        timestamp
+      );
       return publicCandidate(current, data.rules);
     });
-    return json(res, 200, { candidate });
+    return json(res, result.status === "verified" ? 200 : result.status === "failed" ? 422 : 502,
+      { candidate, assetTransportStatus: result.status });
   }
-  if (req.method === "POST" && realProductionAuthorizationRoute) {
-    const input = await requestBody(req);
-    if (!Number.isInteger(input.dataRevision)) throw httpError(400, "生产授权必须提供当前数据修订号");
-    if (input.confirmed !== true) throw httpError(400, "必须由主人明确通过最终商品方案卡");
-    if (!input.cardId) throw httpError(400, "生产授权必须锁定当前最终商品方案卡");
-    if (!input.buyerTargetPrice || !input.platformWritePrice || !input.priceConversion) {
-      throw httpError(400, "生产授权必须分别锁定买家目标价、后台写入价和汇率证据");
-    }
-    if (!input.publishScope || !Array.isArray(input.exclusions) || !Array.isArray(input.allowedWriteFields)) {
-      throw httpError(400, "生产授权必须明确发布范围、排除项和允许写入字段");
-    }
-    const candidate = await mutateData((data) => {
-      const current = data.candidates.find((item) => item.id === realProductionAuthorizationRoute[1]);
-      if (!current) throw httpError(404, "候选不存在");
-      if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后重新确认生产授权");
-      if (activeDispatchForCandidate(data, current.id)) throw httpError(409, "当前SKU已有任务正在等待或运行");
-      const skuPackage = current.lifecycleV11?.skuPackage;
-      if (!skuPackage?.productionConfirmationCard) throw httpError(409, "当前SKU没有最终商品方案确认卡");
-      if (skuPackage.productionAuthorization || skuPackage.productionRecord) throw httpError(409, "当前SKU已经生成生产授权或生产记录，不能重复授权");
-      if (skuPackage.productionConfirmationCard.cardId !== input.cardId) throw httpError(409, "最终商品方案卡已变化，请刷新后重新确认");
-      const timestamp = now();
-      let result;
-      try {
-        result = createProductionAuthorization({
-          skuPackage,
-          ownerDecision: {
-            selectedOption: "approve_for_production_authorization",
-            confirmedBy: "owner",
-            cardId: input.cardId,
-            note: input.note || null
-          },
-          buyerTargetPrice: input.buyerTargetPrice,
-          platformWritePrice: input.platformWritePrice,
-          priceConversion: input.priceConversion,
-          publishScope: input.publishScope,
-          exclusions: input.exclusions,
-          allowedWriteFields: input.allowedWriteFields,
-          confirmedAt: timestamp
-        });
-      } catch (error) {
-        throw httpError(422, error.message);
-      }
-      current.lifecycleV11.skuPackage = structuredClone(result.skuPackage);
-      current.lifecycleV11.status = "production_authorized_awaiting_d_start";
-      current.lifecycleV11.platformWrites = 0;
-      current.listingPreparation = {
-        ...(current.listingPreparation || {}),
-        status: "production_authorized",
-        reason: `主人已通过最终商品方案并锁定生产范围：${result.productionAuthorization.lockedScope.publishScope}；D阶段尚未启动。`,
-        decisionItems: ["另行确认后启动当前SKU的D阶段"],
-        writeOccurred: false,
-        platformWrites: 0
-      };
-      current.listingHandoff = {
-        ...(current.listingHandoff || {}),
-        state: "awaiting_production_start",
-        owner: "listing_task",
-        runId: null,
-        currentStep: "生产授权已锁定，等待主人另行启动D阶段",
-        blockReason: null,
-        userAction: "当前无需补资料；如需生产写入，另行确认启动D阶段。",
-        decisionItems: ["启动D阶段"]
-      };
-      current.processing = { ...queuedProcessing(current.processing), state: "idle" };
-      current.dataRevision = Number(current.dataRevision || 0) + 1;
-      current.updatedAt = timestamp;
-      current.lastModifiedBy = "user";
-      const scope = result.productionAuthorization.lockedScope;
-      addHistory(current, "user", "lifecycleProductionAuthorized", `主人通过最终商品方案卡；已锁定${scope.platform}/${scope.store}、供应SKU ${scope.supplierSkuId}、买家目标价${scope.buyerTargetPrice.amount} ${scope.buyerTargetPrice.currency}、后台写入价${scope.platformWritePrice.amount} ${scope.platformWritePrice.currency}、库存${scope.stock}、${scope.finalUploads.length}个最终素材、范围${scope.publishScope}；未派发、零平台写入`, timestamp);
-      return publicCandidate(current, data.rules);
+  if (req.method === "POST" && (realProductionAuthorizationPriceRepairRoute || realProductionAuthorizationRevisionRoute)) {
+    await requestBody(req);
+    return json(res, 410, {
+      message: "ProductionAuthorization不可变；修订或价格修复必须由后续独立版本化批次设计，当前不覆盖原授权。",
+      externalRequests: 0,
+      platformWrites: 0
     });
-    return json(res, 200, { candidate });
+  }
+  if (req.method === "GET" && productionOwnerPreparationRoute) {
+    const data = await readData();
+    const candidate = data.candidates.find(item => item.id === productionOwnerPreparationRoute[1]);
+    if (!candidate) throw httpError(404, "候选不存在");
+    return json(res, 200, buildProductionOwnerPreparationView({
+      candidate, configuration: runtimeConfiguration, evidencePacks: data.evidencePacks, observedAt: now()
+    }));
+  }
+  if (req.method === "POST" && (realProductionOwnerDecisionRoute || realProductionAuthorizationRoute)) {
+    const input = await requestBody(req);
+    if (input?.contractVersion !== PRODUCTION_AUTHORIZATION_VERSION) {
+      return json(res, 409, { code: "production_authorization_reconfirmation_required",
+        message: "生产确认方式已更新，请刷新最终确认卡并重新核对本件商品的准确范围。旧商业意见不会自动成为新授权。",
+        externalRequests: 0, platformWrites: 0 });
+    }
+    const allowed = ["contractVersion", "dataRevision", "skuRevision", "cardId", "cardRevision",
+      "sourcePreparationFingerprint", "sourceFinalCardInputFingerprint", "bindingId", "configurationVersion", "merchantSku", "confirmExactScope"];
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== allowed.length ||
+        allowed.some(field => !Object.hasOwn(input, field)) || !Number.isInteger(input.dataRevision) || !Number.isInteger(input.cardRevision)) {
+      throw httpError(400, "确认请求字段不完整或包含未经允许的字段");
+    }
+    const candidateId = (realProductionOwnerDecisionRoute || realProductionAuthorizationRoute)[1];
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human") {
+      return json(res, 503, { message: "正式主人身份来源尚未接通，当前不能保存生产授权。", code: "production_identity_unavailable", externalRequests: 0, platformWrites: 0 });
+    }
+    let transaction;
+    try {
+      transaction = await commitSingleOwnerProductionAuthorization({ repository: businessStateRepository,
+        runtimeMode: runtimeConfiguration.deploymentMode, actor, candidateId, input, serverClock: now,
+        resolveProductionAuthorizationDecision: context => resolveProductionOwnerPreparation({
+          ...context, configuration: runtimeConfiguration
+        }) });
+    } catch (error) {
+      if (error instanceof ProductionOwnerPreparationError) {
+        const status = /CHANGED|EXPIRED/.test(error.code) ? 409 : /NOT_CONFIGURED/.test(error.code) ? 503 : 422;
+        return json(res, status, { code: error.code, message: error.message, externalRequests: 0, platformWrites: 0 });
+      }
+      const code = String(error.code || error.message).split(":", 1)[0];
+      if (!/^(?:PRODUCTION_OWNER|PRODUCTION_AUTHORIZATION|BUSINESS_MUTATION|RUNTIME_OPERATION)_[A-Z_]{1,100}$/.test(code)) {
+        throw Object.assign(httpError(500, "生产确认保存失败，须核对当前保存记录"), {
+          failureCode: /^[A-Z][A-Z0-9_]{1,100}$/.test(code) ? code : "UNCLASSIFIED_FAILURE"
+        });
+      }
+      const status = /FORBIDDEN|AUTHENTICATED|AUTHORIZER/.test(code) ? 403 : /NOT_FOUND/.test(code) ? 404 : /CONFLICT|DRIFT|GATE_REJECTED/.test(code) ? 409 : 422;
+      throw httpError(status, `生产确认未保存：${code}`);
+    }
+    let executionStatus = "not_started";
+    if (transaction.status === "committed" && transaction.result.softwareJobCreated === true) {
+      try {
+        const execution = await ozonAccountReadServices.continueProduction({ candidateId,
+          expectedRevision: transaction.candidate.dataRevision, jobId: transaction.result.softwareJobRef.jobId });
+        executionStatus = execution.status;
+      } catch (error) {
+        if (!(error instanceof DERuntimeUnavailableError)) throw error;
+        executionStatus = "not_configured";
+      }
+    }
+    let data;
+    try { data = await readData(); }
+    catch { throw httpError(500, "生产确认保存结果待核对，当前未取得独立回读"); }
+    const committed = data.candidates.find(item => item.id === candidateId);
+    if (!committed) throw httpError(500, "生产确认保存结果待核对，当前商品独立回读缺失");
+    const sku = committed.lifecycleV11?.skuPackage;
+    const job = data.runtime?.softwareJobs?.find(item => item.jobId === transaction.result.softwareJobRef?.jobId);
+    return json(res, 200, {
+      status: transaction.status, executionStatus, candidate: publicSavedDECandidate(committed, data),
+      productionAuthorization: transaction.result.productionAuthorization, dHandoff: transaction.result.dHandoff,
+      productionPlanCreated: Boolean(sku?.dAssetTransport || sku?.dSoftwareExecution || job?.preparationEvidence),
+      executionIntentCreated: Boolean(sku?.dAssetTransport || sku?.dSoftwareExecution),
+      softwareJobCreated: transaction.result.softwareJobCreated,
+      softwareJobRef: transaction.result.softwareJobRef ?? null,
+      dWritePermissionGranted: false, externalRequests: job?.externalRequestState === "not_sent" ? 0 : job?.attempt === 1 ? "unknown" : 0,
+      platformWrites: sku?.dSoftwareExecution?.platformWrites ?? 0
+    });
   }
   if (req.method === "POST" && legacyFireTrainFinalAssetsRoute) {
-    const input = await requestBody(req);
-    if (!Number.isInteger(input.dataRevision)) throw httpError(400, "最终素材确认必须提供当前数据修订号");
-    if (input.confirmed !== true) throw httpError(400, "必须明确确认本次精确SKU事实和最终素材顺序");
-    if (!Array.isArray(input.fileNames) || input.fileNames.length === 0 || input.fileNames[0] !== "09-成品图-俄文.png") {
-      throw httpError(400, "最终素材必须存在，且09-成品图-俄文.png必须是首图");
-    }
-    const allowedRoot = path.resolve("/Users/shuaizhang/Desktop/小猴子做图产出物/xiaohouzi-20260812-145155-81d347e7/成品图");
-    const timestamp = now();
-    const finalUploadAssets = [];
-    for (const [index, fileName] of input.fileNames.entries()) {
-      if (path.basename(fileName) !== fileName) throw httpError(400, "最终素材文件名无效");
-      const assetRef = path.resolve(allowedRoot, fileName);
-      if (!assetRef.startsWith(`${allowedRoot}${path.sep}`)) throw httpError(400, "最终素材超出本次主人提供目录");
-      let bytes;
-      let stat;
-      try {
-        [bytes, stat] = await Promise.all([fs.readFile(assetRef), fs.stat(assetRef)]);
-      } catch {
-        throw httpError(422, `最终素材不可读：${fileName}`);
-      }
-      const extension = path.extname(fileName).toLowerCase();
-      if (![".png", ".jpg", ".jpeg", ".mp4"].includes(extension)) throw httpError(422, `最终素材格式不支持：${fileName}`);
-      finalUploadAssets.push({
-        assetId: `final:CX-20260803-010:${index + 1}:${createHash("sha256").update(bytes).digest("hex").slice(0, 16)}`,
-        mediaType: extension === ".mp4" ? "video" : "image",
-        assetRef,
-        fileName,
-        sha256: createHash("sha256").update(bytes).digest("hex"),
-        byteSize: stat.size,
-        order: index + 1,
-        role: index === 0 ? "main_image" : "detail_image",
-        sourceType: "owner_provided_final_upload",
-        addedAt: timestamp
-      });
-    }
-    const candidate = await mutateData((data) => {
-      const current = data.candidates.find((item) => item.id === legacyFireTrainFinalAssetsRoute[1]);
-      if (!current) throw httpError(404, "候选不存在");
-      if (current.id !== "CX-20260803-010") throw httpError(409, "第13C当前只允许CX-20260803-010");
-      if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后重新确认素材");
-      if (current.lifecycleV11?.skuPackage?.productionAuthorization || current.lifecycleV11?.skuPackage?.productionRecord) {
-        throw httpError(409, "该SKU已经生产授权或执行，不能覆盖事实和素材");
-      }
-      let result;
-      try {
-        result = finalizeLegacyFireTrain13CForOwnerCard({
-          candidate: current,
-          ownerFactConfirmation: {
-            brandDecision: "no_brand",
-            material: "DVP",
-            pieceCount: Number(input.pieceCount),
-            mechanism: "mechanical_wind_up",
-            powered: false,
-            containsBattery: false
-          },
-          packedWeightKg: Number(input.packedWeightKg),
-          dimensionsCm: input.dimensionsCm,
-          finalUploadAssets,
-          excludedAssets: Array.isArray(input.excludedAssets) ? input.excludedAssets : [],
-          preparedAt: timestamp
-        });
-      } catch (error) {
-        throw httpError(422, error.message);
-      }
-      current.productName = result.correctedProductName;
-      current.packedWeightKg = Number(input.packedWeightKg);
-      current.dimensionsCm = structuredClone(input.dimensionsCm);
-      current.lifecycleV11 = structuredClone(result.lifecycle);
-      const profit = result.activeProfitModel;
-      current.codexReview.cStageStatus = "awaiting_owner_business_confirmation";
-      current.codexReview.cStageReview = {
-        ...current.codexReview.cStageReview,
-        status: "awaiting_owner_business_confirmation",
-        ownerFactConfirmation: structuredClone(result.lifecycle.ownerFactConfirmation),
-        logistics: structuredClone(result.logistics),
-        profit: {
-          profitModelVersion: profit.profitModelVersion,
-          unitProfitRmb: profit.unitProfitRmb,
-          marginRate: profit.profitMargin,
-          targetPriceRub: profit.recommendedSalePriceRub,
-          exchangeRateSnapshotDate: current.codexReview.exchangeRate.rateDate,
-          marketResearchRefreshed: false
-        },
-        draftTitleRu: result.confirmationCard.seoDraft.title.text,
-        finalAssetCount: finalUploadAssets.length,
-        finalAssetOrder: finalUploadAssets.map((asset) => asset.fileName),
-        excludedAssets: structuredClone(input.excludedAssets || []),
-        missing: ["主人审核最终商品方案确认卡；A阶段320片价格参考与当前282件精确SKU不是完全同规格"]
-      };
-      current.listingPreparation = {
-        ...(current.listingPreparation || {}),
-        status: "awaiting_owner_business_confirmation",
-        reason: "C1事实、profit-v2和C2最终素材已完成，正在等待主人审核最终商品方案卡；尚未生产授权。",
-        decisionItems: ["审核最终商品方案卡并决定通过、退回C阶段或淘汰"],
-        writeOccurred: false,
-        platformWrites: 0
-      };
-      current.listingHandoff = {
-        ...(current.listingHandoff || {}),
-        state: "needs_decision",
-        runId: null,
-        currentStep: "C1+C2完成，等待主人审核最终商品方案卡",
-        blockReason: null,
-        userAction: "请审核标题、282件、0.21kg、23×16×3cm、利润、最终图片顺序和市场证据差异。",
-        decisionItems: ["通过进入生产授权", "退回C阶段修改", "淘汰商品"]
-      };
-      current.processing = { ...queuedProcessing(current.processing), state: "idle" };
-      current.dataRevision = Number(current.dataRevision || 0) + 1;
-      current.updatedAt = timestamp;
-      current.lastModifiedBy = "user";
-      addHistory(current, "user", "real13CFinalAssetsConfirmed", `主人纠正精确SKU为282件、实际打包0.21kg、23×16×3cm；09为首图，${finalUploadAssets.length}个安全素材进入C2，已生成最终商品方案确认卡；零平台写入`, timestamp);
-      return publicCandidate(current, data.rules);
-    });
-    return json(res, 200, { candidate });
+    throw httpError(410, "历史火车素材入口已退役；请使用当前SKU的正式C2素材流程");
   }
   if (req.method === "POST" && legacyFireTrainC1Route) {
-    const input = await requestBody(req);
-    if (!Number.isInteger(input.dataRevision)) throw httpError(400, "C1主人确认必须提供当前数据修订号");
-    if (input.confirmed !== true) throw httpError(400, "必须明确确认当前精确SKU事实");
-    const candidate = await mutateData((data) => {
-      const current = data.candidates.find((item) => item.id === legacyFireTrainC1Route[1]);
-      if (!current) throw httpError(404, "候选不存在");
-      if (current.id !== "CX-20260803-010") throw httpError(409, "第13C当前只允许CX-20260803-010");
-      if (current.workflowStatus !== "listing_preparation") throw httpError(409, "当前商品不在C阶段上架准备");
-      if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后重新确认");
-      if (current.lifecycleV11?.skuPackage) throw httpError(409, "当前SKU已经存在真实生命周期包，不能重复生成");
-      const timestamp = now();
-      let lifecycle;
-      try {
-        lifecycle = prepareLegacyFireTrainC1ForFinalAssets({
-          candidate: current,
-          ownerFactConfirmation: {
-            confirmedBy: "owner",
-            confirmedAt: timestamp,
-            brandDecision: input.brandDecision,
-            material: input.material,
-            pieceCount: input.pieceCount,
-            mechanism: input.mechanism,
-            powered: input.powered,
-            containsBattery: input.containsBattery
-          },
-          preparedAt: timestamp
-        });
-      } catch (error) {
-        throw httpError(422, error.message);
-      }
-      current.lifecycleV11 = lifecycle;
-      current.codexReview = {
-        ...(current.codexReview || {}),
-        cStageStatus: "awaiting_final_assets",
-        cStageFailureLayer: null,
-        cStageReview: {
-          ...(current.codexReview?.cStageReview || {}),
-          status: "awaiting_final_assets",
-          ownerFactConfirmation: structuredClone(lifecycle.ownerFactConfirmation),
-          c1PlanId: lifecycle.skuPackage.c1ProductPlan.c1PlanId,
-          c1Status: lifecycle.skuPackage.c1ProductPlan.status,
-          missing: ["完整授权素材清单与顺序"]
-        }
-      };
-      current.listingPreparation = {
-        ...(current.listingPreparation || {}),
-        status: "awaiting_final_assets",
-        failureLayer: null,
-        reason: "C1商品方案已经基于当前冻结证据完成；现在只等待主人提供并确认最终上传图片/视频及顺序。",
-        decisionItems: ["提供并确认完整授权素材清单、图片/视频及顺序"],
-        writeOccurred: false,
-        c1CompletedAt: timestamp,
-        sourceCaptureId: current.sourceCapture.captureId
-      };
-      current.listingHandoff = {
-        ...(current.listingHandoff || {}),
-        state: "needs_decision",
-        runId: null,
-        currentStep: "C1商品方案已完成，等待C2最终素材",
-        blockReason: null,
-        userAction: "请提供本SKU最终要上传的图片/视频，并确认顺序；采集素材不会自动进入D。",
-        decisionItems: ["提供并确认完整授权素材清单、图片/视频及顺序"],
-        stoppedAt: null
-      };
-      current.processing = { ...queuedProcessing(current.processing), state: "idle" };
-      current.dataRevision = Number(current.dataRevision || 0) + 1;
-      current.updatedAt = timestamp;
-      current.lastModifiedBy = "user";
-      addHistory(current, "user", "realC1FactsConfirmed", "主人确认精确SKU为无品牌、DVP、320片、机械发条、非电且无电池；C1已生成并停在C2最终素材确认，未创建商品或写店", timestamp);
-      return publicCandidate(current, data.rules);
-    });
-    return json(res, 200, { candidate });
+    throw httpError(410, "历史火车C1入口已退役；正式C1必须使用已准入且已保存的provider回执");
   }
 
   if (req.method === "POST" && listingPreparationReviewRoute) {
-    const input = await requestBody(req);
-    if (!Number.isInteger(input.dataRevision)) throw httpError(400, "C阶段回写必须提供当前数据修订号");
-    if (!["prepared", "blocked", "needs_decision"].includes(input.status)) throw httpError(400, "C阶段状态无效");
+    const input = normalizeListingPreparationReviewInput(await requestBody(req));
     const candidate = await mutateData((data) => {
       const current = data.candidates.find((item) => item.id === listingPreparationReviewRoute[1]);
       if (!current) throw httpError(404, "候选不存在");
+      if (isTrustedInternalApiRequest(req.headers, internalApiRequestToken)) assertCurrentMaintenanceWrite(data, current.id, input.runId);
       if (current.workflowStatus !== "listing_preparation") throw httpError(409, "只有待上架准备商品可以回写C阶段");
       if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，旧C阶段结果不得覆盖新数据");
       if (input.runId && current.listingHandoff?.runId && current.listingHandoff.runId !== input.runId) {
         throw httpError(409, "C阶段runId与当前上架准备任务不一致");
       }
       const timestamp = now();
-      if (input.candidateData && typeof input.candidateData === "object") {
-        const inheritedFields = ["sourceUrl", "purchasePriceRmb", "packedWeightKg", "dimensionsCm"];
+      if (Object.keys(input.candidateData).length) {
+        const inheritedFields = listingPreparationInheritedFields();
         const conflictingField = inheritedFields.find((field) =>
           Object.hasOwn(input.candidateData, field) &&
           JSON.stringify(input.candidateData[field]) !== JSON.stringify(current[field])
@@ -3692,14 +4924,11 @@ async function handleApi(req, res, pathname) {
         if (conflictingField) {
           throw httpError(422, `C阶段发现前期继承字段冲突：${conflictingField}；不得静默覆盖，请返回needs_decision让主人确认`);
         }
-        for (const field of ["materialsAndAge", "powered", "complianceStatus", "authorizationStatus"]) {
+        for (const field of listingPreparationCStageFields()) {
           if (Object.hasOwn(input.candidateData, field)) current[field] = input.candidateData[field];
         }
       }
-      if (input.codexReview && typeof input.codexReview === "object") {
-        current.codexReview = { ...(current.codexReview || {}), ...input.codexReview, reviewedAt: timestamp };
-      }
-      const evidencePackIds = Array.isArray(input.evidencePackIds) ? [...new Set(input.evidencePackIds.map(String))] : [];
+      const evidencePackIds = input.evidencePackIds;
       const unknownPack = evidencePackIds.find((id) => !(data.evidencePacks || []).some((pack) => pack.id === id && pack.status === "active"));
       if (unknownPack) throw httpError(422, `共享证据包不存在或已失效：${unknownPack}`);
       if (input.status === "prepared") {
@@ -3712,7 +4941,7 @@ async function handleApi(req, res, pathname) {
             throw httpError(422, "C阶段结果没有带回当前1688采集编号，不能通过");
           }
         }
-        const preparation = input.preparation || {};
+        const preparation = input.preparation;
         const missing = ["exactSourceSku", "category", "schemaEvidence", "finalPrice"].filter((field) => !String(preparation[field] || "").trim());
         if (missing.length || !Array.isArray(preparation.assets) || !preparation.assets.filter((item) => String(item).trim()).length) {
           throw httpError(422, "C阶段通过必须包含精确货源SKU、类目、Schema证据、最终价格和素材清单");
@@ -3745,12 +4974,9 @@ async function handleApi(req, res, pathname) {
         };
         addHistory(current, "listing_task", "listingPreparationCompleted", "上架任务已完成C阶段；库存100仅为待确认默认值，尚未写店", timestamp);
       } else {
-        const reason = String(input.reason || "").trim();
-        if (!reason) throw httpError(400, "C阶段停止必须写明失败原因或待决定事项");
-        const decisionItems = Array.isArray(input.decisionItems)
-          ? input.decisionItems.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 6)
-          : [];
-        const userAction = String(input.userAction || "").trim() || (
+        const reason = input.reason;
+        const decisionItems = input.decisionItems;
+        const userAction = input.userAction || (
           input.status === "needs_decision"
             ? "请确认页面列出的必要事实；确认前不会重新采集或继续上架"
             : "本次已停止；只有主人明确选择后才会再次执行"
@@ -3761,7 +4987,7 @@ async function handleApi(req, res, pathname) {
           evidencePackIds,
           decisionItems,
           stoppedAt: timestamp,
-          failureLayer: String(input.failureLayer || "business_preflight").trim(),
+          failureLayer: input.failureLayer,
           reason,
           writeOccurred: input.writeOccurred === true
         };
@@ -3787,70 +5013,12 @@ async function handleApi(req, res, pathname) {
   }
 
   if (req.method === "POST" && productionAuthorizationRoute) {
-    const input = await requestBody(req);
-    const requiredText = ["platform", "store", "product", "sku", "price", "stock", "publishScope"];
-    const missing = requiredText.filter((field) => !String(input[field] ?? "").trim());
-    if (missing.length || !Array.isArray(input.assets) || !input.assets.filter((item) => String(item).trim()).length || input.confirmed !== true) {
-      throw httpError(400, "生产确认必须完整填写平台、店铺、商品、SKU、价格、库存、素材、发布范围并明确勾选确认");
-    }
-    if (!Number.isInteger(input.dataRevision)) throw httpError(400, "生产确认必须提供当前数据修订号");
-    const map = await readWorkflowMap(workflowMapFile);
-    let dispatchId = null;
-    const result = await mutateData((data) => {
-      const current = data.candidates.find((item) => item.id === productionAuthorizationRoute[1]);
-      if (!current) throw httpError(404, "候选不存在");
-      if (current.workflowStatus !== "ready_to_list") throw httpError(409, "只有C阶段通过的可上架商品可以记录生产确认");
-      if (current.listingPreparation?.status !== "prepared" || !current.cCompletedAt) {
-        throw httpError(409, "该历史待上架记录没有当前C阶段完成证据；请先单品点击开始上架准备");
-      }
-      if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后重新确认生产范围");
-      if (activeDispatchForCandidate(data, current.id)) throw httpError(409, "当前SKU已有任务正在等待或运行");
-      const expectedPlatform = current.targetStore === "wb" ? "WB" : "Ozon";
-      if (input.platform !== expectedPlatform) throw httpError(409, `当前商品目标平台是${expectedPlatform}，不能跨平台复用确认`);
-      if (Number(input.stock) !== Number(current.defaultStock || 100)) throw httpError(409, "所有新品库存默认必须为100；如需例外请先单独修改业务决定");
-      const timestamp = now();
-      current.productionAuthorization = {
-        status: "confirmed",
-        platform: input.platform,
-        store: String(input.store).trim(),
-        product: String(input.product).trim(),
-        sku: String(input.sku).trim(),
-        price: String(input.price).trim(),
-        stock: String(input.stock).trim(),
-        assets: input.assets.map((item) => String(item).trim()).filter(Boolean),
-        publishScope: String(input.publishScope).trim(),
-        exclusions: String(input.exclusions || "").trim(),
-        confirmedAt: timestamp,
-        confirmedBy: "user",
-        consumedAt: null
-      };
-      current.dataRevision = Number(current.dataRevision || 0) + 1;
-      current.updatedAt = timestamp;
-      current.lastModifiedBy = "user";
-      current.listingHandoff = {
-        ...(current.listingHandoff || {}),
-        state: "production_queued",
-        owner: "listing_task",
-        runId: null,
-        currentStep: "等待上架任务执行已确认的生产范围",
-        productionQueuedAt: timestamp
-      };
-      const dispatch = createCandidateDispatch(data, map, current, {
-        nodeId: "M10",
-        message: `主人已精确确认生产卡：${input.platform}/${String(input.store).trim()}，SKU ${String(input.sku).trim()}，价格 ${String(input.price).trim()}，库存100，范围 ${String(input.publishScope).trim()}；严格按确认卡执行并完成E独立回读`,
-        trigger: "production_authorization_user_confirmed",
-        actor: "user"
-      });
-      dispatch.productionAuthorized = true;
-      dispatchId = dispatch.id;
-      addHistory(current, "user", "productionScopeConfirmed", `已确认${input.platform}/${String(input.store).trim()}的SKU ${String(input.sku).trim()}生产范围；尚未执行店铺写入`, timestamp);
-      return { candidate: publicCandidate(current, data.rules), dispatch: dispatchPublic(dispatch) };
+    return json(res, 410, {
+      message: "旧生产确认入口已永久停用；只能使用绑定C2冻结快照的生命周期原子授权接口。",
+      dispatchesCreated: 0,
+      externalRequests: 0,
+      platformWrites: 0
     });
-    json(res, 200, result);
-    if (dispatchId && explicitDispatchDeliveryEnabled) {
-      setTimeout(() => deliverDispatch(dispatchId).catch((error) => console.error("生产确认派发失败", error)), 0);
-    }
-    return;
   }
 
   const dispatchClaimRoute = pathname.match(/^\/api\/dispatches\/([^/]+)\/claim$/);
@@ -3990,127 +5158,30 @@ async function handleApi(req, res, pathname) {
 
   const dispatchProgressRoute = pathname.match(/^\/api\/dispatches\/([^/]+)\/progress$/);
   if (req.method === "POST" && dispatchProgressRoute) {
-    const input = await requestBody(req);
-    if (!input.runId?.trim() || !input.currentStep?.trim()) {
-      throw httpError(400, "记录派发进展必须提供runId和当前步骤");
+    if (!isTrustedInternalApiRequest(req.headers, internalApiRequestToken)) {
+      throw httpError(403, "实质进展只能由当前受控任务提交", { code: "trusted_progress_required" });
     }
+    const input = maintenanceProgressInput(await requestBody(req));
     const result = await mutateData((data) => {
       const dispatch = data.dispatches.find((item) => item.id === dispatchProgressRoute[1]);
       if (!dispatch) throw httpError(404, "一次性派发不存在");
-      if (dispatch.status !== "running" || dispatch.runId !== input.runId.trim()) {
-        throw httpError(409, "只能更新当前实际运行的一次性派发");
-      }
-      const timestamp = now();
-      dispatch.currentStep = input.currentStep.trim();
-      dispatch.lastProgressAt = timestamp;
-      dispatch.lastEventAt = timestamp;
-      dispatch.progressEvents ||= [];
-      dispatch.progressEvents.push({ at: timestamp, step: dispatch.currentStep, evidence: String(input.evidence || "").trim() });
-      let candidate = null;
-      if (dispatch.candidateId) {
-        candidate = data.candidates.find((item) => item.id === dispatch.candidateId);
-        if (["listing_preparation", "ready_to_list"].includes(candidate?.workflowStatus)) {
-          if (candidate.listingHandoff?.runId !== dispatch.runId) throw httpError(409, "上架准备运行编号已变化");
-          candidate.listingHandoff.currentStep = dispatch.currentStep;
-          candidate.listingHandoff.lastProgressAt = timestamp;
-        } else {
-          if (candidate?.processing?.runId !== dispatch.runId) throw httpError(409, "SKU运行编号已变化");
-          candidate.processing.currentStep = dispatch.currentStep;
-          candidate.processing.lastProgressAt = timestamp;
-          candidate.processing.progressEvents ||= [];
-          candidate.processing.progressEvents.push({ at: timestamp, type: "dispatch_progress", step: dispatch.currentStep, evidenceRef: String(input.evidence || "").trim() });
-        }
-        candidate.updatedAt = timestamp;
-        addHistory(candidate, "codex", "oneShotProgress", `${dispatch.currentStep}${input.evidence ? `；证据：${String(input.evidence).trim()}` : ""}`, timestamp);
-      }
-      return { dispatch: dispatchPublic(dispatch), candidate: candidate ? publicCandidate(candidate, data.rules) : null };
+      const candidate = data.candidates.find((item) => item.id === dispatch.candidateId);
+      if (!candidate) throw httpError(404, "派发对应商品不存在");
+      const active = activeDispatchForCandidate(data, candidate.id);
+      if (!active || active.id !== dispatch.id) throw httpError(409, "该派发不是本次正式领取的有效任务");
+      applyMaintenanceProgress(candidate, dispatch, input, now());
+      return { dispatch: dispatchPublic(dispatch), candidate: publicCandidate(candidate, data.rules) };
     });
     return json(res, 200, result);
   }
 
   const dispatchCompleteRoute = pathname.match(/^\/api\/dispatches\/([^/]+)\/complete$/);
   if (req.method === "POST" && dispatchCompleteRoute) {
-    const input = await requestBody(req);
-    if (!input.runId?.trim() || !["completed", "blocked", "needs_decision"].includes(input.status) || !input.reply?.trim()) {
-      throw httpError(400, "收口派发必须提供runId、真实状态和给主人回复");
+    if (!isTrustedInternalApiRequest(req.headers, internalApiRequestToken)) {
+      throw httpError(403, "执行结果只能由当前受控任务提交", { code: "trusted_completion_required" });
     }
-    const result = await mutateData((data) => {
-      const dispatch = data.dispatches.find((item) => item.id === dispatchCompleteRoute[1]);
-      if (!dispatch) throw httpError(404, "一次性派发不存在");
-      if (dispatch.runId !== input.runId.trim() || !["running", "permission_required"].includes(dispatch.status)) {
-        throw httpError(409, "只能收口当前运行的一次性派发");
-      }
-      const timestamp = now();
-      let finalStatus = input.status;
-      let candidate = null;
-      if (dispatch.candidateId) {
-        candidate = data.candidates.find((item) => item.id === dispatch.candidateId);
-        if (!candidate) throw httpError(404, "派发对应商品不存在");
-        if (
-          input.status === "completed" &&
-          Number(candidate.dataRevision) === Number(dispatch.dataRevision) &&
-          candidate.workflowStatus === dispatch.workflowStatusAtDispatch &&
-          !String(input.evidence || "").trim()
-        ) finalStatus = "responded_unverified";
-        if (["listing_preparation", "ready_to_list"].includes(candidate.workflowStatus) && candidate.listingHandoff?.runId === dispatch.runId) {
-          const decision = fixedRecoveryDecision(
-            input.status === "needs_decision" ? "business_decision" : "result_unverified",
-            input.reply.trim(),
-            ["retry_current_stage_once", "keep_stopped"]
-          );
-          candidate.listingHandoff = {
-            ...(candidate.listingHandoff || {}),
-            state: input.status === "needs_decision" ? "needs_decision" : "blocked",
-            runId: null,
-            currentStep: input.status === "completed" ? "任务已回复，缺少结构化回写" : "已停止：等待主人建议",
-            lastProgressAt: timestamp,
-            blockReason: input.status === "completed" ? "负责人已回复，但没有C阶段或平台回读的结构化结果" : input.reply.trim(),
-            userAction: "请在UI选择固定处理方式",
-            recoveryDecision: decision,
-            stoppedAt: timestamp
-          };
-          candidate.updatedAt = timestamp;
-          candidate.lastModifiedBy = dispatch.assigneeRole;
-          addHistory(candidate, "codex", "oneShotCompleted", `一次性派发${finalStatus}：${input.reply.trim()}`, timestamp);
-        } else if (candidate.processing?.runId === dispatch.runId) {
-          const needsCommissionDecision = input.status === "needs_decision" && /估算佣金|佣金.*授权|允许.*佣金/.test(input.reply);
-          const decision = input.status === "completed"
-            ? null
-            : fixedRecoveryDecision(
-                needsCommissionDecision ? "business_decision" : "external_failure",
-                input.reply.trim(),
-                needsCommissionDecision
-                  ? ["allow_estimated_commission", "keep_stopped"]
-                  : ["retry_current_stage_once", "keep_stopped"]
-              );
-          candidate.processing = {
-            ...queuedProcessing(candidate.processing),
-            state: input.status === "completed" ? "idle" : "blocked",
-            runId: null,
-            startedAt: null,
-            currentStep: input.status === "completed" ? "本次派发已结束" : "已停止：等待主人决定",
-            lastRunId: dispatch.runId,
-            lastProgressAt: timestamp,
-            dispatchState: input.status === "completed" ? "completed" : "blocked",
-            manualHold: input.status !== "completed",
-            blockReason: input.status === "completed" ? null : input.reply.trim(),
-            userAction: input.status === "needs_decision" ? "请在UI选择固定处理方式" : "",
-            recoveryDecision: decision
-          };
-          candidate.updatedAt = timestamp;
-          candidate.lastModifiedBy = dispatch.assigneeRole;
-          addHistory(candidate, "codex", "oneShotCompleted", `一次性派发${finalStatus}：${input.reply.trim()}`, timestamp);
-        }
-      }
-      dispatch.status = finalStatus;
-      dispatch.agentReply = input.reply.trim();
-      dispatch.completionEvidence = String(input.evidence || "").trim();
-      dispatch.completedAt = timestamp;
-      dispatch.lastEventAt = timestamp;
-      dispatch.pendingApproval = null;
-      appendNodeReply(data, dispatch, input.reply.trim(), input.status === "needs_decision" ? "needs_decision" : "responded");
-      return { dispatch: dispatchPublic(dispatch), candidate: candidate ? publicCandidate(candidate, data.rules) : null };
-    });
+    const input = maintenanceCompletionInput(await requestBody(req));
+    const result = await mutateData(data => completeCurrentMaintenanceDispatch(data, dispatchCompleteRoute[1], input));
     return json(res, 200, result);
   }
 
@@ -4149,6 +5220,7 @@ async function handleApi(req, res, pathname) {
 
   const controlAlertAckRoute = pathname.match(/^\/api\/control\/alerts\/([^/]+)\/ack$/);
   if (req.method === "POST" && controlAlertAckRoute) {
+    await requestBody(req);
     const alertId = controlAlertAckRoute[1];
     const alert = await mutateData((data) => {
       const current = (data.controlAlerts || []).find((item) => item.id === alertId);
@@ -4224,19 +5296,16 @@ async function handleApi(req, res, pathname) {
           addHistory(current, "system", "recoveryClassifiedDecision", classification.summary, timestamp);
         } else if (classification.kind === "system_recovery") {
           current.processing = {
-            ...queueUserDispatch({ ...(current.processing || {}), manualHold: false }, timestamp, "system_owned_recovery"),
-            currentStep: "系统已纠正旧状态，等待选品负责人按正确B阶段继续",
-            dispatchPriority: "system_recovery",
+            ...queuedProcessing(current.processing),
+            state: "blocked",
+            manualHold: true,
+            dispatchState: "legacy_read_only",
+            currentStep: "旧执行记录已收口为历史只读",
+            blockReason: classification.summary,
+            userAction: "当前无需操作；新版商品由软件状态机重新建立执行上下文",
             recoveryDecision: null
           };
-          const dispatch = createCandidateDispatch(data, map, current, {
-            nodeId: "M04",
-            message: "系统已自动纠正旧的阶段、回传或派发状态；请从B阶段按当前资料完成市场、佣金、物流、汇率和利润。快照里缺少这些结果是本轮工作，不得要求主人重复补充；B阶段不得打开1688。B通过后评审台会移入待上架准备并由选品任务停止",
-            trigger: "system_owned_recovery",
-            actor: "system"
-          });
-          dispatchIds.push(dispatch.id);
-          addHistory(current, "system", "systemOwnedRecoveryQueued", `系统错误已纠正并建立B阶段派发：${dispatch.id}`, timestamp);
+          addHistory(current, "system", "legacyExecutionArchived", "旧系统恢复记录只作历史读取，未创建Codex派发", timestamp);
         } else {
           current.processing = {
             ...queuedProcessing(current.processing),
@@ -4481,7 +5550,7 @@ async function handleApi(req, res, pathname) {
 
   if (req.method === "GET" && pathname === "/api/automation/work") {
     const data = await readData();
-    const state = responseState(data);
+    const state = responseState(data, req);
     const publicById = new Map(state.candidates.map((candidate) => [candidate.id, candidate]));
     const automationEnabled = data.meta?.automationStarted === true;
     const dispatchQueue = automationEnabled ? sortDispatchQueue(data.candidates) : [];
@@ -4624,45 +5693,37 @@ async function handleApi(req, res, pathname) {
   }
 
   if (req.method === "POST" && pathname === "/api/automation/progress") {
-    const input = await requestBody(req);
-    if (!input.runId?.trim() || !input.candidateId || !input.progressType?.trim() || !input.currentStep?.trim()) {
-      throw httpError(400, "记录实质进展必须提供runId、candidateId、进展类型和当前步骤");
+    if (!isTrustedInternalApiRequest(req.headers, internalApiRequestToken)) {
+      throw httpError(403, "实质进展只能由当前受控任务提交", { code: "trusted_progress_required" });
     }
+    const input = maintenanceProgressInput(await requestBody(req), { candidateRequired: true });
     const candidate = await mutateData((data) => {
       const current = data.candidates.find((item) => item.id === input.candidateId);
       if (!current) throw httpError(404, "候选不存在");
-      if (Number(current.dataRevision) !== Number(input.dataRevision)) {
-        throw httpError(409, "候选资料已更新，本轮进展已失效");
-      }
-      try {
-        current.processing = recordProcessingProgress(current.processing, input, now());
-      } catch (error) {
-        throw httpError(/已记录|没有实质变化/.test(error.message) ? 409 : 400, error.message);
-      }
-      current.updatedAt = current.processing.lastProgressAt;
-      current.lastModifiedBy = "automation";
-      addHistory(
-        current,
-        "codex",
-        "progress",
-        input.progressType === "new_evidence"
-          ? `取得新证据：${input.evidenceRef.trim()}；下一步：${input.currentStep.trim()}`
-          : `执行步骤更新：${input.currentStep.trim()}`,
-        current.processing.lastProgressAt
-      );
+      const dispatch = activeDispatchForCandidate(data, current.id);
+      if (!dispatch) throw httpError(409, "当前商品没有本次正式领取的有效任务");
+      applyMaintenanceProgress(current, dispatch, input, now());
       return publicCandidate(current, data.rules);
     });
     return json(res, 200, { candidate });
   }
 
   if (req.method === "POST" && pathname === "/api/automation/release") {
+    if (!isTrustedInternalApiRequest(req.headers, internalApiRequestToken)) {
+      throw httpError(403, "执行结果只能由当前受控任务提交", { code: "trusted_completion_required" });
+    }
     const input = await requestBody(req);
+    if (!Number.isInteger(input.dataRevision) || input.dataRevision < 0) throw httpError(400, "释放任务必须提供准确资料修订号");
     if (!input.runId?.trim() || !input.candidateId || !input.error?.trim()) {
       throw httpError(400, "释放自动审核任务必须提供runId、candidateId和具体错误");
     }
     const candidate = await mutateData((data) => {
       const current = data.candidates.find((item) => item.id === input.candidateId);
       if (!current) throw httpError(404, "候选不存在");
+      const active = activeDispatchForCandidate(data, current.id);
+      if (!active || active.status !== "running" || active.runId !== input.runId.trim()) {
+        throw httpError(409, "只能释放本次进程中同一运行编号的维护任务");
+      }
       if (
         current.processing?.state !== "running" ||
         current.processing.runId !== input.runId.trim()
@@ -4743,6 +5804,10 @@ async function handleApi(req, res, pathname) {
       );
       current.updatedAt = timestamp;
       current.lastModifiedBy = "automation";
+      active.status = "blocked";
+      active.completedAt = timestamp;
+      active.lastEventAt = timestamp;
+      active.pendingApproval = null;
       return publicCandidate(current, data.rules);
     });
     return json(res, 200, { candidate });
@@ -4822,54 +5887,32 @@ async function handleApi(req, res, pathname) {
   }
 
   if (req.method === "POST" && pathname === "/api/candidates") {
-    const input = await requestBody(req);
-    validateStore(input.targetStore);
-    if (!input.productUrl?.trim()) throw httpError(400, "请填写商品链接");
-    const map = await readWorkflowMap(workflowMapFile);
-    let dispatchId = null;
+    const input = normalizeCandidateUserCreateInput(await requestBody(req));
     const result = await mutateData((data) => {
       const duplicate = duplicateCandidate(data.candidates, [input.productUrl, input.sourceUrl, input.competitorUrl]);
       if (duplicate) {
         throw httpError(409, `该链接已存在于候选 ${duplicate.id}`, { duplicateId: duplicate.id });
       }
       const timestamp = now();
-      const created = initialCandidate(input, "user", nextCandidateId(data.candidates, "USR"), timestamp);
-      const dispatch = createCandidateDispatch(data, map, created, {
-        nodeId: "M04",
-        message: "用户新候选已进入评审台，请自动完成当前SKU的A/B资料识别与利润核算；B阶段不得打开1688精确页",
-        trigger: "candidate_entry_auto",
-        actor: "system"
-      });
-      dispatchId = dispatch.id;
-      addHistory(created, "user", "created", "用户添加候选，已自动向选品任务派发一次A/B处理", timestamp);
+      const created = createInitialCandidate({ input, source: "user", id: nextCandidateId(data.candidates, "USR"), timestamp, storeBindings: runtimeConfiguration.storeBindings });
+      addHistory(created, "user", "created", "用户添加候选，已进入软件状态机；未派发Codex任务", timestamp);
       data.candidates.unshift(created);
-      return { candidate: publicCandidate(created, data.rules), dispatch: dispatchPublic(dispatch) };
+      return { candidate: publicCandidate(created, data.rules), dispatch: null };
     });
     json(res, 201, result);
-    if (dispatchId && explicitDispatchDeliveryEnabled) {
-      setTimeout(() => deliverDispatch(dispatchId).catch((error) => console.error("新候选自动派发失败", error)), 0);
-    }
     return;
   }
 
   if (req.method === "POST" && pathname === "/api/codex/candidates") {
-    const input = await requestBody(req);
-    validateStore(input.targetStore);
-    if (!input.productUrl?.trim()) throw httpError(400, "Codex候选必须提供真实商品链接");
+    const input = normalizeCandidateCodexCreateInput(await requestBody(req));
     if (![true, false].includes(input.powered)) throw httpError(400, "Codex候选必须确认是否带电");
-    if (!["clear", "needs_confirmation"].includes(input.complianceStatus)) {
-      throw httpError(400, "Codex候选合规状态只能是clear或needs_confirmation");
-    }
-    if (!["clear", "needs_confirmation"].includes(input.authorizationStatus)) {
-      throw httpError(400, "Codex候选权利/IP状态只能是clear或needs_confirmation");
-    }
     if (!input.purchaseCeiling || !["verified", "estimated", "unavailable"].includes(input.purchaseCeiling.status)) {
       throw httpError(400, "Codex候选必须提供含国内邮费采购区间，或明确标记尚无法反算");
     }
     const ceiling = purchaseCeilingSummary(input, DEFAULT_RULES);
     if (
       ["verified", "estimated"].includes(input.purchaseCeiling.status) &&
-      input.purchaseCeiling.pricingPolicyVersion !== candidateProfitRule(input, DEFAULT_RULES).pricingPolicyVersion
+      input.purchaseCeiling.pricingPolicyVersion !== resolveLifecycleBProfitRule(input, DEFAULT_RULES).pricingPolicyVersion
     ) {
       throw httpError(400, "新采购上限必须按折后成交价计算利润，并保存20%、25%、30%促销对应建议标价");
     }
@@ -4898,13 +5941,13 @@ async function handleApi(req, res, pathname) {
         throw httpError(429, storeSummary.automaticAdditionPauseReason);
       }
       if (summary.combined.profitPassed >= summary.combined.target) {
-        throw httpError(429, "三店今日B阶段利润通过已达到10个，无需继续自动补充候选");
+        throw httpError(429, "全店今日B阶段利润通过已达到10个，无需继续自动补充候选");
       }
       if (storeSummary && storeSummary.remainingCodexAdditionCapacity <= 0) {
         throw httpError(429, `${input.targetStore} 今日Codex新增候选已达到30条上限`);
       }
       const timestamp = now();
-      const created = initialCandidate(input, "codex", nextCandidateId(data.candidates, "CX"), timestamp);
+      const created = createInitialCandidate({ input, source: "codex", id: nextCandidateId(data.candidates, "CX"), timestamp, storeBindings: runtimeConfiguration.storeBindings });
       addHistory(created, "codex", "created", "Codex自动补充候选，等待用户判断方向", timestamp);
       data.candidates.unshift(created);
       return publicCandidate(created, data.rules);
@@ -4918,8 +5961,6 @@ async function handleApi(req, res, pathname) {
     if (!Number.isInteger(input.dataRevision)) {
       throw httpError(400, "保存候选资料必须提供当前数据修订号");
     }
-    const map = await readWorkflowMap(workflowMapFile);
-    let dispatchId = null;
     const result = await mutateData((data) => {
       const current = data.candidates.find((item) => item.id === candidateRoute[1]);
       if (!current) throw httpError(404, "候选不存在");
@@ -4931,51 +5972,30 @@ async function handleApi(req, res, pathname) {
       if (["ready_to_list", "listed", "eliminated"].includes(current.workflowStatus)) {
         throw httpError(409, "终态候选不可直接修改；请保留历史结论并创建新候选");
       }
+      const normalizedInput = normalizeCandidateUserPatchInput(input, current, { storeBindings: runtimeConfiguration.storeBindings });
       const duplicate = duplicateCandidate(
         data.candidates,
-        [input.productUrl, input.sourceUrl, input.competitorUrl],
+        [normalizedInput.productUrl, normalizedInput.sourceUrl, normalizedInput.competitorUrl],
         current.id
       );
       if (duplicate) {
         throw httpError(409, `该链接已存在于候选 ${duplicate.id}`, { duplicateId: duplicate.id });
       }
       for (const field of USER_FIELDS) {
-        if (Object.hasOwn(input, field)) current[field] = input[field];
+        if (Object.hasOwn(normalizedInput, field)) current[field] = normalizedInput[field];
       }
-      if (Object.hasOwn(input, "purchasePriceRmb") && !Object.hasOwn(input, "domesticShippingRmb")) {
+      if (Object.hasOwn(normalizedInput, "storeRef")) current.storeRef = normalizedInput.storeRef;
+      if (Object.hasOwn(normalizedInput, "purchasePriceRmb") && !Object.hasOwn(normalizedInput, "domesticShippingRmb")) {
         current.domesticShippingRmb = null;
       }
       current.dataRevision = Number(current.dataRevision || 0) + 1;
       current.updatedAt = now();
       current.lastModifiedBy = "user";
-      if (
-        current.workflowStatus === "needs_user_data" ||
-        current.workflowStatus === "codex_processing" ||
-        current.processing?.state === "running"
-      ) {
-        current.workflowStatus = "codex_processing";
-        current.processing = queueUserDispatch(current.processing, current.updatedAt, "user_update");
-      }
-      if (
-        current.workflowStatus === "codex_processing" &&
-        current.processing?.manualHold !== true &&
-        !activeDispatchForCandidate(data, current.id)
-      ) {
-        const dispatch = createCandidateDispatch(data, map, current, {
-          nodeId: "M04",
-          message: "主人已补充当前SKU资料，请按最新修订继续一次A/B处理；不要打开1688精确页",
-          trigger: "candidate_data_auto",
-          actor: "system"
-        });
-        dispatchId = dispatch.id;
-      }
       addHistory(current, "user", "updated", "用户补充资料；技术阻塞不会自动解除，是否恢复由总控决定");
-      return { candidate: publicCandidate(current, data.rules), dispatch: dispatchId ? dispatchPublic(data.dispatches.find((item) => item.id === dispatchId)) : null };
+      return { candidate: publicCandidate(current, data.rules), dispatch: null };
     });
     json(res, 200, result);
-    if (dispatchId && explicitDispatchDeliveryEnabled) {
-      setTimeout(() => deliverDispatch(dispatchId).catch((error) => console.error("补资料自动派发失败", error)), 0);
-    }
+
     return;
   }
 
@@ -5060,22 +6080,25 @@ async function handleApi(req, res, pathname) {
 
   const commentRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/comments$/);
   if (req.method === "POST" && commentRoute) {
-    const input = await requestBody(req);
-    if (!input.message?.trim()) throw httpError(400, "留言不能为空");
-    if (input.requestReview === true) {
-      throw httpError(409, "普通留言不会启动任务；请使用当前状态卡里的开始按钮或固定处理选项");
-    }
+    const input = normalizeCandidateCommentInput(await requestBody(req), {
+      actor: isTrustedInternalApiRequest(req.headers, internalApiRequestToken) ? "codex" : "user"
+    });
     const result = await mutateData((data) => {
       const current = data.candidates.find((item) => item.id === commentRoute[1]);
       if (!current) throw httpError(404, "候选不存在");
+      if (Number(current.dataRevision) !== input.dataRevision) {
+        throw httpError(409, "留言保存时商品资料已变化，请刷新后重试", {
+          currentRevision: current.dataRevision
+        });
+      }
       const comment = {
-        id: `C-${Date.now()}`,
-        actor: input.actor === "codex" ? "codex" : "user",
-        message: input.message.trim(),
-        category: input.category === "elimination_feedback" ? "elimination_feedback" : "general",
+        id: `C-${randomUUID()}`,
+        actor: input.actor,
+        message: input.message,
+        category: input.category,
         requiresResponse: false,
         status: "recorded",
-        replyTo: input.replyTo || null,
+        replyTo: input.replyTo,
         at: now()
       };
       current.comments ||= [];
@@ -5118,6 +6141,7 @@ async function handleApi(req, res, pathname) {
     const candidate = await mutateData((data) => {
       const current = data.candidates.find((item) => item.id === reviewRoute[1]);
       if (!current) throw httpError(404, "候选不存在");
+      if (isTrustedInternalApiRequest(req.headers, internalApiRequestToken)) assertCurrentMaintenanceWrite(data, current.id, input.runId);
       if (current.lifecycleV11?.opportunityPackage || current.lifecycleV11?.skuPackage) {
         throw httpError(409, "新版生命周期商品不能使用旧B审核入口；请使用新版B利润模型，商品状态未改变");
       }
@@ -5161,7 +6185,7 @@ async function handleApi(req, res, pathname) {
       if (reviewInput.decision === "approved") {
         const scenarioGate = promotionPricingGate(
           reviewInput.profitCalculation,
-          candidateProfitRule(current, data.rules)
+          resolveLifecycleBProfitRule(current, data.rules)
         );
         if (!scenarioGate.passed) {
           throw httpError(422, "Ozon利润必须保存20%、25%、30%促销对应建议标价，促销率不得从折后成交价二次扣除", {
@@ -5280,156 +6304,35 @@ async function handleApi(req, res, pathname) {
   const lifecycleEReadbackRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/e-readback$/);
   if (req.method === "POST" && lifecycleEReadbackRoute) {
     const input = await requestBody(req);
-    if (!Number.isInteger(input.dataRevision)) throw httpError(400, "E阶段回读必须提供当前数据修订号");
-    const candidate = await mutateData((data) => {
-      const current = data.candidates.find((item) => item.id === lifecycleEReadbackRoute[1]);
-      if (!current) throw httpError(404, "候选不存在");
-      if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后重新回读");
-      const skuPackage = current.lifecycleV11?.skuPackage;
-      if (!skuPackage) throw httpError(409, "当前SKU没有新版生命周期数据包");
-      if (skuPackage.eVerificationRecord) {
-        if (skuPackage.eVerificationRecord.platformProductId === String(input.verifiedObservation?.platformProductId || "")) {
-          return publicCandidate(current, data.rules);
-        }
-        throw httpError(409, "当前SKU已经完成另一个平台商品的E验证，禁止覆盖");
-      }
-      const expectedPlatform = current.targetStore === "wb" ? "wb" : "ozon";
-      const observation = input.verifiedObservation || {};
-      if (String(observation.platform || "").toLowerCase() !== expectedPlatform || String(observation.store || "").toLowerCase() !== current.targetStore) {
-        throw httpError(409, "E回读平台或店铺与当前SKU不一致");
-      }
-      if (String(observation.skuPackageId || "") !== skuPackage.skuPackageId || String(observation.supplierSkuId || "") !== skuPackage.supplierSkuId || String(observation.merchantSku || "") !== skuPackage.supplierSkuId) {
-        throw httpError(409, "E回读的生命周期、供应SKU或商家货号不一致");
-      }
-      const previousAuthorization = JSON.stringify(skuPackage.productionAuthorization);
-      const timestamp = now();
-      let eVerificationRecord;
-      if (input.path === "system_created") {
-        if (!skuPackage.productionRecord || skuPackage.externalListingRecord) throw httpError(409, "系统创建路径必须存在唯一ProductionRecord");
-        try {
-          eVerificationRecord = verifySystemCreatedListing({
-            productionRecord: skuPackage.productionRecord,
-            verifiedObservation: observation,
-            verifiedAt: input.verifiedAt || timestamp,
-            ownerPriceDecision: input.ownerPriceDecision
-          });
-        } catch (error) {
-          throw httpError(422, error.message);
-        }
-      } else if (input.path === "external_discovered") {
-        if (skuPackage.productionRecord) throw httpError(409, "存在ProductionRecord时不得改走外部发现路径");
-        if (skuPackage.externalListingRecord) throw httpError(409, "ExternalListingRecord已经存在，禁止重复创建");
-        let externalListingRecord;
-        try {
-          externalListingRecord = createExternalListingRecord({
-            observation: input.discoveredObservation,
-            ownerPriceDecision: input.ownerPriceDecision,
-            discoveredAt: input.discoveredAt || timestamp
-          });
-          eVerificationRecord = verifyExternalListing({
-            externalListingRecord,
-            verifiedObservation: observation,
-            verifiedAt: input.verifiedAt || timestamp
-          });
-        } catch (error) {
-          throw httpError(422, error.message);
-        }
-        skuPackage.externalListingRecord = structuredClone(externalListingRecord);
-      } else {
-        throw httpError(400, "E阶段必须明确system_created或external_discovered路径");
-      }
-      skuPackage.eVerificationRecord = structuredClone(eVerificationRecord);
-      skuPackage.businessPhase = "E";
-      skuPackage.businessResult = "passed";
-      skuPackage.technicalStatus = "completed";
-      skuPackage.ownerAction = "none";
-      skuPackage.readbackPolicy = {
-        ...skuPackage.readbackPolicy,
-        status: "completed",
-        automaticAttempts: Number(skuPackage.readbackPolicy?.automaticAttempts || 0) + 1,
-        consecutiveSameFailureCount: 0,
-        lastFailureLayer: null,
-        stopReason: null,
-        stoppedAt: null
-      };
-      skuPackage.readbackHistory = [
-        ...(skuPackage.readbackHistory || []),
-        {
-          verificationId: eVerificationRecord.verificationId,
-          path: eVerificationRecord.verificationPath,
-          outcome: eVerificationRecord.outcome,
-          platformProductId: eVerificationRecord.platformProductId,
-          verifiedAt: eVerificationRecord.verifiedAt,
-          evidenceRef: eVerificationRecord.platformEvidenceRef
-        }
-      ];
-      skuPackage.dataRevision = Number(skuPackage.dataRevision || 0) + 1;
-      skuPackage.audit = {
-        ...skuPackage.audit,
-        updatedAt: eVerificationRecord.verifiedAt,
-        history: [
-          ...(skuPackage.audit?.history || []),
-          {
-            at: eVerificationRecord.verifiedAt,
-            action: eVerificationRecord.outcome,
-            evidenceRef: eVerificationRecord.platformEvidenceRef
-          }
-        ]
-      };
-      if (JSON.stringify(skuPackage.productionAuthorization) !== previousAuthorization) throw httpError(500, "E阶段禁止修改历史生产授权");
-      try {
-        assertValidLifecyclePackage(skuPackage);
-      } catch (error) {
-        throw httpError(422, error.message);
-      }
-      current.lifecycleV11.status = eVerificationRecord.outcome;
-      current.lifecycleV11.platformWrites = Number(current.lifecycleV11.platformWrites || 0);
-      const listingRecord = {
-        platform: eVerificationRecord.platform,
-        store: eVerificationRecord.store,
-        productId: eVerificationRecord.platformProductId,
-        merchantSku: eVerificationRecord.merchantSku,
-        productUrl: String(input.productUrl || ""),
-        confirmedAt: eVerificationRecord.verifiedAt,
-        moderationStatus: eVerificationRecord.moderationStatus,
-        validationStatus: eVerificationRecord.validationStatus,
-        saleStatus: eVerificationRecord.saleStatus,
-        method: "automatic_readback",
-        eVerificationOutcome: eVerificationRecord.outcome,
-        createdByCurrentRun: eVerificationRecord.createdByCurrentRun,
-        currentPrice: structuredClone(eVerificationRecord.currentPrice),
-        currentStock: eVerificationRecord.currentStock,
-        imageCount: eVerificationRecord.imageCount,
-        errors: structuredClone(eVerificationRecord.errors),
-        ownerPriceDecision: structuredClone(eVerificationRecord.ownerPriceDecision),
-        readback: {
-          sourceType: "real",
-          source: input.readbackSource,
-          checkedAt: eVerificationRecord.verifiedAt,
-          evidenceRef: eVerificationRecord.platformEvidenceRef
-        }
-      };
-      completeListing(current, listingRecord, "system", timestamp);
-      current.listingPreparation = {
-        ...(current.listingPreparation || {}),
-        status: "e_verified",
-        reason: eVerificationRecord.outcome === "externally_verified"
-          ? "平台商品由外部发现并完成E阶段独立验证；未伪造ProductionRecord。"
-          : "系统创建商品已基于ProductionRecord完成E阶段独立验证。",
-        writeOccurred: false,
-        platformWrites: 0,
-        decisionItems: []
-      };
-      addHistory(
-        current,
-        "system",
-        eVerificationRecord.outcome,
-        `${eVerificationRecord.outcome === "externally_verified" ? "外部发现商品" : "系统创建商品"}完成E验证：${eVerificationRecord.platform.toUpperCase()} ${eVerificationRecord.platformProductId}；当前价${eVerificationRecord.currentPrice.amount} ${eVerificationRecord.currentPrice.currency}；本轮零平台写入`,
-        timestamp
-      );
-      return publicCandidate(current, data.rules);
-    });
-    return json(res, 200, { candidate });
+    const fields = ["dataRevision", "path", "sourceRecordId"];
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== fields.length ||
+        fields.some(field => !Object.hasOwn(input, field)) || !Number.isInteger(input.dataRevision) ||
+        !["system_created", "external_discovered"].includes(input.path) || typeof input.sourceRecordId !== "string" || !input.sourceRecordId.trim()) {
+      throw httpError(400, "E请求只能引用已保存的来源记录；浏览器不能提交平台观察或验证结论");
+    }
+    if (input.path !== "system_created") return json(res, 503, { code: "trusted_e_readback_runtime_unavailable",
+      message: "外部发现商品的可信回读尚未接通，已有记录保持原样。", externalRequests: 0, platformWrites: 0 });
+    const before = await readData();
+    const current = before.candidates.find(item => item.id === lifecycleEReadbackRoute[1]);
+    const sku = current?.lifecycleV11?.skuPackage;
+    if (sku?.dHandoff?.schemaVersion === "c2-d-handoff-v2" ||
+        before.runtime?.softwareJobs?.some(job => job.candidateId === lifecycleEReadbackRoute[1] &&
+          ["d_production_execution", "e_independent_readback"].includes(job.jobType))) {
+      throw httpError(409, "当前商品已有保存的生产或核验任务，请查看原任务状态；旧回读入口不能重新执行。");
+    }
+    try {
+      const outcome = await eReadbackSoftwareRuntime.run({ actor: runtimeIdentityProvider.resolveActor({ request: req }),
+        input: { candidateId: lifecycleEReadbackRoute[1], expectedCandidateRevision: input.dataRevision, sourceRecordId: input.sourceRecordId } });
+      const data = await readData();
+      const status = { verified: 200, not_verified: 422, unknown_outcome: 502, not_applied: 409, idempotent_replay: 200 }[outcome.status];
+      if (!status) throw new Error("E_READBACK_RUNTIME_RESULT_INVALID");
+      return json(res, status, { candidate: publicCandidate(outcome.candidate, data.rules, {}, data.evidencePacks || [], data.currentCommissionCatalogs ?? []),
+        readbackStatus: outcome.status, platformWrites: 0 });
+    } catch (error) {
+      if (error instanceof EReadbackRuntimeUnavailableError) return json(res, 503, { code: "trusted_e_readback_runtime_unavailable",
+        message: "可信平台回读尚未接通，当前不能产生E验证记录。已有记录保持原样。", externalRequests: 0, platformWrites: 0 });
+      throw error;
+    }
   }
   if (req.method === "POST" && listingReadbackRoute) {
     const input = await requestBody(req);
@@ -5535,6 +6438,12 @@ async function handleApi(req, res, pathname) {
 
   if (req.method === "POST" && wbRoute) {
     const input = await requestBody(req);
+    if (!isTrustedInternalApiRequest(req.headers, internalApiRequestToken)) {
+      throw httpError(403, "WB独立判断只能由受控内部回写提交");
+    }
+    if (!Number.isInteger(input.dataRevision)) {
+      throw httpError(400, "WB判断必须提供当前数据修订号");
+    }
     if (!["suitable", "notSuitable"].includes(input.status)) {
       throw httpError(400, "WB判断状态无效");
     }
@@ -5546,6 +6455,11 @@ async function handleApi(req, res, pathname) {
       if (!current) throw httpError(404, "候选不存在");
       if (current.workflowStatus !== "ready_to_list") {
         throw httpError(409, "只有待上架商品才进行WB独立复算");
+      }
+      if (Number(current.dataRevision) !== input.dataRevision) {
+        throw httpError(409, "WB判断时商品资料已变化，请刷新后重试", {
+          currentRevision: current.dataRevision
+        });
       }
       const assessment = { ...input, assessedAt: now() };
       const scenarioGate = promotionPricingGate(
@@ -5585,7 +6499,15 @@ async function serveFile(res, filePath) {
     ".jpeg": "image/jpeg",
     ".webp": "image/webp"
   };
-  const content = await fs.readFile(filePath);
+  let content;
+  try {
+    content = await fs.readFile(filePath);
+  } catch (error) {
+    if (["ENOENT", "ENOTDIR"].includes(error?.code)) {
+      throw httpError(404, "文件不存在", { code: "static_file_not_found" });
+    }
+    throw error;
+  }
   res.writeHead(200, {
     "Content-Type": types[extension] || "application/octet-stream",
     // This dashboard is an operational surface: serving a stale JavaScript bundle
@@ -5598,8 +6520,9 @@ async function serveFile(res, filePath) {
 
 const server = http.createServer(async (req, res) => {
   try {
-    const url = new URL(req.url, `http://${req.headers.host || `${host}:${port}`}`);
-    const pathname = decodeURIComponent(url.pathname);
+    const { pathname } = parseHttpRequestTarget(req.url, req.headers.host, {
+      fallbackHost: `${host}:${port}`
+    });
     if (pathname.startsWith("/api/")) return await handleApi(req, res, pathname);
     if (pathname.startsWith("/product-images/")) {
       const filename = path.basename(pathname);
@@ -5617,38 +6540,31 @@ const server = http.createServer(async (req, res) => {
       return await serveFile(res, path.join(distDir, "index.html"));
     }
   } catch (error) {
-    console.error(error);
-    return json(res, error.status || 500, {
-      message: error.message || "服务器错误",
-      ...(error.extra || {})
-    }, chromeExtensionCors(req));
+    if (error instanceof OwnerIdentityError) {
+      return json(res, error.statusCode, { code: error.code, message: error.message });
+    }
+    return respondWithError(req, res, error);
   }
 });
 
-const restartReconciliation = await reconcileOrphanedASupplierCaptureJobsAfterRestart();
-
+// Explicit consumers handle only persisted jobs. No configuration grants an external action.
+await softwareJobStore.reconcileAfterRestart({jobTypes:['a_product_discovery','a_product_detail_read']});
 server.listen(port, host, () => {
-  console.log(`今日选品评审台${apiOnly ? " API" : ""}：http://${host}:${port}`);
-  if (restartReconciliation.count > 0) {
-    console.log(`已收口 ${restartReconciliation.count} 条服务重启前遗留的A阶段采集作业；未恢复令牌、会话或自动重试。`);
-  }
-  if (explicitDispatchDeliveryEnabled) {
-    deliverWaitingDispatches().catch((error) => console.error("启动时恢复合法待派发任务失败", error));
-  }
+  if (runtimeConfiguration.dPlatformObservation.pumpIntervalMs !== null ||
+      (runtimeConfiguration.eReadbackPumpIntervalMs !== null && runtimeConfiguration.deServiceBindings.length > 0)) deRuntimeServices.start();
+  if (runtimeConfiguration.keywordEvidenceServiceBindings.length > 0) keywordEvidenceRuntimeServices.start();
+  if (runtimeConfiguration.aDiscoveryServiceBindings.length > 0) aDiscoveryRuntime.start();
+  if (runtimeConfiguration.aProductDetailServiceBindings.length > 0) aProductDetailRuntime.start();
+  console.log(`全店经营工作台${apiOnly ? " API" : ""}：http://${host}:${port}`);
 });
-
-// This guard never claims work or calls a marketplace. It only stops a run
-// whose auditable progress lease expired, then creates one deduplicated notice
-// for total control to consume.
-const noProgressGuard = setInterval(() => {
-  stopRunsWithoutProgress().catch((error) => console.error("防空跑门禁失败", error));
-}, 60_000);
-noProgressGuard.unref();
 
 function closeServer() {
-  clearInterval(noProgressGuard);
-  codexDispatcher.close();
-  server.close(() => process.exit(0));
+  codexDispatcher?.close();
+  Promise.allSettled([deRuntimeServices.stop(), keywordEvidenceRuntimeServices.stop(), aDiscoveryRuntime.stop(), aProductDetailRuntime.stop()]).then(results => {
+    const failed = results.some(result => result.status === "rejected");
+    if (failed) console.error("SOFTWARE_RUNTIME_SHUTDOWN_FAILED: 作业停止结果需要核对。");
+    server.close(() => process.exit(failed ? 1 : 0));
+  });
 }
 
 process.once("SIGTERM", closeServer);

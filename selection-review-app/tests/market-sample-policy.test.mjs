@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { collectMockOzonSalesSnapshot } from "../lib/sales-snapshot.mjs";
 import {
   assessAStageMarket,
+  evaluateFinalMarketPricing,
   resolveBMarketPrice,
   validateAMarketAssessment
 } from "../lib/market-sample-policy.mjs";
@@ -134,4 +135,65 @@ test("2A通过的unknown价格依据可被B直接读取，B不再次审查卖家
   assert.equal(resolved.snapshot.sellerType, "unknown");
   assert.equal(resolved.recommendedSalePrice.amount, 1831);
   assert.equal(resolved.assessment.manualReviewRequired, false);
+});
+
+function finalInput(count = 3) {
+  const salesSnapshots = Array.from({ length: count }, (_, index) => ({ ...snapshot('unknown', `final-${index}`, 1000 + index * 100), productUrl: `https://www.ozon.ru/product/${900000000 + index}/` }));
+  return { assessmentId: 'final:synthetic:1', assessedAt: NOW,
+    target: { candidateId: 'candidate:synthetic', sourceRevision: 2, skuPackageId: 'sku:synthetic',
+      platform: 'ozon', store: 'dandanshu', storeRef: { stableStoreId: 'dandanshu', platformStoreId: 'synthetic-store', mappingVersion: 'synthetic-v1' }, market: 'ozon_general_market' },
+    salesSnapshots, selectedPriceRub: 1250,
+    reviews: salesSnapshots.map((item, index) => ({ snapshotId: item.snapshotId,
+      ...Object.fromEntries(['exactProduct', 'exactSpecification', 'sameMarket', 'currentlyForSale'].map(key => [key, { value: true, evidenceRef: `fixture:${key}:${index}` }])),
+      salesWindow: { count: 100 - index, startDate: '2026-07-16', endDate: '2026-08-14', dayCount: 30,
+        provenance: 'third_party_estimate', evidenceRef: `fixture:sales:${index}`, validityStatus: 'current', validityEvidenceRef: `fixture:validity:${index}` }, anomaly: null })) };
+}
+
+test('最终定价两条可比可用且不足三条，一条pending，不改主人选价和输入', () => {
+  for (const count of [1, 2, 3]) {
+    const input = finalInput(count), before = JSON.stringify(input), result = evaluateFinalMarketPricing(input);
+    assert.equal(result.status, count === 1 ? 'pending' : 'ready');
+    assert.equal(result.insufficientSamples, count < 3);
+    assert.equal(result.selectedPriceRub, 1250);
+    assert.equal(JSON.stringify(input), before);
+    assert.equal(Object.isFrozen(result), true);
+  }
+});
+
+test('前三先按销量，同款异常触发补样本最多五，不可比永不补入', () => {
+  const input = finalInput(7);
+  input.reviews[0].anomaly = { reason: 'promotion', evidenceRef: 'fixture:promotion' };
+  input.reviews[1].exactSpecification.value = false;
+  const result = evaluateFinalMarketPricing(input);
+  assert.deepEqual(result.coreSampleIds, ['final-0', 'final-2', 'final-3']);
+  assert.deepEqual(result.supplementarySampleIds, ['final-4', 'final-5']);
+  assert.equal(result.priceBand.maximum, 1500);
+  assert.equal(result.samples[1].eligible, false);
+});
+
+test('缺周期、未知时效或不同窗口不能当同一近30天排序', () => {
+  const input = finalInput(2); input.reviews[0].salesWindow = null;
+  assert.equal(evaluateFinalMarketPricing(input).status, 'pending');
+  const unknown = finalInput(2); unknown.reviews[0].salesWindow.validityStatus = 'unknown';
+  assert.equal(evaluateFinalMarketPricing(unknown).status, 'pending');
+  const mismatch = finalInput(2); mismatch.reviews[0].salesWindow.startDate = '2026-07-15';
+  const result = evaluateFinalMarketPricing(mismatch);
+  assert.equal(result.status, 'pending');
+  assert.ok(result.issues.includes('sales_window_mismatch'));
+});
+
+test('最终定价闭输入拒绝缺来源、重复ID、坏窗口和未来窗口', () => {
+  for (const mutate of [input => { input.extra = true; }, input => { input.salesSnapshots[1] = { ...input.salesSnapshots[1], productUrl: input.salesSnapshots[0].productUrl }; }, input => { input.reviews[0].sameMarket.evidenceRef = ''; },
+    input => { input.reviews[1].snapshotId = input.reviews[0].snapshotId; },
+    input => { input.reviews[0].salesWindow.count = -1; }, input => { input.reviews[0].salesWindow.endDate = '2026-09-14'; },
+    input => { input.reviews[0].salesWindow.startDate = '2026-07-01'; }]) {
+    const input = finalInput(2); mutate(input);
+    assert.throws(() => evaluateFinalMarketPricing(input), error => error.code.startsWith('FINAL_PRICING_'));
+  }
+});
+
+test('同一平台商品的不同标题路径或查询参数不能冒充多个样本', () => {
+  const input = finalInput(2);
+  input.salesSnapshots[1].productUrl = 'https://www.ozon.ru/product/another-title-900000000/?from=search';
+  assert.throws(() => evaluateFinalMarketPricing(input), { code: 'FINAL_PRICING_SNAPSHOT_INVALID' });
 });

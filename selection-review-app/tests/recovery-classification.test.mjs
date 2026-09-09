@@ -103,12 +103,13 @@ test("stopped backlog is classified without asking for handwritten advice", asyn
   });
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.equal(body.dispatchIds.length, 1);
+  assert.equal(body.dispatchIds.length, 0);
 
   const state = await (await fetch(`${baseUrl}/api/state`)).json();
   const byId = Object.fromEntries(state.candidates.map((item) => [item.id, item]));
-  assert.equal(byId.SYSTEM.processing.state, "queued");
-  assert.equal(byId.SYSTEM.activeDispatch.nodeId, "M04");
+  assert.equal(byId.SYSTEM.processing.state, "blocked");
+  assert.equal(byId.SYSTEM.processing.dispatchState, "legacy_read_only");
+  assert.equal(byId.SYSTEM.activeDispatch, null);
   assert.equal(byId.MISSING.workflowStatus, "needs_user_data");
   assert.deepEqual(byId.MISSING.needsFromUser, ["采购到手总价（含国内运费）"]);
   assert.deepEqual(byId.MISSING.neededFieldKeys, ["purchasePriceRmb"]);

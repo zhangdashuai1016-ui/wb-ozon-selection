@@ -34,6 +34,16 @@ test("2A一张A确认卡同时锁定方向、供应链接、SKU、价格运费�
   assert.equal(result.bExecution.supplierResearchCount, 0);
   assert.deepEqual(result.bExecution.repeatedQuestionFields, []);
   assert.equal(result.bExecution.profitModel.inputSnapshotRefs.length, 5);
+  const model = result.bExecution.profitModel;
+  assert.equal(model.calculation.version, "profit-calculation-v3-cost-policy-snapshot");
+  assert.equal(model.otherCosts.costPolicySnapshot.policyId, "simulation:phase-2a:cost-policy");
+  assert.equal(model.otherCosts.costPolicySnapshot.policyEvidenceRef, "simulation:phase-2a:cost-policy-evidence");
+  assert.equal(Object.keys(model.otherCosts.costPolicySnapshot.items).length, 9);
+  for (const key of ["acquiringRate", "taxRate", "otherRate"]) {
+    assert.equal(model.otherCosts.costPolicySnapshot.items[key].status, "not_applicable");
+    assert.equal(model.otherCosts.components[key], 0);
+  }
+  assert.equal(result.isSimulation, true);
   assert.equal(summary.recommendedSalePriceRub, 1831);
   assert.equal(summary.suggestedListPricesRub.length, 3);
   assert.equal(summary.actualPurchaseCostCny, 41);

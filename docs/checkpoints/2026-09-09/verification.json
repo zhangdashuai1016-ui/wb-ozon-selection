@@ -1,0 +1,400 @@
+{
+  "status": "prepared_not_activated",
+  "packageReceipt": {
+    "formatVersion": "selection-review-runtime-package-v1",
+    "status": "prepared",
+    "dependencyVersions": {
+      "@vitejs/plugin-react": "4.7.0",
+      "ali-oss": "6.23.0",
+      "react": "19.2.8",
+      "react-dom": "19.2.8",
+      "sharp": "0.35.4",
+      "vite": "6.4.3"
+    },
+    "preparationNodeVersion": "v24.19.0",
+    "preparationPlatform": "darwin",
+    "preparationArchitecture": "arm64",
+    "persistentContentIncluded": false,
+    "installed": false,
+    "activated": false,
+    "startupVerified": false,
+    "requiredLaunchEnvironment": [
+      "SELECTION_REVIEW_DATA_FILE",
+      "SELECTION_REVIEW_PORT"
+    ],
+    "persistentConfiguration": "Supply workflow map, store bindings and upload location separately when authorizing installation.",
+    "outputDirectory": "/Users/shuaizhang/.local/share/wb-ozon-engineering/20260907-single-product-baseline/integration/single-product-review-20260909-r5/runtime"
+  },
+  "sourceFilesCompared": 257,
+  "sourceBytesMatch": true,
+  "referenceFilesCopied": 2,
+  "installed": false,
+  "activated": false,
+  "backupExecuted": false,
+  "currentInstalledDirectory": "/Users/shuaizhang/Library/Application Support/今日选品评审台-versions/20260908-product-discovery-v6",
+  "differences": [
+    {
+      "path": "server.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/a-discovery-candidate-import.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/a-discovery-contract.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/a-discovery-runtime-services.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/a-discovery-software-runner.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/a-product-detail-runtime-services.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/a-supplier-image-search-contract.mjs",
+      "status": "added"
+    },
+    {
+      "path": "lib/a-supplier-image-search-runner.mjs",
+      "status": "added"
+    },
+    {
+      "path": "lib/a-supplier-image-search-runtime-services.mjs",
+      "status": "added"
+    },
+    {
+      "path": "lib/b-exact-commission-recalculation-use-case.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/b-exact-commission-runtime-view.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/business-mutation-transaction.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/c1-keyword-software-use-case.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/c1-pricing-result-reuse.mjs",
+      "status": "added"
+    },
+    {
+      "path": "lib/c1-product-plan.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/c1-sku-rights-review.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/c2-asset-lifecycle.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/c2-pricing-upload-reuse.mjs",
+      "status": "added"
+    },
+    {
+      "path": "lib/c2-upload-draft.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/capability-registry.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/final-pricing-revalidation.mjs",
+      "status": "added"
+    },
+    {
+      "path": "lib/final-pricing-review-use-case.mjs",
+      "status": "added"
+    },
+    {
+      "path": "lib/final-pricing-review.mjs",
+      "status": "added"
+    },
+    {
+      "path": "lib/final-product-plan-confirmation-card.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/global-pricing-policy.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/guoo-route-comparison.mjs",
+      "status": "added"
+    },
+    {
+      "path": "lib/guoo-tariff-reader.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/keyword-evidence-provider-adapter.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/lifecycle-b-evidence-context.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/lifecycle-b-evidence-preparation.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/lifecycle-b-evidence-providers.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/lifecycle-b-evidence-runtime.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/lifecycle-b-input-bundle.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/lifecycle-b-real-evidence-readers.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/linkfox-discovery-credentials.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/market-sample-policy.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/ozon-sales-capture.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/phase-2a-simulation.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/product-lifecycle-schema.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/production-authorization-preparation.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/production-authorization.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/production-contract-primitives.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/production-owner-preparation.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/profit-model-calculation.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/profit-model.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/real-a-b-c1-flow.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/real-a-b-evidence-orchestration.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/real-a-confirmation-card.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/runtime-configuration.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/runtime-identity.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/sales-snapshot.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/seerfar-discovery-contract.mjs",
+      "status": "added"
+    },
+    {
+      "path": "lib/seerfar-discovery-software-runner.mjs",
+      "status": "added"
+    },
+    {
+      "path": "lib/seerfar-open-api-transport.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/seerfar-runtime-connector.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/software-job-admission.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/software-job-contract.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/software-job-repository.mjs",
+      "status": "changed"
+    },
+    {
+      "path": "lib/wb-commission-reference-reader.mjs",
+      "status": "added"
+    },
+    {
+      "path": "schema/a-discovery-v2.schema.json",
+      "status": "added"
+    },
+    {
+      "path": "schema/a-supplier-image-search-v1.schema.json",
+      "status": "added"
+    },
+    {
+      "path": "schema/c1-product-plan-v1.1.schema.json",
+      "status": "changed"
+    },
+    {
+      "path": "schema/c2-asset-lifecycle-v1.1.schema.json",
+      "status": "changed"
+    },
+    {
+      "path": "schema/product-lifecycle-v1.1.schema.json",
+      "status": "changed"
+    },
+    {
+      "path": "schema/profit-model-v1.1.schema.json",
+      "status": "changed"
+    },
+    {
+      "path": "schema/runtime-identity-v1.schema.json",
+      "status": "changed"
+    },
+    {
+      "path": "schema/software-job-admission-v1.schema.json",
+      "status": "changed"
+    },
+    {
+      "path": "schema/software-job-v1.schema.json",
+      "status": "changed"
+    },
+    {
+      "path": "schema/software-job-v3.schema.json",
+      "status": "changed"
+    },
+    {
+      "path": "dist/assets/index-B6X3DP7Z.js",
+      "status": "added"
+    },
+    {
+      "path": "dist/index.html",
+      "status": "changed"
+    }
+  ],
+  "comparisonScope": "Packaged static allowlist only; excludes private configuration, business state and old-only files.",
+  "relatedRegression": {
+    "files": 23,
+    "tests": 293,
+    "pass": 293,
+    "fail": 0,
+    "skipped": 0,
+    "durationMs": 98824.730417,
+    "log": "pricing-reuse-final-regression.log",
+    "unresolvedErrors": 0,
+    "testFiles": [
+      "tests/market-sample-policy.test.mjs",
+      "tests/final-pricing-review-input.test.mjs",
+      "tests/final-pricing-revalidation.test.mjs",
+      "tests/final-pricing-review-use-case.test.mjs",
+      "tests/final-pricing-review-api.test.mjs",
+      "tests/production-owner-preparation.test.mjs",
+      "tests/production-owner-decision.test.mjs",
+      "tests/production-owner-decision-api.test.mjs",
+      "tests/real-13c-final-assets.test.mjs",
+      "tests/product-lifecycle-schema.test.mjs",
+      "tests/profit-model.test.mjs",
+      "tests/runtime-identity-software-job.test.mjs",
+      "tests/frontend-review-behavior.test.mjs",
+      "tests/ozon-sales-capture-api.test.mjs",
+      "tests/business-mutation-transaction.test.mjs",
+      "tests/c1-pricing-result-reuse.test.mjs",
+      "tests/final-pricing-c1-reuse-integration.test.mjs",
+      "tests/c1-sku-rights-review.test.mjs",
+      "tests/c1-ai-draft-contract.test.mjs",
+      "tests/c2-software-orchestrator.test.mjs",
+      "tests/c2-upload-draft.test.mjs",
+      "tests/c2-media-content-rules.test.mjs",
+      "tests/c2-final-assets-ui-contract.test.mjs"
+    ],
+    "command": "env -i PATH=/usr/bin:/bin SELECTION_REVIEW_TEST_API_PORT=43295 SELECTION_REVIEW_TEST_PORT=43295 SELECTION_REVIEW_TEST_GATEWAY_PORT=43296 /Users/shuaizhang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node --test --test-concurrency=1 tests/market-sample-policy.test.mjs tests/final-pricing-review-input.test.mjs tests/final-pricing-revalidation.test.mjs tests/final-pricing-review-use-case.test.mjs tests/final-pricing-review-api.test.mjs tests/production-owner-preparation.test.mjs tests/production-owner-decision.test.mjs tests/production-owner-decision-api.test.mjs tests/real-13c-final-assets.test.mjs tests/product-lifecycle-schema.test.mjs tests/profit-model.test.mjs tests/runtime-identity-software-job.test.mjs tests/frontend-review-behavior.test.mjs tests/ozon-sales-capture-api.test.mjs tests/business-mutation-transaction.test.mjs tests/c1-pricing-result-reuse.test.mjs tests/final-pricing-c1-reuse-integration.test.mjs tests/c1-sku-rights-review.test.mjs tests/c1-ai-draft-contract.test.mjs tests/c2-software-orchestrator.test.mjs tests/c2-upload-draft.test.mjs tests/c2-media-content-rules.test.mjs tests/c2-final-assets-ui-contract.test.mjs"
+  },
+  "syntaxFiles": [
+    "lib/business-mutation-transaction.mjs",
+    "lib/c1-pricing-result-reuse.mjs",
+    "lib/c1-sku-rights-review.mjs",
+    "lib/c2-asset-lifecycle.mjs",
+    "lib/c2-pricing-upload-reuse.mjs",
+    "lib/c2-upload-draft.mjs",
+    "lib/capability-registry.mjs",
+    "lib/final-pricing-review-use-case.mjs",
+    "lib/production-contract-primitives.mjs",
+    "lib/runtime-identity.mjs",
+    "lib/software-job-contract.mjs"
+  ],
+  "capabilityArtifacts": 620,
+  "registryTests": 5,
+  "runtimePackageTests": 1,
+  "costPolicyConfigured": false,
+  "previousPackageSuperseded": "/Users/shuaizhang/.local/share/wb-ozon-engineering/20260907-single-product-baseline/integration/single-product-review-20260909-r4",
+  "fullRepositoryCI": false,
+  "realBusinessRun": false,
+  "unresolvedErrors": 1,
+  "unresolvedWarnings": 0,
+  "releaseReview": "/Users/shuaizhang/.local/share/wb-ozon-engineering/20260907-single-product-baseline/integration/single-product-review-20260909-r5/RELEASE_REVIEW.md",
+  "currentWorkStoppedAfterHandoff": true,
+  "fullRepositoryCIAttempt": {
+    "status": "blocked_before_full_suite",
+    "command": "env -i PATH=<bundled-node>:/usr/bin:/bin node scripts/run-ci-tests.mjs",
+    "error": "CI_API_TEST_BOUNDARY_MISSING:runtime-package-api.test.mjs",
+    "source": "scripts/ci-test-policy.mjs:15",
+    "log": "pre-github-ci-blocked.log",
+    "executedBy": "human_bridge",
+    "verifiedLog": true,
+    "repairDeferredByOwner": true
+  },
+  "verificationCommands": [
+    "/Users/shuaizhang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node node_modules/vite/bin/vite.js build",
+    "/Users/shuaizhang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/generate-capability-snapshot.mjs",
+    "/Users/shuaizhang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node --test tests/capability-registry.test.mjs",
+    "env -i PATH=/usr/bin:/bin SELECTION_REVIEW_TEST_PORT=43293 SELECTION_REVIEW_TEST_GATEWAY_PORT=43294 /Users/shuaizhang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node --test tests/runtime-package-api.test.mjs",
+    "/Users/shuaizhang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node scripts/prepare-local-runtime.mjs --output /Users/shuaizhang/.local/share/wb-ozon-engineering/20260907-single-product-baseline/integration/single-product-review-20260909-r5/runtime",
+    "git diff --check"
+  ]
+}

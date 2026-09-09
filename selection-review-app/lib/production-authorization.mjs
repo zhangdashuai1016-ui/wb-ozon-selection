@@ -1,29 +1,60 @@
+import { C1_UNKNOWN_CLASSIFICATION_VERSION } from './c1-product-plan.mjs';
+import { executeBusinessMutation } from "./business-mutation-transaction.mjs";
+import { assertCurrentC1SkuRightsReview } from "./c1-sku-rights-review.mjs";
+import { authorizeOperation } from "./runtime-identity.mjs";
+import { assertValidFinalProductPlanConfirmationCard, createFinalProductPlanConfirmationCard } from "./final-product-plan-confirmation-card.mjs";
+import { assertFinalPricingReviewCurrent } from "./final-pricing-review.mjs";
+import { assertC2FinalMediaContent } from "./c2-media-content-rules.mjs";
 import {
   assertValidLifecyclePackage,
-  validateLifecycleTransition
+  validateLifecycleTransition,
+  validateProductionAuthorizationRecord
 } from "./product-lifecycle-schema.mjs";
 import {
-  assertValidFinalProductPlanConfirmationCard
-} from "./final-product-plan-confirmation-card.mjs";
-import { assertValidC2AssetLifecycle } from "./c2-asset-lifecycle.mjs";
+  assertNoProductionSecrets,
+  fingerprintCanonicalRecord
+} from "./production-contract-primitives.mjs";
+import { validateProductionAuthorizationPreparation, assertCurrentC1MatchesProductionPreparation, isProductionExecutionBinding, PRODUCTION_AUTHORIZATION_VERSION, PRODUCTION_PUBLISH_SCOPES, PRODUCTION_WRITE_FIELDS } from "./production-authorization-preparation.mjs";
 
-export const PRODUCTION_AUTHORIZATION_VERSION = "production-authorization-v1.1";
-export const DEFAULT_NEW_PRODUCT_STOCK = 100;
-export const DRAFT_ONLY_PUBLISH_SCOPE = "create_draft_only";
-export const VALIDATION_MODERATION_PUBLISH_SCOPE = "create_and_allow_validation_moderation";
-export const PRODUCTION_PUBLISH_SCOPES = Object.freeze([
-  DRAFT_ONLY_PUBLISH_SCOPE,
-  VALIDATION_MODERATION_PUBLISH_SCOPE
+export {
+  PRODUCTION_AUTHORIZATION_FINAL_CARD_INPUT_SNAPSHOT_VERSION,
+  PRODUCTION_AUTHORIZATION_FINAL_MANIFEST_VERSION,
+  PRODUCTION_AUTHORIZATION_PENDING_INPUTS_VERSION,
+  PRODUCTION_AUTHORIZATION_PREPARATION_VERSION,
+  createPendingProductionAuthorizationInputs,
+  fingerprintC1Snapshot,
+  fingerprintFinalCardInputSnapshot,
+  fingerprintFinalManifest,
+  fingerprintFinalUploads,
+  fingerprintMediaRequirements,
+  fingerprintProductionAuthorizationPreparation,
+  validateProductionAuthorizationPreparation
+} from "./production-authorization-preparation.mjs";
+
+export { PRODUCTION_AUTHORIZATION_VERSION, DRAFT_ONLY_PUBLISH_SCOPE, VALIDATION_MODERATION_PUBLISH_SCOPE,
+  PRODUCTION_PUBLISH_SCOPES, PRODUCTION_WRITE_FIELDS } from "./production-authorization-preparation.mjs";
+export const C2_D_HANDOFF_VERSION = "c2-d-handoff-v1";
+
+const NOT_APPLICABLE = "not_applicable";
+const OWNER_DECISION_OPTION = "approve_for_production_authorization";
+const OWNER_DECISION_KEYS = Object.freeze([
+  "decisionId", "selectedOption", "sourcePreparationFingerprint", "sourceFinalCardInputFingerprint",
+  "sourceConfirmationCardId", "merchantSku", "warehouseRef", "credentialAlias", "stock",
+  "buyerTargetPrice", "platformWritePrice", "priceConversion", "publishScope", "allowedWriteFields", "exclusions",
+  "ownerDecisionFingerprint", "ownerConfirmation", "executionBinding"
 ]);
-export const PRODUCTION_WRITE_FIELDS = Object.freeze([
-  "create_product",
-  "title",
-  "attributes",
-  "price",
-  "stock",
-  "assets.finalUploads",
-  "publish_scope"
+const OWNER_CONFIRMATION_KEYS = Object.freeze([
+  "schemaVersion", "decisionId", "actorId", "actorType", "role", "confirmedAt",
+  "sourcePreparationFingerprint", "sourceFinalCardInputFingerprint", "sourceC1Fingerprint",
+  "sourceCandidateRevision", "sourceSkuRevision", "ownerDecisionFingerprint"
 ]);
+const OWNER_ACTOR_KEYS = Object.freeze([
+  "schemaVersion", "userId", "sessionId", "actorType", "roles", "source", "authenticatedAt"
+]);
+const OWNER_COMMERCIAL_FIELDS = Object.freeze(["selectedOption", "merchantSku", "warehouseRef", "credentialAlias", "stock",
+  "buyerTargetPrice", "platformWritePrice", "priceConversion", "publishScope", "allowedWriteFields", "exclusions", "executionBinding"]);
+const SINGLE_OWNER_INPUT_KEYS = Object.freeze(["contractVersion", "dataRevision", "skuRevision", "cardId", "cardRevision",
+  "sourcePreparationFingerprint", "sourceFinalCardInputFingerprint", "bindingId", "configurationVersion", "merchantSku", "confirmExactScope"]);
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -34,7 +65,9 @@ function nonEmptyString(value) {
 }
 
 function isoDateTime(value) {
-  return nonEmptyString(value) && !Number.isNaN(Date.parse(value));
+  if (!nonEmptyString(value) || !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/i.test(value) || Number.isNaN(Date.parse(value))) return false;
+  const calendar = new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
+  return Number.isFinite(calendar.getTime()) && calendar.toISOString().slice(0, 10) === value.slice(0, 10);
 }
 
 function deepFreeze(value) {
@@ -44,183 +77,290 @@ function deepFreeze(value) {
   return value;
 }
 
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (!isObject(value)) return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]));
+}
+
+function sha256(value) {
+  return fingerprintCanonicalRecord(value);
+}
+
 function sameJson(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right));
 }
 
-function push(errors, path, message) {
-  errors.push({ path, message });
-}
-
-function uniqueNonEmptyStrings(values) {
-  return [...new Set((Array.isArray(values) ? values : []).filter(nonEmptyString))];
+function exactKeys(value, keys) {
+  return isObject(value) && sameJson(Object.keys(value).sort(), [...keys].sort());
 }
 
 function validMoney(value) {
-  return isObject(value) && Number.isFinite(value.amount) && value.amount > 0 && nonEmptyString(value.currency);
+  return isObject(value) && Number.isFinite(value.amount) && value.amount > 0 &&
+    ["CNY", "RUB"].includes(value.currency) && exactKeys(value, ["amount", "currency"]);
 }
 
 function validPriceConversion(value) {
   return isObject(value) && Number.isFinite(value.rubPerCny) && value.rubPerCny > 0 &&
-    nonEmptyString(value.evidenceRef) && nonEmptyString(value.checkedAt);
+    nonEmptyString(value.evidenceRef) && isoDateTime(value.checkedAt) &&
+    exactKeys(value, ["rubPerCny", "evidenceRef", "checkedAt"]);
 }
 
-function validateOzonChinaPriceSemantics(scope, errors) {
-  if (String(scope.platform).toLowerCase() !== "ozon") return;
-  if (scope.buyerTargetPrice?.currency !== "RUB") {
-    push(errors, "lockedScope.buyerTargetPrice.currency", "Ozon俄罗斯买家目标价必须以RUB保存");
+function validateExecutionBinding(binding) {
+  if (!isProductionExecutionBinding(binding)) {
+    throw new Error("PRODUCTION_AUTHORIZATION_EXECUTION_BINDING_INVALID");
   }
-  if (scope.platformWritePrice?.currency !== "CNY") {
-    push(errors, "lockedScope.platformWritePrice.currency", "中国卖家Ozon后台写入价必须以CNY保存");
-  }
-  if (validMoney(scope.buyerTargetPrice) && validMoney(scope.platformWritePrice) && validPriceConversion(scope.priceConversion)) {
-    const converted = scope.buyerTargetPrice.amount / scope.priceConversion.rubPerCny;
-    if (Math.abs(converted - scope.platformWritePrice.amount) > 0.02) {
-      push(errors, "lockedScope.platformWritePrice", "平台写入价与锁定汇率换算结果不一致");
-    }
-  }
+  assertNoSecrets(binding, "executionBinding");
+  return binding;
 }
 
-export function validateProductionAuthorization(authorization) {
-  const errors = [];
-  if (!isObject(authorization)) return { valid: false, errors: [{ path: "$", message: "必须是对象" }] };
-  if (authorization.schemaVersion !== PRODUCTION_AUTHORIZATION_VERSION) push(errors, "schemaVersion", `必须是${PRODUCTION_AUTHORIZATION_VERSION}`);
-  if (!nonEmptyString(authorization.authorizationId)) push(errors, "authorizationId", "必须是非空字符串");
-  if (authorization.status !== "confirmed") push(errors, "status", "必须是confirmed");
-  if (authorization.confirmedBy !== "owner") push(errors, "confirmedBy", "只能由主人确认");
-  if (!isoDateTime(authorization.confirmedAt)) push(errors, "confirmedAt", "必须是有效时间");
-  if (!nonEmptyString(authorization.sourceConfirmationCardId)) push(errors, "sourceConfirmationCardId", "必须关联确认卡");
-  if (!Number.isInteger(authorization.authorizedDataRevision) || authorization.authorizedDataRevision < 0) push(errors, "authorizedDataRevision", "必须锁定非负修订号");
-  if (!isObject(authorization.lockedScope)) {
-    push(errors, "lockedScope", "必须是对象");
-  } else {
-    const scope = authorization.lockedScope;
-    for (const field of ["platform", "store", "skuPackageId", "supplierSkuId", "titleVersion", "attributeVersion", "assetsFinalUploadsVersion", "publishScope"]) {
-      if (!nonEmptyString(scope[field])) push(errors, `lockedScope.${field}`, "必须是非空字符串");
-    }
-    if (!PRODUCTION_PUBLISH_SCOPES.includes(scope.publishScope)) push(errors, "lockedScope.publishScope", "生产授权范围无效");
-    if (!nonEmptyString(scope.title)) push(errors, "lockedScope.title", "必须锁定标题正文");
-    if (!isObject(scope.attributes)) push(errors, "lockedScope.attributes", "必须锁定属性值");
-    if (!isObject(scope.platformCategory)) push(errors, "lockedScope.platformCategory", "必须锁定平台类目");
-    if (!isObject(scope.recommendedPrice) || !Number.isFinite(scope.recommendedPrice.rub) || !Number.isFinite(scope.recommendedPrice.cny)) {
-      push(errors, "lockedScope.recommendedPrice", "必须锁定建议售价");
-    }
-    if (!validMoney(scope.buyerTargetPrice)) push(errors, "lockedScope.buyerTargetPrice", "必须锁定买家目标成交价和币种");
-    if (!validMoney(scope.platformWritePrice)) push(errors, "lockedScope.platformWritePrice", "必须锁定店铺后台实际写入价和币种");
-    if (!validPriceConversion(scope.priceConversion)) push(errors, "lockedScope.priceConversion", "必须锁定价格换算证据");
-    validateOzonChinaPriceSemantics(scope, errors);
-    if (scope.stock !== DEFAULT_NEW_PRODUCT_STOCK) push(errors, "lockedScope.stock", "新品库存必须锁定为100");
-    if (!Array.isArray(scope.finalUploads) || scope.finalUploads.length === 0) push(errors, "lockedScope.finalUploads", "必须锁定最终素材");
-    if (scope.finalUploads?.some((asset) => asset.ownerConfirmed !== true || asset.productionEligible !== true)) push(errors, "lockedScope.finalUploads", "每份素材必须已由主人确认");
-    if (!Array.isArray(scope.exclusions)) push(errors, "lockedScope.exclusions", "必须明确排除项数组");
-    if (!Array.isArray(scope.allowedWriteFields) || scope.allowedWriteFields.length === 0) push(errors, "lockedScope.allowedWriteFields", "必须明确允许写入字段");
-    if (scope.allowedWriteFields?.some((field) => !PRODUCTION_WRITE_FIELDS.includes(field))) push(errors, "lockedScope.allowedWriteFields", "不得扩大授权写入范围");
-  }
-  if (authorization.scopeExpansionAllowed !== false) push(errors, "scopeExpansionAllowed", "禁止自动扩大范围");
-  if (authorization.fieldMutationAllowed !== false) push(errors, "fieldMutationAllowed", "禁止自动修改字段");
-  if (authorization.skuReplacementAllowed !== false) push(errors, "skuReplacementAllowed", "禁止替换SKU");
-  if (authorization.assetReplacementAllowed !== false) push(errors, "assetReplacementAllowed", "禁止替换素材");
-  if (authorization.productionExecuted !== false) push(errors, "productionExecuted", "第12阶段不得执行D");
-  if (authorization.platformWrites !== 0) push(errors, "platformWrites", "第12阶段不得平台写入");
-  if (authorization.readPolicy !== "authorization_snapshot_only") push(errors, "readPolicy", "未来D只能读取授权快照");
-  return { valid: errors.length === 0, errors };
+function assertSafeString(value, path) {
+  if (!nonEmptyString(value)) throw new Error(`PRODUCTION_AUTHORIZATION_INPUT_GAP:${path}`);
+  const text = value.trim();
+  assertNoProductionSecrets(text, path);
+  return text;
 }
 
-export function assertValidProductionAuthorization(authorization) {
-  const result = validateProductionAuthorization(authorization);
+function assertNoSecrets(value, path = "input") {
+  assertNoProductionSecrets(value, path);
+}
+
+function validateOwnerDecision(ownerDecision, preparation, sourceCandidateRevision, sourceSkuRevision, snapshotContext) {
+  if (!exactKeys(ownerDecision, OWNER_DECISION_KEYS) || ownerDecision.selectedOption !== OWNER_DECISION_OPTION ||
+      ownerDecision.sourcePreparationFingerprint !== preparation.preparationFingerprint || ownerDecision.sourceFinalCardInputFingerprint !== preparation.finalCardInputFingerprint) {
+    throw new Error("PRODUCTION_AUTHORIZATION_OWNER_CONFIRMATION_REQUIRED");
+  }
+  validateExecutionBinding(ownerDecision.executionBinding);
+  const owner = ownerDecision.ownerConfirmation;
+  if (!exactKeys(owner, OWNER_CONFIRMATION_KEYS) || owner.schemaVersion !== "production-owner-confirmation-v2" ||
+      owner.actorType !== "human" || owner.role !== "owner" || owner.decisionId !== ownerDecision.decisionId ||
+      !nonEmptyString(owner.actorId) || !isoDateTime(owner.confirmedAt) ||
+      owner.sourcePreparationFingerprint !== preparation.preparationFingerprint ||
+      owner.sourceFinalCardInputFingerprint !== preparation.finalCardInputFingerprint ||
+      owner.sourceC1Fingerprint !== preparation.sourceC1Fingerprint || owner.sourceCandidateRevision !== sourceCandidateRevision || owner.sourceSkuRevision !== sourceSkuRevision) {
+    throw new Error("PRODUCTION_AUTHORIZATION_HUMAN_OWNER_CONFIRMATION_REQUIRED");
+  }
+  for (const field of ["decisionId", "sourceConfirmationCardId", "merchantSku", "warehouseRef", "credentialAlias"]) {
+    assertSafeString(ownerDecision[field], `ownerDecision.${field}`);
+    if (["unknown", "null", "undefined", NOT_APPLICABLE].includes(ownerDecision[field].trim().toLowerCase())) throw new Error(`PRODUCTION_AUTHORIZATION_INPUT_GAP:ownerDecision.${field}`);
+  }
+  const expectedCardId = `final-plan-card:${preparation.skuPackageId}:${preparation.resultDataRevision}`;
+  if (ownerDecision.sourceConfirmationCardId !== expectedCardId) throw new Error("PRODUCTION_AUTHORIZATION_OWNER_CONFIRMATION_REQUIRED:sourceConfirmationCardId");
+  if (!Number.isInteger(ownerDecision.stock) || ownerDecision.stock < 0) throw new Error("PRODUCTION_AUTHORIZATION_INPUT_GAP:stock");
+  if (!validMoney(ownerDecision.buyerTargetPrice) || ownerDecision.buyerTargetPrice.currency !== "RUB" ||
+      !validMoney(ownerDecision.platformWritePrice) || ownerDecision.platformWritePrice.currency !== "CNY" || !validPriceConversion(ownerDecision.priceConversion)) {
+    throw new Error("PRODUCTION_AUTHORIZATION_INPUT_GAP:price");
+  }
+  const converted = ownerDecision.buyerTargetPrice.amount / ownerDecision.priceConversion.rubPerCny;
+  if (Math.abs(converted - ownerDecision.platformWritePrice.amount) > 0.02) throw new Error("PRODUCTION_AUTHORIZATION_INPUT_GAP:priceConversion");
+  if (!PRODUCTION_PUBLISH_SCOPES.includes(ownerDecision.publishScope) || !Array.isArray(ownerDecision.exclusions) ||
+      !Array.isArray(ownerDecision.allowedWriteFields) || ownerDecision.allowedWriteFields.length === 0 ||
+      new Set(ownerDecision.allowedWriteFields).size !== ownerDecision.allowedWriteFields.length ||
+      ownerDecision.allowedWriteFields.some((field) => !PRODUCTION_WRITE_FIELDS.includes(field)) || ownerDecision.exclusions.some((field) => !nonEmptyString(field))) {
+    throw new Error("PRODUCTION_AUTHORIZATION_SCOPE_REJECTED");
+  }
+  assertNoSecrets(ownerDecision, "ownerDecision");
+  const ownerDecisionSnapshot = buildProductionOwnerDecisionSnapshot({
+    ...snapshotContext,
+    sourceCandidateRevision,
+    preparation,
+    ownerDecision
+  });
+  const expectedOwnerDecisionFingerprint = sha256(ownerDecisionSnapshot);
+  if (ownerDecision.ownerDecisionFingerprint !== expectedOwnerDecisionFingerprint || owner.ownerDecisionFingerprint !== expectedOwnerDecisionFingerprint) {
+    throw new Error("PRODUCTION_AUTHORIZATION_OWNER_DECISION_DRIFT:fingerprint");
+  }
+  return ownerDecisionSnapshot;
+}
+
+function validateOwnerActor(actor) {
+  if (!exactKeys(actor, OWNER_ACTOR_KEYS) || actor.schemaVersion !== "actor-context-v1" || actor.actorType !== "human" ||
+      !nonEmptyString(actor.userId) || !nonEmptyString(actor.sessionId) || actor.source !== "authenticated_identity_provider" ||
+      !isoDateTime(actor.authenticatedAt) || !Array.isArray(actor.roles) || !actor.roles.includes("owner")) {
+    throw new Error("PRODUCTION_OWNER_AUTHENTICATED_IDENTITY_REQUIRED");
+  }
+  authorizeOperation({ actor, requiredRoles: ["owner"] });
+  assertNoSecrets(actor, "ownerActor");
+  return actor;
+}
+
+// This retired entry cannot turn an old commercial decision into current write authority.
+export function assertIndependentProductionAuthorizationActors() {
+  throw new Error("PRODUCTION_AUTHORIZATION_RECONFIRMATION_REQUIRED");
+}
+
+export function validateProductionAuthorization(authorization, context = {}) {
+  return validateProductionAuthorizationRecord(authorization, context);
+}
+
+export function assertValidProductionAuthorization(authorization, context = {}) {
+  const result = validateProductionAuthorization(authorization, context);
   if (!result.valid) throw new Error(`ProductionAuthorization校验失败：${result.errors.map((item) => `${item.path}: ${item.message}`).join("；")}`);
   return authorization;
 }
 
-function validateOwnerApproval(ownerDecision, card) {
-  if (!isObject(ownerDecision) ||
-      ownerDecision.selectedOption !== "approve_for_production_authorization" ||
-      ownerDecision.confirmedBy !== "owner" ||
-      ownerDecision.cardId !== card.cardId) {
-    throw new Error("PRODUCTION_AUTHORIZATION_OWNER_CONFIRMATION_REQUIRED: 必须由主人对准确确认卡选择通过");
-  }
+/** Validate historical records without granting them new execution eligibility. */
+export function assertCurrentProductionAuthorization(authorization, context = {}) {
+  assertValidProductionAuthorization(authorization, context);
+  if (authorization.schemaVersion !== PRODUCTION_AUTHORIZATION_VERSION) throw new Error("PRODUCTION_AUTHORIZATION_RECONFIRMATION_REQUIRED");
+  assertCurrentC1SkuRightsReview({ plan: authorization.lockedScope.finalCardInputSnapshot.c1Snapshot,
+    sourceIdentity: authorization.sourceIdentity, observedAt: context.observedAt });
+  return authorization;
 }
 
-/**
- * 第12阶段只固化授权对象。授权保留在C2，不启动D，也不进行任何平台操作。
- */
-export function createProductionAuthorization({
-  skuPackage,
-  ownerDecision,
-  buyerTargetPrice,
-  platformWritePrice,
-  priceConversion,
-  publishScope,
-  exclusions,
-  allowedWriteFields = PRODUCTION_WRITE_FIELDS,
-  confirmedAt
-}) {
-  assertValidLifecyclePackage(skuPackage);
-  const sourceCard = skuPackage.productionConfirmationCard;
-  assertValidFinalProductPlanConfirmationCard(sourceCard);
-  assertValidC2AssetLifecycle(skuPackage.c2FinalAssets);
-  if (skuPackage.businessPhase !== "C2" || sourceCard.status !== "awaiting_owner_business_confirmation") {
-    throw new Error("PRODUCTION_AUTHORIZATION_GATE_REJECTED: 商品方案不在等待主人确认状态");
-  }
-  if (skuPackage.productionAuthorization !== null || skuPackage.productionRecord !== null) {
-    throw new Error("PRODUCTION_AUTHORIZATION_GATE_REJECTED: 已存在授权或生产记录");
-  }
-  validateOwnerApproval(ownerDecision, sourceCard);
-  if (sourceCard.riskAndUnknowns?.materialRisks?.includes("exact_commission_required_before_production")) {
-    throw new Error("PRODUCTION_AUTHORIZATION_GATE_REJECTED: B阶段使用估算佣金，C阶段尚未补取当前精确佣金");
-  }
-  if (!isoDateTime(confirmedAt)) throw new Error("PRODUCTION_AUTHORIZATION_INPUT_GAP: 确认时间无效");
-  if (!validMoney(buyerTargetPrice)) throw new Error("PRODUCTION_AUTHORIZATION_INPUT_GAP: 必须确认买家目标成交价和币种");
-  if (!validMoney(platformWritePrice)) throw new Error("PRODUCTION_AUTHORIZATION_INPUT_GAP: 必须确认店铺后台实际写入价和币种");
-  if (!validPriceConversion(priceConversion)) throw new Error("PRODUCTION_AUTHORIZATION_INPUT_GAP: 必须确认价格换算证据");
-  if (!PRODUCTION_PUBLISH_SCOPES.includes(publishScope)) throw new Error("PRODUCTION_AUTHORIZATION_SCOPE_REJECTED: 发布范围无效");
-  if (!Array.isArray(exclusions)) throw new Error("PRODUCTION_AUTHORIZATION_INPUT_GAP: 必须提供排除项数组，可为空数组");
-  const safeAllowedFields = uniqueNonEmptyStrings(allowedWriteFields);
-  if (safeAllowedFields.length === 0 || safeAllowedFields.some((field) => !PRODUCTION_WRITE_FIELDS.includes(field))) {
-    throw new Error("PRODUCTION_AUTHORIZATION_SCOPE_REJECTED: 写入字段超出固定授权面");
-  }
+function buildAuthorizedIdentity(sourceIdentity, ownerDecision) {
+  return { ...structuredClone(sourceIdentity), merchantSku: ownerDecision.merchantSku, warehouseRef: ownerDecision.warehouseRef, credentialAlias: ownerDecision.credentialAlias };
+}
 
-  const card = structuredClone(sourceCard);
-  card.status = "owner_business_approved";
-  card.ownerDecision = {
-    selectedOption: "approve_for_production_authorization",
-    confirmedBy: "owner",
-    confirmedAt,
-    note: ownerDecision.note || null
+export function buildProductionOwnerDecisionSnapshot({ candidateId, sourceCandidateRevision, skuPackage, preparation, ownerDecision, contractVersion = PRODUCTION_AUTHORIZATION_VERSION }) {
+  if (!["production-authorization-v1.1", PRODUCTION_AUTHORIZATION_VERSION].includes(contractVersion)) throw new Error("PRODUCTION_AUTHORIZATION_VERSION_INVALID");
+  const singleOwner = contractVersion === PRODUCTION_AUTHORIZATION_VERSION;
+  if (singleOwner) validateExecutionBinding(ownerDecision.executionBinding);
+  const sourceIdentity = preparation.finalCardInputSnapshot.identity;
+  const identity = buildAuthorizedIdentity(sourceIdentity, ownerDecision);
+  return {
+    schemaVersion: singleOwner ? "production-owner-decision-snapshot-v2" : "production-owner-decision-snapshot-v1",
+    ...(singleOwner ? { executionBinding: structuredClone(ownerDecision.executionBinding) } : {}),
+    decisionId: ownerDecision.decisionId,
+    sourceConfirmationCardId: ownerDecision.sourceConfirmationCardId,
+    sourcePreparationFingerprint: preparation.preparationFingerprint,
+    sourceFinalCardInputFingerprint: preparation.finalCardInputFingerprint,
+    sourceC1Fingerprint: preparation.sourceC1Fingerprint,
+    sourceCandidateRevision,
+    sourceSkuRevision: skuPackage.dataRevision,
+    identity: structuredClone(identity),
+    buyerTargetPrice: structuredClone(ownerDecision.buyerTargetPrice),
+    platformWritePrice: structuredClone(ownerDecision.platformWritePrice),
+    priceConversion: structuredClone(ownerDecision.priceConversion),
+    stock: ownerDecision.stock,
+    publishScope: ownerDecision.publishScope,
+    allowedWriteFields: structuredClone(ownerDecision.allowedWriteFields),
+    exclusions: structuredClone(ownerDecision.exclusions),
+    mediaRequirementsFingerprint: preparation.mediaRequirementsFingerprint,
+    finalManifestSha256: preparation.finalManifestSha256,
+    finalUploadsFingerprint: preparation.finalUploadsFingerprint,
+    mainImageAssetId: preparation.mainImageAssetId,
+    videoDisposition: preparation.videoDisposition,
+    effectiveVideoRequirement: structuredClone(preparation.effectiveVideoRequirement)
   };
-  assertValidFinalProductPlanConfirmationCard(card);
+}
 
-  const c1 = skuPackage.c1ProductPlan;
-  const c2 = skuPackage.c2FinalAssets;
+export function createProductionAuthorization({ candidateId, sourceCandidateRevision, currentCandidateRevision, skuPackage, commercialDecision, ownerActor, authorizedAt }) {
+  assertValidLifecyclePackage(skuPackage);
+  assertFinalPricingReviewCurrent(skuPackage);
+  assertCurrentC1SkuRightsReview({ plan: skuPackage.c1ProductPlan, sourceIdentity: skuPackage.g1Identity, observedAt: authorizedAt });
+  validateOwnerActor(ownerActor);
+  const card = skuPackage.productionConfirmationCard;
+  assertValidFinalProductPlanConfirmationCard(card);
+  if (card.riskAndUnknowns.classificationVersion !== C1_UNKNOWN_CLASSIFICATION_VERSION) {
+    throw new Error('PRODUCTION_AUTHORIZATION_FINAL_CARD_CLASSIFICATION_REQUIRED: 旧确认卡须按当前冻结输入重新生成，不自动放行');
+  }
+  if (card.status !== "awaiting_owner_business_confirmation" || card.ownerDecision !== null) {
+    throw new Error("PRODUCTION_AUTHORIZATION_RECONFIRMATION_REQUIRED:历史决定只读");
+  }
+  const sourceWithoutCard = structuredClone(skuPackage);
+  sourceWithoutCard.productionConfirmationCard = null;
+  const expectedCard = createFinalProductPlanConfirmationCard({ skuPackage: sourceWithoutCard, createdAt: card.createdAt }).confirmationCard;
+  if (!sameJson(card, expectedCard)) throw new Error("PRODUCTION_AUTHORIZATION_CARD_DRIFT");
+  if (expectedCard.riskAndUnknowns.blockingUnknownCount > 0 || card.profitResult.commissionMode.value !== "exact") {
+    throw new Error("PRODUCTION_AUTHORIZATION_FINAL_CARD_INCOMPLETE");
+  }
+  if (!exactKeys(commercialDecision, OWNER_COMMERCIAL_FIELDS) || commercialDecision.selectedOption !== OWNER_DECISION_OPTION) {
+    throw new Error("PRODUCTION_OWNER_COMMERCIAL_INPUT_INVALID");
+  }
+  if (skuPackage.businessPhase !== "C2" || skuPackage.productionAuthorization !== null || skuPackage.productionRecord !== null ||
+      (skuPackage.dHandoff !== null && skuPackage.dHandoff !== undefined) || skuPackage.dAssetTransport?.status === "unknown_outcome") {
+    throw new Error("PRODUCTION_AUTHORIZATION_GATE_REJECTED:已有下游状态或结果未知");
+  }
+  if (!Number.isInteger(sourceCandidateRevision) || sourceCandidateRevision < 0 || !Number.isInteger(currentCandidateRevision) ||
+      currentCandidateRevision < 0 || sourceCandidateRevision !== currentCandidateRevision || !isoDateTime(authorizedAt)) {
+    throw new Error("PRODUCTION_AUTHORIZATION_REVISION_CONFLICT:currentCandidateRevision");
+  }
+  if (Date.parse(ownerActor.authenticatedAt) > Date.parse(authorizedAt) || Date.parse(card.createdAt) > Date.parse(authorizedAt)) throw new Error("PRODUCTION_OWNER_CLOCK_INVALID");
+  const preparation = skuPackage.c2FinalAssets?.productionAuthorizationPreparation;
+  assertCurrentC1MatchesProductionPreparation({ preparation, candidateId, skuPackage });
+  assertC2FinalMediaContent({ mediaRequirements: preparation.mediaRequirements, assets: preparation.finalUploads, checkedAt: authorizedAt });
+  const profit = preparation.finalCardInputSnapshot.activeProfitModel;
+  if (commercialDecision.buyerTargetPrice?.amount !== profit.recommendedSalePriceRub || commercialDecision.platformWritePrice?.amount !== profit.recommendedSalePriceCny ||
+      !sameJson(commercialDecision.priceConversion, profit.priceConversion)) throw new Error("PRODUCTION_AUTHORIZATION_FROZEN_PRICE_DRIFT");
+  const decisionId = `owner-decision:${candidateId}:${card.cardId}:${card.cardRevision + 1}`;
+  const ownerDecision = { ...structuredClone(commercialDecision), decisionId, sourceConfirmationCardId: card.cardId,
+    sourcePreparationFingerprint: preparation.preparationFingerprint, sourceFinalCardInputFingerprint: preparation.finalCardInputFingerprint };
+  ownerDecision.ownerDecisionFingerprint = sha256(buildProductionOwnerDecisionSnapshot({ candidateId, sourceCandidateRevision, skuPackage, preparation, ownerDecision }));
+  ownerDecision.ownerConfirmation = { schemaVersion: "production-owner-confirmation-v2", decisionId, actorId: ownerActor.userId,
+    actorType: "human", role: "owner", confirmedAt: authorizedAt, sourcePreparationFingerprint: preparation.preparationFingerprint,
+    sourceFinalCardInputFingerprint: preparation.finalCardInputFingerprint, sourceC1Fingerprint: preparation.sourceC1Fingerprint,
+    sourceCandidateRevision, sourceSkuRevision: skuPackage.dataRevision, ownerDecisionFingerprint: ownerDecision.ownerDecisionFingerprint };
+  const sourceIdentity = structuredClone(preparation.finalCardInputSnapshot.identity);
+  const identity = buildAuthorizedIdentity(sourceIdentity, ownerDecision);
+  const ownerDecisionSnapshot = validateOwnerDecision(ownerDecision, preparation, sourceCandidateRevision, skuPackage.dataRevision, {
+    candidateId,
+    skuPackage
+  });
+  const authorizationId = `production-auth:${skuPackage.skuPackageId}:${preparation.preparationFingerprint}:${ownerDecision.decisionId}`;
+  const handoffId = `d-handoff:${authorizationId}`;
   const authorization = {
     schemaVersion: PRODUCTION_AUTHORIZATION_VERSION,
-    authorizationId: `production-auth:${skuPackage.skuPackageId}:${skuPackage.dataRevision}`,
+    authorizationId,
     status: "confirmed",
     confirmedBy: "owner",
-    confirmedAt,
-    sourceConfirmationCardId: card.cardId,
+    confirmedByActorId: ownerDecision.ownerConfirmation.actorId,
+    confirmedAt: ownerDecision.ownerConfirmation.confirmedAt,
+    authorizedByActorId: ownerActor.userId,
+    authorizedAt,
+    ownerDecisionId: ownerDecision.decisionId,
+    ownerConfirmation: structuredClone(ownerDecision.ownerConfirmation),
+    ownerDecisionFingerprint: ownerDecision.ownerDecisionFingerprint,
+    ownerDecisionSnapshot,
+    executionBinding: structuredClone(ownerDecision.executionBinding),
+    ownerAuthorization: {
+      schemaVersion: "production-owner-authorization-v1",
+      actorId: ownerActor.userId,
+      actorType: "human",
+      role: "owner",
+      source: "authenticated_identity_provider",
+      authorizedAt
+    },
+    sourceConfirmationCardId: ownerDecision.sourceConfirmationCardId,
+    sourcePreparationFingerprint: preparation.preparationFingerprint,
+    sourceFinalCardInputFingerprint: preparation.finalCardInputFingerprint,
+    sourceC1Fingerprint: preparation.sourceC1Fingerprint,
+    sourceCandidateRevision,
+    resultCandidateRevision: sourceCandidateRevision + 1,
     authorizedDataRevision: skuPackage.dataRevision,
+    resultDataRevision: skuPackage.dataRevision + 1,
+    sourceIdentity,
+    identity,
     lockedScope: {
-      platform: skuPackage.targetPlatform,
-      store: skuPackage.targetStore,
+      candidateId,
       skuPackageId: skuPackage.skuPackageId,
-      supplierSkuId: skuPackage.supplierSkuId,
       variantKey: skuPackage.variantKey,
-      titleVersion: `${c1.seoEvidenceLayer.draftVersion}:${c1.seoEvidenceLayer.createdAt}`,
-      title: c1.seoTitleDraft.text,
-      attributeVersion: `${c1.factVerificationVersion}:${c1.factsVerifiedAt}`,
-      attributes: structuredClone(c1.productAttributes),
-      platformCategory: structuredClone(c1.platformCategory),
-      recommendedPrice: structuredClone(sourceCard.profitResult.recommendedSalePrice.value),
-      buyerTargetPrice: structuredClone(buyerTargetPrice),
-      platformWritePrice: structuredClone(platformWritePrice),
-      priceConversion: structuredClone(priceConversion),
-      stock: DEFAULT_NEW_PRODUCT_STOCK,
-      assetsFinalUploadsVersion: `${c2.assetPackageId}:${c2.ownerFinalUploadConfirmation.confirmedAt}`,
-      finalUploads: structuredClone(c2.assets.finalUploads),
-      publishScope,
-      exclusions: structuredClone(exclusions),
-      allowedWriteFields: safeAllowedFields
+      platform: sourceIdentity.platform,
+      storeRef: structuredClone(sourceIdentity.storeRef),
+      merchantSku: ownerDecision.merchantSku,
+      supplierSkuId: sourceIdentity.supplierSkuId,
+      warehouseRef: ownerDecision.warehouseRef,
+      credentialAlias: ownerDecision.credentialAlias,
+      schemaRevision: preparation.targetContext.schemaRevision,
+      schemaEvidenceRef: preparation.targetContext.schemaEvidenceRef,
+      schemaEvidenceVersion: preparation.targetContext.schemaEvidenceVersion,
+      activeProfitModelVersion: preparation.finalCardInputSnapshot.activeProfitModelVersion,
+      buyerTargetPrice: structuredClone(ownerDecision.buyerTargetPrice),
+      platformWritePrice: structuredClone(ownerDecision.platformWritePrice),
+      priceConversion: structuredClone(ownerDecision.priceConversion),
+      stock: ownerDecision.stock,
+      mediaRequirementsFingerprint: preparation.mediaRequirementsFingerprint,
+      finalManifestVersion: preparation.finalManifestVersion,
+      finalManifestSha256: preparation.finalManifestSha256,
+      finalUploadsFingerprint: preparation.finalUploadsFingerprint,
+      mainImageAssetId: preparation.mainImageAssetId,
+      videoDisposition: preparation.videoDisposition,
+      effectiveVideoRequirement: structuredClone(preparation.effectiveVideoRequirement),
+      finalUploads: structuredClone(preparation.finalUploads),
+      finalCardInputSnapshot: structuredClone(preparation.finalCardInputSnapshot),
+      publishScope: ownerDecision.publishScope,
+      allowedWriteFields: structuredClone(ownerDecision.allowedWriteFields),
+      exclusions: structuredClone(ownerDecision.exclusions)
     },
     scopeExpansionAllowed: false,
     fieldMutationAllowed: false,
@@ -230,181 +370,138 @@ export function createProductionAuthorization({
     productionExecuted: false,
     platformWrites: 0
   };
-  assertValidProductionAuthorization(authorization);
-
-  const protectedC1 = structuredClone(skuPackage.c1ProductPlan);
-  const protectedC2 = structuredClone(skuPackage.c2FinalAssets);
-  const protectedProfit = structuredClone(skuPackage.profitModels);
+  const dHandoff = {
+    schemaVersion: C2_D_HANDOFF_VERSION,
+    handoffId,
+    status: "awaiting_explicit_d_start",
+    candidateId,
+    skuPackageId: skuPackage.skuPackageId,
+    identity: structuredClone(identity),
+    variantKey: skuPackage.variantKey,
+    productionAuthorizationId: authorizationId,
+    ownerDecisionId: ownerDecision.decisionId,
+    sourcePreparationFingerprint: preparation.preparationFingerprint,
+    sourceFinalCardInputFingerprint: preparation.finalCardInputFingerprint,
+    sourceCandidateRevision,
+    resultCandidateRevision: sourceCandidateRevision + 1,
+    sourceSkuRevision: skuPackage.dataRevision,
+    resultSkuRevision: skuPackage.dataRevision + 1,
+    createdAt: authorizedAt,
+    uniqueOwner: "d_software",
+    productionPlanCreated: false,
+    executionIntentCreated: false,
+    softwareJobCreated: false,
+    dWritePermissionGranted: false,
+    externalRequests: 0,
+    platformWrites: 0
+  };
+  assertValidProductionAuthorization(authorization, {
+    candidateId,
+    candidateRevision: sourceCandidateRevision,
+    skuPackage,
+    lifecycleState: "source"
+  });
+  assertNoSecrets(dHandoff, "dHandoff");
+  const protectedPreparation = structuredClone(preparation);
   const next = structuredClone(skuPackage);
-  next.productionConfirmationCard = card;
+  next.productionConfirmationCard.ownerDecision = ownerDecision;
+  next.productionConfirmationCard.status = "owner_business_approved";
+  next.productionConfirmationCard.cardRevision += 1;
+  assertValidFinalProductPlanConfirmationCard(next.productionConfirmationCard);
   next.productionAuthorization = authorization;
+  next.dHandoff = dHandoff;
   next.dataRevision += 1;
   next.businessPhase = "C2";
   next.businessResult = "passed";
   next.technicalStatus = "completed";
   next.ownerAction = "none";
-  next.audit.updatedAt = confirmedAt;
+  next.audit.updatedAt = authorizedAt;
   next.audit.history.push({
-    event: "production_authorization_created_without_execution",
-    at: confirmedAt,
-    authorizationId: authorization.authorizationId,
-    sourceConfirmationCardId: card.cardId,
-    authorizedDataRevision: authorization.authorizedDataRevision,
-    scopeExpansionAllowed: false,
-    productionExecuted: false,
+    event: "production_authorization_and_d_handoff_created_atomically",
+    at: authorizedAt,
+    authorizationId,
+    handoffId,
+    sourcePreparationFingerprint: preparation.preparationFingerprint,
+    sourceCandidateRevision,
+    resultCandidateRevision: sourceCandidateRevision + 1,
+    sourceSkuRevision: skuPackage.dataRevision,
+    resultSkuRevision: skuPackage.dataRevision + 1,
+    productionPlanCreated: false,
+    executionIntentCreated: false,
+    softwareJobCreated: false,
+    dWritePermissionGranted: false,
+    externalRequests: 0,
     platformWrites: 0
   });
   const transition = validateLifecycleTransition(skuPackage, next);
-  if (!transition.valid) throw new Error(`生产授权生命周期转换失败：${transition.errors.map((item) => `${item.path}: ${item.message}`).join("；")}`);
-  if (!sameJson(protectedC1, next.c1ProductPlan) || !sameJson(protectedC2, next.c2FinalAssets) || !sameJson(protectedProfit, next.profitModels)) {
-    throw new Error("PRODUCTION_AUTHORIZATION_PROTECTED_DATA_CHANGED: B、C1或C2数据被改写");
-  }
-  if (next.businessPhase !== "C2" || next.productionRecord !== null || next.productionAuthorization.productionExecuted !== false) {
-    throw new Error("PRODUCTION_AUTHORIZATION_BOUNDARY_VIOLATION: 第12阶段不得进入D");
-  }
-  return deepFreeze({
-    flowVersion: "production-authorization-flow-v1.1",
-    skuPackage: next,
-    productionAuthorization: next.productionAuthorization
-  });
+  if (!transition.valid) throw new Error(`PRODUCTION_AUTHORIZATION_LIFECYCLE_INVALID:${transition.errors.map((item) => item.path).join(",")}`);
+  if (!sameJson(protectedPreparation, next.c2FinalAssets.productionAuthorizationPreparation)) throw new Error("PRODUCTION_AUTHORIZATION_PREPARATION_MUTATED");
+  assertValidLifecyclePackage(next);
+  return deepFreeze({ flowVersion: "c2-d-single-owner-authorization-handoff-v2", skuPackage: next, productionAuthorization: authorization, dHandoff });
 }
 
-/**
- * 主人改变生产范围后生成新的版本化授权。旧授权不覆盖执行，也不复用其指纹。
- */
-export function reviseProductionAuthorization({
-  skuPackage,
-  ownerDecision,
-  publishScope,
-  exclusions,
-  allowedWriteFields,
-  confirmedAt
-}) {
-  assertValidLifecyclePackage(skuPackage);
-  const previous = skuPackage.productionAuthorization;
-  assertValidProductionAuthorization(previous);
-  if (skuPackage.productionRecord !== null) throw new Error("PRODUCTION_AUTHORIZATION_REVISION_REJECTED: 已存在生产记录");
-  if (!isObject(ownerDecision) || ownerDecision.confirmedBy !== "owner" || ownerDecision.confirmed !== true) {
-    throw new Error("PRODUCTION_AUTHORIZATION_OWNER_CONFIRMATION_REQUIRED: 必须由主人确认新的生产范围");
+/** Retired writes remain explicit failures; historical records are never rewritten. */
+export async function commitProductionOwnerDecision() {
+  throw new Error("PRODUCTION_AUTHORIZATION_RECONFIRMATION_REQUIRED");
+}
+export async function commitProductionAuthorizationHandoff() {
+  throw new Error("PRODUCTION_AUTHORIZATION_RECONFIRMATION_REQUIRED");
+}
+
+export async function commitSingleOwnerProductionAuthorization({ repository, runtimeMode, actor, candidateId, input,
+  resolveProductionAuthorizationDecision, serverClock }) {
+  validateOwnerActor(actor);
+  if (!exactKeys(input, SINGLE_OWNER_INPUT_KEYS) || input.contractVersion !== PRODUCTION_AUTHORIZATION_VERSION || input.confirmExactScope !== true) {
+    throw new Error("PRODUCTION_AUTHORIZATION_RECONFIRMATION_REQUIRED");
   }
-  if (!isoDateTime(confirmedAt)) throw new Error("PRODUCTION_AUTHORIZATION_INPUT_GAP: 确认时间无效");
-  if (!PRODUCTION_PUBLISH_SCOPES.includes(publishScope)) throw new Error("PRODUCTION_AUTHORIZATION_SCOPE_REJECTED: 发布范围无效");
-  if (!Array.isArray(exclusions)) throw new Error("PRODUCTION_AUTHORIZATION_INPUT_GAP: 必须提供排除项数组");
-  const safeAllowedFields = uniqueNonEmptyStrings(allowedWriteFields);
-  if (safeAllowedFields.length === 0 || safeAllowedFields.some((field) => !PRODUCTION_WRITE_FIELDS.includes(field))) {
-    throw new Error("PRODUCTION_AUTHORIZATION_SCOPE_REJECTED: 写入字段超出固定授权面");
-  }
-  if (publishScope === VALIDATION_MODERATION_PUBLISH_SCOPE) {
-    if (exclusions.includes("no_moderation_submission")) throw new Error("PRODUCTION_AUTHORIZATION_SCOPE_CONFLICT: 已允许校验/审核，不能继续排除送审");
-    if (safeAllowedFields.includes("stock")) throw new Error("PRODUCTION_AUTHORIZATION_SCOPE_CONFLICT: 本轮明确禁止库存写入");
-    for (const required of ["no_publish_or_activation", "no_inventory_write", "no_warehouse_or_logistics_change", "no_promotion_change", "no_advertising_change", "no_other_sku_write"]) {
-      if (!exclusions.includes(required)) throw new Error(`PRODUCTION_AUTHORIZATION_SCOPE_GAP: 缺少排除项 ${required}`);
+  if (![input.dataRevision, input.skuRevision, input.cardRevision].every(value => Number.isInteger(value) && value >= 0) || input.cardRevision < 1 ||
+      typeof serverClock !== "function" || typeof resolveProductionAuthorizationDecision !== "function") throw new Error("PRODUCTION_AUTHORIZATION_INPUT_INVALID");
+  for (const field of ["cardId", "bindingId", "configurationVersion", "merchantSku", "sourcePreparationFingerprint", "sourceFinalCardInputFingerprint"]) assertSafeString(input[field], `input.${field}`);
+  assertNoSecrets(input, "input");
+  const snapshot = await repository.readSnapshot();
+  const sku = snapshot.candidates?.find(entry => entry.id === candidateId)?.lifecycleV11?.skuPackage;
+  if (!sku) throw new Error("PRODUCTION_AUTHORIZATION_CANDIDATE_NOT_FOUND");
+  const key = `single-owner-production-authz:${candidateId}:${input.cardId}:${input.cardRevision}:${input.dataRevision}`;
+  const decisionId = `owner-decision:${candidateId}:${input.cardId}:${input.cardRevision + 1}`;
+  return executeBusinessMutation({ repository, runtimeMode, actor, requiredRoles: ["owner"],
+    action: "create_single_owner_production_authorization_and_d_handoff", candidateId, skuPackageId: sku.skuPackageId,
+    expectedRevision: input.dataRevision, idempotencyKey: key, inputFingerprint: sha256({ candidateId, actorId: actor.userId, input }),
+    auditEventId: `audit:${key}`, authorizationRef: `production-auth:${sku.skuPackageId}:${input.sourcePreparationFingerprint}:${decisionId}`,
+    externalRequestState: "not_sent", externalRequestRef: null, serverClock,
+    softwareJobEffect: { schemaVersion: "business-mutation-domain-handoff-effect-v1", kind: "software_job", operation: "enqueue", jobType: "d_production_execution" },
+    mutate: ({ candidate, observedAt, evidencePacks }) => {
+      const currentSku = candidate.lifecycleV11?.skuPackage;
+      const card = currentSku?.productionConfirmationCard;
+      const preparation = currentSku?.c2FinalAssets?.productionAuthorizationPreparation;
+      if (!currentSku || currentSku.skuPackageId !== sku.skuPackageId || currentSku.dataRevision !== input.skuRevision ||
+          card?.cardId !== input.cardId || card.cardRevision !== input.cardRevision ||
+          preparation?.preparationFingerprint !== input.sourcePreparationFingerprint || preparation.finalCardInputFingerprint !== input.sourceFinalCardInputFingerprint) {
+        throw new Error("PRODUCTION_AUTHORIZATION_CARD_DRIFT");
+      }
+      // Resolve only current, verified local configuration and frozen price evidence inside the same transaction.
+      const commercialDecision = resolveProductionAuthorizationDecision({ candidate: structuredClone(candidate), input: structuredClone(input), observedAt, evidencePacks });
+      if (!exactKeys(commercialDecision, OWNER_COMMERCIAL_FIELDS) || commercialDecision.merchantSku !== input.merchantSku.trim()) throw new Error("PRODUCTION_OWNER_COMMERCIAL_INPUT_INVALID");
+      validateExecutionBinding(commercialDecision.executionBinding);
+      if (commercialDecision.executionBinding.bindingId !== input.bindingId || commercialDecision.executionBinding.configurationVersion !== input.configurationVersion) {
+        throw new Error("PRODUCTION_AUTHORIZATION_EXECUTION_BINDING_DRIFT");
+      }
+      const result = createProductionAuthorization({ candidateId, sourceCandidateRevision: input.dataRevision, currentCandidateRevision: candidate.dataRevision,
+        skuPackage: currentSku, commercialDecision, ownerActor: actor, authorizedAt: observedAt });
+      candidate.lifecycleV11.skuPackage = structuredClone(result.skuPackage);
+      candidate.lifecycleV11.status = "production_authorized_awaiting_explicit_d_start";
+      candidate.lifecycleV11.platformWrites = 0; candidate.updatedAt = observedAt; candidate.lastModifiedBy = actor.userId;
+      return { candidate, result: { schemaVersion: "single-owner-production-authorization-result-v1", productionAuthorization: structuredClone(result.productionAuthorization), dHandoff: structuredClone(result.dHandoff),
+        productionPlanCreated: false, executionIntentCreated: false, softwareJobCreated: false, dWritePermissionGranted: false, externalRequests: 0, platformWrites: 0 } };
     }
-  }
-
-  const authorization = structuredClone(previous);
-  authorization.authorizationId = `production-auth:${skuPackage.skuPackageId}:${skuPackage.dataRevision}:${publishScope}`;
-  authorization.confirmedAt = confirmedAt;
-  authorization.authorizedDataRevision = skuPackage.dataRevision;
-  authorization.lockedScope.publishScope = publishScope;
-  authorization.lockedScope.exclusions = structuredClone(exclusions);
-  authorization.lockedScope.allowedWriteFields = safeAllowedFields;
-  assertValidProductionAuthorization(authorization);
-
-  const next = structuredClone(skuPackage);
-  next.productionAuthorization = authorization;
-  next.dataRevision += 1;
-  next.businessPhase = "C2";
-  next.businessResult = "passed";
-  next.technicalStatus = "completed";
-  next.ownerAction = "none";
-  next.audit.updatedAt = confirmedAt;
-  next.audit.history.push({
-    event: "production_authorization_scope_revised_without_execution",
-    at: confirmedAt,
-    previousAuthorizationId: previous.authorizationId,
-    authorizationId: authorization.authorizationId,
-    publishScope,
-    inventoryWriteAuthorized: safeAllowedFields.includes("stock"),
-    productionExecuted: false,
-    platformWrites: 0
-  });
-  assertValidLifecyclePackage(next);
-  return deepFreeze({
-    flowVersion: "production-authorization-revision-flow-v1.1",
-    skuPackage: next,
-    productionAuthorization: next.productionAuthorization
   });
 }
 
-/**
- * 修复旧授权中把RUB买家价误当成中国卖家后台写入价的语义缺陷。
- * 只允许从既有推荐价和同一ProfitModel汇率证据生成新版本，不改变主人确认的商业价格。
- */
-export function reviseProductionAuthorizationPriceSemantics({
-  skuPackage,
-  buyerTargetPrice,
-  platformWritePrice,
-  priceConversion,
-  repairedAt
-}) {
-  if (!isObject(skuPackage) || !nonEmptyString(skuPackage.skuPackageId)) {
-    throw new Error("PRODUCTION_PRICE_REPAIR_REJECTED: SKU生命周期数据无效");
-  }
-  const previous = skuPackage.productionAuthorization;
-  if (!isObject(previous) || previous.status !== "confirmed") throw new Error("PRODUCTION_PRICE_REPAIR_REJECTED: 当前没有可修复授权");
-  if (skuPackage.productionRecord !== null) throw new Error("PRODUCTION_PRICE_REPAIR_REJECTED: 已存在生产记录");
-  if (!isoDateTime(repairedAt)) throw new Error("PRODUCTION_PRICE_REPAIR_INPUT_GAP: 修复时间无效");
-  if (!validMoney(buyerTargetPrice) || !validMoney(platformWritePrice) || !validPriceConversion(priceConversion)) {
-    throw new Error("PRODUCTION_PRICE_REPAIR_INPUT_GAP: 价格或换算证据不完整");
-  }
-  const recommended = previous.lockedScope?.recommendedPrice;
-  if (!isObject(recommended) || buyerTargetPrice.amount !== recommended.rub || platformWritePrice.amount !== recommended.cny) {
-    throw new Error("PRODUCTION_PRICE_REPAIR_SCOPE_REJECTED: 修复值必须来自原授权已锁定的双币种建议价");
-  }
-
-  const authorization = structuredClone(previous);
-  delete authorization.lockedScope.finalPrice;
-  authorization.authorizationId = `production-auth:${skuPackage.skuPackageId}:${skuPackage.dataRevision}:price-semantics`;
-  authorization.confirmedAt = repairedAt;
-  authorization.authorizedDataRevision = skuPackage.dataRevision;
-  authorization.lockedScope.buyerTargetPrice = structuredClone(buyerTargetPrice);
-  authorization.lockedScope.platformWritePrice = structuredClone(platformWritePrice);
-  authorization.lockedScope.priceConversion = structuredClone(priceConversion);
-  assertValidProductionAuthorization(authorization);
-
-  const next = structuredClone(skuPackage);
-  next.productionAuthorization = authorization;
-  next.dataRevision += 1;
-  next.audit.updatedAt = repairedAt;
-  next.audit.history.push({
-    event: "production_authorization_price_semantics_repaired_without_platform_write",
-    at: repairedAt,
-    previousAuthorizationId: previous.authorizationId,
-    authorizationId: authorization.authorizationId,
-    buyerTargetPrice: structuredClone(buyerTargetPrice),
-    platformWritePrice: structuredClone(platformWritePrice),
-    priceConversionEvidenceRef: priceConversion.evidenceRef,
-    platformWrites: 0
-  });
-  assertValidLifecyclePackage(next);
-  return deepFreeze({
-    flowVersion: "production-price-semantics-repair-v1.1",
-    skuPackage: next,
-    productionAuthorization: next.productionAuthorization
-  });
+export function reviseProductionAuthorization() {
+  throw new Error("PRODUCTION_AUTHORIZATION_IMMUTABLE:必须创建新的显式授权版本，禁止覆盖当前授权");
 }
 
-/**
- * 未来D唯一可用输入：返回授权时锁定的深拷贝，不读取C1/C2现场字段。
- */
-export function readAuthorizedProductionSnapshot(productionAuthorization) {
-  assertValidProductionAuthorization(productionAuthorization);
-  return deepFreeze({
-    authorizationId: productionAuthorization.authorizationId,
-    authorizedDataRevision: productionAuthorization.authorizedDataRevision,
-    readPolicy: productionAuthorization.readPolicy,
-    lockedScope: structuredClone(productionAuthorization.lockedScope),
-    productionExecuted: false
-  });
+export function reviseProductionAuthorizationPriceSemantics() {
+  throw new Error("PRODUCTION_AUTHORIZATION_IMMUTABLE:禁止原地修复不可变授权");
 }
+
+export { readAuthorizedProductionSnapshot } from "./production-authorization-snapshot.mjs";

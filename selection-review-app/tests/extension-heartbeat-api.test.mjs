@@ -8,7 +8,7 @@ import { spawn } from "node:child_process";
 import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const port = 24000 + (process.pid % 20000);
+const port = Number(process.env.SELECTION_REVIEW_TEST_PORT || 24000 + (process.pid % 20000));
 const baseUrl = `http://127.0.0.1:${port}`;
 const extensionOrigin = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
@@ -45,6 +45,7 @@ test("extension heartbeat stays in memory and is exposed through health and stat
       ...process.env,
       SELECTION_REVIEW_DATA_FILE: dataFile,
       SELECTION_REVIEW_API_PORT: String(port),
+      SELECTION_REVIEW_ALLOWED_EXTENSION_ORIGINS: extensionOrigin,
       SELECTION_REVIEW_AUTO_DELIVER: "off",
       SELECTION_REVIEW_CODEX_DISPATCH: "off"
     },

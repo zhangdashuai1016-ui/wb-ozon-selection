@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "c1-keyword-planning-local-material-v1.schema.json",
+  "title": "C1 Keyword Planning Local Material V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "candidateId", "sourceCandidateRevision", "resultCandidateRevision", "skuPackageId", "supplierSkuId", "sourceSkuRevision", "resultSkuRevision", "c1PlanId", "producedAt", "bindings", "confirmedFactCatalog", "exactLiteralFactTerms", "competitorTextSnapshots", "reusableKeywordSnapshot", "sourceRefs", "materialFingerprint"],
+  "properties": {
+    "schemaVersion": { "const": "c1-keyword-planning-local-material-v1" },
+    "candidateId": { "type": "string", "minLength": 1 },
+    "sourceCandidateRevision": { "type": "integer", "minimum": 0 },
+    "resultCandidateRevision": { "type": "integer", "minimum": 1 },
+    "skuPackageId": { "type": "string", "minLength": 1 },
+    "supplierSkuId": { "type": "string", "minLength": 1 },
+    "sourceSkuRevision": { "type": "integer", "minimum": 0 },
+    "resultSkuRevision": { "type": "integer", "minimum": 0 },
+    "c1PlanId": { "type": "string", "minLength": 1 },
+    "producedAt": { "type": "string", "format": "date-time" },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["factsFingerprint", "salesSnapshotId", "salesSnapshotFingerprint", "supplySnapshotId", "supplySnapshotFingerprint", "targetPlatform", "targetStore"],
+      "properties": {
+        "factsFingerprint": { "$ref": "#/$defs/fingerprint" },
+        "salesSnapshotId": { "$ref": "#/$defs/nonEmpty" },
+        "salesSnapshotFingerprint": { "$ref": "#/$defs/fingerprint" },
+        "supplySnapshotId": { "$ref": "#/$defs/nonEmpty" },
+        "supplySnapshotFingerprint": { "$ref": "#/$defs/fingerprint" },
+        "targetPlatform": { "$ref": "#/$defs/nonEmpty" },
+        "targetStore": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "confirmedFactCatalog": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["factPath", "value", "sourceRefs", "valueFingerprint"],
+        "properties": {
+          "factPath": { "$ref": "#/$defs/nonEmpty" },
+          "value": {},
+          "sourceRefs": { "$ref": "#/$defs/sourceRefs" },
+          "valueFingerprint": { "$ref": "#/$defs/fingerprint" }
+        }
+      }
+    },
+    "exactLiteralFactTerms": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["term", "sourceRefs", "factRefs", "factBindings", "sourceTrust", "matchType"],
+        "properties": {
+          "term": { "$ref": "#/$defs/nonEmpty" },
+          "sourceRefs": { "$ref": "#/$defs/sourceRefs" },
+          "factRefs": { "$ref": "#/$defs/sourceRefs" },
+          "factBindings": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["factPath", "factValueFingerprint", "sourceRef", "bindingRelation", "semanticProofRef"],
+              "properties": {
+                "factPath": { "$ref": "#/$defs/nonEmpty" },
+                "factValueFingerprint": { "$ref": "#/$defs/fingerprint" },
+                "sourceRef": { "$ref": "#/$defs/nonEmpty" },
+                "bindingRelation": { "const": "exact_value" },
+                "semanticProofRef": { "const": null }
+              }
+            }
+          },
+          "sourceTrust": { "const": "confirmed_c1_fact" },
+          "matchType": { "const": "target_fact" }
+        }
+      }
+    },
+    "competitorTextSnapshots": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["competitorRef", "salesSnapshotId", "platform", "sellerType", "comparabilityStatus", "role", "textSnapshot"],
+        "properties": {
+          "competitorRef": { "$ref": "#/$defs/nonEmpty" },
+          "salesSnapshotId": { "$ref": "#/$defs/nonEmpty" },
+          "platform": { "$ref": "#/$defs/nonEmpty" },
+          "sellerType": { "enum": ["cross_border_cn", "other_cross_border", "unknown"] },
+          "comparabilityStatus": { "const": "proven" },
+          "role": { "const": "buyer_language_reference_only" },
+          "textSnapshot": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["snapshotId", "sourceSalesSnapshotId", "sourceSalesSnapshotFingerprint", "observedAt", "evidenceRef", "texts"],
+            "properties": {
+              "snapshotId": { "$ref": "#/$defs/nonEmpty" },
+              "sourceSalesSnapshotId": { "$ref": "#/$defs/nonEmpty" },
+              "sourceSalesSnapshotFingerprint": { "$ref": "#/$defs/fingerprint" },
+              "observedAt": { "type": "string", "format": "date-time" },
+              "evidenceRef": { "$ref": "#/$defs/nonEmpty" },
+              "texts": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["textId", "text", "sourceRef", "role"],
+                  "properties": {
+                    "textId": { "$ref": "#/$defs/nonEmpty" },
+                    "text": { "$ref": "#/$defs/nonEmpty" },
+                    "sourceRef": { "$ref": "#/$defs/nonEmpty" },
+                    "role": { "const": "buyer_language_reference_only" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "reusableKeywordSnapshot": { "$ref": "keyword-evidence-snapshot-v1.schema.json" },
+    "sourceRefs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "materialFingerprint": { "$ref": "#/$defs/fingerprint" }
+  },
+  "$defs": {
+    "nonEmpty": { "type": "string", "minLength": 1, "maxLength": 20000 },
+    "fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "sourceRefs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/nonEmpty" } }
+  }
+}

@@ -5,10 +5,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { SYNTHETIC_STORE_REF } from "./fixtures/store-binding-fixture.mjs";
 import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const port = 27000 + (process.pid % 20000);
+const port = Number(process.env.SELECTION_REVIEW_TEST_PORT);
+if (!Number.isSafeInteger(port) || port < 1 || [4317, 4318, 4173].includes(port)) throw new Error("TEST_REQUIRES_ISOLATED_PORT");
 const baseUrl = `http://127.0.0.1:${port}`;
 const extensionOrigin = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
@@ -18,6 +20,8 @@ function candidate(id) {
     source: "user",
     group: "userAdded",
     targetStore: "dandanshu",
+    targetPlatform: "ozon",
+    storeRef: structuredClone(SYNTHETIC_STORE_REF),
     productName: `测试音乐盒 ${id}`,
     productUrl: "https://www.ozon.ru/product/test-4403916892/",
     sourceUrl: "https://qr.1688.com/s/7OnLCakq",
@@ -46,7 +50,7 @@ async function waitForHealth(child, stderr) {
     try {
       const response = await fetch(`${baseUrl}/api/health`);
       if (response.ok) return;
-    } catch {}
+    } catch (error) { if (error.cause?.code !== "ECONNREFUSED") throw error; }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(`测试服务未启动：${stderr.join("")}`);
@@ -55,14 +59,18 @@ async function waitForHealth(child, stderr) {
 function post(pathname, body, headers = {}) {
   return fetch(`${baseUrl}${pathname}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...headers },
+    headers: { "Content-Type": "application/json", Origin: baseUrl, "Sec-Fetch-Site": "same-origin", ...headers },
     body: JSON.stringify(body)
   });
 }
 
-function aSubmission(dataRevision) {
+function aSubmission(dataRevision, candidateId = "A-JOB-1") {
   return {
     dataRevision,
+    sourceCandidateId: candidateId,
+    sourceDataRevision: dataRevision,
+    targetPlatform: "ozon",
+    storeRef: structuredClone(SYNTHETIC_STORE_REF),
     decision: "confirm",
     salesReview: {},
     supplierConfirmation: {
@@ -80,9 +88,14 @@ function heartbeat(version = "1.2.7") {
   }, { Origin: extensionOrigin });
 }
 
+function claimJob(jobId, version = "1.2.7") {
+  return post(`/api/extension/capture-jobs/${jobId}/claim`, { version }, { Origin: extensionOrigin });
+}
+
 function evidence() {
   return {
     offerId: "876240928352",
+    sourceUrl: "https://detail.1688.com/offer/876240928352.html",
     title: "复古缝纫机手摇音乐盒",
     offerStatus: "online",
     observedAt: new Date().toISOString(),
@@ -117,7 +130,7 @@ function evidence() {
   };
 }
 
-test("A确认动作建立唯一作业，心跳只领一次并原子回传真实SKU", async (t) => {
+test("A确认只建立本次作业，明确领取一次并原子保存SKU，心跳始终不领取", async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), "source-capture-job-"));
   const dataFile = path.join(directory, "candidates.json");
   const other = candidate("OTHER-1");
@@ -137,7 +150,10 @@ test("A确认动作建立唯一作业，心跳只领一次并原子回传真实S
     env: {
       ...process.env,
       SELECTION_REVIEW_DATA_FILE: dataFile,
+      SELECTION_REVIEW_STORE_BINDINGS_JSON: JSON.stringify([{ targetStore: "dandanshu", platform: "ozon", storeRef: SYNTHETIC_STORE_REF }]),
       SELECTION_REVIEW_API_PORT: String(port),
+      SELECTION_REVIEW_ALLOWED_ORIGINS: baseUrl,
+      SELECTION_REVIEW_ALLOWED_EXTENSION_ORIGINS: extensionOrigin,
       SELECTION_REVIEW_AUTO_DELIVER: "off",
       SELECTION_REVIEW_CODEX_DISPATCH: "off",
       SELECTION_REVIEW_SOURCE_JOB_QUEUE_TTL_MS: "2000",
@@ -174,16 +190,17 @@ test("A确认动作建立唯一作业，心跳只领一次并原子回传真实S
   assert.equal(duplicateBody.captureJob.jobId, queued.captureJob.jobId);
   assert.equal(duplicateBody.captureJob.attempt, 0);
 
-  const mismatch = await heartbeat("1.2.6");
-  const mismatchBody = await mismatch.json();
-  assert.equal(mismatchBody.captureJob, null);
-  assert.equal(mismatchBody.jobNotice.code, "extension_version_mismatch");
+  const queuedBeforeHeartbeat = await readFile(dataFile, "utf8");
+  assert.equal((await (await heartbeat()).json()).captureJob, null);
+  assert.equal(await readFile(dataFile, "utf8"), queuedBeforeHeartbeat, "即使存在已授权队列作业，心跳也不能领取");
+  const mismatch = await claimJob(queued.captureJob.jobId, "1.2.6");
+  assert.equal(mismatch.status, 409);
+  assert.equal((await mismatch.json()).code, "extension_version_mismatch");
+  assert.equal(await readFile(dataFile, "utf8"), queuedBeforeHeartbeat);
   let state = await (await fetch(`${baseUrl}/api/state`)).json();
-  let current = state.candidates.find((item) => item.id === "A-JOB-1");
-  assert.equal(current.sourceCapture.status, "extension_version_mismatch");
-  assert.equal(current.workflowStatus, "codex_processing");
-
-  const claimResponse = await heartbeat("1.2.7");
+  assert.equal(state.candidates.find(item => item.id === "A-JOB-1").currentSourceCapture, null, "排队不等于已开始采集");
+  const claimResponse = await claimJob(queued.captureJob.jobId);
+  assert.equal(claimResponse.status, 200);
   const claim = await claimResponse.json();
   assert.equal(claim.captureJob.candidateId, "A-JOB-1");
   assert.equal(claim.captureJob.attempt, 1);
@@ -191,10 +208,16 @@ test("A确认动作建立唯一作业，心跳只领一次并原子回传真实S
   assert.equal(claim.captureJob.sourceUrl, "https://qr.1688.com/s/7OnLCakq");
   assert.equal(claim.captureJob.allowShortLinkResolution, true);
   assert.equal(typeof claim.captureJob.token, "string");
+  state = await (await fetch(`${baseUrl}/api/state`)).json();
+  const activeCapture = state.candidates.find(item => item.id === "A-JOB-1").currentSourceCapture;
+  assert.equal(activeCapture.currentExecutionConfirmed, true);
+  assert.equal(activeCapture.captureId, claim.captureJob.captureId);
+  assert.equal(activeCapture.candidateRevision, claim.captureJob.dataRevision);
+  assert.equal(Object.hasOwn(activeCapture, "token"), false);
 
-  const secondClaim = await heartbeat("1.2.7");
-  assert.equal((await secondClaim.json()).captureJob, null, "已有一个作业执行时不能领取第二个候选");
-  const blockedParallelCandidate = await post("/api/candidates/A-TIMEOUT/lifecycle/a-confirm", aSubmission(1));
+  const secondClaim = await claimJob(queued.captureJob.jobId);
+  assert.equal(secondClaim.status, 409, "同一作业只能领取一次");
+  const blockedParallelCandidate = await post("/api/candidates/A-TIMEOUT/lifecycle/a-confirm", aSubmission(1, "A-TIMEOUT"));
   assert.equal(blockedParallelCandidate.status, 409, "一个采集作业执行时不得创建第二个候选作业");
 
   const revisionConflict = await post("/api/candidates/A-JOB-1/source-capture/result", {
@@ -240,9 +263,9 @@ test("A确认动作建立唯一作业，心跳只领一次并原子回传真实S
   assert.equal(persisted.dispatches.length, 0);
   assert.equal(JSON.stringify(persisted.candidates.find((item) => item.id === "OTHER-1")), originalOther);
 
-  const failedQueued = await post("/api/candidates/A-FAIL/lifecycle/a-confirm", aSubmission(1));
+  const failedQueued = await post("/api/candidates/A-FAIL/lifecycle/a-confirm", aSubmission(1, "A-FAIL"));
   assert.equal(failedQueued.status, 202);
-  const failedClaimResponse = await heartbeat("1.2.7");
+  const failedClaimResponse = await claimJob((await failedQueued.json()).captureJob.jobId);
   const failedClaim = await failedClaimResponse.json();
   assert.equal(failedClaim.captureJob.candidateId, "A-FAIL");
 
@@ -296,15 +319,22 @@ test("A确认动作建立唯一作业，心跳只领一次并原子回传真实S
   assert.equal(afterFailureData.meta.automationStarted, false);
   assert.equal(JSON.stringify(afterFailureData.candidates.find((item) => item.id === "OTHER-1")), originalOther);
 
-  const timeoutQueued = await post("/api/candidates/A-TIMEOUT/lifecycle/a-confirm", aSubmission(1));
+  const timeoutQueued = await post("/api/candidates/A-TIMEOUT/lifecycle/a-confirm", aSubmission(1, "A-TIMEOUT"));
   assert.equal(timeoutQueued.status, 202);
-  const timeoutClaim = await heartbeat("1.2.7");
+  const timeoutClaim = await claimJob((await timeoutQueued.json()).captureJob.jobId);
   assert.equal((await timeoutClaim.json()).captureJob.candidateId, "A-TIMEOUT");
   await new Promise((resolve) => setTimeout(resolve, 700));
   state = await (await fetch(`${baseUrl}/api/state`)).json();
   const timedOut = state.candidates.find((item) => item.id === "A-TIMEOUT");
   assert.equal(timedOut.sourceCapture.status, "failed");
   assert.equal(timedOut.sourceCapture.failureCode, "unknown_outcome");
+  assert.equal(timedOut.sourceCapture.jobStatus, "unknown_outcome");
+  const beforeRepeat = await readFile(dataFile, "utf8");
+  const repeat = await post("/api/candidates/A-TIMEOUT/lifecycle/a-confirm", aSubmission(timedOut.dataRevision, "A-TIMEOUT"));
+  assert.equal(repeat.status, 409);
+  assert.equal((await repeat.json()).code, "previous_capture_requires_review");
+  assert.equal(await readFile(dataFile, "utf8"), beforeRepeat);
   assert.equal(timedOut.workflowStatus, "codex_processing");
   assert.equal((await (await heartbeat("1.2.7")).json()).captureJob, null, "unknown_outcome不得自动重新领取");
+  assert.equal(stderr.join(""), "");
 });

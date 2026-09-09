@@ -27,11 +27,22 @@ function widget(textContent = "", options = {}) {
   };
 }
 
+function priceElement(tagName, ...children) {
+  const element = { nodeType: 1, tagName, shadowRoot: null, childNodes: children.map(child => typeof child === "string" ? { nodeType: 3, textContent: child } : child),
+    get children() { return this.childNodes.filter(child => child.nodeType === 1); },
+    get textContent() { return this.childNodes.map(child => child.textContent).join(""); } };
+  for (const child of element.childNodes) { child.parentNode = element; child.parentElement = element; }
+  return element;
+}
+
 function installPage({ href = "https://www.ozon.ru/product/test-product-4403916892/", widgets = {} } = {}) {
   const previous = { window: globalThis.window, document: globalThis.document, fetch: globalThis.fetch };
   globalThis.window = { location: { href } };
   globalThis.document = {
     body: { innerText: "Карточка товара" },
+    querySelectorAll(selector) {
+      return selector === '[data-widget="webPrice"]' && widgets.webPrice ? [widgets.webPrice] : [];
+    },
     querySelector(selector) {
       const match = selector.match(/^\[data-widget="(.+)"\]$/);
       if (match) return widgets[match[1]] || null;
@@ -54,11 +65,11 @@ function realLikeWidgets({ includePrice = true } = {}) {
   ];
   return {
     webProductHeading: widget("Музыкальная шарманка швейная машинка"),
-    webPrice: widget("", {
-      spans: includePrice
-        ? [node("1 316 ₽", { inButton: true }), node("1 462 ₽"), node("2 548 ₽")]
-        : []
-    }),
+    webPrice: priceElement("DIV", ...(includePrice ? [
+      priceElement("BUTTON", priceElement("SPAN", "1 316 ₽"), " с картой Ozon"),
+      priceElement("DIV", priceElement("SPAN", "1 462 ₽"), " без карты Ozon"),
+      priceElement("S", priceElement("SPAN", "2 548 ₽"))
+    ] : [])),
     webGallery: widget("", {
       images: [
         node("", { src: "https://ir.ozone.ru/s3/multimedia/wc50/main.jpg" }),

@@ -77,7 +77,8 @@ test("synthetic generic C-stage baseline is valid and contains no frozen train S
   assert.equal(skuPackage.supplierSkuId, "SINK-ORGANIZER-BLUE");
   assert.equal(skuPackage.businessPhase, "B");
   assert.equal(skuPackage.businessResult, "passed");
-  assert.equal(opportunityPackage.salesSnapshots[0].currentPrice, 1200);
+  assert.equal(opportunityPackage.salesSnapshots.find(snapshot => snapshot.schemaVersion === "sales-snapshot-v1.1").currentPrice, 1200);
+  assert.equal(opportunityPackage.marketAssessment.recommendedSalePrice.amount, 1200);
   assert.equal(skuPackage.profitModels[0].recommendedSalePriceRub, 1200);
   assert.equal(skuPackage.productionAuthorization, null);
   assert.equal(skuPackage.productionRecord, null);
@@ -103,7 +104,9 @@ test("synthetic E idempotency baseline is a valid observation record, not a prod
   assert.equal(sku.productionRecord, null);
   assert.equal(sku.productionAuthorization.productionExecuted, false);
   assert.equal(candidate.lifecycleV11.platformWrites, 0);
-  assert.deepEqual(sku.productionAuthorization, createAuthorizedTrainCandidate().lifecycleV11.skuPackage.productionAuthorization);
+  assert.deepEqual(sku.productionAuthorization, createAuthorizedTrainCandidate({ candidateId: candidate.id }).lifecycleV11.skuPackage.productionAuthorization);
+  assert.equal(sku.g1Identity.candidateId, candidate.id);
+  assert.notEqual(sku.externalListingRecord.merchantSku, sku.supplierSkuId);
   sku.eVerificationRecord.platformProductId = "test-mutation";
   assert.equal(createVerifiedGenericCandidate().lifecycleV11.skuPackage.eVerificationRecord.platformProductId, "TEST-EXTERNALLY-VERIFIED-001");
 });

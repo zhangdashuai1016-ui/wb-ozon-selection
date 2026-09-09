@@ -1,4 +1,8 @@
 import fs from "node:fs/promises";
+import { currentMaintenanceActivity } from "./workflow.mjs";
+
+// Legacy dispatch/comment compatibility only. M01–M12 describe historical
+// candidate-routing nodes and are not a source for the user-facing 三店地图.
 
 export const ACTIVE_DISPATCH_STATES = new Set([
   "queued",
@@ -171,14 +175,12 @@ function completedNodeIds(candidate, activeNodeId) {
   return index > 0 ? path.slice(0, index) : [];
 }
 
-export function activeDispatchForCandidate(data, candidateId) {
-  return [...(data.dispatches || [])]
-    .reverse()
-    .find((item) =>
-      item.candidateId === candidateId &&
-      ACTIVE_DISPATCH_STATES.has(item.status) &&
-      !isDisabledLegacyCDispatch(item)
-    ) || null;
+export function activeDispatchForCandidate(data, candidateId, { activeDispatchIds = new Set(), at = new Date() } = {}) {
+  const candidate = data.candidates.find(item => item.id === candidateId);
+  const latest = latestDispatchForCandidate(data, candidateId);
+  if (!candidate || !latest || !activeDispatchIds.has(latest.id) || !ACTIVE_DISPATCH_STATES.has(latest.status) ||
+      isDisabledLegacyCDispatch(latest) || !currentMaintenanceActivity(candidate, latest, at)) return null;
+  return latest;
 }
 
 export function latestDispatchForCandidate(data, candidateId) {
@@ -187,7 +189,7 @@ export function latestDispatchForCandidate(data, candidateId) {
     .find((item) => item.candidateId === candidateId) || null;
 }
 
-export function collaborationSummary(data, baseSummary) {
+export function collaborationSummary(data, baseSummary, currentExecutions = {}) {
   const processing = data.candidates.filter((item) =>
     ["codex_processing", "listing_preparation", "ready_to_list"].includes(item.workflowStatus)
   );
@@ -195,13 +197,10 @@ export function collaborationSummary(data, baseSummary) {
   const latestByCandidate = new Map();
   for (const dispatch of data.dispatches || []) {
     if (dispatch.candidateId) latestByCandidate.set(dispatch.candidateId, dispatch);
-    if (
-      dispatch.candidateId &&
-      ACTIVE_DISPATCH_STATES.has(dispatch.status) &&
-      !isDisabledLegacyCDispatch(dispatch)
-    ) {
-      activeByCandidate.set(dispatch.candidateId, dispatch);
-    }
+  }
+  for (const candidate of processing) {
+    const active = activeDispatchForCandidate(data, candidate.id, currentExecutions);
+    if (active) activeByCandidate.set(candidate.id, active);
   }
   const hasRecoverableTerminal = (candidate) => {
     const latest = latestByCandidate.get(candidate.id);
@@ -213,18 +212,15 @@ export function collaborationSummary(data, baseSummary) {
   };
   const received = [...activeByCandidate.values()].filter((item) => ["received", "permission_required"].includes(item.status)).length;
   const dispatched = [...activeByCandidate.values()].filter((item) => ["queued", "waiting_assignee", "delivering"].includes(item.status)).length;
-  const authorized = processing.filter((candidate) =>
-    candidate.processing?.state === "queued" &&
-    candidate.processing?.manualHold !== true &&
-    !activeByCandidate.has(candidate.id) &&
-    !hasRecoverableTerminal(candidate)
-  ).length;
+  const historicalPending = processing.filter(candidate => !activeByCandidate.has(candidate.id) &&
+    (["queued", "running"].includes(candidate.processing?.state) || ACTIVE_DISPATCH_STATES.has(latestByCandidate.get(candidate.id)?.status))).length;
   return {
     ...(baseSummary || {}),
     actualRunning: [...activeByCandidate.values()].filter((dispatch) => dispatch.status === "running" && dispatch.runId).length,
     received,
     dispatched,
-    authorized,
+    authorized: 0,
+    historicalPending,
     stopped: processing.filter((candidate) => {
       if (candidate.workflowStatus === "codex_processing") {
         return candidate.processing?.manualHold === true ||

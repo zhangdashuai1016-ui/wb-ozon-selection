@@ -9,8 +9,8 @@ import {
 
 test("extension handshake exposes bridge and background state separately", () => {
   assert.deepEqual(extensionConnectionStatus({ liveVersion: EXPECTED_EXTENSION_VERSION, backgroundReady: true }), {
-    code: "connected",
-    label: `插件已连接 · 后台可用 · v${EXPECTED_EXTENSION_VERSION}`
+    code: "authentication_unverified",
+    label: `已检测到插件v${EXPECTED_EXTENSION_VERSION} · 后台认证/领取能力未核验，采集不可用`
   });
   assert.equal(extensionConnectionStatus({ liveVersion: EXPECTED_EXTENSION_VERSION, backgroundReady: false }).code, "background_unavailable");
   assert.equal(extensionConnectionStatus({ cachedVersion: EXPECTED_EXTENSION_VERSION }).code, "page_refresh_required");
@@ -25,8 +25,8 @@ test("extension handshake exposes bridge and background state separately", () =>
       backgroundReady: true
     }
   }), {
-    code: "connected",
-    label: `插件已连接 · 后台可用 · v${EXPECTED_EXTENSION_VERSION}`
+    code: "authentication_unverified",
+    label: `已检测到插件v${EXPECTED_EXTENSION_VERSION} · 后台认证/领取能力未核验，采集不可用`
   });
   assert.equal(extensionConnectionStatus({
     serverHeartbeat: {

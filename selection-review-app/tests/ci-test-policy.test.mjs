@@ -1,6 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertSelfContainedTestSource } from "../scripts/ci-test-policy.mjs";
+import { assertSelfContainedTestSource,assertIsolatedApiTestSource } from "../scripts/ci-test-policy.mjs";
+import { readFile } from 'node:fs/promises';
+import { API_PROCESS_TESTS } from '../scripts/ci-test-suites.mjs';
+
+test('classified API tests prove direct or shared isolated server construction',async()=>{
+  const sharedFixtureSource=await readFile(new URL('./helpers/d-e-saved-api-fixture.mjs',import.meta.url),'utf8');
+  for(const file of API_PROCESS_TESTS) {
+    const source=await readFile(new URL(file,import.meta.url),'utf8');
+    assertIsolatedApiTestSource({file,source,sharedFixtureSource});
+  }
+});
+
+test('shared API test classification refuses missing temporary storage or an uninspected helper',()=>{
+  const source="import {startSavedDEApi} from './helpers/d-e-saved-api-fixture.mjs'; const dir=await mkdtemp('isolated'); await startSavedDEApi(t,{directory:dir});";
+  for(const sharedFixtureSource of [undefined,'export function startSavedDEApi(){}','node:'+'child_process server.'+'mjs'])
+    assert.throws(()=>assertIsolatedApiTestSource({file:'case.test.mjs',source,sharedFixtureSource}),/CI_API_TEST_BOUNDARY_MISSING/);
+  assert.throws(()=>assertIsolatedApiTestSource({file:'case.test.mjs',source:'server.'+'mjs'}),/CI_API_TEST_BOUNDARY_MISSING/);
+});
 
 test("temporary candidate fixtures may use a local candidates file", () => {
   assert.doesNotThrow(() => assertSelfContainedTestSource({

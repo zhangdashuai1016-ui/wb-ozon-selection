@@ -1,3 +1,5 @@
+import { normalize1688CaptureSource } from "./source-capture.mjs";
+
 export const SUPPLIER_OPTION_SCHEMA_VERSION = "product-lifecycle-v1.1";
 export const SUPPLIER_SOURCE_PLATFORMS = Object.freeze(["1688"]);
 export const UNKNOWN = "unknown";
@@ -10,14 +12,16 @@ function nonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function validUrl(value) {
-  if (!nonEmptyString(value)) return false;
-  try {
-    const url = new URL(value);
-    return ["http:", "https:"].includes(url.protocol);
-  } catch {
-    return false;
-  }
+function validOfferId(value) {
+  return typeof value === "string" && /^\d{1,40}$/.test(value);
+}
+
+function valid1688ProductUrl(value, offerId) {
+  if (!nonEmptyString(value) || !validOfferId(offerId)) return false;
+  const source = normalize1688CaptureSource(value);
+  // Frozen supply evidence must already be canonical. Never repair a supplied
+  // URL by stripping credentials, query/fragment or resolving a different offer.
+  return source.type === "detail" && source.sourceUrl === value && source.offerId === offerId;
 }
 
 function isoDateTime(value) {
@@ -32,10 +36,19 @@ function nonNegativeOrUnknown(value) {
   return value === UNKNOWN || (Number.isFinite(value) && value >= 0);
 }
 
-function explicitKnownValueOrUnknown(value) {
-  if (value === UNKNOWN) return true;
-  if (value === null || value === undefined || value === "") return false;
-  return typeof value !== "number" || Number.isFinite(value);
+function descriptiveFactOrUnknown(value) {
+  return nonEmptyString(value) || isObject(value);
+}
+
+function weightOrUnknown(value) {
+  if (nonEmptyString(value)) return true;
+  if (Number.isFinite(value)) return value >= 0;
+  return isObject(value) && Number.isFinite(value.value) && value.value >= 0 && nonEmptyString(value.unit);
+}
+
+function dimensionsOrUnknown(value) {
+  if (nonEmptyString(value)) return true;
+  return isObject(value) && [value.length, value.width, value.height].every((dimension) => Number.isFinite(dimension) && dimension > 0);
 }
 
 function directOrUnknown(value) {
@@ -54,12 +67,23 @@ function push(errors, path, message) {
   errors.push({ path, message });
 }
 
+function variantToken(value) {
+  return String(value).trim().replaceAll("%", "%25").replaceAll("|", "%7C").replaceAll("=", "%3D");
+}
+
+function meaningfulVariantText(value) {
+  return nonEmptyString(value) && ![UNKNOWN, "null", "undefined"].includes(value.trim().toLowerCase());
+}
+
 function derivedVariantKey(sku) {
-  if (nonEmptyString(sku.propPath)) return sku.propPath.trim();
+  if (meaningfulVariantText(sku.propPath)) return sku.propPath.trim();
   const attributes = isObject(sku.attributes) ? sku.attributes : {};
   const attributeKey = Object.entries(attributes)
-    .filter(([key, value]) => nonEmptyString(key) && nonEmptyString(String(value)))
-    .map(([key, value]) => `${key}=${String(value).trim()}`)
+    .filter(([key, value]) => nonEmptyString(key) && (
+      meaningfulVariantText(value) || Number.isFinite(value)
+    ))
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([key, value]) => `${variantToken(key)}=${variantToken(value)}`)
     .join("|");
   return attributeKey || String(sku.sourceSkuId);
 }
@@ -79,10 +103,12 @@ export function validateSupplierSku(sku, path = "SupplierSKU") {
   if (!nonNegativeOrUnknown(sku.actualPurchaseCost)) {
     push(errors, `${path}.actualPurchaseCost`, "必须是非负数或unknown");
   }
-  for (const field of ["weight", "dimensions", "material", "powerProfile"]) {
-    if (!explicitKnownValueOrUnknown(sku[field])) push(errors, `${path}.${field}`, "未知字段必须显式标记unknown");
+  if (!weightOrUnknown(sku.weight)) push(errors, `${path}.weight`, "必须是非负重量、带单位的重量对象、原始文字或unknown");
+  if (!dimensionsOrUnknown(sku.dimensions)) push(errors, `${path}.dimensions`, "必须是正数长宽高对象、原始文字或unknown");
+  for (const field of ["material", "powerProfile"]) {
+    if (!descriptiveFactOrUnknown(sku[field])) push(errors, `${path}.${field}`, "必须是事实对象、非空文字或unknown");
   }
-  if (!(sku.imageRefs === UNKNOWN || (Array.isArray(sku.imageRefs) && sku.imageRefs.every(nonEmptyString)))) {
+  if (!(sku.imageRefs === UNKNOWN || (Array.isArray(sku.imageRefs) && sku.imageRefs.length > 0 && sku.imageRefs.every(nonEmptyString)))) {
     push(errors, `${path}.imageRefs`, "必须是非空字符串数组或unknown");
   }
   return { valid: errors.length === 0, errors };
@@ -97,8 +123,10 @@ export function validateSupplierOption(option) {
   if (!SUPPLIER_SOURCE_PLATFORMS.includes(option.sourcePlatform)) {
     push(errors, "SupplierOption.sourcePlatform", "6A只接受1688");
   }
-  if (!validUrl(option.productUrl)) push(errors, "SupplierOption.productUrl", "必须是有效HTTP(S)链接");
-  if (!nonEmptyString(option.offerId)) push(errors, "SupplierOption.offerId", "必须是非空字符串");
+  if (!valid1688ProductUrl(option.productUrl, option.offerId)) {
+    push(errors, "SupplierOption.productUrl", "必须是与offerId一致的规范1688 HTTPS商品详情链接");
+  }
+  if (!validOfferId(option.offerId)) push(errors, "SupplierOption.offerId", "必须是1至40位数字字符串");
   if (!(option.supplierSalesEvidence === UNKNOWN || isObject(option.supplierSalesEvidence))) {
     push(errors, "SupplierOption.supplierSalesEvidence", "必须是证据对象或unknown");
   }

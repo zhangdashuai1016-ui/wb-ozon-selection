@@ -8,7 +8,8 @@ import { spawn } from "node:child_process";
 import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const port = 43918;
+const port = Number(process.env.SELECTION_REVIEW_TEST_PORT);
+if (!Number.isSafeInteger(port) || port < 1 || port > 65535 || [4317, 4318, 4173].includes(port)) throw new Error("TEST_REQUIRES_ISOLATED_PORT");
 const baseUrl = `http://127.0.0.1:${port}`;
 
 function candidate(id, workflowStatus, processing) {
@@ -38,6 +39,55 @@ function candidate(id, workflowStatus, processing) {
     comments: [],
     history: []
   };
+}
+
+function withOpenException(item, exceptionId) {
+  item.executionRuntime = {
+    schemaVersion: "software-execution-runtime-v1",
+    candidateId: item.id,
+    dataRevision: item.dataRevision,
+    businessPhase: "A",
+    executorType: "software",
+    status: "blocked",
+    stepId: "MAINTENANCE_REQUIRED",
+    inputRevision: item.dataRevision,
+    outputRevision: null,
+    inferenceJobId: null,
+    inferenceReceiptId: null,
+    technicalFailure: null,
+    codexWakeupCount: 0,
+    updatedAt: "2026-08-07T00:00:00.000Z",
+    history: [],
+    exceptionCase: {
+      schemaVersion: "exception-case-v2",
+      exceptionId,
+      candidateId: item.id,
+      skuPackageId: null,
+      sourceRevision: item.dataRevision,
+      businessPhase: "A",
+      softwareJobId: null,
+      stepId: "MAINTENANCE_REQUIRED",
+      lastSuccessfulStepId: null,
+      businessStateChanged: false,
+      reasonCode: "system_failure",
+      failureLayer: "test",
+      evidenceRefs: [],
+      externalRequestRefs: [],
+      unknownOutcome: false,
+      automaticRetryAllowed: false,
+      forbiddenAutomaticActions: ["retry", "change_model", "change_path", "advance_business_stage"],
+      safeMessageKey: "exception.system_failure",
+      message: "测试技术维护案件。",
+      dispatchState: "queued",
+      maintenanceAuthorizationId: `maintenance:${exceptionId}`,
+      turnId: null,
+      status: "open",
+      openedAt: "2026-08-07T00:00:00.000Z",
+      authorizedAt: "2026-08-07T00:00:00.000Z",
+      resolvedAt: null
+    }
+  };
+  return item;
 }
 
 function profitPassedCandidate(id) {
@@ -76,7 +126,7 @@ async function waitForHealth(child, stderr) {
 async function post(url, body) {
   return fetch(`${baseUrl}${url}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { Origin: baseUrl, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
 }
@@ -88,7 +138,7 @@ test("node comments, one-shot dispatch, exact claim, and production confirmation
     meta: { version: 2, title: "test", updatedAt: "2026-08-07T00:00:00.000Z", automationStarted: false },
     rules: {},
     candidates: [
-      candidate("QUEUE-1", "codex_processing", { state: "queued", dispatchState: "requested", manualHold: false }),
+      withOpenException(candidate("QUEUE-1", "codex_processing", { state: "queued", dispatchState: "requested", manualHold: false }), "exc-queue-1"),
       candidate("STOP-1", "codex_processing", { state: "blocked", dispatchState: "blocked", manualHold: true }),
       profitPassedCandidate("C-PENDING-1"),
       profitPassedCandidate("C-DECISION-1"),
@@ -124,7 +174,7 @@ test("node comments, one-shot dispatch, exact claim, and production confirmation
   let state = await (await fetch(`${baseUrl}/api/state`)).json();
   assert.equal(state.meta.automationStarted, false);
   assert.equal(state.summary.dispatch.processingCounts.actualRunning, 0);
-  assert.equal(state.summary.dispatch.processingCounts.authorized, 1);
+  assert.equal(state.summary.dispatch.processingCounts.authorized, 0);
   assert.equal(state.summary.dispatch.processingCounts.stopped, 1);
 
   const map = await (await fetch(`${baseUrl}/api/workflow-map?candidateId=QUEUE-1`)).json();
@@ -179,7 +229,7 @@ test("node comments, one-shot dispatch, exact claim, and production confirmation
 
   const packOne = await post("/api/evidence-packs", {
     kind: "commission",
-    scope: { platform: "ozon", store: "dandanshu", category: "toys", salesScheme: "rfbs" },
+    scope: { platform: "ozon", store: "dandanshu", storeRef: { stableStoreId: "dandanshu", platformStoreId: "synthetic-ozon-store", mappingVersion: "synthetic-v1" }, category: "toys", salesScheme: "rfbs" },
     summary: "蛋蛋鼠玩具RFBS当前佣金",
     sourceType: "real",
     checkedAt: "2026-08-11T09:00:00.000Z",
@@ -189,7 +239,7 @@ test("node comments, one-shot dispatch, exact claim, and production confirmation
   const firstPackId = (await packOne.json()).evidencePack.id;
   const packTwo = await post("/api/evidence-packs", {
     kind: "commission",
-    scope: { platform: "ozon", store: "dandanshu", category: "toys", salesScheme: "rfbs" },
+    scope: { platform: "ozon", store: "dandanshu", storeRef: { stableStoreId: "dandanshu", platformStoreId: "synthetic-ozon-store", mappingVersion: "synthetic-v1" }, category: "toys", salesScheme: "rfbs" },
     summary: "同一范围更新后的佣金证据",
     sourceType: "real",
     checkedAt: "2026-08-11T10:00:00.000Z",
@@ -207,7 +257,8 @@ test("node comments, one-shot dispatch, exact claim, and production confirmation
 
   state = await (await fetch(`${baseUrl}/api/state`)).json();
   assert.equal(state.summary.dispatch.processingCounts.authorized, 0);
-  assert.equal(state.summary.dispatch.processingCounts.dispatched, 1);
+  assert.equal(state.summary.dispatch.processingCounts.dispatched, 0);
+  assert.equal(state.summary.dispatch.processingCounts.historicalPending, 1);
   assert.equal(state.summary.dispatch.processingCounts.stopped, 1);
 
   const persisted = JSON.parse(await readFile(dataFile, "utf8"));
@@ -221,26 +272,29 @@ test("node comments, one-shot dispatch, exact claim, and production confirmation
   assert.equal(claimed.status, 200);
   assert.equal((await claimed.json()).candidate.processing.state, "running");
 
+  const beforeRefusedResults = await readFile(dataFile);
   const progressed = await post(`/api/dispatches/${dispatch.id}/progress`, {
     runId: "one-shot-run-1",
     currentStep: "核对当前市场",
     evidence: "新增一条可追溯证据"
   });
-  assert.equal(progressed.status, 200);
+  assert.equal(progressed.status, 403);
+  assert.equal((await progressed.json()).code, "trusted_progress_required");
 
   const completed = await post(`/api/dispatches/${dispatch.id}/complete`, {
     runId: "one-shot-run-1",
     status: "completed",
     reply: "任务已回复",
-    evidence: ""
+    evidence: "即使提供任意证据文字，页面也不能完成任务"
   });
-  assert.equal(completed.status, 200);
-  assert.equal((await completed.json()).dispatch.status, "responded_unverified");
+  assert.equal(completed.status, 403);
+  assert.equal((await completed.json()).code, "trusted_completion_required");
+  assert.deepEqual(await readFile(dataFile), beforeRefusedResults);
 
   state = await (await fetch(`${baseUrl}/api/state`)).json();
   const queueAfterReply = state.candidates.find((item) => item.id === "QUEUE-1");
   assert.equal(queueAfterReply.activeDispatch, null);
-  assert.equal(queueAfterReply.latestDispatch.status, "responded_unverified");
+  assert.equal(queueAfterReply.latestDispatch.status, "running");
 
   const wrongOwner = await post("/api/node-comments", {
     nodeId: "M08",
@@ -270,11 +324,10 @@ test("node comments, one-shot dispatch, exact claim, and production confirmation
     exclusions: "不送审、不发布",
     confirmed: true
   });
-  assert.equal(production.status, 200);
-  const authorized = (await production.json()).candidate;
-  assert.equal(authorized.workflowStatus, "ready_to_list");
-  assert.equal(authorized.productionAuthorization.status, "confirmed");
-  assert.equal(authorized.dataRevision, 2);
+  assert.equal(production.status, 410);
+  const retiredProduction = await production.json();
+  assert.match(retiredProduction.message, /旧生产确认入口已永久停用/);
+  assert.equal(retiredProduction.platformWrites, 0);
 
   const blockedLegacyProduction = await post("/api/candidates/LEGACY-READY/production-authorization", {
     dataRevision: 1,
@@ -288,7 +341,7 @@ test("node comments, one-shot dispatch, exact claim, and production confirmation
     publishScope: "仅保存草稿",
     confirmed: true
   });
-  assert.equal(blockedLegacyProduction.status, 409);
+  assert.equal(blockedLegacyProduction.status, 410);
   const legacyPreparation = await post("/api/candidates/LEGACY-READY/start-listing-preparation", {
     dataRevision: 1
   });

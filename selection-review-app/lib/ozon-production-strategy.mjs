@@ -1,5 +1,26 @@
 export const OZON_PRODUCTION_STRATEGY_VERSION = "ozon-production-strategy-v1.0";
 
+// The current software adapter uses Seller API; final asset transport has its own gate.
+// This contract does not change the historical strategy projection or authorize a browser route.
+export const OZON_CONNECTION_REQUIREMENTS_VERSION = "ozon-connection-requirements-v1";
+const SELLER_API_CONNECTION_REQUIREMENTS = Object.freeze({
+  contractVersion: OZON_CONNECTION_REQUIREMENTS_VERSION,
+  route: "seller_api",
+  requiredConnections: Object.freeze(["api"])
+});
+
+export function ozonProductionConnectionRequirements(route) {
+  if (route !== "seller_api") throw new Error("OZON_CONNECTION_ROUTE_UNSUPPORTED");
+  return SELLER_API_CONNECTION_REQUIREMENTS;
+}
+
+export function isOzonProductionConnectionRequirements(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) &&
+    Object.keys(value).length === 3 && value.contractVersion === OZON_CONNECTION_REQUIREMENTS_VERSION &&
+    value.route === "seller_api" && Array.isArray(value.requiredConnections) &&
+    value.requiredConnections.length === 1 && value.requiredConnections[0] === "api";
+}
+
 const API_AUTOMATED_FIELDS = Object.freeze([
   "create_product",
   "title",

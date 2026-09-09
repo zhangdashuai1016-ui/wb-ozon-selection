@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "c1-keyword-planning-production-v1.schema.json",
+  "title": "C1 Keyword Planning Production V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "candidateId", "skuPackageId", "sourceCandidateRevision", "resultCandidateRevision", "sourceSkuRevision", "resultSkuRevision", "factsVerifiedFromFrozenInputs", "inputFingerprint", "evidenceFingerprint", "status", "gaps", "producedAt", "execution"],
+  "properties": {
+    "schemaVersion": { "const": "c1-keyword-planning-production-v1" },
+    "candidateId": { "type": "string", "minLength": 1 },
+    "skuPackageId": { "type": ["string", "null"] },
+    "sourceCandidateRevision": { "type": "integer", "minimum": 0 },
+    "resultCandidateRevision": { "type": "integer", "minimum": 1 },
+    "sourceSkuRevision": { "type": ["integer", "null"], "minimum": 0 },
+    "resultSkuRevision": { "type": ["integer", "null"], "minimum": 0 },
+    "factsVerifiedFromFrozenInputs": { "type": "boolean" },
+    "inputFingerprint": { "$ref": "#/$defs/Fingerprint" },
+    "evidenceFingerprint": { "anyOf": [{ "$ref": "#/$defs/Fingerprint" }, { "type": "null" }] },
+    "status": { "enum": ["ready", "not_ready", "blocked"] },
+    "gaps": { "type": "array", "items": { "$ref": "#/$defs/Gap" } },
+    "producedAt": { "type": "string", "format": "date-time" },
+    "execution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["producer", "externalCallsPerformed", "aiCallsPerformed", "browserActionsPerformed", "codexDispatchesPerformed", "automaticRetries", "c2Started", "dStarted", "eStarted"],
+      "properties": {
+        "producer": { "const": "selection_review_software" }, "externalCallsPerformed": { "const": 0 }, "aiCallsPerformed": { "const": 0 },
+        "browserActionsPerformed": { "const": 0 }, "codexDispatchesPerformed": { "const": 0 }, "automaticRetries": { "const": 0 },
+        "c2Started": { "const": false }, "dStarted": { "const": false }, "eStarted": { "const": false }
+      }
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "status": { "const": "ready" } } }, "then": { "properties": { "evidenceFingerprint": { "$ref": "#/$defs/Fingerprint" }, "gaps": { "maxItems": 0 } } } },
+    { "if": { "properties": { "status": { "enum": ["not_ready", "blocked"] } } }, "then": { "properties": { "evidenceFingerprint": { "type": "null" }, "gaps": { "minItems": 1 } } } }
+  ],
+  "$defs": {
+    "Fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "Gap": { "type": "object", "additionalProperties": false, "required": ["code", "field", "message"], "properties": { "code": { "type": "string", "minLength": 1 }, "field": { "type": "string", "minLength": 1 }, "message": { "type": "string", "minLength": 1 } } }
+  }
+}

@@ -21,6 +21,54 @@ async function waitFor(check, message) {
   throw new Error(message);
 }
 
+function authorizedMaintenanceRuntime(candidateId, dataRevision) {
+  return {
+    schemaVersion: "software-execution-runtime-v1",
+    candidateId,
+    dataRevision,
+    businessPhase: "C1",
+    executorType: "software",
+    status: "blocked",
+    stepId: "MAINTENANCE_REQUIRED",
+    inputRevision: dataRevision,
+    outputRevision: null,
+    inferenceJobId: null,
+    inferenceReceiptId: null,
+    technicalFailure: null,
+    codexWakeupCount: 0,
+    updatedAt: "2026-08-12T00:00:00.000Z",
+    history: [],
+    exceptionCase: {
+      schemaVersion: "exception-case-v2",
+      exceptionId: `exception:${candidateId}`,
+      candidateId,
+      skuPackageId: null,
+      sourceRevision: dataRevision,
+      businessPhase: "C1",
+      softwareJobId: null,
+      stepId: "MAINTENANCE_REQUIRED",
+      lastSuccessfulStepId: null,
+      businessStateChanged: false,
+      reasonCode: "system_failure",
+      failureLayer: "test_maintenance",
+      evidenceRefs: [],
+      externalRequestRefs: [],
+      unknownOutcome: false,
+      automaticRetryAllowed: false,
+      forbiddenAutomaticActions: ["retry", "change_model", "change_path", "advance_business_stage"],
+      safeMessageKey: "exception.system_failure",
+      message: "测试技术维护案件。",
+      dispatchState: "queued",
+      maintenanceAuthorizationId: `maintenance:${candidateId}`,
+      turnId: null,
+      status: "open",
+      openedAt: "2026-08-12T00:00:00.000Z",
+      authorizedAt: "2026-08-12T00:00:00.000Z",
+      resolvedAt: null
+    }
+  };
+}
+
 test("server marks a dispatch running only after turn/start returns a real turn id", async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), "selection-real-turn-"));
   const dataFile = path.join(directory, "candidates.json");
@@ -56,6 +104,34 @@ test("server marks a dispatch running only after turn/start returns a real turn 
       updatedAt: "2026-08-07T00:00:00.000Z",
       workflowStatus: "codex_processing",
       processing: { state: "queued", dispatchState: "requested", manualHold: false },
+      executionRuntime: {
+        schemaVersion: "software-execution-runtime-v1",
+        candidateId: "REAL-TURN-1",
+        dataRevision: 3,
+        businessPhase: "A",
+        executorType: "software",
+        status: "blocked",
+        stepId: "MAINTENANCE_REQUIRED",
+        inputRevision: 3,
+        outputRevision: null,
+        inferenceJobId: null,
+        inferenceReceiptId: null,
+        technicalFailure: null,
+        codexWakeupCount: 0,
+        updatedAt: "2026-08-07T00:00:00.000Z",
+        history: [],
+        exceptionCase: {
+          schemaVersion: "exception-case-v2", exceptionId: "exc-real-turn-1", candidateId: "REAL-TURN-1",
+          skuPackageId: null, sourceRevision: 3, businessPhase: "A", softwareJobId: null,
+          stepId: "MAINTENANCE_REQUIRED", lastSuccessfulStepId: null, businessStateChanged: false,
+          reasonCode: "system_failure", failureLayer: "test", evidenceRefs: [], externalRequestRefs: [],
+          unknownOutcome: false, automaticRetryAllowed: false,
+          forbiddenAutomaticActions: ["retry", "change_model", "change_path", "advance_business_stage"],
+          safeMessageKey: "exception.system_failure", message: "测试技术维护案件。",
+          dispatchState: "queued", maintenanceAuthorizationId: "maintenance:real-turn-1", turnId: null,
+          status: "open", openedAt: "2026-08-07T00:00:00.000Z", authorizedAt: "2026-08-07T00:00:00.000Z", resolvedAt: null
+        }
+      },
       dataRevision: 3,
       comments: [],
       history: []
@@ -129,6 +205,7 @@ test("a blocked selection assignee does not starve an idle listing assignee at s
       productName: "选品等待商品",
       workflowStatus: "codex_processing",
       processing: { state: "queued", dispatchState: "waiting_assignee", manualHold: false },
+      executionRuntime: authorizedMaintenanceRuntime("SELECTION-WAITING", 1),
       dataRevision: 1,
       comments: [],
       history: []
@@ -145,6 +222,7 @@ test("a blocked selection assignee does not starve an idle listing assignee at s
       dimensionsCm: { length: 10, width: 10, height: 10 },
       workflowStatus: "listing_preparation",
       listingHandoff: { state: "queued", owner: "listing_task" },
+      executionRuntime: authorizedMaintenanceRuntime("LISTING-READY", 2),
       sourceCapture: {
         captureId: "SC-PARALLEL",
         status: "verified",
