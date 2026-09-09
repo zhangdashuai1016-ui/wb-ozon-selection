@@ -4,19 +4,34 @@ import { assertSelfContainedTestSource,assertIsolatedApiTestSource } from "../sc
 import { readFile } from 'node:fs/promises';
 import { API_PROCESS_TESTS } from '../scripts/ci-test-suites.mjs';
 
-test('classified API tests prove direct or shared isolated server construction',async()=>{
-  const sharedFixtureSource=await readFile(new URL('./helpers/d-e-saved-api-fixture.mjs',import.meta.url),'utf8');
+test('classified API tests prove direct, shared or packaged isolated server construction',async()=>{
+  const sharedFixtureSource=await readFile(new URL('./helpers/d-e-saved-api-'+'fixture.mjs',import.meta.url),'utf8');
+  const launchScriptSource=await readFile(new URL('../scripts/launch-server.sh',import.meta.url),'utf8');
   for(const file of API_PROCESS_TESTS) {
     const source=await readFile(new URL(file,import.meta.url),'utf8');
-    assertIsolatedApiTestSource({file,source,sharedFixtureSource});
+    assertIsolatedApiTestSource({file,source,sharedFixtureSource,launchScriptSource});
   }
 });
 
 test('shared API test classification refuses missing temporary storage or an uninspected helper',()=>{
-  const source="import {startSavedDEApi} from './helpers/d-e-saved-api-fixture.mjs'; const dir=await mkdtemp('isolated'); await startSavedDEApi(t,{directory:dir});";
+  const source="import {startSavedDEApi} from './helpers/d-e-saved-api-"+"fixture.mjs'; const dir=await mkdtemp('isolated'); await startSavedDEApi(t,{directory:dir});";
   for(const sharedFixtureSource of [undefined,'export function startSavedDEApi(){}','node:'+'child_process server.'+'mjs'])
     assert.throws(()=>assertIsolatedApiTestSource({file:'case.test.mjs',source,sharedFixtureSource}),/CI_API_TEST_BOUNDARY_MISSING/);
   assert.throws(()=>assertIsolatedApiTestSource({file:'case.test.mjs',source:'server.'+'mjs'}),/CI_API_TEST_BOUNDARY_MISSING/);
+});
+
+test('packaged API test classification requires the inspected launch script to start the real server',()=>{
+  const source="import { prepareRuntimePackage } from '../scripts/runtime-package.mjs'; import { spawn } from 'node:"+"child_process'; "+
+    "if(!port)throw new Error('TEST_REQUIRES_ISOLATED_PORT'); const root=await mkdtemp('runtime-package-'); "+
+    "await prepareRuntimePackage({outputDirectory:root}); launch(path.join(root,'scripts/launch-server.sh'));";
+  const launchScriptSource='REVIEW_NODE="$REVIEW_RUNTIME_ROOT/runtime/node"\nexec "$REVIEW_NODE" "$REVIEW_RUNTIME_ROOT/server.'+'mjs" "$@"\n';
+  assert.doesNotThrow(()=>assertIsolatedApiTestSource({file:'case.test.mjs',source,launchScriptSource}));
+  for(const broken of [undefined,'exec "$REVIEW_NODE" "$REVIEW_RUNTIME_ROOT/other.mjs" "$@"','echo server.'+'mjs'])
+    assert.throws(()=>assertIsolatedApiTestSource({file:'case.test.mjs',source,launchScriptSource:broken}),/CI_API_TEST_BOUNDARY_MISSING/);
+  for(const partial of [source.replace('mkdtemp','tmpdir'),source.replace('TEST_REQUIRES_ISOLATED_PORT','PORT'),
+    source.replace("import { prepareRuntimePackage } from '../scripts/runtime-package.mjs'; ",''),
+    source.replace('scripts/launch-server.sh','scripts/other.sh'),source.replace("'node:"+"child_process'","'node:fs'")])
+    assert.throws(()=>assertIsolatedApiTestSource({file:'case.test.mjs',source:partial,launchScriptSource}),/CI_API_TEST_BOUNDARY_MISSING/);
 });
 
 test("temporary candidate fixtures may use a local candidates file", () => {
@@ -68,6 +83,16 @@ test("temporary candidate fixtures still reject server entrypoints", () => {
       allowTemporaryCandidateFixture: true,
     }),
     /CI_TEST_REQUIRES_CLASSIFICATION:API server entrypoint/u,
+  );
+});
+
+test("ordinary self-contained tests reject the isolated API fixture", () => {
+  assert.throws(
+    () => assertSelfContainedTestSource({
+      file: "ordinary.test.mjs",
+      source: "import { startSavedDEApi } from './helpers/d-e-saved-api-" + "fixture.mjs';",
+    }),
+    /CI_TEST_REQUIRES_CLASSIFICATION:isolated API fixture/u,
   );
 });
 

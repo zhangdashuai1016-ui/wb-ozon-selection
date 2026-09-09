@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-09T08:28:31.077Z",
+  "frozenAt": "2026-09-09T14:30:48.437Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 620,
-      "sha256": "f47008bca5ae2f2066f4549ad44670deb2b61ced3b435e60ff9bedbbf6309878",
+      "sha256": "3577077a896024ad05cca5c937bf676f363b7877470e52f32c9f952863720619",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -1092,11 +1092,11 @@
       },
       {
         "path": "scripts/ci-test-policy.mjs",
-        "sha256": "1975ec17434aec99a05054a0af7b95e7a36a1c1fcae880846bc105d3da155e85"
+        "sha256": "66d8924be576ff45608433fb405138c43353d58b081e0b5bf81883ff7f17d4df"
       },
       {
         "path": "scripts/ci-test-suites.mjs",
-        "sha256": "6c89b3cf3ab2c4ef22b788b9676cfd195fdafaa49105f96ff3b92d3c8ff6cbe0"
+        "sha256": "5c169847b360b75fa35e7012f75fdfe92e3ec7ed11a43a4478af1477adf0326b"
       },
       {
         "path": "scripts/deploy-local-runtime.sh",
@@ -1128,11 +1128,11 @@
       },
       {
         "path": "scripts/run-ci-api-tests.mjs",
-        "sha256": "78eca77cc20d3fbce2cc1711fccf6b34992652cb8ff577ed93bbebd6a0841334"
+        "sha256": "a9c1454947b8feea83e57461abd06e005114817dce9ddb200398542a7b76f8e4"
       },
       {
         "path": "scripts/run-ci-tests.mjs",
-        "sha256": "3a2f595c87477b964dfe8483adfc849d64bdd09e38544066a0243ce2a6aada6c"
+        "sha256": "862d95e38b892c7d60fd9f6732b586ce4d2f8b68d4030155bbeedec4eff0709e"
       },
       {
         "path": "scripts/run-local-api-tests.mjs",
@@ -1528,7 +1528,7 @@
       },
       {
         "path": "tests/c1-draft-runtime-services.test.mjs",
-        "sha256": "717536d67a46723088da59914e1425a6225623586f7e0818bfb73134c36158c4"
+        "sha256": "0e329a3ea63ea70b41dfd61ca3f20feb10f3e9a064b93d89189445ff0e19f3e9"
       },
       {
         "path": "tests/c1-draft-runtime-view.test.mjs",
@@ -1704,11 +1704,11 @@
       },
       {
         "path": "tests/ci-api-boundary.test.mjs",
-        "sha256": "50bfeaf65ca3fffbe478a26c3ec13cfc99a4ce43eb898f1bf82195212d03f408"
+        "sha256": "7a67a7c37f349a8707f966ed028520a9485139fb9e365e7912fc27b20ef397b3"
       },
       {
         "path": "tests/ci-test-policy.test.mjs",
-        "sha256": "e5cc1296c820a3ff4c01f8dc5ff49832cbd4c14c49480d6eab220b3e9d81f9d4"
+        "sha256": "f6b246b775b58de53744a0ac1a23da3e19e84a414972af416704af8729dcea88"
       },
       {
         "path": "tests/codex-dispatcher.test.mjs",
@@ -1868,7 +1868,7 @@
       },
       {
         "path": "tests/final-pricing-review-api.test.mjs",
-        "sha256": "f67d8a645753da70b273232f0d2dcbe3c06d24db41a2bbcc9b494ae535299aaf"
+        "sha256": "c11661a473081ea5dca097c382be3ef17d0eef091ec8e28c1175f9ddb1cc9638"
       },
       {
         "path": "tests/final-pricing-review-input.test.mjs",

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { createC1DraftRuntimeServices } from '../lib/c1-draft-runtime-services.mjs';
 import { createMemoryBusinessStateRepository, createJsonBusinessStateRepository } from '../lib/business-state-repository.mjs';
 import { createActorContext, createLocalDevelopmentActor } from '../lib/runtime-identity.mjs';
@@ -20,7 +21,7 @@ async function fixture(t, { json = false, unknown = false, interruptApply = fals
   const document = { candidates: [candidate], runtime: { softwareJobs: [], softwareJobAuthorizationRecords: [], softwareJobCredentialBindings: [] } };
   let repository, filePath;
   if (json) {
-    const directory = await mkdtemp(path.resolve('logs/c1-runtime-services-'));
+    const directory = await mkdtemp(path.join(tmpdir(), 'c1-runtime-services-'));
     t.after(() => rm(directory, { recursive: true, force: true }));
     filePath = path.join(directory, 'state.json'); await writeFile(filePath, JSON.stringify(document));
     repository = createJsonBusinessStateRepository({ filePath });

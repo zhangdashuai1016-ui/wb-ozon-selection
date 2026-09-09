@@ -68,9 +68,10 @@ for (const file of SUBPROCESS_TESTS) {
 }
 
 const sharedFixtureSource=await readFile(path.join(testsDirectory,'helpers','d-e-saved-api-fixture.mjs'),'utf8');
+const launchScriptSource=await readFile(path.join(appDirectory,'scripts','launch-server.sh'),'utf8');
 for (const file of apiProcessTests) {
   const source = await readFile(path.join(testsDirectory, file), "utf8");
-  assertIsolatedApiTestSource({file,source,sharedFixtureSource});
+  assertIsolatedApiTestSource({file,source,sharedFixtureSource,launchScriptSource});
 }
 
 for (const file of temporaryCandidateFixtureTests) {

@@ -1,6 +1,7 @@
 export const API_PROCESS_TESTS = Object.freeze([
   "a-discovery-api-boundary.test.mjs",
   "a-product-detail-api-boundary.test.mjs",
+  "a-supplier-image-search-api.test.mjs",
   "b-exact-commission-recalculation-http.test.mjs",
   "c1-keyword-handoff-retry-http.test.mjs",
   "keyword-evidence-runtime-http.test.mjs",
@@ -10,6 +11,7 @@ export const API_PROCESS_TESTS = Object.freeze([
   "ozon-account-read-api-boundary.test.mjs",
   "ozon-account-preparation-api-boundary.test.mjs",
   "d-e-saved-continuation-api.test.mjs",
+  "final-pricing-review-api.test.mjs",
   "runtime-package-api.test.mjs",
   "store-binding-api.test.mjs",
   "c2-upload-api.test.mjs",

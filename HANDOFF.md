@@ -1,3 +1,66 @@
+## 当前接班入口（2026-09-09 晚，Claude Code 接手：全量 CI 门禁修复与首次全库基线）
+
+**状态**：工程在 Claude Code 中继续施工；未提交、未推送、未部署、未重启 4317/4318、未读取任何凭据、零外部请求，真实首件 A→E 未运行。本节覆盖下方 2026-09-09 白天的停写入口；其记录的主人决定、已消费许可与七项首件优先级不变。
+
+### 工作目录、分支与运行方式
+
+- 工程目录：`/Users/shuaizhang/.local/share/wb-ozon-engineering/github-checkpoint-20260909`（`release/first-sku-checkpoint-20260909` = 7723cba 的干净 git worktree，与公开仓库逐字节一致）。新分支 `fix/ci-runtime-package-test-boundary`，9 个文件改动全部未提交（`git status` 为准）。9ce7 施工树与主树本轮未改动，只作只读复现对照。
+- 依赖：`node_modules` 自 9ce7 离线复制（两树 `pnpm-lock.yaml`、`package.json` 逐字节一致）。曾尝试 `pnpm install --offline`（本地 store v11 已含全部 164 包），因 esbuild postinstall 在无 node 的 PATH 下失败而未采用；全程未联网安装。运行时为安装目录内置 Node v24.19.0：`/Users/shuaizhang/Library/Application Support/今日选品评审台-versions/20260908-product-discovery-v6/runtime/node`；本机没有系统级 node/pnpm。
+- 本轮已读入口：AGENTS.md §12/§12.1、CURRENT.md、本文件原顶部入口、docs/checkpoints/2026-09-09/README.md、PROJECT_STATE.md §8、9ce7 `logs/first-sku-resumption-20260909/pricing-reuse-outcome.json`，以及 GitHub `main` 最近一次 CI（2026-09-02：api 作业 14 文件 17 用例通过）。
+
+### 根因与修复（检查点 README 记录的 `CI_API_TEST_BOUNDARY_MISSING:runtime-package-api.test.mjs` 及其后面的门禁）
+
+1. `scripts/ci-test-policy.mjs`：`assertIsolatedApiTestSource` 只承认"源码直接引用 server.mjs"或"共享 `startSavedDEApi` 夹具"两种真实服务构造；`runtime-package-api.test.mjs` 经打包产物的 `scripts/launch-server.sh` 启动真实服务，被判越界。新增第三种 packaged 路径：须导入并调用 `prepareRuntimePackage`、引用 `scripts/launch-server.sh`、含 `node:child_process` 与 `TEST_REQUIRES_ISOLATED_PORT`，并由运行器读取 `scripts/launch-server.sh` 源码核实 `exec "$REVIEW_NODE" "$REVIEW_RUNTIME_ROOT/server.mjs"`（与共享夹具一样核实实现，不信任文件名）。`run-ci-tests.mjs`、`run-ci-api-tests.mjs` 均传入 `launchScriptSource`。
+2. `tests/ci-api-boundary.test.mjs` 的套件清单未登记检查点新增的 7 个 API 套件，自身失败；已登记。
+3. 两个未分类却启动真实服务的测试补入 `API_PROCESS_TESTS`：`a-supplier-image-search-api.test.mjs`（源码含 child_process 采样，触发 `CI_TEST_REQUIRES_CLASSIFICATION`）与 `final-pricing-review-api.test.mjs`（经共享夹具启动服务，且读取没有任何运行器提供的 `SELECTION_REVIEW_TEST_API_PORT`，历史上只靠手工环境变量通过；改为统一的 `SELECTION_REVIEW_TEST_PORT`）。
+4. 自包含策略新增 `isolated API fixture` 禁用模式：未分类测试导入 `startSavedDEApi` 即要求分类（正是第 3 项漏网的原因）；只导入 `productionOwnerDecisionHttpFixture` 的纯数据测试不受影响。策略测试按既有惯例拆分字面量，并新增 packaged 与夹具导入的正反用例。
+5. `scripts/run-ci-api-tests.mjs`：检查点内 15 个隔离测试严格要求 `SELECTION_REVIEW_TEST_PORT`（缺失即抛 `TEST_REQUIRES_ISOLATED_PORT`），而 ci.yml 容器只传最小环境、`main` 时代的测试都是自选端口，容器作业必然失败。运行器现与 `run-local-api-tests.mjs` 同法：预留 3 个回环端口传给单一顺序测试进程，并设 `SELECTION_REVIEW_PUBLIC_PORT=<API 端口>`——服务默认公开源固定为 4317，旧 API 测试在其他端口发出的合法 Origin 写请求否则一律 403（`api_origin_forbidden`）。曾试运行器直接覆盖 `PUBLIC_ORIGIN`/`ALLOWED_ORIGINS`，会改变扩展来源语义并使 `ozon-sales-capture-api` 失败，已弃用。
+6. `tests/c1-draft-runtime-services.test.mjs` 在被 gitignore 的 `logs/` 下 mkdtemp，公开仓库/CI 全新检出没有该目录；改用 `os.tmpdir()`。
+7. 来源快照按惯例再生（620 项），`node scripts/generate-capability-snapshot.mjs --check` 通过。
+
+### 本轮实际验证（内置 node，`env -i`，与 ci.yml 同款变量）
+
+| 检查 | 结果 |
+| --- | --- |
+| `node --test tests/ci-test-policy.test.mjs tests/ci-api-boundary.test.mjs tests/capability-registry.test.mjs` | 20/20 |
+| `node scripts/run-local-api-tests.mjs runtime-package-api.test.mjs`（sandbox-exec，先构建 dist） | 1/1 |
+| 517 个 js/mjs `node --check`、`node --check server.mjs`、`git diff --check` | 通过 |
+| `node node_modules/vite/bin/vite.js build` | 87 模块 |
+| `node scripts/run-ci-tests.mjs`（= CI verify 作业，194 个自包含文件） | 1851 用例：1844 通过，7 失败（均为下表既有失败；修复前首跑 1841/10，其中 c1-draft-runtime-services ×2 与快照漂移 ×1 已由本轮修复），9.9 分钟 |
+| 隔离 49 文件按 CI api 作业等价直跑：`node --test --test-concurrency=1 --test-timeout=60000 <ISOLATED_TESTS>` + `SELECTION_REVIEW_TEST_PORT/SECOND_PORT/GATEWAY_PORT/PUBLIC_PORT` | 228 用例：221 通过，7 失败（均为下表既有失败；修复前首跑 214/14，其中 7 项为公开源固定 4317 导致的 403，已由运行器声明 `SELECTION_REVIEW_PUBLIC_PORT` 解决），3.2 分钟 |
+
+`run-ci-api-tests.mjs` 本身按设计只在 Linux 容器运行（本机报 `CI_API_TESTS_REQUIRE_ISOLATED_GITHUB_RUNNER`），GitHub 实际结果须推送后核对。本地 `run-local-api-tests.mjs` 对 14 个自选端口的 API 测试报 `LOCAL_API_TEST_PORT_BOUNDARY_MISSING`（其 sandbox 只放行 3 个预留端口），属该工具既有限制，本轮未改。
+
+### 首次全库基线暴露的检查点前既有失败（本轮未改业务代码；已在未改动的 9ce7 树逐项复现）
+
+这些文件不在 2026-09-09 白天最后一次 23 文件 293/293 针对性验证范围内；相关源码在最后一次通过（13:35 `local-combined-final-tests.log`）之后仍被修改（15:07 `global-pricing-policy.mjs`、15:20 `c1-product-plan-v1.1.schema.json`、15:57 `profit-model.mjs`、16:13 `product-lifecycle-schema.mjs`）而未复测。
+
+| 文件 | 测试 | 现象 | 初步归类 |
+| --- | --- | --- | --- |
+| tests/c1-product-plan.test.mjs | 旧v1估算通过记录保留可读但不得创建新的C1 | 期望 `C1_GATE_REJECTED`，实得 `ProfitModel校验失败：pricingPolicyVersion 必须使用当前全局定价政策`（profit-model.mjs:136 新规则先于 C1 门禁触发） | 定价/成本政策批次回归；需按主人定价决定定规则或改夹具 |
+| tests/c1-product-plan.test.mjs | 正式C1从B实际创建和核验…不预测媒体revision | ajv `can't resolve reference c1-ai-draft-request-v1#/$defs/g1Identity from id c1-product-plan-v1.1`（schema 第 800 行新增跨引用，校验器未登记被引用 schema） | 工程缺陷，可直接修 |
+| tests/legacy-candidate-fixture.test.mjs | synthetic A-to-B candidate supplies explicit packaging cost before evidence preparation | `B_COST_POLICY_INVALID`（global-pricing-policy.mjs:36） | 定价/成本政策批次回归（合成夹具缺新政策字段或规则过严） |
+| tests/aliyun-oss-d-asset-integration.test.mjs | 持久化后只调用一次OSS并把稳定URL证据直接接入D适配器 | `inspectAdapterCapabilities` 返回 `not_ready`，期望 `ready` | 待定位（D 适配器能力检查变更） |
+| tests/d-e-software-persistence.test.mjs | published authorization guard permits opaque IDs only at the three frozen C1 paths | 不透明 ID 路径 9 ≠ 3 | schema 变更后守卫测试期望未同步或守卫回归 |
+| tests/d-e-software-persistence.test.mjs | runtime guard preserves real ProductionAuthorization and D intent C1 paths… | `TypeError: reading 'sourcePlan'`（测试第 489 行） | 同上 |
+| tests/ozon-account-read-runtime.test.mjs | transmitted timeout is unknown, counted as a transmission, and never retried | 超时被分类为 `failed`，期望 `unknown_outcome` | 涉及 AGENTS §8.3"已发出终态不明必须 unknown"，需分清实现回归还是夹具 |
+| tests/c1-k3-runtime-bridge.test.mjs（隔离） | server活动编排显式传K3字段并禁止直接读取旧savedKeywordEvidence | server.mjs 已无 `resolveC1K3RuntimeEvidence(evidence)` 等源码合同片段 | server 重构后源码合同测试未同步 |
+| tests/dispatch-api.test.mjs（隔离） | 新版候选进入软件状态机且任何旧Codex入口都不能推动 | 期望 201 实得 403（声明 PUBLIC_PORT 后仍失败） | 旧派发路径行为漂移 |
+| tests/dispatch-delivery-integration.test.mjs（隔离） | server marks a dispatch running only after turn/start returns a real turn id；a blocked selection assignee does not starve an idle listing assignee at startup | 断言不等；`空闲上架任务被选品任务阻塞` | 旧派发路径行为漂移 |
+| tests/lifecycle-c-stage-generic-api.test.mjs（隔离） | 非火车SKU从正式C1回执经HTTP持久素材确认和单主人授权… | `FINAL_PRICING_REVIEW_REQUIRED` | 最终定价门禁接入后旧 C 阶段链路测试未同步，与在途定价工作直接相关 |
+| tests/recovery-classification.test.mjs（隔离） | stopped backlog is classified without asking for handwritten advice | `TypeError: reading 'map'` | 响应结构漂移 |
+| tests/source-capture-api.test.mjs（隔离） | 旧1688 C入口不再派发，已上架证据恢复仍保持只读 | `TypeError: reading 'filter'` | 响应结构/旧入口行为漂移 |
+
+### 下一步
+
+- 工程可自主：登记 schema 跨引用；逐项核对源码合同/守卫/响应结构类失败，区分实现回归与测试过期，不降低断言、不跳过测试；全部修复并本地 CI 等价全绿后，由主人决定提交、推送与向 `main` 的 PR（公开仓库 CI 只在 `main` 的 push/PR 触发）。
+- 需主人决定或确认：涉及定价/成本政策口径的三项（旧 v1 记录是否必须现行政策版本、合成夹具补政策字段、`FINAL_PRICING_REVIEW_REQUIRED` 对旧 C 阶段链路的适用），先按 docs/current 决定索引核对再改；`unknown_outcome` 分类若确认为实现回归则修实现。
+- 未变：r5 运行包未部署；Seerfar、1688、GUOO、D/E 七项首件优先级与各项许可边界照旧。
+
+以下（含原 2026-09-09 白天入口）完整保留为历史；冲突处以本节和当前 AGENTS 为准。
+
+---
+
 ## 当前接班入口：相关历史核对与最新进度（2026-09-09）
 
 **最新停写决定与交付**：主人要求收口后先上传 GitHub，再决定后续。当前已完成定价在途修复，根及全部子工位停写；提交/推送由桥接统一负责，本工位没有 commit/push/reset/clean。23 文件293/293针对性测试、登记5/5、620源码快照、Vite87模块、隔离运行包1/1均通过；桥接全量CI入口另报 `CI_API_TEST_BOUNDARY_MISSING:runtime-package-api.test.mjs`（scripts/ci-test-policy.mjs:15），已核日志，按主人要求留作未完成项，不宣称全CI通过。完整命令/结果见selection-review-app/logs/first-sku-resumption-20260909/pricing-reuse-outcome.json，完整dirty清单见同目录pre-github-worktree-status.txt。最新包为[未部署r5审阅卡](</Users/shuaizhang/.local/share/wb-ozon-engineering/20260907-single-product-baseline/integration/single-product-review-20260909-r5/RELEASE_REVIEW.md>)；257静态文件逐字一致，相对安装71项变化，含2个GUOO参考。当前分支feature/single-product-workbench，HEAD b672014f0edf47c215bdab1dc533d4bd7e725da2。以下进行中记录均为此前过程，不覆盖本停写状态。
