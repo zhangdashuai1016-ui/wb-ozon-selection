@@ -42,11 +42,33 @@ test("运行接缝克隆输入，单SKU上下文不能被后续调用静默篡�
   assert.equal(result.k3KeywordEvidenceSnapshot.snapshotId, "keyword-evidence:SKU-A:3");
 });
 
-test("server活动编排显式传K3字段并禁止直接读取旧savedKeywordEvidence", async () => {
-  const server = await readFile(new URL("../server.mjs", import.meta.url), "utf8");
-  assert.match(server, /resolveC1K3RuntimeEvidence\(evidence\)/);
-  assert.match(server, /k3KeywordEvidenceSnapshot: c1Evidence\.k3KeywordEvidenceSnapshot/);
-  assert.match(server, /k3CurrentBinding: c1Evidence\.k3CurrentBinding/);
-  assert.match(server, /legacySavedKeywordEvidenceReadOnly: c1Evidence\.legacySavedKeywordEvidenceReadOnly/);
-  assert.doesNotMatch(server, /savedKeywordEvidence: evidence\.savedKeywordEvidence/);
+test("server活动编排经C1草稿运行服务显式传K3字段并禁止直接读取旧savedKeywordEvidence", async () => {
+  // The live C1 seam moved out of server.mjs: server -> c1-draft-runtime-services -> c1-ai-draft-request-source -> input preparation.
+  const read = relative => readFile(new URL(relative, import.meta.url), "utf8");
+  const [server, services, requestSource, preparation] = await Promise.all([
+    read("../server.mjs"), read("../lib/c1-draft-runtime-services.mjs"),
+    read("../lib/c1-ai-draft-request-source.mjs"), read("../lib/c1-software-input-preparation.mjs")
+  ]);
+  // server 只经 C1 草稿运行服务进入活动 C1 编排，不直接碰旧证据、旧桥或输入准备
+  assert.match(server, /import \{ createC1DraftRuntimeServices \} from "\.\/lib\/c1-draft-runtime-services\.mjs"/);
+  assert.match(server, /c1DraftRuntimeServices\.prepareCurrent\(/);
+  assert.match(server, /c1DraftRuntimeServices\.continueSavedCurrent\(/);
+  assert.doesNotMatch(server, /savedKeywordEvidence|resolveC1K3RuntimeEvidence|prepareC1SoftwareInputs|runC1SoftwareOrchestration/);
+  // 运行服务只经当前请求源取证据
+  assert.match(services, /import \{ prepareCurrentC1AiDraftRequest \} from "\.\/c1-ai-draft-request-source\.mjs"/);
+  assert.match(services, /prepareCurrentC1AiDraftRequest\(candidate, serverClock\(\)\)/);
+  assert.doesNotMatch(services, /savedKeywordEvidence|legacySavedKeywordEvidenceReadOnly/);
+  // 请求源只从冻结的 c1SoftwareEvidenceV1 显式传 K3 快照与当前绑定，并与 lifecycle 的 K3 记录指纹对账
+  assert.match(requestSource, /const evidence = lifecycle\?\.c1SoftwareEvidenceV1;/);
+  assert.match(requestSource, /!lifecycle\.k3KeywordEvidenceSnapshotV1 \|\| !lifecycle\.k3CurrentBindingV1/);
+  assert.match(requestSource, /fingerprintCanonicalRecord\(evidence\.k3KeywordEvidenceSnapshot\) !== fingerprintCanonicalRecord\(lifecycle\.k3KeywordEvidenceSnapshotV1\)/);
+  assert.match(requestSource, /fingerprintCanonicalRecord\(evidence\.k3CurrentBinding\) !== fingerprintCanonicalRecord\(lifecycle\.k3CurrentBindingV1\)/);
+  assert.match(requestSource, /k3KeywordEvidenceSnapshot: evidence\.k3KeywordEvidenceSnapshot,/);
+  assert.match(requestSource, /k3CurrentBinding: evidence\.k3CurrentBinding,/);
+  assert.match(requestSource, /prepareC1SoftwareInputs\(\{ \.\.\.inputs, preparedAt: observedAt \}\)/);
+  assert.doesNotMatch(requestSource, /savedKeywordEvidence|legacySavedKeywordEvidenceReadOnly|resolveC1K3RuntimeEvidence/);
+  // 输入准备保留旧扁平证据守卫：活动路径默认不可读，只有显式历史只读才可读
+  assert.match(preparation, /savedKeywordEvidence = null,/);
+  assert.match(preparation, /legacySavedKeywordEvidenceReadOnly = false,/);
+  assert.match(preparation, /k3Adaptation === null && savedKeywordEvidence !== null && legacySavedKeywordEvidenceReadOnly !== true/);
 });

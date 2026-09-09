@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateProjectSourceMarketFit, resolveLifecycleBCostPolicy, GLOBAL_PRICING_POLICY_VERSION } from '../lib/global-pricing-policy.mjs';
+import { calculateProjectSourceMarketFit, resolveLifecycleBCostPolicy, instantiateLifecycleBCostPolicySnapshot, GLOBAL_PRICING_POLICY_VERSION } from '../lib/global-pricing-policy.mjs';
 import { SYNTHETIC_STORE_REF } from './fixtures/store-binding-fixture.mjs';
 const asOf = '2026-09-09T00:00:00.000Z';
 const context = { platform: 'ozon', store: 'dandanshu', storeRef: SYNTHETIC_STORE_REF, salesScheme: 'rfbs' };
@@ -90,4 +90,29 @@ test('历史核心数值保持，新显式费用沿唯一公式计算', () => {
   const zero = calculateProjectSourceMarketFit({ ...input, resolvedCostPolicy: resolve(snapshot()) });
   assert.equal(zero.totalVariableRate, 0.1);
   assert.equal(zero.evaluatedAtMarketPrice.unitProfitCny, 74);
+});
+
+test('店铺模板只按声明的销售模式绑定当前范围，模板本身与项目仍逐项验证', () => {
+  const template = {
+    schemaVersion: 'b-cost-policy-template-v1', policyId: 'owner-approved-store-costs', policyVersion: 'owner-approved-store-costs-2026-09-09-v1',
+    salesSchemes: ['rfbs'], effectiveFrom: '2026-09-09T00:00:00.000Z', effectiveTo: null, policyEvidenceRef: 'owner-decision:2026-09-09',
+    items: Object.fromEntries(names.map(key => [key, { status: ['acquiringRate', 'taxRate', 'otherRate', 'fixedOtherRmb'].includes(key) ? 'not_applicable' : 'applicable',
+      value: ['acquiringRate', 'taxRate', 'otherRate', 'fixedOtherRmb'].includes(key) ? null : key === 'labelRmb' ? 1.5 : key === 'advertisingRate' ? 0 : 0.05,
+      basis: key === 'labelRmb' ? 'per_order_cny' : key === 'fixedOtherRmb' ? 'per_unit_cny' : 'target_price_cny_rate',
+      evidenceRef: `owner-decision:${key}`, includedIn: null }]))
+  };
+  const instantiated = instantiateLifecycleBCostPolicySnapshot({ template, context });
+  assert.deepEqual(instantiated.scope, context);
+  assert.equal(instantiated.schemaVersion, 'b-cost-policy-snapshot-v1');
+  assert.equal(instantiated.policyVersion, template.policyVersion);
+  const resolved = resolveLifecycleBCostPolicy({ snapshot: instantiated, context, asOf });
+  assert.deepEqual([resolved.acquiringRate, resolved.taxRate, resolved.otherRate, resolved.fixedOtherRmb, resolved.labelRmb], [0, 0, 0, 0, 1.5]);
+  assert.throws(() => instantiateLifecycleBCostPolicySnapshot({ template, context: { ...context, salesScheme: 'fbo' } }), { code: 'B_COST_POLICY_SCOPE_MISMATCH' });
+  assert.throws(() => instantiateLifecycleBCostPolicySnapshot({ template, context: { ...context, storeRef: null } }), { code: 'B_COST_POLICY_SCOPE_MISMATCH' });
+  for (const broken of [{ ...template, schemaVersion: 'b-cost-policy-snapshot-v1' }, { ...template, salesSchemes: [] }, { ...template, salesSchemes: ['RFBS'] },
+    { ...template, policyEvidenceRef: 'unknown' }, { ...template, extra: true }, { ...template, items: { ...template.items, extra: template.items.labelRmb } }]) {
+    assert.throws(() => instantiateLifecycleBCostPolicySnapshot({ template: broken, context }), { code: 'B_COST_POLICY_INVALID' });
+  }
+  const unknownTax = { ...template, items: { ...template.items, taxRate: { ...template.items.taxRate, status: 'unknown' } } };
+  assert.throws(() => resolveLifecycleBCostPolicy({ snapshot: instantiateLifecycleBCostPolicySnapshot({ template: unknownTax, context }), context, asOf }), { code: 'B_COST_POLICY_UNKNOWN' });
 });

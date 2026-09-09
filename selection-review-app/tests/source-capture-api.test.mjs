@@ -127,6 +127,7 @@ test("旧1688 C入口不再派发，已上架证据恢复仍保持只读", async
   await writeFile(dataFile, JSON.stringify({
     meta: { version: 2, title: "test", updatedAt: "2026-08-11T00:00:00.000Z", automationStarted: false },
     rules: {},
+    dispatches: [],
     candidates: [candidate("CAPTURE-1"), originalOther, candidate("AMBIG-1", "木质火车"), listedRecoveryCandidate(), aSupplierCandidate(), aSupplierCandidate("A-FAILURE"), candidate("UNTOUCHED-1", "未触碰商品50片")]
   }));
 

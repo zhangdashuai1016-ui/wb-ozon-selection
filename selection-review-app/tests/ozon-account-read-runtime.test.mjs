@@ -137,7 +137,8 @@ test('transport own timeout aborts delayed durable hook before settlement even w
  await assert.rejects(hookPromise,/OZON_DE_HTTP_TIMEOUT/);assert.equal(outcome.receipt.steps[0].sentAt,null);
 });
 test('transmitted timeout is unknown, counted as a transmission, and never retried',async()=>{
- const transport=await syntheticTransport({timeoutMs:10,fetchImpl:async()=>new Promise(()=>{})});
+ // The budget must outlast the durable send-intent hook (~14ms with the current secret scanner) so the timeout fires after transmission.
+ const transport=await syntheticTransport({timeoutMs:250,fetchImpl:async()=>new Promise(()=>{})});
  const f=setup({request:transport.requestJson}),outcome=await run(f);assert.equal(outcome.status,'unknown_outcome');assert.equal(outcome.requestsSent,1);assert.equal(outcome.receipt.steps[0].requestTransmission,'attempted');
  const snapshot=await f.repository.readSnapshot();await f.runtime.continueSaved({candidateId:f.input.candidateId,jobId:outcome.job.jobId,expectedRevision:0});assert.equal(f.calls,1);assert.deepEqual(await f.repository.readSnapshot(),snapshot);
 });

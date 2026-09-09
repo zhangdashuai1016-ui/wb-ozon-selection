@@ -8,7 +8,7 @@ import { spawn } from "node:child_process";
 import { DEFAULT_RULES } from "../lib/workflow.mjs";
 import { validateProductionAuthorizationRecord } from "../lib/product-lifecycle-schema.mjs";
 import { createTrainCandidate } from "./helpers/legacy-candidate-fixture.mjs";
-import { createFormalC1C2Fixture } from "./fixtures/formal-c1-flow-fixture.mjs";
+import { createFinalPricingRevalidationFixture } from "./fixtures/final-pricing-revalidation-fixture.mjs";
 import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = fileURLToPath(new URL("..", import.meta.url));
@@ -23,11 +23,14 @@ const DETAIL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAA
 test("非火车SKU从正式C1回执经HTTP持久素材确认和单主人授权，旧手工C1入口不能越过合同", async t => {
   // This shared fixture runs the real B -> C1 receipt merge -> C2 domain chain with synthetic evidence.
   // Paid provider HTTP execution belongs to the dedicated software use-case tests.
-  const formal = createFormalC1C2Fixture({ candidateId: TEST_ID, supplierSkuId: TEST_SKU, variantKey: "颜色:蓝色",
+  // The final pricing fixture wraps the formal B -> C1 -> C2 fixture with the B evidence bundle, cost policy and synthetic
+  // market samples that the owner's multi-sample final pricing review re-checks before production authorization.
+  const pricing = createFinalPricingRevalidationFixture({ candidateId: TEST_ID, supplierSkuId: TEST_SKU, variantKey: "颜色:蓝色",
     candidateRevision: 1, sourceOfferId: "900000000001", captureId: "capture:synthetic:sink-organizer",
     productName: "硅胶水槽收纳架", material: "silicone", categoryName: "Органайзеры для кухни" });
-  const candidate = { ...formal.candidate, workflowStatus: "listing_preparation", comments: [], history: [],
-    processing: { state: "idle", manualHold: false } };
+  const formal = pricing.formal;
+  const candidate = { ...pricing.candidate, salesSnapshotsV11: structuredClone(pricing.assessmentInput.salesSnapshots),
+    workflowStatus: "listing_preparation", comments: [], history: [], processing: { state: "idle", manualHold: false } };
   const sourceSku = candidate.lifecycleV11.skuPackage;
   assert.equal(sourceSku.businessPhase, "C2");
   assert.equal(sourceSku.c1ProductPlan.status, "seo_draft_ready");
@@ -47,10 +50,15 @@ test("非火车SKU从正式C1回执经HTTP持久素材确认和单主人授权�
   const dataFile = path.join(businessDirectory, "candidates.json");
   const privateDirectory = path.join(directory, "private");
   await mkdir(privateDirectory, { mode: 0o700 });
-  await writeFile(dataFile, JSON.stringify({ meta: { version: 2, automationStarted: false }, rules: structuredClone(DEFAULT_RULES),
-    candidates: [fireTrain, candidate], dispatches: [], evidencePacks: [{ id: conversion.evidenceRef, kind: "exchange_rate", status: "active",
-      scope: { pair: "RUB/CNY" }, sourceType: "isolated_test", sourceRef: "fixture:generic-frozen-fx",
-      checkedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z", evidenceData: { rubPerCny: conversion.rubPerCny } }] }));
+  const exchangePack = { id: conversion.evidenceRef, kind: "exchange_rate", status: "active",
+    scope: { pair: "RUB/CNY" }, sourceType: "isolated_test", sourceRef: "fixture:generic-frozen-fx",
+    checkedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z", evidenceData: { rubPerCny: conversion.rubPerCny } };
+  // The server uses its actual clock: the synthetic B evidence packs are declared current, not renewed real evidence.
+  const evidencePacks = [exchangePack, ...pricing.evidencePacks.filter(pack => pack.id !== exchangePack.id)
+    .map(pack => ({ ...pack, expiresAt: "2099-01-01T00:00:00.000Z" }))];
+  const rules = { ...structuredClone(DEFAULT_RULES), ozonDandanshu: { ...structuredClone(DEFAULT_RULES.ozonDandanshu), ...structuredClone(pricing.rules.ozonDandanshu) } };
+  await writeFile(dataFile, JSON.stringify({ meta: { version: 2, automationStarted: false }, rules,
+    candidates: [fireTrain, candidate], dispatches: [], evidencePacks, currentCommissionCatalogs: [] }));
   const stderr = [];
   const child = spawn(process.execPath, [path.join(appDir, "server.mjs"), "--api-only"], { cwd: appDir,
     env: { ...process.env, SELECTION_REVIEW_DATA_FILE: dataFile, SELECTION_REVIEW_API_PORT: String(port),
@@ -141,12 +149,29 @@ test("非火车SKU从正式C1回执经HTTP持久素材确认和单主人授权�
     confirmed: true, cardId: finalSku.productionConfirmationCard.cardId });
   assert.equal(oldAuthorization.status, 409); assert.equal(oldAuthorization.body.code, "production_authorization_reconfirmation_required");
   assert.equal(await readFile(dataFile, "utf8"), beforeAuthorization);
+  // Production authorization requires the owner's multi-sample final pricing review; the B reference price stays the selected price.
+  const blockedPreparation = await get(`${route}/production-owner-preparation`);
+  assert.equal(blockedPreparation.ready, false);
+  assert.ok(blockedPreparation.gaps.some(item => item.code === "FINAL_PRICING_REVIEW_REQUIRED"), JSON.stringify(blockedPreparation.gaps));
+  const windowEnd = new Date(), windowStart = new Date(windowEnd.getTime() - 29 * 86400000);
+  const reviews = pricing.assessmentInput.reviews.map(review => ({ ...review, salesWindow: { ...review.salesWindow,
+    startDate: windowStart.toISOString().slice(0, 10), endDate: windowEnd.toISOString().slice(0, 10) } }));
+  const finalPricing = await post(`${route}/final-pricing/review`, { candidateId: TEST_ID, expectedRevision: c2.body.candidate.dataRevision,
+    skuPackageId: sourceSku.skuPackageId, selectedPriceRub: pricing.assessmentInput.selectedPriceRub, reviews,
+    idempotencyKey: "generic:final-pricing:1", auditEventId: "audit:generic:final-pricing:1" });
+  assert.equal(finalPricing.status, 200, JSON.stringify(finalPricing.body));
+  assert.equal(finalPricing.body.transactionStatus, "committed");
+  const reviewed = await savedCandidate();
+  assert.equal(reviewed.lifecycleV11.skuPackage.finalPricingReview.profitModelVersion, sourceSku.activeProfitModelVersion);
+  assert.deepEqual(reviewed.lifecycleV11.skuPackage.profitModels, sourceSku.profitModels, "同价复核不得改写B利润版本");
+  assert.equal(reviewed.lifecycleV11.skuPackage.productionAuthorization, null);
+  const beforeDecision = await readFile(dataFile, "utf8");
   const preparation = await get(`${route}/production-owner-preparation`);
   assert.equal(preparation.ready, true, preparation.gaps.map(item => item.code).join(","));
   const input = { contractVersion: preparation.contractVersion, ...preparation.source,
     bindingId: binding.bindingId, configurationVersion: binding.configurationVersion, merchantSku: "MERCHANT-SINK-BLUE", confirmExactScope: true };
   const tamperedPrice = await post(`${route}/production-owner-decision`, { ...input, platformWritePrice: { amount: 1, currency: "CNY" } });
-  assert.equal(tamperedPrice.status, 400); assert.equal(await readFile(dataFile, "utf8"), beforeAuthorization);
+  assert.equal(tamperedPrice.status, 400); assert.equal(await readFile(dataFile, "utf8"), beforeDecision);
   const authorization = await post(`${route}/production-owner-decision`, input);
   assert.equal(authorization.status, 200, authorization.body.message);
   const saved = await savedCandidate();

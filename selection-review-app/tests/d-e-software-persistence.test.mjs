@@ -448,10 +448,10 @@ test("published D schema rejects old unencoded states, unknown fields and transp
   }
 });
 
-test("published authorization guard permits opaque IDs only at the three frozen C1 paths", async () => {
+test("published authorization guard permits opaque IDs only at the declared frozen C1 paths (3 direct + 6 pricingReuseRecord)", async () => {
   const validateGuard = schemaValidator.getSchema("production-authorization-v1.1#/$defs/authorizationSecretGuard");
   const paths = C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS.runtimePaths.filter(segments => segments[0] === "lockedScope");
-  assert.equal(paths.length, 3);
+  assert.equal(paths.length, 9);
   const opaqueId = "authorization:c1-ai-draft:synthetic-fixture";
   const nested = (segments, value) => segments.reduceRight((child, field) => ({ [field]: child }), value);
   for (const segments of paths) {
@@ -484,11 +484,14 @@ test("runtime guard preserves real ProductionAuthorization and D intent C1 paths
   const paths = C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS.runtimePaths.filter(segments => segments[0] === "lockedScope");
   for (const invalidId of ["authorization:c1-ai-draft:fixture:extra", "authorization:c1-ai-draft:fixture\n", "authorization=private-value"]) {
     for (const prefix of [["productionAuthorization"], ["dSoftwareExecution", "productionPlan", "sourceAuthorization"]]) {
-      const malformed = structuredClone(candidate);
-      const segments = ["lifecycleV11", "skuPackage", ...prefix, ...paths[0]];
-      const parent = segments.slice(0, -1).reduce((entry, key) => entry[key], malformed);
-      parent[segments.at(-1)] = invalidId;
-      assert.throws(() => assertSafeRuntimeRecord(malformed), /RUNTIME_IDENTITY_INVALID/);
+      for (const declaredPath of paths) {
+        const malformed = structuredClone(candidate);
+        const segments = ["lifecycleV11", "skuPackage", ...prefix, ...declaredPath];
+        // Paths under a pricingReuseRecord do not exist on this fixture; the guard must reject a malformed id wherever the path is declared.
+        const parent = segments.slice(0, -1).reduce((entry, key) => (entry[key] ??= {}), malformed);
+        parent[segments.at(-1)] = invalidId;
+        assert.throws(() => assertSafeRuntimeRecord(malformed), /RUNTIME_IDENTITY_INVALID/);
+      }
     }
   }
 });

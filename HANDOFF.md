@@ -1,3 +1,41 @@
+## 当前接班入口（2026-09-10 凌晨，Claude Code：14 项既有失败全部处理，成本政策按主人决定落地，本地 CI 等价全绿）
+
+**状态**：分支 `fix/ci-runtime-package-test-boundary`（PR #4 → main，主人决定"修完再合并"）。本节之前的 2026-09-09 晚入口所列 14 项既有失败已全部处理；云端首轮 CI 另暴露 2 项只在 Linux 容器出现的问题，也已处理。未部署、未重启 4317/4318、未读取凭据、零外部请求；真实首件 A→E 仍未运行。
+
+### 主人本轮决定（2026-09-09 晚至 2026-09-10 凌晨）
+
+- 合并顺序：修完再合并；PR 保持打开，CI 转绿后再合并。
+- 三项定价相关失败均选 A：旧 v1 记录测试改成真正的旧记录（规则不动）；旧 C 阶段链路测试补做最终定价复核（门禁不动）；包装费测试随成本政策一起处理。
+- 成本政策选"方案 1"：保留九项有出处的成本政策口径，用主人已批准的历史费用种入每家店（贴标 1.5 元/单、固定其他无、广告 0 自然流量、退货预留 5%、破损预留 5%、提现 2%），并明确**收单费、税费、其他比例费用三项不适用**（主人原话：没有税、收单费和其他这三项）。
+
+### 本批实际改动
+
+1. **成本政策模板**（`lib/workflow.mjs` `ownerApprovedStoreCostPolicy`，版本 `owner-approved-store-costs-2026-09-09-v1`，销售模式 rfbs，生效 2026-09-09）挂在三家店默认规则 `costPolicy`；`lib/global-pricing-policy.mjs` 新增 `instantiateLifecycleBCostPolicySnapshot`，B 阶段（`lib/lifecycle-b-evidence-runtime.mjs`）在没有显式 `costPolicySnapshot` 时按候选自身的证据范围（平台、店铺身份、销售模式）实例化快照并冻结进 B 证据包；显式快照优先；模式不在模板范围或店铺身份不完整即 `B_COST_POLICY_SCOPE_MISMATCH`，不回退全局默认。`server.mjs` 规范化时三家店规则改为与默认逐字段合并（已保存的旧值保留，新增的模板字段来自默认），主人数据文件里现有的旧形状店铺规则因此自动带上模板，不需要手改数据。注意：模板绑定的店铺身份直接取自候选上下文，店铺维度由规则键（ozonDandanshu/ozonMiska/wbCrossListing）保证；当前 `SELECTION_REVIEW_STORE_BINDINGS_JSON` 为空，真实候选没有完整店铺身份前 B 仍会停在身份缺口（第 13.1 项）。
+2. **13 项过期测试对齐当前合同**（均先由只读子任务定位根因并在未改动的 9ce7 树复现）：c1-product-plan 改用共享已发布 schema 注册表；旧 v1 记录夹具补旧全局定价版本；OSS 集成测试补 9 月 8 日升级的 readback v2 端点和库存前置政策输入；`d-e-software-persistence` 守卫路径 3→9（定价复用记录合法新增）并按 `scripts/generate-c2-reference-schema.mjs --write` 再生两份 production-authorization schema 的 `authorizationSecretGuard`（此前漏再生）；`ozon-account-read-runtime` 已发送超时测试预算 10ms→250ms（送出前钩子因不透明 ID 扫描表增大到 84 对而变慢至约 14ms，测试原本裕量不足 1.3ms）；K3 源码合同测试指向当前接缝（server → c1-draft-runtime-services → c1-ai-draft-request-source，旧桥 `resolveC1K3RuntimeEvidence` 已无生产调用方）；`dispatch-api`、`dispatch-delivery-integration`、`recovery-classification` 改为从环境取隔离端口并带评审台来源头（写请求 Origin/Sec-Fetch-Site），留言带 dataRevision；`source-capture-api` 种子补 `dispatches: []`；`lifecycle-c-stage-generic-api` 经 `createFinalPricingRevalidationFixture`（现接受 formal 夹具参数并暴露 `formal`）在授权前完成同价最终定价复核。
+3. **判断说明（可否决）**：`dispatch-delivery-integration` 中"启动时把旧等待派发分给空闲上架线程"的测试，改为验证检查点 README 与 AGENTS §0 记录的现行为：启动不恢复、不重新领取任何旧派发（两个派发保持 waiting_assignee、runId 为空、`activeDispatch` 为空）。若主人希望保留启动自动派发，需要改服务端并先决定。
+4. **Linux 容器专属**：GUOO 资费表读取不再依赖 `/usr/bin/unzip`（`lib/guoo-tariff-reader.mjs` 用 Node zlib 直接读 ZIP 目录与条目，注入 `execFileImpl` 的旧测试路径保留；对真实表两种路径输出逐字节一致）；钥匙串读取 `readOzonDEKeychainSecret` 的平台判断改为可注入（默认仍 `process.platform`，生产行为不变），测试注入 darwin。`real-a-b-c1-api` 的边界预加载改为同时记录对资费表文件的 `fs` 读取作为"真实读取原表"证据。
+5. 来源快照按惯例再生：620 项，`--check` 通过。
+
+### 本轮验证（内置 Node 24.19，`env -i`，CI 同款变量；干净树、无并发改动）
+
+| 检查 | 结果 |
+| --- | --- |
+| `node scripts/run-ci-tests.mjs`（194 自包含文件） | 1853/1853 通过，0 失败 |
+| 隔离 49 文件 CI api 等价直跑（端口与 `SELECTION_REVIEW_PUBLIC_PORT` 由运行器提供） | 228/228 通过，0 失败 |
+| 策略/清单/快照登记 20/20；语法、`git diff --check`、快照 `--check` | 通过 |
+| GitHub PR #4 首轮（提交 4622737，本批之前） | verify 1843/8、api 214/14，与本机预测一致，多出的 2 项即上述 Linux 专属 |
+
+云端结果以推送后的 CI 为准。`run-local-api-tests.mjs`（macOS sandbox）现在能跑更多 API 文件（端口已改为从环境读取），仍有部分自选端口测试不能在其 sandbox 下运行，属该工具既有限制。
+
+### 后续建议
+
+- 可选优化：`lib/production-contract-primitives.mjs` `isAllowedC1OpaqueAuthorizationId` 先判断是否规范 C1 授权 ID 再查 84 对路径，可把送出前钩子从约 14ms 降到约 6ms；涉及安全扫描器，需单独一批全量验证。
+- 首件仍按七项优先级：真实店铺稳定身份（第 13.1 项，当前绑定为空）是 B/D/E 与成本快照绑定的共同前置；Seerfar 正式作业闭环、D/E 真实 Seller API 接线与独立回读仍未实现（PROJECT_STATE §2.3 审计不变）。
+
+以下为历史；冲突处以本节和当前 AGENTS 为准。
+
+---
+
 ## 当前接班入口（2026-09-09 晚，Claude Code 接手：全量 CI 门禁修复与首次全库基线）
 
 **状态**：工程在 Claude Code 中继续施工；未提交、未推送、未部署、未重启 4317/4318、未读取任何凭据、零外部请求，真实首件 A→E 未运行。本节覆盖下方 2026-09-09 白天的停写入口；其记录的主人决定、已消费许可与七项首件优先级不变。

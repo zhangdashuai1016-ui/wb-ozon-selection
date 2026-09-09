@@ -548,7 +548,16 @@
     ],
     "packaging": "current SKU-specific amount, not reusable commission data; actual SKU input deferred to A",
     "includedInSettlement": "unsupported until the formula has a verified carrying charge/basis; do not turn into zero",
-    "runtimePolicyCreated": false,
+    "ownerDecision20260909": {
+      "decision": "option_1_keep_evidenced_policy_seed_from_approved_costs",
+      "notApplicableByOwner": ["acquiringRate", "taxRate", "otherRate"],
+      "seededFromApprovedHistory": { "labelRmb": 1.5, "fixedOtherRmb": "not_applicable", "advertisingRate": 0, "returnReserveRate": 0.05, "damageReserveRate": 0.05, "withdrawalFeeRate": 0.02 },
+      "templateVersion": "owner-approved-store-costs-2026-09-09-v1",
+      "carrier": "lib/workflow.mjs ownerApprovedStoreCostPolicy -> DEFAULT_RULES.<store>.costPolicy; B binds it to the candidate scope",
+      "salesSchemes": ["rfbs"],
+      "storeIdentityStillRequired": true
+    },
+    "runtimePolicyCreated": true,
     "realProfitApproved": false,
     "releasePrepared": "r5_not_activated"
   }

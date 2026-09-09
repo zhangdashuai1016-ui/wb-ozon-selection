@@ -8,7 +8,8 @@ import { spawn } from "node:child_process";
 import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const port = 43917;
+const port = Number(process.env.SELECTION_REVIEW_TEST_PORT);
+if (!Number.isSafeInteger(port) || port < 1 || port > 65535 || [4317, 4318, 4173].includes(port)) throw new Error("TEST_REQUIRES_ISOLATED_PORT");
 const baseUrl = `http://127.0.0.1:${port}`;
 
 async function waitForHealth(child, stderr) {
@@ -26,7 +27,7 @@ async function waitForHealth(child, stderr) {
 async function post(url, body) {
   return fetch(`${baseUrl}${url}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { Origin: baseUrl, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
 }
@@ -76,6 +77,7 @@ test("新版候选进入软件状态机且任何旧Codex入口都不能推动", 
   assert.match((await oldDispatch.json()).message, /不能使用旧通用派发入口|当前业务阶段不能直接派发/);
 
   const oldCommentDispatch = await post(`/api/candidates/${createdBody.candidate.id}/comments`, {
+    dataRevision: createdBody.candidate.dataRevision,
     actor: "user",
     message: "旧按钮不应再派发",
     requestReview: true

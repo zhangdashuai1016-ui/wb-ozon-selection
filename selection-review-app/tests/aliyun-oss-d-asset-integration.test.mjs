@@ -16,10 +16,10 @@ import {
   settleAliyunOssAssetIntent,
   reconcileAliyunOssAssetIntentAfterRestart
 } from "../lib/aliyun-oss-d-asset-integration.mjs";
-import { inspectAdapterCapabilities, resolveFinalUploads } from "../lib/ozon-seller-api-de-adapter.mjs";
+import { inspectAdapterCapabilities, resolveFinalUploads, OZON_DE_READBACK_ENDPOINTS } from "../lib/ozon-seller-api-de-adapter.mjs";
 import { projectProductionPlanInputs, fingerprintProductionAuthorization } from "../lib/production-plan.mjs";
 import { authorizedProductionFixture, localFinalAssets } from "./helpers/c2-software-fixture.mjs";
-import { historicalPlanFixture, currentProductionBindingFixture } from "./helpers/d-software-fixture.mjs";
+import { historicalPlanFixture, currentProductionBindingFixture, capabilities as syntheticCapabilities } from "./helpers/d-software-fixture.mjs";
 
 const NOW = "2026-08-22T12:00:00.000Z";
 
@@ -88,8 +88,9 @@ test("持久化后只调用一次OSS并把稳定URL证据直接接入D适配器"
     storeIdentity: { status: "verified", expectedStore: "dandanshu", observedStore: "dandanshu", observedStoreRef: inputs.storeRef, credentialAlias: inputs.credentialAlias, evidenceRef: "store:1" },
     productImport: { status: "verified", protocolVersion: "ozon-product-import-v3", endpoint: "/v3/product/import", statusEndpoint: "/v1/product/import/info", evidenceRef: "import:1" },
     assetTransport: result.assetTransport,
-    inventoryWrite: { status: "verified", protocolVersion: "ozon-products-stocks-v2", endpoint: "/v2/products/stocks", warehouseId: "70001", storeRef: inputs.storeRef, warehouseRef: inputs.warehouseRef, credentialAlias: inputs.credentialAlias, evidenceRef: "stock:1" },
-    independentReadback: { status: "verified", protocolVersion: "ozon-independent-readback-v1", endpoints: { attributes: "/v4/product/info/attributes", info: "/v3/product/info/list", prices: "/v5/product/info/prices", stocks: "/v4/product/info/stocks", stateFailed: "/v3/product/list" }, evidenceRef: "readback:1" }
+    inventoryWrite: { status: "verified", protocolVersion: "ozon-products-stocks-v2", endpoint: "/v2/products/stocks", warehouseId: "70001", storeRef: inputs.storeRef, warehouseRef: inputs.warehouseRef, credentialAlias: inputs.credentialAlias, evidenceRef: "stock:1",
+      prerequisitePolicy: structuredClone(syntheticCapabilities().inventoryWrite.prerequisitePolicy) },
+    independentReadback: { status: "verified", protocolVersion: "ozon-independent-readback-v2", endpoints: structuredClone(OZON_DE_READBACK_ENDPOINTS), evidenceRef: "readback:1" }
   });
   assert.equal(capabilities.status, "ready");
   const resolved = resolveFinalUploads({ finalUploads: inputs.finalUploads, adapterCapabilities: capabilities });

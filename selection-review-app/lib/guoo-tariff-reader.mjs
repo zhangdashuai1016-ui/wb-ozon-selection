@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { inflateRawSync } from "node:zlib";
 
 const execFile = promisify(execFileCallback);
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -194,28 +195,89 @@ function lowerWeightLimit(value) {
   return Number(match[1]);
 }
 
-async function unzipEntry(filePath, entry, execFileImpl = execFile) {
+const MAX_ARCHIVE_ENTRY_BYTES = 16 * 1024 * 1024;
+
+// The workbook is a plain ZIP container. Reading it with Node's own zlib keeps the reader identical on every host
+// (the CI container has no /usr/bin/unzip); an injected execFileImpl keeps the historical unzip-emulating tests valid.
+async function readWorkbookArchive(filePath, readFileImpl = readFile) {
+  const buffer = await readFileImpl(filePath);
+  if (!Buffer.isBuffer(buffer) || buffer.length < 22) throw new Error("GUOO_TARIFF_ARCHIVE_INVALID");
+  let eocd = -1;
+  for (let offset = buffer.length - 22; offset >= Math.max(0, buffer.length - 22 - 65535); offset -= 1) {
+    if (buffer.readUInt32LE(offset) === 0x06054b50) { eocd = offset; break; }
+  }
+  if (eocd < 0) throw new Error("GUOO_TARIFF_ARCHIVE_INVALID");
+  const entryCount = buffer.readUInt16LE(eocd + 10);
+  const directorySize = buffer.readUInt32LE(eocd + 12);
+  const directoryOffset = buffer.readUInt32LE(eocd + 16);
+  if (entryCount > 10000 || directoryOffset + directorySize > eocd) throw new Error("GUOO_TARIFF_ARCHIVE_INVALID");
+  const entries = new Map();
+  let offset = directoryOffset;
+  for (let index = 0; index < entryCount; index += 1) {
+    if (offset + 46 > eocd || buffer.readUInt32LE(offset) !== 0x02014b50) throw new Error("GUOO_TARIFF_ARCHIVE_INVALID");
+    const method = buffer.readUInt16LE(offset + 10);
+    const compressedSize = buffer.readUInt32LE(offset + 20);
+    const uncompressedSize = buffer.readUInt32LE(offset + 24);
+    const nameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const commentLength = buffer.readUInt16LE(offset + 32);
+    const localOffset = buffer.readUInt32LE(offset + 42);
+    const name = buffer.toString("utf8", offset + 46, offset + 46 + nameLength);
+    if (!name || entries.has(name) || [compressedSize, uncompressedSize, localOffset].includes(0xffffffff)) {
+      throw new Error("GUOO_TARIFF_ARCHIVE_INVALID");
+    }
+    entries.set(name, { method, compressedSize, uncompressedSize, localOffset });
+    offset += 46 + nameLength + extraLength + commentLength;
+  }
+  return { buffer, entries };
+}
+
+function archiveEntryText(archive, name) {
+  const entry = archive.entries.get(name);
+  if (!entry) throw new Error(`GUOO_TARIFF_ARCHIVE_ENTRY_MISSING: ${name}`);
+  const { buffer } = archive, local = entry.localOffset;
+  if (local + 30 > buffer.length || buffer.readUInt32LE(local) !== 0x04034b50) throw new Error("GUOO_TARIFF_ARCHIVE_INVALID");
+  const start = local + 30 + buffer.readUInt16LE(local + 26) + buffer.readUInt16LE(local + 28);
+  const end = start + entry.compressedSize;
+  if (end > buffer.length || entry.uncompressedSize > MAX_ARCHIVE_ENTRY_BYTES) throw new Error("GUOO_TARIFF_ARCHIVE_INVALID");
+  const compressed = buffer.subarray(start, end);
+  let data;
+  if (entry.method === 0) data = compressed;
+  else if (entry.method === 8) data = inflateRawSync(compressed, { maxOutputLength: MAX_ARCHIVE_ENTRY_BYTES });
+  else throw new Error("GUOO_TARIFF_ARCHIVE_INVALID");
+  if (data.length !== entry.uncompressedSize) throw new Error("GUOO_TARIFF_ARCHIVE_INVALID");
+  return data.toString("utf8");
+}
+
+async function unzipEntry(filePath, entry, execFileImpl, archive) {
+  if (typeof execFileImpl !== "function") return archiveEntryText(archive, entry);
   const { stdout } = await execFileImpl("/usr/bin/unzip", ["-p", filePath, entry], {
     encoding: "utf8",
-    maxBuffer: 16 * 1024 * 1024,
+    maxBuffer: MAX_ARCHIVE_ENTRY_BYTES,
   });
   return stdout;
 }
 
-async function workbookParts(filePath, execFileImpl = execFile) {
-  const { stdout } = await execFileImpl("/usr/bin/unzip", ["-Z1", filePath], {
-    encoding: "utf8", maxBuffer: 16 * 1024 * 1024,
-  });
-  if (typeof stdout !== "string") throw new Error("GUOO_TARIFF_ARCHIVE_INVALID");
-  const entries = stdout.split(/\r?\n/u).filter(Boolean);
-  if (entries.length > 10000 || new Set(entries).size !== entries.length) throw new Error("GUOO_TARIFF_ARCHIVE_INVALID");
-  const members = new Set(entries);
+async function workbookParts(filePath, execFileImpl, readFileImpl = readFile) {
+  let members, archive = null;
+  if (typeof execFileImpl === "function") {
+    const { stdout } = await execFileImpl("/usr/bin/unzip", ["-Z1", filePath], {
+      encoding: "utf8", maxBuffer: MAX_ARCHIVE_ENTRY_BYTES,
+    });
+    if (typeof stdout !== "string") throw new Error("GUOO_TARIFF_ARCHIVE_INVALID");
+    const entries = stdout.split(/\r?\n/u).filter(Boolean);
+    if (entries.length > 10000 || new Set(entries).size !== entries.length) throw new Error("GUOO_TARIFF_ARCHIVE_INVALID");
+    members = new Set(entries);
+  } else {
+    archive = await readWorkbookArchive(filePath, readFileImpl);
+    members = new Set(archive.entries.keys());
+  }
   const [workbook, relations, stringsXml] = await Promise.all([
-    unzipEntry(filePath, "xl/workbook.xml", execFileImpl),
-    unzipEntry(filePath, "xl/_rels/workbook.xml.rels", execFileImpl),
-    members.has("xl/sharedStrings.xml") ? unzipEntry(filePath, "xl/sharedStrings.xml", execFileImpl) : "",
+    unzipEntry(filePath, "xl/workbook.xml", execFileImpl, archive),
+    unzipEntry(filePath, "xl/_rels/workbook.xml.rels", execFileImpl, archive),
+    members.has("xl/sharedStrings.xml") ? unzipEntry(filePath, "xl/sharedStrings.xml", execFileImpl, archive) : "",
   ]);
-  return { workbook, relations, strings: sharedStrings(stringsXml), members };
+  return { workbook, relations, strings: sharedStrings(stringsXml), members, archive };
 }
 
 async function worksheetData(filePath, parts, sheetName, execFileImpl) {
@@ -238,7 +300,7 @@ async function worksheetData(filePath, parts, sheetName, execFileImpl) {
   }
   const entry = target.startsWith("/xl/") ? target.slice(1) : `xl/${target.replace(/^\.\//, "")}`;
   if (!parts.members.has(entry)) throw new Error("GUOO_TARIFF_SHEET_RELATION_MISSING");
-  return parseWorksheet(await unzipEntry(filePath, entry, execFileImpl), parts.strings);
+  return parseWorksheet(await unzipEntry(filePath, entry, execFileImpl, parts.archive), parts.strings);
 }
 
 export function selectGuooTariffRow(rows, requestedRoute) {
@@ -404,7 +466,7 @@ function assertMainSheetQuoteFormula(worksheet, rowNumber) {
 export async function readGuooTariffCatalog({ filePath = DEFAULT_GUOO_TARIFF_PATH, execFileImpl, readFileImpl = readFile,
   now = () => new Date() } = {}) {
   const ruleVersion = guooTariffRuleVersionFromPath(filePath);
-  const [parts, bytes] = await Promise.all([workbookParts(filePath, execFileImpl), readFileImpl(filePath)]);
+  const [parts, bytes] = await Promise.all([workbookParts(filePath, execFileImpl, readFileImpl), readFileImpl(filePath)]);
   const worksheet = await worksheetData(filePath, parts, SHEET_NAME, execFileImpl);
   const sizeSources = await resolveSelectedSizeReference({ filePath, parts, worksheet, execFileImpl });
   const sourceRef = `guoo-xlsx:${path.basename(filePath)}:sha256:${createHash("sha256").update(bytes).digest("hex")}`;
@@ -447,7 +509,7 @@ export async function readCurrentGuooTariff({
     throw new Error(`GUOO_TARIFF_VERSION_MISMATCH: 当前文件是${currentRuleVersion}`);
   }
   const [parts, bytes] = await Promise.all([
-    workbookParts(filePath, execFileImpl),
+    workbookParts(filePath, execFileImpl, readFileImpl),
     readFileImpl(filePath),
   ]);
   const worksheet = await worksheetData(filePath, parts, SHEET_NAME, execFileImpl);

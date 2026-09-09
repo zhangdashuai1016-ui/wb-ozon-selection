@@ -34,9 +34,9 @@ function apiKey(value) {
 }
 
 /** Local development adapter only. Explicit injection replaces this boundary in a central runtime. */
-export async function readOzonDEKeychainSecret(binding, { signal, runtimeMode = "local_development", execFileImpl = execFileAsync } = {}) {
+export async function readOzonDEKeychainSecret(binding, { signal, runtimeMode = "local_development", execFileImpl = execFileAsync, platform = process.platform } = {}) {
   assertOzonDECredentialBinding(binding);
-  if (runtimeMode !== "local_development" || process.platform !== "darwin") throw transportError("OZON_DE_CREDENTIAL_READER_UNAVAILABLE", { layer: "credential" });
+  if (runtimeMode !== "local_development" || platform !== "darwin") throw transportError("OZON_DE_CREDENTIAL_READER_UNAVAILABLE", { layer: "credential" });
   if (typeof execFileImpl !== "function" || signal !== undefined && !(signal instanceof AbortSignal)) throw transportError("OZON_DE_HTTP_CONFIGURATION_INVALID");
   if (signal?.aborted) throw transportError("OZON_DE_HTTP_CANCELLED", { layer: "credential" });
   let result;

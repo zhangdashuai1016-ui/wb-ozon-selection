@@ -50,6 +50,7 @@ const guooFile = path.join(appDir, "data", "logistics", path.basename(DEFAULT_GU
 const readProbe = path.join(probeDirectory, "guoo-reads.jsonl");
 const forbiddenFile = path.join(probeDirectory, "forbidden-call.json");
 await writeFile(preload, `import childProcess from 'node:child_process';
+import fsPromises from 'node:fs/promises';
 import {syncBuiltinESMExports} from 'node:module';
 import {promisify} from 'node:util';
 import {writeFileSync,appendFileSync} from 'node:fs';
@@ -65,6 +66,12 @@ childProcess.execFile=(command,args,...rest)=>{
  return nativeExecFile(command,args,...rest);
 };
 childProcess.execFile[promisify.custom]=(...args)=>new Promise((resolve,reject)=>childProcess.execFile(...args,(error,stdout,stderr)=>error?reject(error):resolve({stdout,stderr})));
+// The GUOO reader opens the workbook with Node's own zlib; a real read of the project workbook shows up here (unzip stays allowed for history).
+const nativeReadFile=fsPromises.readFile;
+fsPromises.readFile=(file,...rest)=>{
+ if(String(file)===${JSON.stringify(guooFile)})appendFileSync(${JSON.stringify(readProbe)},JSON.stringify(['readFile',String(file)])+'\\n');
+ return nativeReadFile(file,...rest);
+};
 syncBuiltinESMExports();
 `);
 test.after(async () => {

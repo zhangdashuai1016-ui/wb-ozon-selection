@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 import { normalizeEvidenceScope, evidenceScopeKey, evidenceScopeMatches } from "./lifecycle-evidence-scope.mjs";
 import { validateLifecycleEvidenceData, isLifecycleEvidenceTraceValid, inspectCommissionCatalogValidity,
   normalizeCurrentCommissionCatalogs } from "./lifecycle-b-input-bundle.mjs";
-import { resolveLifecycleBCostPolicy } from "./global-pricing-policy.mjs";
+import { resolveLifecycleBCostPolicy, instantiateLifecycleBCostPolicySnapshot } from "./global-pricing-policy.mjs";
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -28,10 +28,18 @@ export function resolveLifecycleBProfitRule(candidate, rules) {
   return rules[key];
 }
 
+/** An explicit per-scope snapshot wins; otherwise the store's owner-approved template is bound to the current evidenced scope. */
+function lifecycleBCostPolicySnapshot(profitRule, context) {
+  if (profitRule?.costPolicySnapshot !== undefined && profitRule.costPolicySnapshot !== null) return profitRule.costPolicySnapshot;
+  if (isObject(profitRule?.costPolicy)) return instantiateLifecycleBCostPolicySnapshot({ template: profitRule.costPolicy, context });
+  return profitRule?.costPolicySnapshot;
+}
+
 export function buildLifecycleBExplicitOtherCosts(candidate, profitRule, { asOf = new Date().toISOString() } = {}) {
   const context = { platform: candidate?.targetStore === "wb" ? "wb" : "ozon", store: candidate?.targetStore,
     storeRef: candidate?.storeRef, salesScheme: candidate?.lifecycleEvidenceContextV11?.salesScheme };
-  const resolved = resolveLifecycleBCostPolicy({ snapshot: profitRule?.costPolicySnapshot, context, asOf });
+  const snapshot = lifecycleBCostPolicySnapshot(profitRule, context);
+  const resolved = resolveLifecycleBCostPolicy({ snapshot, context, asOf });
   const costs = Object.fromEntries(Object.entries(resolved).filter(([key]) => !["policyId", "policyVersion"].includes(key)));
   const policy = {
     ...costs,
@@ -41,7 +49,7 @@ export function buildLifecycleBExplicitOtherCosts(candidate, profitRule, { asOf 
     priceIncrementCny: profitRule?.priceRoundRmb,
     thresholdLogic: profitRule?.thresholdPolicy === "either" ? "any" : null,
     pricingPolicyVersion: resolved.policyVersion,
-    costPolicySnapshot: structuredClone(profitRule.costPolicySnapshot)
+    costPolicySnapshot: structuredClone(snapshot)
   };
   if (!finiteNonNegative(policy.packagingRmb) || !finiteNonNegative(policy.targetMarginRate) || policy.targetMarginRate >= 1 ||
       !finiteNonNegative(policy.minimumUnitProfitRmb) || !Number.isFinite(policy.priceIncrementCny) || policy.priceIncrementCny <= 0 ||
@@ -83,7 +91,7 @@ export function inspectLifecycleBCostReadiness({ candidate, rules, asOf }) {
     return { ready: true, missing: [], code: null };
   } catch (error) {
     if (!(error instanceof Error) || !Object.hasOwn(COST_READINESS_MESSAGES, error.code)) throw error;
-    const snapshot = profitRule?.costPolicySnapshot;
+    const snapshot = profitRule?.costPolicySnapshot ?? profitRule?.costPolicy;
     let missing = [];
     if (error.code === "B_COST_POLICY_INVALID" && (snapshot === null || snapshot === undefined)) {
       missing = ["完整成本政策未登记。"];

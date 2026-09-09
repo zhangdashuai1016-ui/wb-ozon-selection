@@ -1056,6 +1056,10 @@ function normalizeBusinessStateDocument(document) {
   data.rules = {
     ...DEFAULT_RULES,
     ...(data.rules || {}),
+    // Saved store rules keep their own values; fields introduced later (the owner-approved cost policy template) come from the defaults.
+    ozonDandanshu: { ...DEFAULT_RULES.ozonDandanshu, ...(data.rules?.ozonDandanshu || {}) },
+    ozonMiska: { ...DEFAULT_RULES.ozonMiska, ...(data.rules?.ozonMiska || {}) },
+    wbCrossListing: { ...DEFAULT_RULES.wbCrossListing, ...(data.rules?.wbCrossListing || {}) },
     selectionFlow: {
       ...DEFAULT_RULES.selectionFlow,
       ...(data.rules?.selectionFlow || {}),

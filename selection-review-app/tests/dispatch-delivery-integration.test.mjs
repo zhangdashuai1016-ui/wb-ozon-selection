@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,7 +9,8 @@ import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const projectDir = path.resolve(appDir, "..");
-const port = 43920;
+const port = Number(process.env.SELECTION_REVIEW_TEST_PORT);
+if (!Number.isSafeInteger(port) || port < 1 || port > 65535 || [4317, 4318, 4173].includes(port)) throw new Error("TEST_REQUIRES_ISOLATED_PORT");
 const baseUrl = `http://127.0.0.1:${port}`;
 
 async function waitFor(check, message) {
@@ -157,7 +158,7 @@ test("server marks a dispatch running only after turn/start returns a real turn 
   await waitFor(async () => (await fetch(`${baseUrl}/api/health`)).ok, `测试服务未启动：${stderr.join("")}`);
   const response = await fetch(`${baseUrl}/api/candidates/REAL-TURN-1/dispatch`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { Origin: baseUrl, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" },
     body: JSON.stringify({ dataRevision: 3 })
   });
   assert.equal(response.status, 201);
@@ -174,12 +175,15 @@ test("server marks a dispatch running only after turn/start returns a real turn 
   assert.equal(state.meta.automationStarted, false);
 });
 
-test("a blocked selection assignee does not starve an idle listing assignee at startup", async (t) => {
+test("startup never re-claims persisted waiting dispatches, so a blocked selection assignee can neither run nor starve listing work", async (t) => {
+  // Startup and ordinary refreshes do not resume historical jobs or re-claim old dispatches (README.md, AGENTS §0):
+  // a record without this process's own claim proof is never running, whatever its persisted dispatch says.
   const directory = await mkdtemp(path.join(tmpdir(), "selection-route-groups-"));
   const dataFile = path.join(directory, "candidates.json");
   const fakeCodex = path.join(directory, "fake-codex.mjs");
   const fakeCodexRunner = path.join(directory, "fake-codex");
-  const parallelPort = 43922;
+  const parallelPort = Number(process.env.SELECTION_REVIEW_TEST_SECOND_PORT);
+  if (!Number.isSafeInteger(parallelPort) || parallelPort < 1 || parallelPort > 65535 || [4317, 4318, 4173, port].includes(parallelPort)) throw new Error("TEST_REQUIRES_ISOLATED_PORT");
   const parallelBaseUrl = `http://127.0.0.1:${parallelPort}`;
   const skillsDirectory = path.join(directory, "skills");
   for (const name of ["ozon-wb-pricing", "optimize-ecommerce-seo"]) {
@@ -277,15 +281,18 @@ test("a blocked selection assignee does not starve an idle listing assignee at s
   t.after(() => stopApiProcess(child));
 
   await waitFor(async () => (await fetch(`${parallelBaseUrl}/api/health`)).ok, `测试服务未启动：${stderr.join("")}`);
-  const state = await waitFor(async () => {
-    const body = await (await fetch(`${parallelBaseUrl}/api/state`)).json();
-    const listing = body.candidates.find((item) => item.id === "LISTING-READY");
-    return listing?.activeDispatch?.runId === "turn-listing-parallel" ? body : null;
-  }, `空闲上架任务被选品任务阻塞：${stderr.join("")}`);
+  // Leave room for any (retired) startup delivery before asserting that nothing was resumed.
+  await new Promise((resolve) => setTimeout(resolve, 750));
+  const state = await (await fetch(`${parallelBaseUrl}/api/state`)).json();
   const selection = state.candidates.find((item) => item.id === "SELECTION-WAITING");
   const listing = state.candidates.find((item) => item.id === "LISTING-READY");
-  assert.equal(selection.activeDispatch.status, "waiting_assignee");
-  assert.equal(listing.activeDispatch.status, "running");
-  assert.equal(listing.activeDispatch.runId, "turn-listing-parallel");
+  assert.equal(selection.activeDispatch, null, "旧等待派发不得在启动时被当作运行中");
+  assert.equal(listing.activeDispatch, null, "启动不得替上架任务重新领取旧派发");
   assert.equal(state.meta.automationStarted, false);
+  const persisted = JSON.parse(await readFile(dataFile, "utf8"));
+  assert.deepEqual(persisted.dispatches.map((item) => [item.id, item.status, item.runId ?? null]),
+    [["D-SELECTION-WAITING", "waiting_assignee", null], ["D-LISTING-READY", "waiting_assignee", null]]);
+  assert.equal(persisted.meta.automationStarted, false);
+  for (const candidate of persisted.candidates) assert.equal(candidate.processing?.runId ?? null, null);
+  assert.equal(stderr.join(""), "");
 });

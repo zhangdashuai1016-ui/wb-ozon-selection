@@ -1,4 +1,5 @@
 import { VARIANT, phase7PassedState, platformSchemaEvidence, createFormalC1C2Fixture } from "./fixtures/formal-c1-flow-fixture.mjs";
+import { GLOBAL_PRICING_POLICY_VERSION } from "../lib/global-pricing-policy.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -53,6 +54,7 @@ test("旧v1估算通过记录保留可读但不得创建新的C1", async () => {
   const skuPackage = structuredClone(state.skuPackage);
   const profit = skuPackage.profitModels.find(item => item.profitModelVersion === skuPackage.activeProfitModelVersion);
   profit.calculation.version = "profit-calculation-v1-unrounded";
+  profit.pricingPolicyVersion = GLOBAL_PRICING_POLICY_VERSION; // 真实旧记录只带旧全局定价政策版本，不带新版成本政策快照版本
   profit.commissionMode = "estimated";
   profit.exactCommissionRequiredAtC = true;
   delete profit.calculationType;
@@ -814,17 +816,13 @@ test("正式C1从B实际创建和核验，经已保存AI回执合并自然进入
     const validation = validateSkuLifecyclePackage(sku);
     assert.equal(validation.valid, true, JSON.stringify(validation.errors));
   }
-  const { default: Ajv2020 } = await import("ajv/dist/2020.js");
-  const { default: addFormats } = await import("ajv-formats");
-  const ajv = new Ajv2020({ strict: true, allErrors: true }); addFormats(ajv);
-  ajv.addSchema(JSON.parse(await readFile(new URL("../schema/c1-sku-rights-review-v1.schema.json", import.meta.url), "utf8")));
-  const published = JSON.parse(await readFile(new URL("../schema/c1-product-plan-v1.1.schema.json", import.meta.url), "utf8"));
-  const validate = ajv.compile(published);
+  // The published schema graph carries cross-schema $refs; validate through the shared registry of every published schema.
+  const publishedValidator = await loadPublishedSchemaValidator();
+  const validate = publishedValidator.getSchema("c1-product-plan-v1.1");
   for (const plan of [created.c1ProductPlan, checked.c1ProductPlan, merged.c1ProductPlan]) {
     assert.equal(validate(plan), true, JSON.stringify(validate.errors));
   }
-  ajv.addSchema(JSON.parse(await readFile(new URL("../schema/software-job-admission-v1.schema.json", import.meta.url), "utf8")));
-  const validateC2 = ajv.compile(JSON.parse(await readFile(new URL("../schema/c2-asset-lifecycle-v1.1.schema.json", import.meta.url), "utf8")));
+  const validateC2 = publishedValidator.getSchema("c2-asset-lifecycle-v1.1");
   assert.equal(validateC2(c2.skuPackage.c2FinalAssets), true, JSON.stringify(validateC2.errors));
 });
 

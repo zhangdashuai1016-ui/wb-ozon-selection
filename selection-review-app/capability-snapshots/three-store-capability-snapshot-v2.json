@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-09T14:30:48.437Z",
+  "frozenAt": "2026-09-09T15:55:33.724Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 620,
-      "sha256": "3577077a896024ad05cca5c937bf676f363b7877470e52f32c9f952863720619",
+      "sha256": "e2dbbf87f693ea83a23ceb573d3bb51195cd50f1d85f3b1d24b44ebe48f8e59c",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -432,7 +432,7 @@
       },
       {
         "path": "lib/global-pricing-policy.mjs",
-        "sha256": "06b0dd6e9e6e66645a117f04850a6329550bfcb6602100579ab1e00054da1094"
+        "sha256": "0ccb64f394f954e470a3d58fe74c2261a23ac23cffe4ffc155a45ed3b3e6e007"
       },
       {
         "path": "lib/guoo-route-comparison.mjs",
@@ -440,7 +440,7 @@
       },
       {
         "path": "lib/guoo-tariff-reader.mjs",
-        "sha256": "5ab157726b6f43d4830069752299e1fc0a7609b81cbfa4f6cc2422dd60c0bb2a"
+        "sha256": "7edc4dd229e37a4223d81168b358ce4746acfbd7ceb6afe4a4dafec543d18f19"
       },
       {
         "path": "lib/http-api-boundary.mjs",
@@ -496,7 +496,7 @@
       },
       {
         "path": "lib/lifecycle-b-evidence-runtime.mjs",
-        "sha256": "b3239fa7e5e1dd95a1dfb6ac65fb54f463145b3eab29b21d48c1c8ef69dcfe7f"
+        "sha256": "ab44a05fc2982fb519646bcf74b5057e6ded29893aaea9c17b6b8a9cdbed8985"
       },
       {
         "path": "lib/lifecycle-b-input-bundle.mjs",
@@ -600,7 +600,7 @@
       },
       {
         "path": "lib/ozon-de-http-transport.mjs",
-        "sha256": "193398e8cadcbf1e38fadf73593b13b360d2721d2506c4025de0b48ba5c9b099"
+        "sha256": "dda208bd4094efce09d9061f9e1ed0f6635b66c78ba208f6bee283fd2fcdc11a"
       },
       {
         "path": "lib/ozon-de-preflight-evidence-reader.mjs",
@@ -828,7 +828,7 @@
       },
       {
         "path": "lib/workflow.mjs",
-        "sha256": "76f4c8edab7721d0ddab0ad2bd89a4ee37d25e0ad31fe1e1d6990252669bed00"
+        "sha256": "51e26b6b116cde1d01f882a1f46c74fa6c31f8f0d812b18a5dfee7330aa55e4c"
       },
       {
         "path": "package.json",
@@ -1036,11 +1036,11 @@
       },
       {
         "path": "schema/production-authorization-v1.1.schema.json",
-        "sha256": "fb628ea69cb8879ac795b8c512196faf3d871fce3564316a7745cf0ed52eb5ea"
+        "sha256": "dc941713a519f5a265146ca20a46972ec89cf9a777e58c57f98fb5185b17ee34"
       },
       {
         "path": "schema/production-authorization-v1.2.schema.json",
-        "sha256": "71f4aacdbfda46420cd655cf05ceb7da7ccbc9b267ab5007de5b0d36be7023e5"
+        "sha256": "a7ab828b2036162daf2a8781e4bdd75f8b55b816398be520c556bf818adbf392"
       },
       {
         "path": "schema/production-plan-v1.1.schema.json",
@@ -1144,7 +1144,7 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "f2a787120d64987a8b2e3e7036dc96e0813b627c5ced23900c40c99e19aad3ee"
+        "sha256": "de1e66c8bd50c19a091abc0fe02291168166976678e0a3f3a3e6f1b9b3eb0a8a"
       },
       {
         "path": "src/App.jsx",
@@ -1472,7 +1472,7 @@
       },
       {
         "path": "tests/aliyun-oss-d-asset-integration.test.mjs",
-        "sha256": "71414a745e33dde9e34675fc69900a6290f9ef53ba5ab65c33ed8a03d8c2a391"
+        "sha256": "42b261f3a49ff250cd78ac0c6ac207960de66ca4a501c47f87fc5281222d95f4"
       },
       {
         "path": "tests/aliyun-oss-runtime-deployment-boundary.test.mjs",
@@ -1576,7 +1576,7 @@
       },
       {
         "path": "tests/c1-k3-runtime-bridge.test.mjs",
-        "sha256": "9cfd7a7d32eac3af44dca2e7d7f8cb7ef9b4c04a3962974291e099c314f6d88c"
+        "sha256": "f6f4c44da5a7b1453f6ddcda6b376c4f401eef3c770f511383be3948601cc542"
       },
       {
         "path": "tests/c1-keyword-evidence-auto-trigger.test.mjs",
@@ -1628,7 +1628,7 @@
       },
       {
         "path": "tests/c1-product-plan.test.mjs",
-        "sha256": "4efec87e3a38fff091ff3a2b241effbb8187fe54ae3a21e302cc7b09ee65cd83"
+        "sha256": "4237b9624a10a044446d4dc550b6df500c64850e3af5bc4ef0c02864abaf049f"
       },
       {
         "path": "tests/c1-rights-review-input.test.mjs",
@@ -1776,7 +1776,7 @@
       },
       {
         "path": "tests/d-e-software-persistence.test.mjs",
-        "sha256": "1760f927246517f2d7f2cf6044a97bde7809a5d6bd24b2dc4da9f7969371ea98"
+        "sha256": "70b345e96204e82415a43b817018029eddee224a72c5eed91f4fadf17aff0740"
       },
       {
         "path": "tests/d-e-software-runtime-view.test.mjs",
@@ -1816,11 +1816,11 @@
       },
       {
         "path": "tests/dispatch-api.test.mjs",
-        "sha256": "643e06dd7d674c378a763a6649806e7931703ae00fd195cb23993cdd6c2ace52"
+        "sha256": "68ac6f4425462e622ea9db24444a1eddcf0308a10eaf0a86580d54d0d5dc4aca"
       },
       {
         "path": "tests/dispatch-delivery-integration.test.mjs",
-        "sha256": "ba4d8c78f8b81a0febd44c5f9b90bf7256fe029c75581366369a8dff53df11c0"
+        "sha256": "5ba9f93115a661d50550727100655b91cfdeacf5c1e0f19dbfe6e9a585062489"
       },
       {
         "path": "tests/draft-production-execution.test.mjs",
@@ -1956,7 +1956,7 @@
       },
       {
         "path": "tests/fixtures/final-pricing-revalidation-fixture.mjs",
-        "sha256": "b25a393d7d0862243f6d4aa120205dbde94902e13b0b2029dc87a1ae770913b0"
+        "sha256": "063184c8237df2c5037ab99d4bb299e2e2df1baa291aa5bc4a67c0b300a20349"
       },
       {
         "path": "tests/fixtures/final-pricing-review-fixture.mjs",
@@ -2000,7 +2000,7 @@
       },
       {
         "path": "tests/global-pricing-policy.test.mjs",
-        "sha256": "cb09078a98c8dbc4d5ca76b4b62fe221e7fecef21052d06ca9f088f09bdcf9b7"
+        "sha256": "61b075638853fe78df29bcf05f54baf1e54792bce4a2943fcf7c71f3bcddac34"
       },
       {
         "path": "tests/guoo-route-comparison.test.mjs",
@@ -2108,7 +2108,7 @@
       },
       {
         "path": "tests/legacy-candidate-fixture.test.mjs",
-        "sha256": "dbd2a18c2848f1d09bb388a795f682cd31d7d9578092c1bf96120ef3b17f7fcc"
+        "sha256": "5fd90407185139bcf7242804dd7333e5320f06920f07a0dbc912c074f7311bea"
       },
       {
         "path": "tests/lifecycle-b-evidence-context.test.mjs",
@@ -2124,7 +2124,7 @@
       },
       {
         "path": "tests/lifecycle-b-evidence-runtime.test.mjs",
-        "sha256": "bf44227ddc50010751c9e839be013a3c10da458c19065153f8ad471655f8a208"
+        "sha256": "b9c128a733b5631904dd37069fc6bfb103e30c184c10d55dc3d7751244150fd7"
       },
       {
         "path": "tests/lifecycle-b-input-bundle.test.mjs",
@@ -2136,7 +2136,7 @@
       },
       {
         "path": "tests/lifecycle-c-stage-generic-api.test.mjs",
-        "sha256": "23754288b29ca23c93d6c684aa5a2242fedb808f969e6bdf892dd7c3e4afbedb"
+        "sha256": "644696eb75f5b7a3dfd49cd485ecaab5b8ec3c343d7dea0512621b7625e7e10a"
       },
       {
         "path": "tests/lifecycle-e-readback-generic-api.test.mjs",
@@ -2220,7 +2220,7 @@
       },
       {
         "path": "tests/ozon-account-read-runtime.test.mjs",
-        "sha256": "8a45342d6fefc63bd34da6f703b5590c155c59580d378fdc636aa42669bdda46"
+        "sha256": "15e98ea0f2f002896fbfe5bbc702220d525fc551b74f3a141bfe32697e733877"
       },
       {
         "path": "tests/ozon-account-read-ui.test.mjs",
@@ -2228,7 +2228,7 @@
       },
       {
         "path": "tests/ozon-de-http-transport.test.mjs",
-        "sha256": "b6cbf8b559ad35ea8b977ae49a74da97d72b24006491b27de9e4850b917a0af6"
+        "sha256": "9cc7172399b0b86c4cf795d5d284c0b506b96e4d19259ceafcb93e7b888f8d81"
       },
       {
         "path": "tests/ozon-de-preflight-evidence-reader.test.mjs",
@@ -2348,7 +2348,7 @@
       },
       {
         "path": "tests/real-a-b-c1-api.test.mjs",
-        "sha256": "8798a182988aeb426a8dd496ffc9d61139ddb0fe11abd66bea1f08668ccb4c4d"
+        "sha256": "368f35f28d78ae951e90e4cb2e8ac0569009b9c1addb2258814c4b37444d97f7"
       },
       {
         "path": "tests/real-a-b-c1-flow.test.mjs",
@@ -2376,7 +2376,7 @@
       },
       {
         "path": "tests/recovery-classification.test.mjs",
-        "sha256": "0d21b71a16d212f409c3c18e8e3820dd85c115ddbd181b5fda4c0a953e9c224b"
+        "sha256": "9767b3ae0071f1c4081ac756dc553ed3bfe443608b1c8c7857a77ef4b46c2116"
       },
       {
         "path": "tests/runtime-architecture-view.test.mjs",
@@ -2440,7 +2440,7 @@
       },
       {
         "path": "tests/source-capture-api.test.mjs",
-        "sha256": "a5ecc6b4406e5ba074c7cfb631381d24dfa27812437cf407f46961d01377b885"
+        "sha256": "fd74f606374e9213717efd8f539967d11c634819f6ac21dc19f87e614dd801ae"
       },
       {
         "path": "tests/source-capture-job-api.test.mjs",

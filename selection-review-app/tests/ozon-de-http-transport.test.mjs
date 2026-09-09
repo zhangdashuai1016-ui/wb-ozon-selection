@@ -112,18 +112,19 @@ test("non-JSON request structures and invalid options are rejected without invok
 
 test("the default local secret reader uses only exact execFile arguments and returns a string without exposing failures", async () => {
   const controller = new AbortController(), calls = [];
-  const value = await readOzonDEKeychainSecret(credential, { runtimeMode: "local_development", signal: controller.signal,
+  // The keychain reader is macOS-only in production; the argument contract is checked with an injected platform and execFile.
+  const value = await readOzonDEKeychainSecret(credential, { runtimeMode: "local_development", platform: "darwin", signal: controller.signal,
     execFileImpl: async (...args) => { calls.push(args); return { stdout: "synthetic-api-key\n", stderr: "" }; } });
   assert.equal(value, "synthetic-api-key"); assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].slice(0, 2), ["/usr/bin/security", ["find-generic-password", "-w", "-s", credential.keychainService, "-a", credential.keychainAccount]]);
   assert.equal(calls[0][2].signal, controller.signal); assert.ok(calls[0][2].maxBuffer <= 16 * 1024);
   const privateError = Object.assign(new Error("RAW_PRIVATE_STDERR"), { code: 44, stderr: "RAW_PRIVATE_STDERR", stdout: "synthetic-api-key" });
-  await assert.rejects(() => readOzonDEKeychainSecret(credential, { execFileImpl: async () => { throw privateError; } }), error => {
+  await assert.rejects(() => readOzonDEKeychainSecret(credential, { platform: "darwin", execFileImpl: async () => { throw privateError; } }), error => {
     assert.ok(error instanceof OzonDEHttpTransportError); assert.equal(error.externalRequestState, "not_sent");
     assert.equal(`${error.stack}${JSON.stringify(error)}`.includes("RAW_PRIVATE_STDERR"), false); return true;
   });
   for (const stdout of ["", "  ", {}, "{\"Api-Key\":\"value\"}", "key\nInjected: value"]) {
-    await assert.rejects(() => readOzonDEKeychainSecret(credential, { execFileImpl: async () => ({ stdout, stderr: "" }) }),
+    await assert.rejects(() => readOzonDEKeychainSecret(credential, { platform: "darwin", execFileImpl: async () => ({ stdout, stderr: "" }) }),
       failure("OZON_DE_CREDENTIAL_VALUE_INVALID", "not_sent", "not_attempted"));
   }
   let forbiddenCalls = 0;

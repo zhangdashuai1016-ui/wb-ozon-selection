@@ -1,5 +1,6 @@
 import { createSyntheticBCostPolicy } from "./fixtures/b-cost-policy-fixture.mjs";
 import { SYNTHETIC_STORE_REF } from "./fixtures/store-binding-fixture.mjs";
+import { DEFAULT_RULES } from "../lib/workflow.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -220,4 +221,28 @@ test("费用缺口只显示固定中文项目名称，不回显来源字符串",
   const result = inspectLifecycleBCostReadiness({ candidate, rules, asOf: "2026-09-09T00:00:00.000Z" });
   assert.deepEqual(result.missing, ["提现费适用性或数值尚未核实。", "税费适用性或数值尚未核实。"]);
   assert.equal(JSON.stringify(result).includes("synthetic-private-source"), false);
+});
+
+test("店铺成本模板按当前范围实例化为快照，显式快照优先，范围不符不实例化也不回退", () => {
+  const asOf = "2026-09-09T12:00:00.000Z";
+  const candidate = { targetStore: "dandanshu", storeRef: SYNTHETIC_STORE_REF, lifecycleEvidenceContextV11: { salesScheme: "rfbs" }, packagingCostRmb: 1.5 };
+  const rules = { ozonDandanshu: structuredClone(DEFAULT_RULES.ozonDandanshu) };
+  assert.equal(rules.ozonDandanshu.costPolicySnapshot, undefined);
+  const costs = buildLifecycleBExplicitOtherCosts(candidate, resolveLifecycleBProfitRule(candidate, rules), { asOf });
+  assert.equal(costs.pricingPolicyVersion, DEFAULT_RULES.ozonDandanshu.costPolicy.policyVersion);
+  assert.deepEqual(costs.costPolicySnapshot.scope, { platform: "ozon", store: "dandanshu", storeRef: SYNTHETIC_STORE_REF, salesScheme: "rfbs" });
+  assert.equal(costs.costPolicySnapshot.schemaVersion, "b-cost-policy-snapshot-v1");
+  assert.deepEqual(costs.costPolicySnapshot.items, DEFAULT_RULES.ozonDandanshu.costPolicy.items);
+  assert.deepEqual([costs.acquiringRate, costs.taxRate, costs.otherRate, costs.fixedOtherRmb], [0, 0, 0, 0]);
+  assert.deepEqual(inspectLifecycleBCostReadiness({ candidate, rules, asOf }), { ready: true, missing: [], code: null });
+  assert.deepEqual(assertLifecycleBCostsCurrent({ candidate, rules, otherCosts: costs, asOf }), costs);
+  const fbo = { ...candidate, lifecycleEvidenceContextV11: { salesScheme: "fbo" } };
+  assert.throws(() => buildLifecycleBExplicitOtherCosts(fbo, rules.ozonDandanshu, { asOf }), { code: "B_COST_POLICY_SCOPE_MISMATCH" });
+  assert.equal(inspectLifecycleBCostReadiness({ candidate: fbo, rules, asOf }).code, "B_COST_POLICY_SCOPE_MISMATCH");
+  assert.throws(() => buildLifecycleBExplicitOtherCosts({ ...candidate, storeRef: null }, rules.ozonDandanshu, { asOf }), { code: "B_COST_POLICY_SCOPE_MISMATCH" });
+  const explicit = currentCostRules();
+  explicit.ozonDandanshu.costPolicy = structuredClone(DEFAULT_RULES.ozonDandanshu.costPolicy);
+  const explicitCosts = buildLifecycleBExplicitOtherCosts(candidate, explicit.ozonDandanshu, { asOf });
+  assert.equal(explicitCosts.pricingPolicyVersion, explicit.ozonDandanshu.costPolicySnapshot.policyVersion);
+  assert.notEqual(explicitCosts.pricingPolicyVersion, DEFAULT_RULES.ozonDandanshu.costPolicy.policyVersion);
 });

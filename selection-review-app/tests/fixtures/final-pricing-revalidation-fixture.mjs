@@ -4,8 +4,8 @@ import { evaluateFinalMarketPricing } from "../../lib/market-sample-policy.mjs";
 import { buildLifecycleBExplicitOtherCosts } from "../../lib/lifecycle-b-evidence-runtime.mjs";
 import { createLifecycleBInputBundle } from "../../lib/lifecycle-b-input-bundle.mjs";
 
-export function createFinalPricingRevalidationFixture() {
-  const original = createFormalC1C2Fixture({ salesSnapshotVersion: "sales-snapshot-v1.1" });
+export function createFinalPricingRevalidationFixture(formalOptions = {}) {
+  const original = createFormalC1C2Fixture({ ...formalOptions, salesSnapshotVersion: "sales-snapshot-v1.1" });
   const candidate = structuredClone(original.candidate), sku = candidate.lifecycleV11.skuPackage;
   const profit = sku.profitModels.at(-1), observedAt = "2026-08-18T06:00:00.000Z";
   const context = { platform: "ozon", store: "dandanshu", storeRef: structuredClone(sku.g1Identity.storeRef),
@@ -37,5 +37,5 @@ export function createFinalPricingRevalidationFixture() {
   const assessmentInput = { assessmentId: "final-pricing:synthetic-1", assessedAt: observedAt,
     target: { candidateId: candidate.id, sourceRevision: candidate.dataRevision, skuPackageId: sku.skuPackageId, platform: sku.targetPlatform, store: sku.targetStore, storeRef: sku.g1Identity.storeRef, market: "ozon_cn_cross_border" },
     salesSnapshots, reviews, selectedPriceRub: profit.recommendedSalePriceRub };
-  return { candidate, assessmentInput, assessment: evaluateFinalMarketPricing(assessmentInput), evidencePacks, currentCommissionCatalogs: [], rules, observedAt };
+  return { formal: original, candidate, assessmentInput, assessment: evaluateFinalMarketPricing(assessmentInput), evidencePacks, currentCommissionCatalogs: [], rules, observedAt };
 }

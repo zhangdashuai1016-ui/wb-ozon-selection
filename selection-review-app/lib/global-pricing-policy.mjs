@@ -64,6 +64,30 @@ export function resolveLifecycleBCostPolicy({ snapshot, context, asOf }) {
   return Object.freeze(resolved);
 }
 
+export const B_COST_POLICY_TEMPLATE_VERSION = "b-cost-policy-template-v1";
+const TEMPLATE_FIELDS = Object.freeze(["schemaVersion", "policyId", "policyVersion", "salesSchemes", "effectiveFrom", "effectiveTo", "policyEvidenceRef", "items"]);
+
+/**
+ * Bind a store's owner-approved cost policy template to the current evidenced scope. The template carries the declared
+ * items, evidence and validity; the scope (platform, store identity, sales scheme) comes from the candidate's own evidence
+ * context and must be listed by the template. The returned snapshot is validated by resolveLifecycleBCostPolicy like any
+ * explicit snapshot; nothing is filled from global defaults.
+ */
+export function instantiateLifecycleBCostPolicySnapshot({ template, context }) {
+  if (!exactCostObject(template, TEMPLATE_FIELDS) || template.schemaVersion !== B_COST_POLICY_TEMPLATE_VERSION ||
+      !costRef(template.policyId) || !costRef(template.policyVersion) || !costRef(template.policyEvidenceRef) ||
+      !Array.isArray(template.salesSchemes) || template.salesSchemes.length === 0 || template.salesSchemes.length > 20 ||
+      template.salesSchemes.some(scheme => !costRef(scheme) || scheme !== scheme.toLowerCase()) ||
+      !exactCostObject(template.items, COST_FIELDS)) costError("B_COST_POLICY_INVALID");
+  if (!costScope(context) || !template.salesSchemes.includes(context.salesScheme)) costError("B_COST_POLICY_SCOPE_MISMATCH");
+  return {
+    schemaVersion: "b-cost-policy-snapshot-v1", policyId: template.policyId, policyVersion: template.policyVersion,
+    scope: { platform: context.platform, store: context.store, storeRef: structuredClone(context.storeRef), salesScheme: context.salesScheme },
+    effectiveFrom: template.effectiveFrom, effectiveTo: template.effectiveTo, policyEvidenceRef: template.policyEvidenceRef,
+    items: structuredClone(template.items)
+  };
+}
+
 function finiteNonNegative(value, label) {
   if (!Number.isFinite(value) || value < 0) throw new Error(`PRICING_INPUT_GAP: ${label}必须是非负数字`);
   return value;

@@ -155,6 +155,39 @@ export const DEFAULT_RULES = {
   }
 };
 
+/**
+ * Owner-approved store costs as a versioned cost policy template. Items and evidence are explicit; the B stage binds the
+ * template to the candidate's evidenced scope (store identity, rFBS) and never fills gaps from global defaults.
+ * 2026-08-04: 贴标 1.5 元/单、广告 0（自然流量，无单独广告计划）、退货预留 5%、破损预留 5%、提现 2%，固定其他费用无。
+ * 2026-09-09: 主人确认无收单费、无税费、无其他比例费用。
+ */
+function ownerApprovedStoreCostPolicy() {
+  // Declared inside the hoisted factory: DEFAULT_RULES is built from profitRule() at module initialisation.
+  const OWNER_COST_DECISION_2026_08_04 = "owner-decision:2026-08-04:store-cost-items";
+  const OWNER_COST_DECISION_2026_09_09 = "owner-decision:2026-09-09:no-acquiring-tax-or-other-fees";
+  const item = (status, value, basis, evidenceRef) => ({ status, value, basis, evidenceRef, includedIn: null });
+  return {
+    schemaVersion: "b-cost-policy-template-v1",
+    policyId: "owner-approved-store-costs",
+    policyVersion: "owner-approved-store-costs-2026-09-09-v1",
+    salesSchemes: ["rfbs"],
+    effectiveFrom: "2026-09-09T00:00:00.000Z",
+    effectiveTo: null,
+    policyEvidenceRef: `${OWNER_COST_DECISION_2026_08_04};${OWNER_COST_DECISION_2026_09_09}`,
+    items: {
+      labelRmb: item("applicable", GLOBAL_LABEL_FEE_PER_ORDER_CNY, "per_order_cny", OWNER_COST_DECISION_2026_08_04),
+      fixedOtherRmb: item("not_applicable", null, "per_unit_cny", OWNER_COST_DECISION_2026_08_04),
+      advertisingRate: item("applicable", 0, "target_price_cny_rate", `${OWNER_COST_DECISION_2026_08_04}:natural-traffic-no-ad-plan`),
+      returnReserveRate: item("applicable", 0.05, "target_price_cny_rate", OWNER_COST_DECISION_2026_08_04),
+      damageReserveRate: item("applicable", GLOBAL_DAMAGE_LOSS_RESERVE_RATE, "target_price_cny_rate", OWNER_COST_DECISION_2026_08_04),
+      withdrawalFeeRate: item("applicable", GLOBAL_WITHDRAWAL_FEE_RATE, "target_price_cny_rate", OWNER_COST_DECISION_2026_08_04),
+      acquiringRate: item("not_applicable", null, "target_price_cny_rate", OWNER_COST_DECISION_2026_09_09),
+      taxRate: item("not_applicable", null, "target_price_cny_rate", OWNER_COST_DECISION_2026_09_09),
+      otherRate: item("not_applicable", null, "target_price_cny_rate", OWNER_COST_DECISION_2026_09_09)
+    }
+  };
+}
+
 function profitRule(storeName) {
   return {
     storeName,
@@ -171,6 +204,7 @@ function profitRule(storeName) {
     withdrawalFeeRate: GLOBAL_WITHDRAWAL_FEE_RATE,
     labelCostRmb: GLOBAL_LABEL_FEE_PER_ORDER_CNY,
     fixedOtherRmb: 0,
+    costPolicy: ownerApprovedStoreCostPolicy(),
     note: "使用全局Ozon/WB定价Skill的source-market-fit口径：先反推盈亏、15%利润率和20元利润价格线，再与A阶段市场目标价比较；项目门槛仍为利润≥20元或利润率≥15%满足任一项。贴单费按每单1.5元，破损丢失按成交收入5%，提现费按成交收入2%，均只计一次。"
   };
 }
