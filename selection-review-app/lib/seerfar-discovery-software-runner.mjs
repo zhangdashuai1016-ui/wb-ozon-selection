@@ -31,10 +31,13 @@ function stepResult(observation, scope) {
     return {schemaVersion:'seerfar-discovery-quota-result-v1',...base,remainingPoints:observation.remainingPoints};
   }
   requireValue(Array.isArray(observation.marketProducts), 'RESPONSE_INVALID');
+  // The saved result states the owner's conditions back; the contract rejects an echo that differs from
+  // the authorized request, so a filtered page can never be saved as if it were the whole category.
   return {schemaVersion:SEERFAR_MARKET_RESULT_SCHEMA_VERSION,...base,requestId:scope.request.requestId,
     contractVersion:scope.contractVersion,platform:scope.request.platform,categoryId:scope.request.categoryId,
     fulfillment:scope.request.fulfillment,status:observation.marketProducts.length ? 'candidates_found' : 'true_empty',
-    products:clone(observation.marketProducts),dateRange:clone(observation.dateRange),collection:clone(observation.collection)};
+    products:clone(observation.marketProducts),dateRange:clone(observation.dateRange),
+    appliedFilters:clone(observation.appliedFilters ?? null),collection:clone(observation.collection)};
 }
 
 /** One consumed authorization owns the ordered three-request transaction. Each step is durable before sending. */
@@ -176,6 +179,7 @@ export async function runSeerfarDiscoverySoftwareJob({repository,softwareJobStor
     });
     const result=await transport({targetPlatform:scope.request.platform,fulfillment:scope.request.fulfillment,attemptLimit:1,
       seerfarRequest:{operation:'category_detail',platform:scope.request.platform,categoryId:scope.request.categoryId,
+        filters:clone(scope.request.filters??null),
         attemptId:jobId,queryId:scope.request.requestId,receiptId:`a-discovery-receipt:${jobId}`,startedAt:serverClock()}});
     if (!result.observation.completed) {
       const code=result.observation.failureKind;

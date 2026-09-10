@@ -309,3 +309,74 @@ test('category rows keep the provider weight, volume and dimension text as v3 pa
     await assert.rejects(categoryTransport(broken)(categoryRequest()), error => error.code === 'schema_error');
   }
 });
+
+const EMPTY_RANGE = { min: null, max: null };
+// Provider units: price RUB, weight grams, volume litres, monthlySales units in the response date window.
+const OWNER_FILTERS = { priceRub: { min: 800, max: null }, weightGrams: { min: null, max: 1000 },
+  volumeLitres: { min: 0.5, max: 12.4 }, salesCount: { min: 30, max: null } };
+function filteredCategoryRequest(filters, platform = 'ozon') {
+  const built = categoryRequest(platform);
+  built.seerfarRequest.filters = filters;
+  return built;
+}
+
+test('owner filters fill only their own provider slot, in the provider unit, leaving every other slot empty', () => {
+  for (const platform of ['ozon', 'wb']) {
+    const fulfillment = platform === 'ozon' ? 'rfbs' : 'FBS_OVERSEAS';
+    const none = buildSeerfarCategoryPayload({ platform, categoryId: '100_200', fulfillment });
+    for (const slot of ['price', 'weight', 'volume', 'monthlySales', 'monthlyRevenue', 'monthlySalesRate',
+      'reviewCount', 'reviewRating', 'questionsAndAnswers', 'grossMargin', 'variants']) assert.deepEqual(none[slot], EMPTY_RANGE, slot);
+    const payload = buildSeerfarCategoryPayload({ platform, categoryId: '100_200', fulfillment, filters: OWNER_FILTERS });
+    assert.deepEqual(payload.price, { min: 800, max: null });
+    assert.deepEqual(payload.weight, { min: null, max: 1000 });
+    assert.deepEqual(payload.volume, { min: 0.5, max: 12.4 });
+    assert.deepEqual(payload.monthlySales, { min: 30, max: null });
+    // Nothing else moved: same keys, same order, same values once the four declared slots are emptied again.
+    assert.deepEqual(Object.keys(payload), Object.keys(none));
+    assert.deepEqual({ ...payload, price: EMPTY_RANGE, weight: EMPTY_RANGE, volume: EMPTY_RANGE, monthlySales: EMPTY_RANGE }, none);
+  }
+  const single = buildSeerfarCategoryPayload({ platform: 'ozon', categoryId: '100_200', fulfillment: 'rfbs', filters: { salesCount: { min: 30, max: null } } });
+  assert.deepEqual(single.monthlySales, { min: 30, max: null });
+  assert.deepEqual([single.price, single.weight, single.volume, single.monthlyRevenue], Array(4).fill(EMPTY_RANGE));
+  for (const invalid of [{}, [], { unknownFilter: { min: 1, max: null } }, { monthlySales: { min: 1, max: null } },
+    { priceRub: { min: -1, max: null } }, { priceRub: { min: 900, max: 800 } }, { priceRub: { min: null, max: null } },
+    { priceRub: { min: 800 } }, { priceRub: { min: 800, max: null, extra: 1 } }, { priceRub: { min: '800', max: null } },
+    { priceRub: null }, { priceRub: { min: Infinity, max: null } }]) {
+    assert.throws(() => buildSeerfarCategoryPayload({ platform: 'ozon', categoryId: '100_200', fulfillment: 'rfbs', filters: invalid }),
+      /SEERFAR_CATEGORY_FILTERS_INVALID/, JSON.stringify(invalid));
+  }
+});
+
+test('a filtered category run sends the declared ranges and echoes them back with the v3 market result', async () => {
+  const bodies = [], steps = [];
+  const transport = createSeerfarOpenApiTransport({ secretProvider: async () => 'synthetic-category-key', sleep: async () => {},
+    clock: { now: () => 0 }, onStepResult: async step => { steps.push(step); },
+    httpTransport: async req => { bodies.push(req.body);
+      return req.step === 'category_detail' ? { ...response(req.step), json: { code: 200, data: categoryData('ozon', 2) } } : response(req.step); } });
+  const receipt = await transport(filteredCategoryRequest(OWNER_FILTERS));
+  assert.deepEqual(bodies[1].price, { min: 800, max: null });
+  assert.deepEqual(bodies[1].weight, { min: null, max: 1000 });
+  assert.deepEqual(bodies[1].volume, { min: 0.5, max: 12.4 });
+  assert.deepEqual(bodies[1].monthlySales, { min: 30, max: null });
+  assert.deepEqual(receipt.appliedFilters, OWNER_FILTERS);
+  assert.equal(receipt.marketProducts.length, 2);
+  const marketStep = steps.find(step => step.step === 'category_detail');
+  assert.deepEqual(marketStep.appliedFilters, OWNER_FILTERS);
+  assert.deepEqual(steps.filter(step => step.step !== 'category_detail').map(step => step.appliedFilters), [undefined, undefined]);
+
+  for (const declared of [undefined, null]) {
+    const plainBodies = [];
+    const plain = createSeerfarOpenApiTransport({ secretProvider: async () => 'synthetic-category-key', sleep: async () => {},
+      clock: { now: () => 0 }, httpTransport: async req => { plainBodies.push(req.body);
+        return req.step === 'category_detail' ? { ...response(req.step), json: { code: 200, data: categoryData('ozon', 2) } } : response(req.step); } });
+    const built = categoryRequest();
+    if (declared === null) built.seerfarRequest.filters = null;
+    const unfiltered = await plain(built);
+    assert.equal(unfiltered.appliedFilters, null);
+    for (const slot of ['price', 'weight', 'volume', 'monthlySales']) assert.deepEqual(plainBodies[1][slot], EMPTY_RANGE, slot);
+  }
+
+  const guard = createSeerfarOpenApiTransport({ secretProvider: async () => assert.fail('no secret access'),
+    httpTransport: async () => assert.fail('no request') });
+  await assert.rejects(guard(filteredCategoryRequest({ priceRub: { min: 900, max: 800 } })), /SEERFAR_CATEGORY_FILTERS_INVALID/);
+});

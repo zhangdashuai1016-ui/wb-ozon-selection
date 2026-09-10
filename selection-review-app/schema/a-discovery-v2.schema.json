@@ -83,6 +83,9 @@
         },
         "contractEvidenceRef": {
           "$ref": "#/$defs/reference"
+        },
+        "filters": {
+          "$ref": "#/$defs/queryFilters"
         }
       },
       "required": [
@@ -96,6 +99,73 @@
         "categoryEvidenceRef",
         "contractEvidenceRef"
       ]
+    },
+    "filterRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "number",
+              "minimum": 0
+            }
+          ]
+        },
+        "max": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "number",
+              "minimum": 0
+            }
+          ]
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
+      "anyOf": [
+        {
+          "properties": {
+            "min": {
+              "type": "number"
+            }
+          }
+        },
+        {
+          "properties": {
+            "max": {
+              "type": "number"
+            }
+          }
+        }
+      ]
+    },
+    "queryFilters": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "priceRub": {
+          "$ref": "#/$defs/filterRange"
+        },
+        "weightGrams": {
+          "$ref": "#/$defs/filterRange"
+        },
+        "volumeLitres": {
+          "$ref": "#/$defs/filterRange"
+        },
+        "salesCount": {
+          "$ref": "#/$defs/filterRange"
+        }
+      }
     },
     "budget": {
       "type": "object",
@@ -1747,6 +1817,16 @@
           "required": [
             "startDate",
             "endDate"
+          ]
+        },
+        "appliedFilters": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/queryFilters"
+            }
           ]
         }
       },
