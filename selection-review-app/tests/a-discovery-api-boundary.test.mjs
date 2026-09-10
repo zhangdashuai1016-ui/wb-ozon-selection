@@ -40,9 +40,15 @@ test('real default-off discovery API enforces owner, source and closed input wit
   assert.equal((await api.post('/api/product-discovery/create',input,{headers:{'Content-Type':'text/plain'}})).status,415);
   assert.equal((await api.post('/api/product-discovery/create',input,{headers:{Origin:'https://untrusted.invalid','Sec-Fetch-Site':'cross-site'}})).status,403);
   assert.equal((await api.post('/api/product-discovery/create',{payload:'x'.repeat(9000)})).status,413);
-  for(const route of ['authorize','continue','select'])assert.equal((await api.post(`/api/product-discovery/${route}`,{verified:true})).status,400);
+  for(const route of ['authorize','continue','select','decline'])assert.equal((await api.post(`/api/product-discovery/${route}`,{verified:true})).status,400);
   assert.equal((await api.post('/api/product-discovery/select',{batchId:'a-discovery-batch:none',expectedRevision:0,marketProductId:'1'},{authenticated:false})).status,401);
   assert.equal((await api.post('/api/product-discovery/select',{batchId:'a-discovery-batch:none',expectedRevision:0,marketProductId:'1'})).status,409);
+  const decline={batchId:'a-discovery-batch:none',expectedRevision:0,marketProductId:'1',reason:'尺寸太大'};
+  assert.equal((await api.post('/api/product-discovery/decline',decline,{authenticated:false})).status,(await api.post('/api/product-discovery/create',{},{authenticated:false})).status);
+  assert.equal((await api.post('/api/product-discovery/decline',{...decline,verified:true})).status,400);
+  // Only the fixed owner reasons are accepted; free text never reaches the saved record.
+  assert.equal((await api.post('/api/product-discovery/decline',{...decline,reason:'我自己写的理由'})).status,400);
+  assert.equal((await api.post('/api/product-discovery/decline',decline)).status,409);
   assert.equal((await api.post('/api/product-discovery/translate',{batchId:'a-discovery-batch:none',expectedRevision:0},{authenticated:false})).status,(await api.post('/api/product-discovery/create',{},{authenticated:false})).status);
   assert.equal((await api.post('/api/product-discovery/translate',{batchId:'a-discovery-batch:none',expectedRevision:0,verified:true})).status,400);
   assert.equal((await api.post('/api/product-discovery/translate',{batchId:'a-discovery-batch:none',expectedRevision:0})).status,409);

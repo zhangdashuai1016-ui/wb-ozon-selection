@@ -50,6 +50,7 @@ export const api = {
   authorizeProductDiscovery: payload => request('/api/product-discovery/authorize',{method:'POST',body:JSON.stringify(payload)}),
   continueProductDiscovery: payload => request('/api/product-discovery/continue',{method:'POST',body:JSON.stringify(payload)}),
   selectProductDiscovery: payload => request('/api/product-discovery/select',{method:'POST',body:JSON.stringify(payload)}),
+  declineProductDiscovery: payload => request('/api/product-discovery/decline',{method:'POST',body:JSON.stringify(payload)}),
   translateProductDiscovery: payload => request('/api/product-discovery/translate',{method:'POST',body:JSON.stringify(payload)}),
   estimateProductDiscovery: payload => request('/api/product-discovery/estimate',{method:'POST',body:JSON.stringify(payload)}),
   recalculateBWithExactCommission: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/b/exact-commission/recalculate`, {

@@ -20,6 +20,10 @@ import ProductDetailPreparationCard from './components/ProductDetailPreparationC
 import Phase2ASimulation from "./components/Phase2ASimulation";
 import UserInspector from "./components/UserInspector";
 import ThreeStoreMap from "./components/ThreeStoreMap";
+import SelectionDesk from "./components/SelectionDesk.jsx";
+import PipelineBoard from "./components/PipelineBoard.jsx";
+import OwnerInbox from "./components/OwnerInbox.jsx";
+import { DESK_STORES, deskCounts, storeLabel } from "./selectionDeskView.js";
 import {
   EXTENSION_STATUS_PING,
   EXTENSION_STATUS_RESPONSE,
@@ -29,6 +33,21 @@ import {
 } from "./extensionStatus";
 
 const INITIAL_QUEUE = "codex_processing";
+/** The owner's own pages plus the maintenance list; every older page stays reachable under 维护. */
+const DESK_VIEWS = ["desk", "board", "inbox", "maint"];
+/** Views that read the saved query results, so the read keeps running while the owner is on any of them. */
+const DISCOVERY_VIEWS = ["discovery", "desk"];
+/** Views whose product links open the review board. */
+const CANDIDATE_LINK_VIEWS = ["discovery", "desk", "board", "inbox"];
+const MAINTENANCE_PAGES = [
+  { view: "review", label: "今日选品评审" },
+  { view: "discovery", label: "软件找商品" },
+  { view: "accounts", label: "账户准备" },
+  { view: "map", label: "全店能力地图" },
+  { view: "phase2a", label: "第2A模拟验收" }
+];
+const VIEW_TITLES = { desk: "选品台", board: "进行中", inbox: "需要你处理", maint: "维护",
+  map: "全店能力地图", phase2a: "第2A模拟验收", accounts: "账户准备", discovery: "软件找商品", review: "今日选品评审" };
 export default function App() {
   const [state, setState] = useState({
     candidates: [],
@@ -49,7 +68,10 @@ export default function App() {
   const [pollEpoch, setPollEpoch] = useState(0);
   const readFailed = useRef(false);
   const selectionGuard = useRef(createSelectionGuard());
-  const [view, setView] = useState("review");
+  // The owner lands on 选品台; the older pages keep their behaviour and stay reachable under 维护.
+  const [view, setView] = useState("desk");
+  const [deskStore, setDeskStore] = useState("miska");
+  const [skippedProducts, setSkippedProducts] = useState([]);
   const [threeStoreMap, setThreeStoreMap] = useState(null);
   const [accountPreparationView,setAccountPreparationView]=useState(null);
   const [accountPreparationError,setAccountPreparationError]=useState(null);
@@ -79,7 +101,7 @@ export default function App() {
   const discoveryReads=useRef(createLatestRead());
   useEffect(()=>{
     setDiscoveryView(null);setDiscoveryError(null);
-    if(view!=='discovery'||!accountOwner)return undefined;
+    if(!DISCOVERY_VIEWS.includes(view)||!accountOwner)return undefined;
     const controller=new AbortController();let timer;
     async function read(){
       try{
@@ -94,10 +116,11 @@ export default function App() {
   },[view,accountOwnerId,discoveryRefresh]);
   async function runProductDiscovery(action,payload){
     const ownerId=accountOwnerId;
+    const current=()=>accountContext.current.ownerId===ownerId&&DISCOVERY_VIEWS.includes(accountContext.current.view);
     const result=await discoveryReads.current.run(()=>action(payload),next=>{
-      if(accountContext.current.ownerId===ownerId&&accountContext.current.view==='discovery')setDiscoveryView(next);
+      if(current())setDiscoveryView(next);
     },{protect:true});
-    if(accountContext.current.ownerId===ownerId&&accountContext.current.view==='discovery')setDiscoveryRefresh(value=>value+1);
+    if(current())setDiscoveryRefresh(value=>value+1);
     return result;
   }
   const [extensionStatus, setExtensionStatus] = useState(() => extensionConnectionStatus({
@@ -298,9 +321,13 @@ export default function App() {
   async function openDiscoveredCandidate(candidateId){
     const ownerId=accountOwnerId;
     const next=await load(true);
-    if(accountContext.current.ownerId!==ownerId||accountContext.current.view!=='discovery')return;
+    if(accountContext.current.ownerId!==ownerId||!CANDIDATE_LINK_VIEWS.includes(accountContext.current.view))return;
     const candidate=next?.candidates.find(value=>value.id===candidateId);
-    if(!candidate){setDiscoveryError('候选未能从当前保存记录回读，请刷新核对。');return;}
+    if(!candidate){
+      setDiscoveryError('候选未能从当前保存记录回读，请刷新核对。');
+      setNotice({type:'error',message:'这件商品没能从当前保存记录里读出来，请刷新数据后再打开。'});
+      return;
+    }
     selectionGuard.current.changed();
     currentView.current={queue:candidate.workflowStatus,sourceFilter:'all'};
     setQueue(candidate.workflowStatus);setSourceFilter('all');setSelectedId(candidateId);setView('review');
@@ -722,13 +749,32 @@ export default function App() {
     return <div className="app-loading">正在打开全店经营工作台…</div>;
   }
 
+  const counts = deskCounts({ discoveryView, candidates: state.candidates, store: deskStore });
+  const deskNav = [
+    { view: "desk", label: "选品台", count: counts.desk },
+    { view: "board", label: "进行中", count: counts.board },
+    { view: "inbox", label: "需要你处理", count: counts.inbox },
+    { view: "maint", label: "维护", count: null }
+  ];
+
   return (
     <div className="app-shell">
       <header className="app-header">
         <div className="app-brand">
-          <h1>全店经营工作台</h1>
-          <p>{view === "map" ? "全店能力地图" : view === "phase2a" ? "第2A模拟验收" : view==='accounts'?'账户准备':view==='discovery'?'软件找商品':"今日选品评审"}</p>
+          <h1>选品台</h1>
+          <p>{VIEW_TITLES[view] ?? "今日选品评审"}</p>
         </div>
+        <nav className="desk-nav" aria-label="主要页面">
+          {deskNav.map(item => <button key={item.view} type="button" className={`button ${view === item.view ? "primary" : "secondary"}`}
+            onClick={() => setView(item.view)}>
+            {item.label}{item.count === null || item.count === 0 ? null : <span className="desk-badge">{item.count}</span>}
+          </button>)}
+          <label className="desk-store-switch">店铺
+            <select value={deskStore} onChange={event => setDeskStore(event.target.value)} aria-label="选择店铺">
+              {DESK_STORES.map(store => <option key={store} value={store}>{storeLabel(store)}</option>)}
+            </select>
+          </label>
+        </nav>
         <div className="header-actions">
           <RuntimeArchitectureStatus status={state.runtimeArchitecture} />
           <span className={`extension-status ${effectiveExtensionStatus.code}`} data-testid="extension-status">
@@ -737,18 +783,7 @@ export default function App() {
           <span className={`capture-control-status ${state.captureControl?.status || "idle"}`} data-testid="capture-control-status">
             <i aria-hidden="true" />{state.captureControl?.label || "商品采集控制状态未取得"}
           </span>
-          <button type="button" className={`button ${view === "phase2a" ? "primary" : "secondary"}`} onClick={() => setView(view === "phase2a" ? "review" : "phase2a")}>
-            {view === "phase2a" ? "返回今日选品评审" : "第2A模拟验收"}
-          </button>
-          <button type="button" className={`button ${view === "map" ? "primary" : "secondary"}`} onClick={() => setView(view === "map" ? "review" : "map")}>
-            {view === "map" ? "返回今日选品评审" : "全店能力地图"}
-          </button>
-          <button type="button" className={`button ${view==='accounts'?'primary':'secondary'}`} onClick={()=>setView(view==='accounts'?'review':'accounts')}>
-            {view==='accounts'?'返回今日选品评审':'账户准备'}
-          </button>
-          <button type="button" className={`button ${view==='discovery'?'primary':'secondary'}`} onClick={()=>setView(view==='discovery'?'review':'discovery')}>
-            {view==='discovery'?'返回今日选品评审':'软件找商品'}
-          </button>
+          <button type="button" className="button primary" onClick={() => setView("discovery")}>找一轮新品</button>
           <button type="button" className="button secondary" onClick={() => { readFailed.current = false; setNotice(null); setPollEpoch(epoch => epoch + 1); }}>刷新数据</button>
           <button type="button" className="button add-button" onClick={() => setAddOpen(true)}>
             <PlusIcon /> 添加我找到的商品
@@ -756,8 +791,41 @@ export default function App() {
         </div>
       </header>
       <LocalOwnerAccessPanel onAccessResolved={refreshOwnerPermissions} onAccessUnknown={clearOwnerPermissions} />
+      {notice ? <div role={notice.type === "error" ? "alert" : "status"} className={`global-notice ${notice.type}`}>{notice.message}</div> : null}
 
-      {view==='discovery'?<div className="page-panel">
+      {DESK_VIEWS.includes(view) ? (
+        view === "desk" ? (
+          <SelectionDesk
+            discoveryView={discoveryView}
+            candidates={state.candidates}
+            store={deskStore}
+            ownerReady={accountOwner}
+            loadingLabel={discoveryError ? `读取本店查询结果失败：${discoveryError}` : "正在读取本店的查询结果…"}
+            skipped={skippedProducts}
+            onSelectProduct={payload => runProductDiscovery(api.selectProductDiscovery, payload)}
+            onDeclineProduct={payload => runProductDiscovery(api.declineProductDiscovery, payload)}
+            onLaterProduct={row => setSkippedProducts(current => current.includes(row.key) ? current : [...current, row.key])}
+            onEstimate={payload => runProductDiscovery(api.estimateProductDiscovery, payload)}
+            onTranslate={payload => runProductDiscovery(api.translateProductDiscovery, payload)}
+            onOpenCandidate={openDiscoveredCandidate}
+            onFindNewRound={() => setView("discovery")}
+            onOpenBoard={() => setView("board")}
+            onOpenInbox={() => setView("inbox")}
+          />
+        ) : view === "board" ? (
+          <PipelineBoard candidates={state.candidates} store={deskStore} onOpenCandidate={openDiscoveredCandidate} />
+        ) : view === "inbox" ? (
+          <OwnerInbox candidates={state.candidates} store={deskStore} onOpenCandidate={openDiscoveredCandidate} />
+        ) : (
+          <div className="page-panel">
+            <h2>维护</h2>
+            <p>这些是以前的页面，行为没有变化。日常判断不需要打开它们。</p>
+            <div className="maint-pages">
+              {MAINTENANCE_PAGES.map(page => <button key={page.view} type="button" className="button secondary" onClick={() => setView(page.view)}>{page.label}</button>)}
+            </div>
+          </div>
+        )
+      ) : view==='discovery'?<div className="page-panel">
         {!accountOwner?<p role="status">请先登录主人身份后查看商品发现计划。</p>:<>
           <button type="button" className="button secondary" onClick={()=>setDiscoveryRefresh(value=>value+1)}>刷新发现记录</button>
           {discoveryError?<p role="alert">读取发现记录失败：{discoveryError}</p>:discoveryView?
@@ -783,14 +851,11 @@ export default function App() {
       </div>:view === "phase2a" ? (
         <Phase2ASimulation onClose={() => setView("review")} />
       ) : view === "map" ? (
-        <>
-          {notice ? <div role={notice.type === "error" ? "alert" : "status"} className={`global-notice ${notice.type}`}>{notice.message}</div> : null}
-          <ThreeStoreMap
-            map={threeStoreMap}
-            onClose={() => setView("review")}
-            onRefresh={loadThreeStoreMap}
-          />
-        </>
+        <ThreeStoreMap
+          map={threeStoreMap}
+          onClose={() => setView("review")}
+          onRefresh={loadThreeStoreMap}
+        />
       ) : (
       <>
 
@@ -804,8 +869,6 @@ export default function App() {
         summary={state.summary}
         automationStarted={state.meta?.automationStarted}
       />
-
-      {notice ? <div role={notice.type === "error" ? "alert" : "status"} className={`global-notice ${notice.type}`}>{notice.message}</div> : null}
 
       <div className="workspace">
         <CandidateRail

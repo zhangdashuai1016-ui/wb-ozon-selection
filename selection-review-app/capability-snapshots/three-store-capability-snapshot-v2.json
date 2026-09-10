@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-10T15:26:13.486Z",
+  "frozenAt": "2026-09-10T16:22:16.924Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 631,
-      "sha256": "ad9a81dbc1916bae4ad36a0a69f77e0c58a1e03fe7efcd70240d0099e98dd352",
+      "artifactCount": 637,
+      "sha256": "ffdc34adb59800eae9dd4ef8ee166fdf7369c2be592ea83871d6a1a5979f993e",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -80,7 +80,7 @@
       },
       {
         "path": "lib/a-discovery-estimate-store.mjs",
-        "sha256": "d5fa73b5aca6cd66df60f692444e6ac68019d960879cefbd875fa1ae7e9d0448"
+        "sha256": "3179e89c31eda8f7abc0c4764ff3f68af3b0a434489b07031f54815e7c841828"
       },
       {
         "path": "lib/a-discovery-estimate.mjs",
@@ -88,7 +88,7 @@
       },
       {
         "path": "lib/a-discovery-runtime-services.mjs",
-        "sha256": "8927e9cce9f8674e2667faf8616a9a94d4e5940b6e9053530d98d21a6d2c816d"
+        "sha256": "83a6bfbf4434d88590eee32ab9f3ce7b8d823933505e98fe4e393af1b192a61e"
       },
       {
         "path": "lib/a-discovery-software-runner.mjs",
@@ -328,7 +328,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "3c63183a8b51123d0dc06efa60b0bbc868095c4f863dee875a0894ea274d3ba8"
+        "sha256": "5546557e0f459fb8fdc082c5cddbd903ab8cf367dad728a20f369f4f66616c3f"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -1168,11 +1168,11 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "263beafbf9f1365e1749b3cc23731af849dbcdce3615f2028b16490be339864f"
+        "sha256": "d22be07e1a31ef545a4f5e37128451f0c9093efbcb51bc87ab899a8c7520a7b9"
       },
       {
         "path": "src/App.jsx",
-        "sha256": "c9a3bf8a8fa421614b8603d3bb5a37f7342d50b7af3e2559d2192ee033b6b7a0"
+        "sha256": "e5d395c4b14cbbe158c6e99a77c483e14ed7976dd882352fde69e72f4e4f9488"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1184,7 +1184,7 @@
       },
       {
         "path": "src/api.js",
-        "sha256": "d3bb836bd22f880388465073862de8df12f5a573853ae8b037e7482f9502b18e"
+        "sha256": "3c3cae30fbb75623094128d617d23788a0f451f1a5887ded8adf05f416c58437"
       },
       {
         "path": "src/bExactCommissionInput.js",
@@ -1279,6 +1279,10 @@
         "sha256": "9a1f461e36cd38f62f6484fe52272b2103085d6f0f129da0c2a3622d90674f49"
       },
       {
+        "path": "src/components/OwnerInbox.jsx",
+        "sha256": "22f1dd2dfd9e7cd1ba78fdd2844b503d5cf8a2af6ec813cc9b3b1390d7c6e96f"
+      },
+      {
         "path": "src/components/OzonAccountPreparationCard.jsx",
         "sha256": "e7063df5b4d7b0e2daef0cb07b1c53af532d472c386163a8fb13022f9b614017"
       },
@@ -1289,6 +1293,10 @@
       {
         "path": "src/components/Phase2ASimulation.jsx",
         "sha256": "1590e3e4c8aa9b27836b4cbc9815a2e2c93b000e02c2848c28675e39bd5d4fc3"
+      },
+      {
+        "path": "src/components/PipelineBoard.jsx",
+        "sha256": "b0daf199f0f62a932a28bede189ec1b27fbed37bc870fdbd2ec0b47f63756731"
       },
       {
         "path": "src/components/ProcessingBreakdown.jsx",
@@ -1317,6 +1325,10 @@
       {
         "path": "src/components/RuntimeArchitectureStatus.jsx",
         "sha256": "4d66219c68a7ac9e130e92671a214697a3605c1e15ad4a4902527ab56230f829"
+      },
+      {
+        "path": "src/components/SelectionDesk.jsx",
+        "sha256": "86b7d5e65183803166acd1454e73abade6a68abf4004bfb5395ba2377241edd8"
       },
       {
         "path": "src/components/StatusBadge.jsx",
@@ -1391,8 +1403,12 @@
         "sha256": "17cea366f4a968dc0cf1bf67f0f32e5fb301538385c1ccc6e3cfd59d92b9312f"
       },
       {
+        "path": "src/selectionDeskView.js",
+        "sha256": "1773a46c150a7f3d580e2e07e3093c559087fdf2f0e8abab650e9fc77e66eeb6"
+      },
+      {
         "path": "src/styles.css",
-        "sha256": "6803e74d915468928a88aab17a126ec4466eb0a72728940fdeab1b4706954e1b"
+        "sha256": "6fc5405363edca1eff76e74993810434297057a5400d1dc09f08a85c7e22c80f"
       },
       {
         "path": "src/wbPresentation.js",
@@ -1400,7 +1416,7 @@
       },
       {
         "path": "tests/a-discovery-api-boundary.test.mjs",
-        "sha256": "a1a5ed610db639eb47d5d67b8f1c71c78c2ef7a5967bedb089b1cf5c23bd84a5"
+        "sha256": "faa046b094a275f69e0a42d687772f0f618f8895aa430d59be1cec09c4c59d67"
       },
       {
         "path": "tests/a-discovery-candidate-import.test.mjs",
@@ -1412,7 +1428,7 @@
       },
       {
         "path": "tests/a-discovery-estimate-store.test.mjs",
-        "sha256": "89f799321560d1f6207f5dd92a3e6c9126510a964787d68c3f408cfc75e706d2"
+        "sha256": "989139335355d8214a1f1bf69c761f194418369ba5b6a3a550e01fada4e68f73"
       },
       {
         "path": "tests/a-discovery-estimate.test.mjs",
@@ -1424,7 +1440,7 @@
       },
       {
         "path": "tests/a-discovery-runtime-services.test.mjs",
-        "sha256": "e6ce8b7e37285136bfa169f7174ca7c74dadd7b5c9833683734cab16d1d1cd84"
+        "sha256": "878e50641f0abd03071ef2085a922a569a099ed3c414ea08d6b0339792644d2c"
       },
       {
         "path": "tests/a-discovery-software-job-store.test.mjs",
@@ -2471,6 +2487,14 @@
         "sha256": "f4b7cacc1ba7b84e7193a27d1e4e65cf9c454fe6e31fee1eb73048d635168201"
       },
       {
+        "path": "tests/selection-desk-ui.test.mjs",
+        "sha256": "13685a4dc07fc75e4427e433cedd409371a6b9a25de6a2f8ac01b0bef3068c01"
+      },
+      {
+        "path": "tests/selection-desk-view.test.mjs",
+        "sha256": "16d0a463f52c759372eadade63c8cb6df8188052df3f9832c0f4a263f57fbf49"
+      },
+      {
         "path": "tests/software-execution-state.test.mjs",
         "sha256": "0afcba571eb9d282791cbf2c7f19ee23f0d2c6c2f58c0c5f1a7a5a863191b14e"
       },
@@ -2759,7 +2783,19 @@
           "status": "present_in_integration_source"
         },
         {
+          "path": "src/components/OwnerInbox.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/PipelineBoard.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
           "path": "src/components/ProductDiscoveryCard.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/SelectionDesk.jsx",
           "status": "present_in_integration_source"
         },
         {
@@ -4608,6 +4644,7 @@
         "lib/seerfar-web-discovery-contract.mjs",
         "lib/a-discovery-estimate.mjs",
         "lib/a-discovery-estimate-store.mjs",
+        "src/selectionDeskView.js",
         "lib/discovery-title-translation.mjs",
         "lib/discovery-title-translation-store.mjs",
         "lib/seerfar-discovery-software-runner.mjs",
@@ -4632,6 +4669,8 @@
         "tests/seerfar-web-discovery-contract.test.mjs",
         "tests/a-discovery-estimate.test.mjs",
         "tests/a-discovery-estimate-store.test.mjs",
+        "tests/selection-desk-view.test.mjs",
+        "tests/selection-desk-ui.test.mjs",
         "tests/discovery-title-translation.test.mjs",
         "tests/seerfar-discovery-integration.test.mjs",
         "tests/a-discovery-runtime-configuration.test.mjs",

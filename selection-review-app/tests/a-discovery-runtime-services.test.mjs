@@ -136,3 +136,30 @@ test('preparation and creation use the same method coverage for partial and mixe
   assert.equal(created.batch.plan.planId,market.planId);
   assert.deepEqual(f.counts(),{secrets:0,requests:0});await mixed.stop();
 });
+
+test('an owner turning one product down saves one fixed reason, replays the same reason and never invents a record',async()=>{
+  const f=createADiscoveryRuntimeFixture(),{service}=f.create(),created=await f.prepare(service);
+  await f.authorize(service,created);
+  const input={batchId:created.batch.batchId,expectedRevision:created.batch.revision,marketProductId:'2107989735',reason:'尺寸太大'};
+  const first=await service.declineProduct({actor:f.owner,input});
+  assert.equal(first.idempotentReplay,false);assert.equal(first.externalRequests,0);
+  assert.deepEqual(Object.keys(first.decline).sort(),['batchId','declinedAt','declinedByUserId','marketProductId','reason','revision','schemaVersion']);
+  assert.equal(first.decline.schemaVersion,'a-discovery-decline-v1');
+  assert.equal(first.decline.declinedByUserId,f.owner.userId);
+  const again=await service.declineProduct({actor:f.owner,input});
+  assert.equal(again.idempotentReplay,true);assert.deepEqual(again.decline,first.decline);
+  await assert.rejects(()=>service.declineProduct({actor:f.owner,input:{...input,reason:'利润太薄'}}),/DECLINE_CONFLICT/);
+  await assert.rejects(()=>service.declineProduct({actor:f.owner,input:{...input,reason:'我自己写的理由'}}),/INPUT_INVALID/);
+  await assert.rejects(()=>service.declineProduct({actor:f.owner,input:{...input,extra:true}}),/INPUT_INVALID/);
+  await assert.rejects(()=>service.declineProduct({actor:f.owner,input:{...input,marketProductId:'9999999999'}}),/PRODUCT_REQUIRED/);
+  await assert.rejects(()=>service.declineProduct({actor:f.owner,input:{...input,expectedRevision:9}}),/BATCH_CHANGED/);
+  await assert.rejects(()=>service.declineProduct({actor:{...f.owner,userId:'owner:someone-else'},input}),/OWNER_CONFLICT/);
+  const saved=await f.repository.readSnapshot();
+  assert.deepEqual(Object.keys(saved.runtime.aDiscoveryDeclines),[`${created.batch.batchId}:0:2107989735`]);
+  assert.equal(saved.candidates.length,0);assert.equal(f.counts().requests,1);
+  const view=service.view({document:saved,actor:f.owner});
+  assert.deepEqual(view.batches[0].declines,[first.decline]);
+  const damaged=structuredClone(saved);damaged.runtime.aDiscoveryDeclines[`${created.batch.batchId}:0:2107989735`].reason='别的理由';
+  assert.throws(()=>service.view({document:damaged,actor:f.owner}),/DECLINE_RECORD_INVALID/);
+  await service.stop();
+});

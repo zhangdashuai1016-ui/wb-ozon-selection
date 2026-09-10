@@ -70,7 +70,11 @@ export function attachADiscoveryEstimates(receipt, estimates, { batchId, revisio
         maximumAllInPurchaseRmb: estimate.ceiling === null ? null : estimate.ceiling.maximumAllInPurchaseRmb,
         freight: { route: chosen?.route ?? null, chargeableKg: chosen?.chargeableKg ?? null, freightRmb: chosen?.freightRmb ?? null,
           oversize: estimate.freight?.oversize === true },
-        commissionRate: estimate.commission?.rate ?? null
+        commissionRate: estimate.commission?.rate ?? null,
+        // Display-only figures for the owner's card: revenue at the official FX and the profit at the midpoint of the purchase range.
+        revenueCny: estimate.revenueCny ?? null,
+        unitProfitAtMidRmb: estimate.ceiling?.unitProfitAtMidRmb ?? null,
+        marginAtMid: estimate.ceiling?.marginAtMid ?? null
       };
     }
   }

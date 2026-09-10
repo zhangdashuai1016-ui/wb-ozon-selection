@@ -10,12 +10,34 @@ import { A_DISCOVERY_JOB_TYPE, getADiscoveryProviderCapability, readADiscoveryMa
 import { createADiscoveryJobForScope, ADiscoveryExecutionBlockedError } from './software-job-repository.mjs';
 import { runADiscoverySoftwareJob } from './a-discovery-software-runner.mjs';
 import { assertADiscoveryCandidateImportRecord, assertADiscoveryCandidateSelectionRecord } from './a-discovery-candidate-import.mjs';
-import { readDiscoveryTitleTranslations, attachDiscoveryTitleTranslations } from './discovery-title-translation-store.mjs';
+import { readDiscoveryTitleTranslations, attachDiscoveryTitleTranslations, readADiscoveryBatchMarketProducts } from './discovery-title-translation-store.mjs';
 import { readADiscoveryEstimates, attachADiscoveryEstimates, readADiscoveryEstimateOutcome } from './a-discovery-estimate-store.mjs';
 
 const clone=value=>structuredClone(value);
 const closed=(value,fields)=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===fields.length&&fields.every(key=>Object.hasOwn(value,key));
 const requireValue=(value,code)=>{if(!value)throw new ADiscoveryError(code);};
+
+export const A_DISCOVERY_DECLINE_SCHEMA_VERSION='a-discovery-decline-v1';
+export const A_DISCOVERY_DECLINE_COLLECTION='aDiscoveryDeclines';
+/** The owner picks one of these words and nothing else; a free-text reason is not offered anywhere. */
+export const A_DISCOVERY_DECLINE_REASONS=Object.freeze(['尺寸太大','利润太薄','品牌风险','不想做这类','其他']);
+export const aDiscoveryDeclineKey=({batchId,revision,marketProductId})=>`${batchId}:${revision}:${marketProductId}`;
+
+/**
+ * One saved "not this one" per market product and batch revision.
+ * These records are the memory the future AI selection layer reads: they are the only place the owner's own reason for
+ * turning a product down is kept, so a later automatic pass can apply the owner's taste instead of re-asking.
+ */
+export function assertADiscoveryDeclineRecord(record,{batchId,revision,marketProductId}){
+  requireValue(closed(record,['schemaVersion','batchId','revision','marketProductId','reason','declinedByUserId','declinedAt'])&&
+    record.schemaVersion===A_DISCOVERY_DECLINE_SCHEMA_VERSION&&record.batchId===batchId&&isCanonicalFrozenRef(batchId)&&
+    record.revision===revision&&Number.isSafeInteger(revision)&&revision>=0&&
+    record.marketProductId===marketProductId&&typeof marketProductId==='string'&&/^[1-9][0-9]*$/.test(marketProductId)&&
+    typeof record.reason==='string'&&record.reason.length<=40&&A_DISCOVERY_DECLINE_REASONS.includes(record.reason)&&
+    typeof record.declinedByUserId==='string'&&record.declinedByUserId!==''&&
+    typeof record.declinedAt==='string'&&Number.isFinite(Date.parse(record.declinedAt)),'DECLINE_RECORD_INVALID');
+  return clone(record);
+}
 const supportsPlan=(service,plan)=>service.connector.provider===plan.provider&&service.connector.contractVersion===plan.contractVersion&&
   (plan.provider!=='seerfar'||service.connector.budgetPolicyRef===plan.budget.policyRef)&&plan.requests.every(request=>service.connector.allowedMethods.includes(request.method));
 function owner(actor){
@@ -157,6 +179,7 @@ export function createADiscoveryRuntimeServices({repository,softwareJobStore,run
       owner(actor);
       const batches=Object.values(readCollection(document,'aDiscoveryBatches')).map(assertADiscoveryBatch).filter(batch=>batch.ownerUserId===actor.userId);
       const jobs=readCollection(document,'softwareJobs',true),receipts=readCollection(document,'aDiscoveryReceipts'),imports=readCollection(document,'aDiscoveryCandidateImports'),selections=readCollection(document,'aDiscoveryCandidateSelections');
+      const declines=readCollection(document,A_DISCOVERY_DECLINE_COLLECTION);
       const candidates=Array.isArray(document.candidates)?document.candidates:[];
       // Display-only Chinese titles ride along on the view's receipt clones; the saved receipts keep the provider's own title.
       const titleTranslations=readDiscoveryTitleTranslations(document);
@@ -178,10 +201,11 @@ export function createADiscoveryRuntimeServices({repository,softwareJobStore,run
           const key=`${batch.batchId}:${batch.revision}`;
           const prefix=`${key}:`;
           const batchSelections=Object.entries(selections).filter(([id])=>id.startsWith(prefix)).map(([id,record])=>assertADiscoveryCandidateSelectionRecord(record,{batchId:batch.batchId,revision:batch.revision,marketProductId:id.slice(prefix.length)}));
+          const batchDeclines=Object.entries(declines).filter(([id])=>id.startsWith(prefix)).map(([id,record])=>assertADiscoveryDeclineRecord(record,{batchId:batch.batchId,revision:batch.revision,marketProductId:id.slice(prefix.length)}));
           const importedCandidates=candidates.filter(candidate=>[candidate.aDiscoveryEvidenceV1,candidate.aDiscoveryEvidenceV2].some(evidence=>evidence?.batchId===batch.batchId))
             .map(candidate=>({candidateId:candidate.id,marketProductId:(candidate.aDiscoveryEvidenceV2??candidate.aDiscoveryEvidenceV1).marketProductId}));
           return {batch:clone(batch),candidateImport:Object.hasOwn(imports,key)?assertADiscoveryCandidateImportRecord(imports[key],{batchId:batch.batchId,revision:batch.revision}):null,
-            selections:batchSelections,importedCandidates,
+            selections:batchSelections,importedCandidates,declines:batchDeclines,
             jobs:current.map(job=>({job:clone(job),receipt:Object.hasOwn(receipts,job.jobId)?attachADiscoveryEstimates(
               attachDiscoveryTitleTranslations(assertADiscoveryReceipt(receipts[job.jobId],job),titleTranslations),estimates,{batchId:batch.batchId,revision:batch.revision}):null,
               canContinue:job.status==='queued'&&job.attempt===0&&job.externalRequestState==='not_sent'&&job.revision===batch.revision&&routeAvailable&&batchConfigurationBlocker(batch)===null&&Date.parse(serverClock())<Date.parse(job.scopeBinding.expiresAt)})),
@@ -248,6 +272,33 @@ export function createADiscoveryRuntimeServices({repository,softwareJobStore,run
       // Owner rule 2026-09-10: an estimated negative purchase ceiling leaves the product out of the selectable pool.
       requireValue(readADiscoveryEstimateOutcome(document,{batchId:batch.batchId,revision:batch.revision,productId:input.marketProductId})!=='excluded_negative','ESTIMATE_EXCLUDED');
       return onSelectProduct({batchId:batch.batchId,revision:batch.revision,marketProductId:input.marketProductId,selectedByUserId:actor.userId});
+    },
+    /**
+     * The owner turns one market product down with one fixed reason. Nothing is created, nothing is spent, and the
+     * product simply leaves the feed. The saved record is deliberately durable: it is the future AI selection layer's
+     * memory of what this owner does not want, and the only place that judgment is kept.
+     */
+    async declineProduct({actor,input}){
+      owner(actor);requireValue(closed(input,['batchId','expectedRevision','marketProductId','reason'])&&isCanonicalFrozenRef(input.batchId)&&
+        Number.isSafeInteger(input.expectedRevision)&&input.expectedRevision>=0&&typeof input.marketProductId==='string'&&/^[1-9][0-9]*$/.test(input.marketProductId)&&
+        typeof input.reason==='string'&&input.reason.length<=40&&A_DISCOVERY_DECLINE_REASONS.includes(input.reason),'INPUT_INVALID');
+      return repository.transact(document=>{
+        const batch=batchFor(document,input.batchId,actor);
+        requireValue(batch.revision===input.expectedRevision,'BATCH_CHANGED');
+        requireValue(readADiscoveryBatchMarketProducts({document,batch}).some(product=>product.productId===input.marketProductId),'PRODUCT_REQUIRED');
+        const store=collection(document,A_DISCOVERY_DECLINE_COLLECTION);
+        const key=aDiscoveryDeclineKey({batchId:batch.batchId,revision:batch.revision,marketProductId:input.marketProductId});
+        const identity={batchId:batch.batchId,revision:batch.revision,marketProductId:input.marketProductId};
+        if(Object.hasOwn(store,key)){
+          const existing=assertADiscoveryDeclineRecord(store[key],identity);
+          requireValue(existing.reason===input.reason,'DECLINE_CONFLICT');
+          return {changed:false,result:{decline:clone(existing),idempotentReplay:true,externalRequests:0}};
+        }
+        const record=assertADiscoveryDeclineRecord({schemaVersion:A_DISCOVERY_DECLINE_SCHEMA_VERSION,...identity,
+          reason:input.reason,declinedByUserId:actor.userId,declinedAt:serverClock()},identity);
+        store[key]=record;
+        return {changed:true,document,result:{decline:clone(record),idempotentReplay:false,externalRequests:0}};
+      });
     },
     continueSavedCurrent({actor,input}){
       owner(actor);requireValue(closed(input,['batchId','expectedRevision','jobId'])&&isCanonicalFrozenRef(input.batchId)&&isCanonicalFrozenRef(input.jobId)&&Number.isSafeInteger(input.expectedRevision)&&input.expectedRevision>=0,'INPUT_INVALID');

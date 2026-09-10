@@ -183,7 +183,7 @@ test('再次估算替换同一批次版本的记录，视图只在自己的回�
   const view = f.service.view({ document, actor: f.owner });
   const products = view.batches[0].jobs[0].receipt.steps[1].result.products;
   const shown = new Map(products.map(value => [value.productId, value.estimate]));
-  assert.deepEqual(Object.keys(shown.get(SELECTABLE)).sort(), ['commissionRate', 'freight', 'maximumAllInPurchaseRmb', 'outcome', 'status', 'summary']);
+  assert.deepEqual(Object.keys(shown.get(SELECTABLE)).sort(), ['commissionRate', 'freight', 'marginAtMid', 'maximumAllInPurchaseRmb', 'outcome', 'revenueCny', 'status', 'summary', 'unitProfitAtMidRmb']);
   assert.equal(shown.get(SELECTABLE).outcome, 'selectable');
   assert.match(shown.get(SELECTABLE).summary, /^预估采购上限 ¥\d+\.\d{2} · GUOO Economy Small 0\.7kg 运费 ¥37\.64 · 佣金 14%$/);
   assert.equal(shown.get(SELECTABLE).commissionRate, 0.14);

@@ -550,7 +550,10 @@ export const CAPABILITY_NODES = Object.freeze([
       capabilityRef("lib/a-discovery-runtime-services.mjs", "createADiscoveryRuntimeServices", "有限主动发现作业"),
       capabilityRef("lib/a-discovery-candidate-import.mjs", "createADiscoveryCandidateImportUseCase", "发现材料原子进入A")],
     uiRefs: [capabilityRef("src/components/AddCandidateModal.jsx", "AddCandidateModal", "添加候选界面"),
-      capabilityRef("src/components/ProductDiscoveryCard.jsx", "ProductDiscoveryCard", "有限查询确认与结果")],
+      capabilityRef("src/components/ProductDiscoveryCard.jsx", "ProductDiscoveryCard", "有限查询确认与结果"),
+      capabilityRef("src/components/SelectionDesk.jsx", "SelectionDesk", "选品台首页与右栏"),
+      capabilityRef("src/components/PipelineBoard.jsx", "PipelineBoard", "进行中五列看板"),
+      capabilityRef("src/components/OwnerInbox.jsx", "OwnerInbox", "需要主人处理清单")],
     testRefs: [capabilityRef("tests/collaboration-api.test.mjs", "test(", "候选 API 测试")]
   }),
   capability({
@@ -1640,6 +1643,7 @@ export const CAPABILITY_ARTIFACT_ASSIGNMENTS = Object.freeze([
       "lib/seerfar-web-discovery-contract.mjs",
       "lib/a-discovery-estimate.mjs",
       "lib/a-discovery-estimate-store.mjs",
+      "src/selectionDeskView.js",
       "lib/discovery-title-translation.mjs",
       "lib/discovery-title-translation-store.mjs",
       "lib/seerfar-discovery-software-runner.mjs",
@@ -1664,6 +1668,8 @@ export const CAPABILITY_ARTIFACT_ASSIGNMENTS = Object.freeze([
       "tests/seerfar-web-discovery-contract.test.mjs",
       "tests/a-discovery-estimate.test.mjs",
       "tests/a-discovery-estimate-store.test.mjs",
+      "tests/selection-desk-view.test.mjs",
+      "tests/selection-desk-ui.test.mjs",
       "tests/discovery-title-translation.test.mjs",
       "tests/seerfar-discovery-integration.test.mjs",
       "tests/a-discovery-runtime-configuration.test.mjs",
