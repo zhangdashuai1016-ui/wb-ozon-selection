@@ -2,16 +2,18 @@ import { spawnSync } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assertSelfContainedTestSource } from "./ci-test-policy.mjs";
-import { API_PROCESS_TESTS } from "./ci-test-suites.mjs";
+import { assertSelfContainedTestSource,assertIsolatedApiTestSource } from "./ci-test-policy.mjs";
+import { API_PROCESS_TESTS, SOURCE_CONTRACT_TESTS, SUBPROCESS_TESTS, ISOLATED_TESTS } from "./ci-test-suites.mjs";
 
 const appDirectory = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const testsDirectory = path.join(appDirectory, "tests");
 
 const apiProcessTests = new Set(API_PROCESS_TESTS);
+const isolatedTests = new Set(ISOLATED_TESTS);
 
 const temporaryCandidateFixtureTests = new Set([
   "atomic-json-persistence.test.mjs",
+  "business-state-repository.test.mjs",
 ]);
 
 function assert(condition, code) {
@@ -46,18 +48,30 @@ const testFiles = testDirectoryEntries
   .sort();
 const knownTests = new Set(testFiles);
 
-assertDisjoint(apiProcessTests, temporaryCandidateFixtureTests, "CI_TEST_CLASSIFICATION_OVERLAP");
+assert(isolatedTests.size === ISOLATED_TESTS.length, "CI_TEST_CLASSIFICATION_OVERLAP");
+assertDisjoint(isolatedTests, temporaryCandidateFixtureTests, "CI_TEST_CLASSIFICATION_OVERLAP");
 
 for (const file of [
-  ...apiProcessTests,
+  ...isolatedTests,
   ...temporaryCandidateFixtureTests,
 ]) {
   assert(knownTests.has(file), `CI_TEST_CLASSIFICATION_FILE_MISSING:${file}`);
 }
 
+for (const file of SOURCE_CONTRACT_TESTS) {
+  const source = await readFile(path.join(testsDirectory, file), "utf8");
+  assert(source.includes("readFile") || source.includes("server.mjs"), `CI_SOURCE_CONTRACT_MARKER_MISSING:${file}`);
+}
+for (const file of SUBPROCESS_TESTS) {
+  const source = await readFile(path.join(testsDirectory, file), "utf8");
+  assert(source.includes("node:child_process"), `CI_SUBPROCESS_MARKER_MISSING:${file}`);
+}
+
+const sharedFixtureSource=await readFile(path.join(testsDirectory,'helpers','d-e-saved-api-fixture.mjs'),'utf8');
+const launchScriptSource=await readFile(path.join(appDirectory,'scripts','launch-server.sh'),'utf8');
 for (const file of apiProcessTests) {
   const source = await readFile(path.join(testsDirectory, file), "utf8");
-  assert(source.includes("server.mjs"), `CI_API_PROCESS_MARKER_MISSING:${file}`);
+  assertIsolatedApiTestSource({file,source,sharedFixtureSource,launchScriptSource});
 }
 
 for (const file of temporaryCandidateFixtureTests) {
@@ -68,7 +82,7 @@ for (const file of temporaryCandidateFixtureTests) {
 
 const selectedTests = [];
 for (const file of testFiles) {
-  if (apiProcessTests.has(file)) {
+  if (isolatedTests.has(file)) {
     continue;
   }
 
@@ -86,7 +100,7 @@ assert(selectedTests.length > 0, "CI_SELF_CONTAINED_TESTS_EMPTY");
 
 console.log(
   `Running ${selectedTests.length} self-contained test files; `
-    + `excluding ${apiProcessTests.size} API-process files.`,
+    + `excluding ${isolatedTests.size} files executed by the isolated runner.`,
 );
 
 const result = spawnSync(process.execPath, ["--test", ...selectedTests], {

@@ -1,3 +1,4 @@
+import { SYNTHETIC_STORE_REF } from "./fixtures/store-binding-fixture.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -7,7 +8,7 @@ function candidate(overrides = {}) {
   return {
     id: "CONTEXT-001",
     dataRevision: 7,
-    targetStore: "dandanshu",
+    targetStore: "dandanshu", storeRef: structuredClone(SYNTHETIC_STORE_REF),
     packedWeightKg: 0.4,
     salesSnapshotsV11: [{
       schemaVersion: "sales-snapshot-v1.1",
@@ -46,7 +47,7 @@ test("服务端从候选、销售快照和当前系统策略锁定B证据范围"
   });
   assert.deepEqual(result.context, {
     platform: "ozon",
-    store: "dandanshu",
+    store: "dandanshu", storeRef: structuredClone(SYNTHETIC_STORE_REF),
     category: "Дом и сад > Декор и интерьер > Музыкальная шкатулка",
     salesScheme: "rfbs",
     route: "GUOO Economy Small",
@@ -107,4 +108,17 @@ test("没有可追溯类目时停止，不用标题或图片猜类目", () => {
   assert.throws(() => applyLifecycleBEvidenceContext(candidate({ salesSnapshotsV11: [] }), {
     guooFilePath: "/tmp/GUOO产品资费测算表【2026.7.20更新】.xlsx"
   }), /B_EVIDENCE_CONTEXT_INCOMPLETE.*当前类目/);
+});
+
+test("比较后的明确大件线路不再被默认2kg条件挡住，历史范围不原地覆盖", () => {
+  const options = { guooFilePath: "/tmp/GUOO-2026.8.19.xlsx", route: "GUOO Economy Big PUDO" };
+  const result = applyLifecycleBEvidenceContext(candidate({ packedWeightKg: 3 }), options);
+  assert.equal(result.context.route, options.route);
+  assert.equal(result.sources.route, "resolved_route_comparison");
+  for (const explicit of [{ logisticsRuleVersion: "guoo-2026-07-20" }, { route: "GUOO Economy Small" }]) {
+    const source = candidate({ packedWeightKg: 3, lifecycleEvidenceContextV11: explicit });
+    const before = structuredClone(source);
+    assert.throws(() => applyLifecycleBEvidenceContext(source, options), /CONFLICT/);
+    assert.deepEqual(source, before);
+  }
 });

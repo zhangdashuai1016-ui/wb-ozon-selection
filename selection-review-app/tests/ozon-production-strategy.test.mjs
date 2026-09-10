@@ -37,3 +37,17 @@ test("Ozon production strategy never retries or starts another SKU", () => {
   assert.equal(strategy.automaticRetry, false);
   assert.equal(strategy.nextSkuAutomaticStart, false);
 });
+
+test('current API connection route is closed and independent of historical media handoff metadata', async () => {
+  const { ozonProductionConnectionRequirements, isOzonProductionConnectionRequirements } = await import('../lib/ozon-production-strategy.mjs');
+  const expected = { contractVersion: 'ozon-connection-requirements-v1', route: 'seller_api', requiredConnections: ['api'] };
+  assert.deepEqual(ozonProductionConnectionRequirements('seller_api'), expected);
+  assert.equal(isOzonProductionConnectionRequirements(expected), true);
+  for (const bad of [null, {}, { ...expected, extra: true }, { ...expected, route: 'browser' }, { ...expected, contractVersion: 'old' },
+    { ...expected, requiredConnections: [] }, { ...expected, requiredConnections: ['api', 'api'] }, { ...expected, requiredConnections: ['sellerBackend'] }]) {
+    assert.equal(isOzonProductionConnectionRequirements(bad), false);
+  }
+  assert.throws(() => ozonProductionConnectionRequirements('browser'), /ROUTE_UNSUPPORTED/);
+  assert.throws(() => ozonProductionConnectionRequirements(''), /ROUTE_UNSUPPORTED/);
+  assert.throws(() => ozonProductionConnectionRequirements('seller_api').requiredConnections.push('sellerBackend'), TypeError);
+});

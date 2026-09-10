@@ -1,0 +1,233 @@
+{
+  "snapshotVersion": "three-store-capability-snapshot-v1",
+  "registryVersion": "three-store-capability-registry-v3",
+  "frozenAt": "2026-08-27T20:02:12+08:00",
+  "purpose": "冻结当前代码能力、关系、待归位项、重复组和三处源码副本的只读事实；不表示业务闭环完成。",
+  "intentDocumentsUsed": false,
+  "externalPlatformsAccessed": false,
+  "businessStateModified": false,
+  "runtimeCopyModified": false,
+  "deployed": false,
+  "numbering": {
+    "frozen": true,
+    "rule": "能力、待归位项、重复组和产物归属组均使用纯数字分层编号；布局变化不得改号。",
+    "retiredIdsMayBeReused": false,
+    "preFreezeRenumberingRecordedIn": "PRE_FREEZE_NUMBER_MIGRATIONS"
+  },
+  "scope": {
+    "main": "当前主项目的 selection-review-app",
+    "oldWorktree": "已知旧工作树 451b 中的 selection-review-app",
+    "runningCopy": "当前 4317 进程使用的 Application Support 独立副本",
+    "included": ["lib", "schema", "src", "extension", "scripts", "tests", "data/logistics", "明确根配置与启动文件"],
+    "excluded": [
+      "第三方依赖、构建产物、缓存和日志",
+      "候选、授权、作业、旧地图动态数据和其他业务状态",
+      "业务证据、商品素材和界面截图",
+      "Markdown、规则、交接和老板意图线文档",
+      "环境秘密与凭据",
+      "本快照文件本身"
+    ]
+  },
+  "sourceBaselines": {
+    "main": {
+      "gitHead": "ca1df7ffe4d80c55d05c33276f28eea3f2c1de6a",
+      "branch": "main",
+      "dirty": true,
+      "artifactCount": 334,
+      "sha256": "4d923e9ab320796fa8550e8b599bf933fc8008aa1b8594d75b98f1282dcbea22",
+      "digestPurpose": "detect accidental source drift"
+    },
+    "oldWorktree": {
+      "gitHead": "8ad4bc5dfff9792191d5fe159ac737ca9d562307",
+      "branch": "detached",
+      "dirty": true,
+      "artifactCount": 117,
+      "sha256": "e2359eb33ec8cab018158d8424154e47a589fe69645453c1055706ecbf4e9668",
+      "digestPurpose": "detect accidental source drift"
+    },
+    "runningCopy": {
+      "processObserved": true,
+      "processIdObserved": 743,
+      "listeningEndpoint": "127.0.0.1:4317",
+      "artifactCount": 110,
+      "sha256": "54cf4bc64a15336e765cb73a2cff69b113c22f7083a1fce285d62dc9f94fdfd0",
+      "healthReadback": "ok true, version 2, dataVersion 2",
+      "threeStoreMapApiReadback": "HTTP 404",
+      "digestPurpose": "detect accidental source drift"
+    }
+  },
+  "artifactCoverage": {
+    "eligibleArtifactCount": 334,
+    "registeredPathCount": 335,
+    "registeredButExcludedFromDigestCount": 1,
+    "registeredButExcludedFromDigest": ["data/workflow-map.json"],
+    "unexplainedCount": 0,
+    "artifactAssignmentGroupCount": 10
+  },
+  "registryCounts": {
+    "areas": 8,
+    "capabilities": 49,
+    "relations": 65,
+    "unplacedCapabilities": 14,
+    "overlapGroups": 8,
+    "identity": { "official": 39, "candidate": 7, "unknown": 3 },
+    "wiring": { "connected": 19, "partial": 19, "disconnected": 7, "isolated": 1, "not_implemented": 3 },
+    "verification": { "test_files_present_not_run": 32, "source_changed_revalidation_required": 1, "non_blocking_risk": 8, "blocked": 8 },
+    "unplacedIdentity": { "official": 1, "candidate": 2, "legacy": 3, "simulation": 1, "experimental": 1, "duplicate": 3, "retiring": 3 }
+  },
+  "runtimeRecordEvidence": {
+    "candidateCount": 52,
+    "profitModelCount": 2,
+    "c1ProductPlanCount": 2,
+    "c2AssetLifecycleCount": 0,
+    "productionAuthorizationCount": 1,
+    "productionPlanCount": 0,
+    "productionRecordCount": 0,
+    "externalListingRecordCount": 1,
+    "eVerificationRecordCount": 1,
+    "exceptionCaseCount": 0,
+    "softwareJobCount": 0,
+    "positivePlatformWriteCount": 0,
+    "writeOccurredTrueCount": 0,
+    "interpretation": "这些是旧运行副本中的对象数量，未绑定当前源码摘要；不能证明 A→E 闭环或平台写入。"
+  },
+  "runtimeUiEvidence": {
+    "bundleContainsThreeStoreMapLabel": true,
+    "bundleContainsCurrentCodeFactLabels": false,
+    "serverProvidesThreeStoreMapApi": false,
+    "interpretation": "运行 bundle 里有三店地图入口文字，但服务端接口实测不存在，不能称为可用的当前能力地图。"
+  },
+  "differences": {
+    "mainVsOldWorktree": {
+      "mainOnlyArtifactCount": 217,
+      "oldOnlyArtifactCount": 0,
+      "changedSamePathCount": 70,
+      "sameCount": 47,
+      "mainNewerCapabilityFamilies": ["Repository 与原子事务", "通用 SoftwareJob/身份/Worker 边界", "新版 C1 关键词链", "C2 软件编排", "D/E 候选闭环", "能力注册表和三店地图草稿"],
+      "oldWorktreeExclusiveCapabilityFamilies": []
+    },
+    "mainVsRunningCopy": {
+      "mainOnlyArtifactCount": 224,
+      "runningCopyOnlyArtifactCount": 0,
+      "changedSamePathCount": 15,
+      "sameCount": 95,
+      "changedSamePaths": [
+        "lib/a-stage-terra-gateway.mjs",
+        "lib/atomic-json-persistence.mjs",
+        "lib/c1-ai-gateway.mjs",
+        "lib/c1-software-input-preparation.mjs",
+        "lib/c1-software-orchestrator.mjs",
+        "lib/guoo-tariff-reader.mjs",
+        "lib/keyword-evidence-provider-adapter.mjs",
+        "lib/keyword-evidence-snapshot.mjs",
+        "lib/keyword-evidence-software-runner.mjs",
+        "lib/lifecycle-b-real-evidence-readers.mjs",
+        "lib/seerfar-open-api-transport.mjs",
+        "lib/seerfar-runtime-connector.mjs",
+        "lib/software-execution-state.mjs",
+        "lib/workflow-map.mjs",
+        "server.mjs"
+      ],
+      "runningCopyNewerCapabilityFamilies": [],
+      "recoveryCandidates": [],
+      "doNotOverwriteConflicts": ["15 个同路径不同内容的源码文件", "运行副本 data/workflow-map.json 动态历史数据", "运行副本候选和业务状态"]
+    },
+    "oldWorktreeVsRunningCopy": {
+      "oldOnlyArtifactCount": 71,
+      "runningCopyOnlyArtifactCount": 64,
+      "changedSamePathCount": 26,
+      "sameCount": 20,
+      "interpretation": "运行副本不是旧工作树的简单构建，也不是当前主目录的完整部署。"
+    },
+    "importantSemanticDifferences": [
+      "运行副本 A/C1 AI 网关仍固定本机地址；主目录改为注入运行配置。",
+      "运行副本 B 证据与 GUOO 资料仍使用旧本机默认；主目录改为显式配置和项目内当前资费表。",
+      "运行副本异常状态会把部分已知失败导向旧 Codex 路线；主目录新增已知失败、unknown_outcome 和真正 ExceptionCase 的分离。",
+      "运行副本没有 capability-registry 和 /api/three-store-map；主目录有草稿但尚未部署。",
+      "运行副本没有独有的一方源码文件，因此本轮没有可直接回收覆盖主目录的候选。"
+    ]
+  },
+  "capabilities": [
+    { "id": "1.1", "source": { "main": "full", "oldWorktree": "partial:2/3", "runningCopy": "partial:2/3" }, "executionEvidence": "runtime_state_exists_not_source_bound" },
+    { "id": "1.2", "source": { "main": "full", "oldWorktree": "partial:2/3", "runningCopy": "partial:2/3" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "1.3", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "absent" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "1.4", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "absent" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "1.5", "source": { "main": "full", "oldWorktree": "full", "runningCopy": "absent" }, "executionEvidence": "main_source_differs_from_runtime_bundle" },
+    { "id": "2.1", "source": { "main": "full", "oldWorktree": "full", "runningCopy": "full" }, "executionEvidence": "52_runtime_candidates_not_source_bound" },
+    { "id": "2.2", "source": { "main": "full", "oldWorktree": "full", "runningCopy": "partial:1/4" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "2.3", "source": { "main": "full", "oldWorktree": "partial:3/5", "runningCopy": "partial:1/5" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "2.4", "source": { "main": "full", "oldWorktree": "full", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "2.5", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "2.6", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "2.7", "source": { "main": "full", "oldWorktree": "full", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "2.8", "source": { "main": "full", "oldWorktree": "partial:1/2", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "3.1", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "3.2", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "3.3", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "3.4", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "3.5", "source": { "main": "full", "oldWorktree": "partial:2/3", "runningCopy": "full" }, "executionEvidence": "2_passed_profit_records_not_source_bound" },
+    { "id": "3.6", "source": { "main": "full", "oldWorktree": "partial:1/2", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "4.1", "source": { "main": "full", "oldWorktree": "partial:2/4", "runningCopy": "full" }, "executionEvidence": "2_c1_plan_records_not_source_bound" },
+    { "id": "4.2", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "absent" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "4.3", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "partial:1/4" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "4.4", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "4.5", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "4.6", "source": { "main": "full", "oldWorktree": "partial:1/6", "runningCopy": "full" }, "executionEvidence": "1_runtime_seo_draft_ready_not_source_bound" },
+    { "id": "4.7", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "5.1", "source": { "main": "full", "oldWorktree": "partial:2/4", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "5.2", "source": { "main": "full", "oldWorktree": "full", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "5.3", "source": { "main": "full", "oldWorktree": "full", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "5.4", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "full" }, "executionEvidence": "3_final_upload_occurrences_not_c2_closure" },
+    { "id": "5.5", "source": { "main": "full", "oldWorktree": "full", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "6.1", "source": { "main": "full", "oldWorktree": "full", "runningCopy": "full" }, "executionEvidence": "1_confirmed_authorization_zero_platform_writes" },
+    { "id": "6.2", "source": { "main": "full", "oldWorktree": "full", "runningCopy": "full" }, "executionEvidence": "no_production_plan_record" },
+    { "id": "6.3", "source": { "main": "full", "oldWorktree": "full", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "6.4", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "full" }, "executionEvidence": "no_persisted_platform_execution_intent" },
+    { "id": "6.5", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "full" }, "executionEvidence": "no_oss_transport_receipt_observed" },
+    { "id": "6.6", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "full" }, "executionEvidence": "zero_platform_writes" },
+    { "id": "6.7", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "full" }, "executionEvidence": "no_production_record" },
+    { "id": "6.8", "source": { "main": "not_implemented", "oldWorktree": "not_implemented", "runningCopy": "not_implemented" }, "executionEvidence": "not_implemented" },
+    { "id": "7.1", "source": { "main": "full", "oldWorktree": "full", "runningCopy": "full" }, "executionEvidence": "1_seller_portal_external_listing_record" },
+    { "id": "7.2", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "full" }, "executionEvidence": "no_formal_provider_receipt" },
+    { "id": "7.3", "source": { "main": "full", "oldWorktree": "partial:2/3", "runningCopy": "full" }, "executionEvidence": "1_record_without_production_record_or_provider" },
+    { "id": "7.4", "source": { "main": "not_implemented", "oldWorktree": "not_implemented", "runningCopy": "not_implemented" }, "executionEvidence": "not_implemented" },
+    { "id": "8.1", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "8.2", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "8.3", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "full" }, "executionEvidence": "no_exception_case_record" },
+    { "id": "8.4", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "absent" }, "executionEvidence": "no_maintenance_round_record" },
+    { "id": "8.5", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "full" }, "executionEvidence": "none_current_source_bound" },
+    { "id": "8.6", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "absent" }, "executionEvidence": "central_runtime_not_implemented" }
+  ],
+  "unplacedCapabilities": [
+    { "id": "9.1", "source": { "main": "full", "oldWorktree": "full", "runningCopy": "full" }, "executionEvidence": "runtime_source_present_no_current_receipt" },
+    { "id": "9.2", "source": { "main": "full", "oldWorktree": "full", "runningCopy": "partial:1/5" }, "executionEvidence": "runtime_source_present_no_current_receipt" },
+    { "id": "9.3", "source": { "main": "full", "oldWorktree": "full", "runningCopy": "partial:1/4" }, "executionEvidence": "simulation_only" },
+    { "id": "9.4", "source": { "main": "full", "oldWorktree": "partial:2/3", "runningCopy": "partial:2/3" }, "executionEvidence": "legacy_route_default_disabled" },
+    { "id": "9.5", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "partial:4/14" }, "executionEvidence": "engineering_artifacts_only" },
+    { "id": "9.6", "source": { "main": "full", "oldWorktree": "full", "runningCopy": "partial:2/5" }, "executionEvidence": "4317_running_but_not_deployed_this_round" },
+    { "id": "9.7", "source": { "main": "full", "oldWorktree": "partial:2/4", "runningCopy": "full" }, "executionEvidence": "no_unique_mainline_or_platform_receipt" },
+    { "id": "9.8", "source": { "main": "full", "oldWorktree": "partial:2/3", "runningCopy": "partial:2/3" }, "executionEvidence": "read_only_compatibility" },
+    { "id": "9.9", "source": { "main": "full", "oldWorktree": "partial:3/4", "runningCopy": "partial:1/4" }, "executionEvidence": "historical_manual_records_only" },
+    { "id": "9.10", "source": { "main": "full", "oldWorktree": "partial:1/6", "runningCopy": "absent" }, "executionEvidence": "main_source_draft_runtime_api_404" },
+    { "id": "9.11", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "absent" }, "executionEvidence": "no_caller_found" },
+    { "id": "9.12", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "absent" }, "executionEvidence": "not_executed_this_round" },
+    { "id": "9.13", "source": { "main": "full", "oldWorktree": "absent", "runningCopy": "partial:1/2" }, "executionEvidence": "test_only_probe" },
+    { "id": "9.14", "source": { "main": "full", "oldWorktree": "full", "runningCopy": "full" }, "executionEvidence": "test_only_alternate_flow" }
+  ],
+  "overlapGroups": [
+    { "id": "10.1", "currentPrimary": null, "runningCopyMemberCount": 7, "memberCount": 7, "decision": "owner_required" },
+    { "id": "10.2", "currentPrimary": null, "runningCopyMemberCount": 2, "memberCount": 2, "decision": "owner_required" },
+    { "id": "10.3", "currentPrimary": null, "runningCopyMemberCount": 3, "memberCount": 4, "decision": "owner_required" },
+    { "id": "10.4", "currentPrimary": null, "runningCopyMemberCount": 2, "memberCount": 2, "decision": "owner_required" },
+    { "id": "10.5", "currentPrimary": null, "runningCopyMemberCount": 4, "memberCount": 4, "decision": "owner_required" },
+    { "id": "10.6", "currentPrimary": null, "runningCopyMemberCount": 3, "memberCount": 4, "decision": "owner_required" },
+    { "id": "10.7", "currentPrimary": null, "runningCopyMemberCount": 3, "memberCount": 3, "decision": "owner_required" },
+    { "id": "10.8", "currentPrimary": null, "runningCopyMemberCount": 2, "memberCount": 2, "decision": "owner_required" }
+  ],
+  "validation": {
+    "registryIntegrity": { "status": "passed", "tests": 3, "failures": 0, "warnings": 0 },
+    "snapshotDriftGate": { "status": "passed", "tests": 4, "failures": 0, "warnings": 0 },
+    "businessTestsRun": false,
+    "reasonBusinessTestsNotRun": "本轮只允许能力注册表完整性检查，不用业务测试改变能力状态。"
+  }
+}

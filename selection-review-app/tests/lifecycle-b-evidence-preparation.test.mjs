@@ -1,3 +1,4 @@
+import { SYNTHETIC_STORE_REF } from "./fixtures/store-binding-fixture.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -9,15 +10,32 @@ const plannedAt = "2026-08-18T06:30:00.000Z";
 const preparedAt = "2026-08-18T06:31:00.000Z";
 const expiresAt = "2026-08-19T06:30:00.000Z";
 
+test("换平台店铺ID或映射版本时，旧佣金与Schema不复用，通用汇率和物流不受影响", () => {
+  for (const field of ["platformStoreId", "mappingVersion"]) {
+    const value = candidate();
+    value.storeRef[field] = "changed";
+    value.lifecycleEvidenceContextV11.storeRef[field] = "changed";
+    const packs = allPacks();
+    const before = structuredClone(packs);
+    const plan = buildLifecycleBEvidencePreparationPlan({ candidate: value, evidencePacks: packs, plannedAt });
+    assert.deepEqual(plan.actions.filter(item => item.action === "prepare_once").map(item => item.kind), ["commission", "schema"]);
+    assert.deepEqual(packs, before);
+  }
+  const packs = allPacks();
+  for (const pack of packs.filter(item => ["commission", "schema"].includes(item.kind))) delete pack.scope.storeRef;
+  const plan = buildLifecycleBEvidencePreparationPlan({ candidate: candidate(), evidencePacks: packs, plannedAt });
+  assert.deepEqual(plan.actions.filter(item => item.action === "prepare_once").map(item => item.kind), ["commission", "schema"]);
+});
+
 function candidate(id = "EVIDENCE-PREP-SKU-1") {
   return {
     id,
     dataRevision: 4,
-    targetStore: "dandanshu",
+    targetStore: "dandanshu", storeRef: structuredClone(SYNTHETIC_STORE_REF),
     workflowStatus: "awaiting_user_direction",
     lifecycleEvidenceContextV11: {
       platform: "ozon",
-      store: "dandanshu",
+      store: "dandanshu", storeRef: structuredClone(SYNTHETIC_STORE_REF),
       category: "music-box",
       salesScheme: "rfbs",
       route: "guoo-economy-small",
@@ -40,9 +58,9 @@ function pack(kind, id = `PACK-${kind}`) {
   };
   if (kind === "commission") return {
     ...shared,
-    scope: { platform: "ozon", store: "dandanshu", category: "music-box", salesScheme: "rfbs" },
+    scope: { platform: "ozon", store: "dandanshu", storeRef: structuredClone(SYNTHETIC_STORE_REF), category: "music-box", salesScheme: "rfbs" },
     evidenceData: {
-      commissionRate: 0.14,
+      commissionRate: 0.14, commissionEvidenceMode: "exact",
       otherCosts: {
         packagingRmb: 1.5,
         labelRmb: 1.5,
@@ -77,7 +95,7 @@ function pack(kind, id = `PACK-${kind}`) {
   };
   return {
     ...shared,
-    scope: { platform: "ozon", store: "dandanshu", category: "music-box", ruleVersion: "ozon-music-box-2026-08-18" },
+    scope: { platform: "ozon", store: "dandanshu", storeRef: structuredClone(SYNTHETIC_STORE_REF), category: "music-box", ruleVersion: "ozon-music-box-2026-08-18" },
     evidenceData: { schemaRevision: "ozon-music-box-2026-08-18", requiredFields: [] }
   };
 }
@@ -243,4 +261,41 @@ test("真实读取完成时间由读取后时钟冻结，不要求调用方预�
   });
   assert.equal(result.status, "completed");
   assert.equal(result.evidencePacksToCommit.length, 4);
+});
+
+function syntheticWbPreparation() {
+  const value=candidate(), evidence=allPacks(); value.targetStore='wb'; value.storeRef.stableStoreId='wb';
+  Object.assign(value.lifecycleEvidenceContextV11,{platform:'wb',store:'wb',storeRef:structuredClone(value.storeRef),category:'wb:subject:5267',salesScheme:'fbs'});
+  for(const p of evidence.filter(p=>['commission','schema'].includes(p.kind))){
+    Object.assign(p.scope,{platform:'wb',store:'wb',storeRef:structuredClone(value.storeRef),category:'wb:subject:5267'});
+    if(p.kind==='commission')p.scope.salesScheme='fbs';
+  }
+  const commission=evidence.find(p=>p.kind==='commission');
+  commission.sourceType='wb_official_commission_reference';commission.expiresAt=null;
+  commission.commissionCatalogRef={catalogId:'synthetic-catalog',catalogVersion:'v1',sellerRegion:'CN',subjectId:5267,
+    sourceField:'kgvpChina',sourceReceiptRef:'synthetic-receipt',effectiveFrom:null};
+  const catalogs=[{platform:'wb',sellerRegion:'CN',catalogId:'synthetic-catalog',catalogVersion:'v1',status:'active'}];
+  return {candidate:value,evidencePacks:evidence,commission,catalogs};
+}
+
+test('WB catalog reuse rechecks current declarations at completion with zero provider calls', async()=>{
+  const f=syntheticWbPreparation(), before=structuredClone(f); let reads=0;
+  const result=await runLifecycleBEvidencePreparation({...f,plannedAt,preparedAt,getCurrentCommissionCatalogs:()=>{
+    reads++;return reads===1?f.catalogs:[{...f.catalogs[0],status:'invalidated'}];
+  }});
+  assert.equal(result.plan.status,'ready_from_reuse');assert.equal(result.status,'failed');
+  assert.equal(result.failure.layer,'reuse_validity_drift');assert.deepEqual(result.providerCalls,[]);
+  assert.deepEqual(result.evidencePacksToCommit,[]);assert.deepEqual(f,before);
+});
+
+test('WB prepared references survive success but invalidation before final readiness discards them',async()=>{
+  for(const invalidate of [false,true]){
+    const f=syntheticWbPreparation();let reads=0,calls=0;
+    const result=await runLifecycleBEvidencePreparation({...f,evidencePacks:f.evidencePacks.filter(p=>p.kind!=='commission'),plannedAt,preparedAt,
+      providers:{commission:async()=>{calls++;return structuredClone(f.commission);}},
+      getCurrentCommissionCatalogs:()=>{reads++;return invalidate&&reads>=3?[{...f.catalogs[0],status:'invalidated'}]:f.catalogs;}});
+    assert.equal(calls,1);assert.equal(result.status,invalidate?'failed':'completed');
+    if(invalidate){assert.equal(result.failure.layer,'final_readiness');assert.deepEqual(result.evidencePacksToCommit,[]);}
+    else{assert.equal(result.evidencePacksToCommit[0].expiresAt,null);assert.deepEqual(result.evidencePacksToCommit[0].commissionCatalogRef,f.commission.commissionCatalogRef);}
+  }
 });

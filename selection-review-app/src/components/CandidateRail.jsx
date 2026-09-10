@@ -1,9 +1,10 @@
 import { SOURCE_LABELS, STORE_LABELS } from "../constants";
 import { matchesQueue, orderCandidates } from "../candidateViews";
 import StatusBadge from "./StatusBadge";
+import { safeImageUrl } from "../formState.js";
 
 function executionLabel(candidate) {
-  const dispatch = candidate.activeDispatch || candidate.latestDispatch;
+  const dispatch = candidate.activeDispatch;
   if (
     candidate.workflowStatus === "listing_preparation" &&
     candidate.listingPreparation?.status === "awaiting_final_assets"
@@ -50,6 +51,7 @@ export default function CandidateRail({
           >
             <option value="all">全部来源</option>
             <option value="user">你提交</option>
+            <option value="software">软件发现</option>
             <option value="codex">Codex选品</option>
           </select>
         )}
@@ -64,8 +66,8 @@ export default function CandidateRail({
               onClick={() => onSelect(candidate.id)}
             >
               <span className="candidate-thumb">
-                {candidate.imageUrl ? (
-                  <img src={candidate.imageUrl} alt="" />
+                {safeImageUrl(candidate.imageUrl) ? (
+                  <img src={safeImageUrl(candidate.imageUrl)} alt="" />
                 ) : (
                   <span>{candidate.targetStore === "miska" ? "M" : "?"}</span>
                 )}
@@ -80,7 +82,7 @@ export default function CandidateRail({
                 ) : null}
                 <em className={`source source-${candidate.source}`}>{SOURCE_LABELS[candidate.source]}</em>
               </span>
-              <StatusBadge status={candidate.workflowStatus} />
+              <StatusBadge status={candidate.workflowStatus} readback={candidate.eReadbackRuntimeView} />
             </button>
           ))
         ) : (

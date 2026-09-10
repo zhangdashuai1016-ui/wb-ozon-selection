@@ -1,6 +1,7 @@
 export function detailOfferId(value) {
+  if (typeof value !== "string") return "";
   try {
-    const url = new URL(String(value || ""));
+    const url = new URL(value);
     if (url.protocol !== "https:" || url.hostname !== "detail.1688.com" || url.username || url.password || url.port) return "";
     return url.pathname.match(/^\/offer\/(\d+)\.html$/)?.[1] || "";
   } catch {
@@ -26,7 +27,9 @@ export function classify1688NavigationOutcome(value, options = {}) {
     ? String(options.expectedOfferId)
     : "";
   try {
-    const url = new URL(String(value || ""));
+    if (typeof value !== "string") throw new TypeError("invalid_navigation_url");
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password || url.port) throw new TypeError("invalid_navigation_url");
     const host = url.hostname.toLowerCase();
     const pathname = url.pathname.toLowerCase();
     const observedOfferId = detailOfferId(url.href);
@@ -185,8 +188,9 @@ export function shouldWaitFor1688Destination(diagnostics, tabStatus = "loading")
 }
 
 export function classify1688Source(value) {
+  if (typeof value !== "string") return null;
   try {
-    const url = new URL(String(value || ""));
+    const url = new URL(value);
     if (url.protocol !== "https:" || url.username || url.password || url.port) return null;
     const offerId = detailOfferId(url.href);
     if (offerId) {
@@ -213,9 +217,11 @@ export function validateResolved1688Source(originalSource, finalUrl, expectedOff
 }
 
 export function isAllowed1688NavigationHost(value) {
+  if (typeof value !== "string") return false;
   try {
-    const host = new URL(String(value || "")).hostname;
-    return host === "qr.1688.com" || host === "detail.1688.com";
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password && !url.port &&
+      (url.hostname === "qr.1688.com" || url.hostname === "detail.1688.com");
   } catch {
     return false;
   }

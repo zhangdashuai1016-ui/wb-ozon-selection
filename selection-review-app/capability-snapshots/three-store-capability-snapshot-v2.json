@@ -1,0 +1,4968 @@
+{
+  "snapshotVersion": "three-store-capability-snapshot-v2",
+  "registryVersion": "three-store-capability-registry-v3",
+  "frozenAt": "2026-09-09T15:55:33.724Z",
+  "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
+  "numbering": {
+    "frozen": true,
+    "retiredIdsMayBeReused": false
+  },
+  "historicalSnapshot": {
+    "path": "capability-snapshots/three-store-capability-snapshot-v1.json",
+    "frozenAt": "2026-08-27T20:02:12+08:00",
+    "sha256": "e3ced8107d2fc4306cfcfd33c92e5bc5987d65b3c78b4c02e9ef23ccfd0f85ff",
+    "interpretation": "historical_only_not_current_runtime_evidence"
+  },
+  "sourceBaselines": {
+    "integration": {
+      "status": "inspected",
+      "artifactCount": 620,
+      "sha256": "e2dbbf87f693ea83a23ceb573d3bb51195cd50f1d85f3b1d24b44ebe48f8e59c",
+      "digestPurpose": "detect accidental source drift"
+    },
+    "main": {
+      "status": "not_inspected_this_snapshot"
+    },
+    "oldWorktree": {
+      "status": "not_inspected_this_snapshot"
+    },
+    "runningCopy": {
+      "status": "not_inspected_this_snapshot"
+    }
+  },
+  "artifactCoverage": {
+    "unexplainedCount": 0,
+    "staleCount": 0,
+    "files": [
+      {
+        "path": "com.shuaizhang.selection-review-open-chrome.plist",
+        "sha256": "6c85039692a4323e29cf648724c463a6bc8737c30f0234bfc0528e2a7a11c9be"
+      },
+      {
+        "path": "extension/1688-capture/background.js",
+        "sha256": "89912ce1ba3ceaae2964c2a3c5da7709df586d7fdc7f1669a6c5f7991284d967"
+      },
+      {
+        "path": "extension/1688-capture/bridge.js",
+        "sha256": "026ba934d78460d8e3dae4f797bfa765c857ff7b6840abea35bdd688c5f4588f"
+      },
+      {
+        "path": "extension/1688-capture/capture-request.js",
+        "sha256": "71057f798aa0d0d27b1e77cee8ff533e7f66143197ad0247948675e7afbdbaeb"
+      },
+      {
+        "path": "extension/1688-capture/collector-ozon.js",
+        "sha256": "5de7ac8dca2a4ffa40321c01603e5f43b662fc0b7ea043e4e951bbf37aa2e3af"
+      },
+      {
+        "path": "extension/1688-capture/collector.js",
+        "sha256": "be0f0dc54e14e03f130e7fa64ebbdc28fd375ca5b7aeeca0346eebe7c5a00c5a"
+      },
+      {
+        "path": "extension/1688-capture/manifest.json",
+        "sha256": "bec8e041b7c46ad2a64262445b4403456d5b25653bd5ed996be90976d647346b"
+      },
+      {
+        "path": "extension/1688-capture/source-routing.js",
+        "sha256": "060e781070d0f11dc5a06210f9f255db4eab0a7c919eb1712661394673d88b03"
+      },
+      {
+        "path": "index.html",
+        "sha256": "a3f70b91877fe24aa43f4fb73ad15367abc0d1c1394f858d49b4bfc3f74d7654"
+      },
+      {
+        "path": "lib/a-discovery-candidate-import.mjs",
+        "sha256": "bcab922e717436c2c95e40ae43c89654a4b2fa64108622fdcef7269f2e361dfd"
+      },
+      {
+        "path": "lib/a-discovery-contract.mjs",
+        "sha256": "df96645819440c328f5303b7c14e5e26566a6b45b05a9746d8b8901e86f3f4cc"
+      },
+      {
+        "path": "lib/a-discovery-runtime-services.mjs",
+        "sha256": "1b46102b84903c3978c59f3761c99f72d2a8336eac8c79c5ab68802971294ebe"
+      },
+      {
+        "path": "lib/a-discovery-software-runner.mjs",
+        "sha256": "bc61aeb7c2ad7393535a5b02c8f8367e37fd35df4af501b6b017e99d22f38f6e"
+      },
+      {
+        "path": "lib/a-product-detail-application.mjs",
+        "sha256": "e783f78f533226af9faa037626263d259562ee21e8e5f9dc5003eacb29f68b4a"
+      },
+      {
+        "path": "lib/a-product-detail-contract.mjs",
+        "sha256": "929b8fdda94c3a02fbd71ab0f7506d8d5cb306efdc076409548cd17940fb0d9f"
+      },
+      {
+        "path": "lib/a-product-detail-evidence.mjs",
+        "sha256": "9a2ea6930b5429a006b671029886de57878e5d36ccb2583c371f70acf20a17c6"
+      },
+      {
+        "path": "lib/a-product-detail-runner.mjs",
+        "sha256": "f53392ffd1f6cf286daaefdfbacf88fdb5f42cb16f7e507da675bde090e990fd"
+      },
+      {
+        "path": "lib/a-product-detail-runtime-services.mjs",
+        "sha256": "7771d8a3e316dcc8bced7bdee1a1133ad91e8a56045accd8dede85c903c7d05d"
+      },
+      {
+        "path": "lib/a-stage-terra-gateway.mjs",
+        "sha256": "dbb7a1f17148dd764aa87e007621d22e3288ac5018f6faf29c57ffba2c6afa8d"
+      },
+      {
+        "path": "lib/a-supplier-image-search-contract.mjs",
+        "sha256": "d54b71cd5e7ef3c9a54cd48709764758ca36f6209eebb2f076c1e19298b5c1ed"
+      },
+      {
+        "path": "lib/a-supplier-image-search-runner.mjs",
+        "sha256": "38155baf2b5e736d9a1ab286fa3636e15228d49fbbf5d733d9f885a6fb85216f"
+      },
+      {
+        "path": "lib/a-supplier-image-search-runtime-services.mjs",
+        "sha256": "556fe54d683deee568cd71842b778026b3238e5a0d7c48db16321eb604c83f9f"
+      },
+      {
+        "path": "lib/aliyun-oss-asset-transport.mjs",
+        "sha256": "74505711eadb731e56f806994b4b1871c43bad69815254e871a0a2ceea75db07"
+      },
+      {
+        "path": "lib/aliyun-oss-d-asset-integration.mjs",
+        "sha256": "bf8622bfb099b7a3f99846ad8c87861d7ad2e52522f157ca5221427e22e18d38"
+      },
+      {
+        "path": "lib/aliyun-oss-runtime-configuration.mjs",
+        "sha256": "b9218d01c2e83c3ce54bd2e3d834553fa31fb15108485f4a443350264e00c8c2"
+      },
+      {
+        "path": "lib/aliyun-oss-runtime-provider.mjs",
+        "sha256": "7ffc85a751a948609a56996961507f77c24ed676fb619d30834241412f3df450"
+      },
+      {
+        "path": "lib/atomic-json-persistence.mjs",
+        "sha256": "621a2fb1e9825d36ae2bf074f6748c823c0ca2c0d61181b374a6b5071fb3524a"
+      },
+      {
+        "path": "lib/b-exact-commission-recalculation-use-case.mjs",
+        "sha256": "10a877160214b048f0cb634ae6aeb776d02caa7ae672cddacfc05d0105bb3c74"
+      },
+      {
+        "path": "lib/b-exact-commission-runtime-view.mjs",
+        "sha256": "017f9468513a2c68742414d9e6cdc086b33b47522e7b518ccbb480c44597636a"
+      },
+      {
+        "path": "lib/business-mutation-transaction.mjs",
+        "sha256": "3f0d4bd821d69cc38bb3e227d18fd5ff0e5fb207e6e1097742387f63a3870e52"
+      },
+      {
+        "path": "lib/business-state-repository.mjs",
+        "sha256": "c07028d7ef0b3e52090e5ca673cc2fc19c890dba7f4e60107424855da49e599c"
+      },
+      {
+        "path": "lib/c1-ai-draft-contract.mjs",
+        "sha256": "aaa077272589e7e7cb2a5701dd6fabfd5c6b0e1e8a64444b810cd77d9671d1e7"
+      },
+      {
+        "path": "lib/c1-ai-draft-request-source.mjs",
+        "sha256": "53ce5b02a943bf1b58bf6d94043c69190b3623b2a2857e2388ef777e3d31f653"
+      },
+      {
+        "path": "lib/c1-ai-gateway.mjs",
+        "sha256": "4ad8b5601e82c09c64e987be8cb63ded3889b5e81eabeedb60d5e40169ebf6c3"
+      },
+      {
+        "path": "lib/c1-draft-runtime-services.mjs",
+        "sha256": "49b5839048bb3efc701bb53c947bd0019e0b220cb8e27bf7f01d7cebcbc131d2"
+      },
+      {
+        "path": "lib/c1-draft-runtime-view.mjs",
+        "sha256": "d96cea91aa3fca225350e0dc9d892ab9ef5857aa8f7c4b13ed368dd4b045a010"
+      },
+      {
+        "path": "lib/c1-draft-software-runtime.mjs",
+        "sha256": "30cd72611d515bf6a7bb1369f53c1cd16b76e53f6b1558ca6fedcd7fc40fa1fb"
+      },
+      {
+        "path": "lib/c1-draft-software-use-case.mjs",
+        "sha256": "86c77bbf0ae14035b72b46a8c442be30709374c5db0d348d14777caaf28ffa7d"
+      },
+      {
+        "path": "lib/c1-fact-keyword-persistence.mjs",
+        "sha256": "55cb9bb4909a65b8efc2adcdf6297ce82c912b09c12647981babaef97f1994cc"
+      },
+      {
+        "path": "lib/c1-fact-keyword-pipeline.mjs",
+        "sha256": "e97b7718124fb3b98f2c4952841c89404791aa0a487d20645daab14378207ae5"
+      },
+      {
+        "path": "lib/c1-fact-keyword-runtime.mjs",
+        "sha256": "9d6e398762f2eee8fb340f9c0084855afd6c1a724d8ebbb771e4bdd5c562a834"
+      },
+      {
+        "path": "lib/c1-k3-keyword-adapter.mjs",
+        "sha256": "0bd9feb4b1226a6d9e0ac6ea0cc7e6f39bede3d9bec8626465494495eaef3df2"
+      },
+      {
+        "path": "lib/c1-k3-runtime-bridge.mjs",
+        "sha256": "9587799020c708258dbec2c7699b49e3e28a461df4ffb42a8d6892416f4fd511"
+      },
+      {
+        "path": "lib/c1-keyword-evidence-auto-trigger.mjs",
+        "sha256": "a2457796af6728b0d10c162a7e68d5cb907f5f641839a1a6493f4cf1a66e9051"
+      },
+      {
+        "path": "lib/c1-keyword-planning-evidence-persistence.mjs",
+        "sha256": "6dd9e1e80af290b8fd6d607d347c640033f7efa3db1d09df922909cd12978047"
+      },
+      {
+        "path": "lib/c1-keyword-planning-evidence-producer.mjs",
+        "sha256": "1c65c41fcf5dce8f3e158af2f05cd17e79e30c5f314c0fe9f74c0bb3d2c88f76"
+      },
+      {
+        "path": "lib/c1-keyword-planning-local-material-persistence.mjs",
+        "sha256": "b7069530b5cecf2e76f8eabfc09fd148f6b30104664b05ab3edf5781d9371ebf"
+      },
+      {
+        "path": "lib/c1-keyword-planning-local-material.mjs",
+        "sha256": "dc5e413d7bb5dce744bbfd72f42b928f9981e96b829e307e7ed048ff198c7fcc"
+      },
+      {
+        "path": "lib/c1-keyword-planning-software-use-case.mjs",
+        "sha256": "b17c91c68dca8a9da1f6f16320f432423a243229cc730859f308a639fb53154c"
+      },
+      {
+        "path": "lib/c1-keyword-planning-source-resolver.mjs",
+        "sha256": "835f91595abacfd3581bccd95bdfea1cb7546a2256cfb93beae0c85cabe71731"
+      },
+      {
+        "path": "lib/c1-keyword-software-job-planner.mjs",
+        "sha256": "a39fbcb7cea140d587b938258ac1e8adca6095daaa373d7ec7145a2774e4ce80"
+      },
+      {
+        "path": "lib/c1-keyword-software-use-case.mjs",
+        "sha256": "1565cbb2204876c7ae84709704a66494ae11fabdf0b5dac97e82d3b27b9c1ed4"
+      },
+      {
+        "path": "lib/c1-pricing-result-reuse.mjs",
+        "sha256": "6535e61d5a097592cbc5b632b2733306789e70a0b46fca0cedcac981d1c8e62f"
+      },
+      {
+        "path": "lib/c1-product-plan.mjs",
+        "sha256": "0a1fe40fe2a91dae4d229ddf0bb622d6d6d7aafba16398eb1ca2e7a639fc0ac6"
+      },
+      {
+        "path": "lib/c1-review-presentation.mjs",
+        "sha256": "72b2c70cd590f0a961e03c0381b533cdefcba9002f94fab38e90deeabaf1a314"
+      },
+      {
+        "path": "lib/c1-seo-draft.mjs",
+        "sha256": "41d141a6dcff73c21974eb1b320d5f7425ef4c2606670f48f19f909613469ee6"
+      },
+      {
+        "path": "lib/c1-sku-rights-review-submission.mjs",
+        "sha256": "a3c1c9280bb92a62f7ac59af6b8f0d8fabe3dd4717044248a280b9f85d0c82f4"
+      },
+      {
+        "path": "lib/c1-sku-rights-review.mjs",
+        "sha256": "e004da3087ca536e60df07dbaba5b54e3edac16012ef5f7b8357aad9c29b7682"
+      },
+      {
+        "path": "lib/c1-software-evidence-stage.mjs",
+        "sha256": "177075706d47008ed8dc9efb55f239ee5429e701128228b02b2cdbc1115dc085"
+      },
+      {
+        "path": "lib/c1-software-input-preparation.mjs",
+        "sha256": "24eeb4cb6990914517189e432f320036ee67b5cdbdcb5f3ce8e0ef82842ebf67"
+      },
+      {
+        "path": "lib/c1-software-orchestrator.mjs",
+        "sha256": "5bdad27d5251c7a4a714ca04bcdde6d410755843fbb7163293fb48ff7a32f879"
+      },
+      {
+        "path": "lib/c2-asset-lifecycle.mjs",
+        "sha256": "6bd842322ae6bf505c3443d0dcb88f8d6a9e4281fe804d5c319ecbbf63fd62a8"
+      },
+      {
+        "path": "lib/c2-local-asset-store.mjs",
+        "sha256": "2a046f1fc8a117ca2374f6ff0704d2a40c36346136bfe83697c95460558ca1d3"
+      },
+      {
+        "path": "lib/c2-media-content-rules.mjs",
+        "sha256": "681212933d5fbeb6e3da83c79e0bf2abcb7f0241b0025749a02c53dba3fa07f8"
+      },
+      {
+        "path": "lib/c2-pricing-upload-reuse.mjs",
+        "sha256": "c9b8f9587239b3f3f99208dad5714b8093b6ef67b987e421b992afe13de8e38d"
+      },
+      {
+        "path": "lib/c2-software-orchestrator.mjs",
+        "sha256": "8195acbf809e7be7ac2261ec1deb1803fc71998d5a75c7d43db182174897dad7"
+      },
+      {
+        "path": "lib/c2-stable-asset-transport-use-case.mjs",
+        "sha256": "343dbae250919d6c5a33fb1f2741caa89832e38ae779b433235c1d31ef896967"
+      },
+      {
+        "path": "lib/c2-upload-draft.mjs",
+        "sha256": "74f30a30fdb383ca31a54ed9f5641d627b51d61da2b94aadbc1d10a0ecd4e1a3"
+      },
+      {
+        "path": "lib/candidate-comment-boundary.mjs",
+        "sha256": "94cf40b7ec64f39d9cc0148e33489313740d90390bd3364a03430d58be33dc3c"
+      },
+      {
+        "path": "lib/candidate-initialization.mjs",
+        "sha256": "38402999556f17578ffc359a9e616db4e3562422bf28bb078ab59fe9a74c8ff1"
+      },
+      {
+        "path": "lib/candidate-user-fields.mjs",
+        "sha256": "35fc66a3bbb67704b18d085e8806db771cd4c1a14c69e30f218e20a7033cb5f0"
+      },
+      {
+        "path": "lib/capability-registry.mjs",
+        "sha256": "648618bf8b57ce2a859b8dc1e3f70de8e24ef23308f9677d546f274a803ed356"
+      },
+      {
+        "path": "lib/capture-evidence-sanitization.mjs",
+        "sha256": "5e8bad06bf75db61eb2c6ab7a52e9c45d5961260496394b3bd568ee8c47449ab"
+      },
+      {
+        "path": "lib/codex-dispatcher.mjs",
+        "sha256": "0b52b35afddfc5253d6e7fdd527c7d986cc8e071e88273c37edd37a1cf22ebf7"
+      },
+      {
+        "path": "lib/codex-independence.mjs",
+        "sha256": "acd61ea90cd59969684545c5d8f4f0fc8144babf4079b575deee4c112e8a3703"
+      },
+      {
+        "path": "lib/d-asset-transport-software-use-case.mjs",
+        "sha256": "a23536862a175e36e09fdc60e8fb3d6a93ac491e25b9c7c755f0a51b9a6705db"
+      },
+      {
+        "path": "lib/d-e-runtime-services.mjs",
+        "sha256": "b0375d3122861c142a1c61135813c4e9437c72afb6b29bf7faf7ec0cc5c0fc09"
+      },
+      {
+        "path": "lib/d-e-runtime-view.mjs",
+        "sha256": "7b2f1204bd61f34273b92746359790b4a53fd884eb9be67bbe7aef13a554da20"
+      },
+      {
+        "path": "lib/d-e-software-closure.mjs",
+        "sha256": "de8474a3313bc38bdf548e25eb072e3d1279e66ac8f462c81ed4ef8c97f61ddd"
+      },
+      {
+        "path": "lib/d-e-software-integration.mjs",
+        "sha256": "a95e2b39c7970d8d339c184947b2bd80cb50428adc737cd13a6c275a29291444"
+      },
+      {
+        "path": "lib/d-e-software-job-admission.mjs",
+        "sha256": "ff96585e941b7cf9224a3eca2c1f5f032458633b8b62b3554e850de04d66a98c"
+      },
+      {
+        "path": "lib/d-e-software-job-handoff.mjs",
+        "sha256": "c5de65ebd29fe57b7338bd2921b88785b9af377ef27025a31a342241d6e4eb3f"
+      },
+      {
+        "path": "lib/d-e-software-job-results.mjs",
+        "sha256": "d2adb76ac8d69131c1c9b56ac930305333245a77d0283505873d66b7cc1cef9b"
+      },
+      {
+        "path": "lib/d-e-software-job-scope.mjs",
+        "sha256": "c231d92195b81f01d1c67614d151bf4b855252d3a2ecefc3a6842fcfd8cb0711"
+      },
+      {
+        "path": "lib/d-executable-request-contract.mjs",
+        "sha256": "308aafe6f004c7d9433fdb5f537de5b6927d5c3533c39f643af9c9c2ac3de08e"
+      },
+      {
+        "path": "lib/d-execution-request-codec.mjs",
+        "sha256": "4a4f548b615cb6077975b5f6c9098bac7de20e8eec3683306bbc3f5eae56e4e2"
+      },
+      {
+        "path": "lib/d-platform-observation-contract.mjs",
+        "sha256": "6f5859793fbe19646195155e875f42ebf69e40fae3193c1b8953815e1e6ed275"
+      },
+      {
+        "path": "lib/d-platform-observation-policy.mjs",
+        "sha256": "08892cd881e07a4cc4cbd2bf9ee3f0cdd4999beef8ff42abe9a8dd43a2e4ceae"
+      },
+      {
+        "path": "lib/d-platform-observation-use-case.mjs",
+        "sha256": "08411b5d426e3a037a5c335f67344604f38c5ff61e9a67cb9ec012cfa3397100"
+      },
+      {
+        "path": "lib/d-production-job-cursor.mjs",
+        "sha256": "c3d742d6a2d268afa7f061a16bca31bc1750d49c2b89e0974b8a822e663d8109"
+      },
+      {
+        "path": "lib/d-production-preparation-contract.mjs",
+        "sha256": "3e1d1b25d6ea7a385c3e21efcaca4b6ebd2ff37684749a2795b92cfd05993f2e"
+      },
+      {
+        "path": "lib/draft-production-execution.mjs",
+        "sha256": "c642b8bc38b8c0f6d13ba09aeb19f6760b0d53fe37085429bf60843fb37908ab"
+      },
+      {
+        "path": "lib/e-readback-attempt.mjs",
+        "sha256": "23f82e41ac03af3481b99f5a4273fa51672452d3b16809312a54cc0e64d265f9"
+      },
+      {
+        "path": "lib/e-readback-software-use-case.mjs",
+        "sha256": "e5e5be8e172b3428940fef7c16f4888ad55d891b73440906f86b7b874053648b"
+      },
+      {
+        "path": "lib/e-stage-readback.mjs",
+        "sha256": "b5f3b2c3ff787a109f295f0426238d748f2b1d1ba9e845ce6f8734d009b528a4"
+      },
+      {
+        "path": "lib/final-pricing-revalidation.mjs",
+        "sha256": "bcbd3a522187cc84f1bcbbb114f7fbe338df8196d23f897fb6b5e84342194655"
+      },
+      {
+        "path": "lib/final-pricing-review-use-case.mjs",
+        "sha256": "7432b5aeb0186ecc4b185b4ca1bd8e35f9051ea1a92c1fdefd0319700d151bb0"
+      },
+      {
+        "path": "lib/final-pricing-review.mjs",
+        "sha256": "e108386c0a10b9a727877f76f2e6c3734aeb529b66b91771db808e87bad9c508"
+      },
+      {
+        "path": "lib/final-product-plan-confirmation-card.mjs",
+        "sha256": "63805109c202bde0e9a8c77ae17c80624466c9c89d30c20615053cefe6d4d050"
+      },
+      {
+        "path": "lib/global-pricing-policy.mjs",
+        "sha256": "0ccb64f394f954e470a3d58fe74c2261a23ac23cffe4ffc155a45ed3b3e6e007"
+      },
+      {
+        "path": "lib/guoo-route-comparison.mjs",
+        "sha256": "26d209dddf9be02f1c3e0599db6ed2cd30dd4d6159ecf2c489546de43a48a29b"
+      },
+      {
+        "path": "lib/guoo-tariff-reader.mjs",
+        "sha256": "7edc4dd229e37a4223d81168b358ce4746acfbd7ceb6afe4a4dafec543d18f19"
+      },
+      {
+        "path": "lib/http-api-boundary.mjs",
+        "sha256": "3bff5e0df094fc8e9b5b6fb3ab44c77d547318b12b2dd75c0cbc275e40d2538b"
+      },
+      {
+        "path": "lib/keyword-evidence-orchestrator.mjs",
+        "sha256": "9154673a610fd2842e3524f2ea1b05fe3508fd40459d2664b60280470b920064"
+      },
+      {
+        "path": "lib/keyword-evidence-provider-adapter.mjs",
+        "sha256": "b30407e941cd8eaa8695e24ec8e6bf61046d1c8b9a849b8e88b6dbeaece82e62"
+      },
+      {
+        "path": "lib/keyword-evidence-ready-event-producer.mjs",
+        "sha256": "cf6068149e5cd5075577c8fdac7e5a7f2b1072f7868a006d4e59ec9dd22cbf81"
+      },
+      {
+        "path": "lib/keyword-evidence-runtime-services.mjs",
+        "sha256": "da1283b30adb8dd468f68d81a1a542f9bb84f32aba3e956eb58fe75d1df5a356"
+      },
+      {
+        "path": "lib/keyword-evidence-scoring.mjs",
+        "sha256": "a6e5930487c74f006e9feaded4a2b5e2d0806767accc2e2c948b224f90f20aa2"
+      },
+      {
+        "path": "lib/keyword-evidence-snapshot.mjs",
+        "sha256": "c171f9ee6d7f7c55cb82c146b53f149c0824e1f5689b2168bd044591ab73c1ab"
+      },
+      {
+        "path": "lib/keyword-evidence-software-job-state.mjs",
+        "sha256": "da463b501cf4fbeb222868fed23a94409a1449f3d9d8791dc2ee8e0ba10f4224"
+      },
+      {
+        "path": "lib/keyword-evidence-software-runner.mjs",
+        "sha256": "232a7dab7f9c5c7b8f4f8861f5b25e1bfeef5a2faa71d283e002ff1453e97b4f"
+      },
+      {
+        "path": "lib/legacy-candidate-adapter.mjs",
+        "sha256": "e9a3519fd55364c8bd5be20f74658e8cca796d01c6dc115f07d4d289db94db20"
+      },
+      {
+        "path": "lib/lifecycle-b-evidence-context.mjs",
+        "sha256": "df140fee90ca0eaa3593504674bfbee6c930da9ee0be47303e5672fcc7bcd8fa"
+      },
+      {
+        "path": "lib/lifecycle-b-evidence-preparation.mjs",
+        "sha256": "a062f04724b39165e4a80ed860a269a341cdf501d6baa5917445067b439a4b76"
+      },
+      {
+        "path": "lib/lifecycle-b-evidence-providers.mjs",
+        "sha256": "584141040ab6603ce72eb160133023d1c26b708ec70bb5df6778125f480016e9"
+      },
+      {
+        "path": "lib/lifecycle-b-evidence-runtime.mjs",
+        "sha256": "ab44a05fc2982fb519646bcf74b5057e6ded29893aaea9c17b6b8a9cdbed8985"
+      },
+      {
+        "path": "lib/lifecycle-b-input-bundle.mjs",
+        "sha256": "acd3b77e6dc8ee6e59ea2a772c9d2f84817415385ddde58acea0d431a4bc3fed"
+      },
+      {
+        "path": "lib/lifecycle-b-real-evidence-readers.mjs",
+        "sha256": "8d620a369a7f9e52c0f53fc3e4710a6d3464eb32ec4c01bf5adb83b261efb0aa"
+      },
+      {
+        "path": "lib/lifecycle-c-stage.mjs",
+        "sha256": "2194c0334277ceab830f35ba0144bd28f8b0f3b20027fa43bb09ab080e750506"
+      },
+      {
+        "path": "lib/lifecycle-evidence-scope.mjs",
+        "sha256": "234a3acaf783d2de1f2af64d02387389c844e11c123eae9a2a8db447171e81f9"
+      },
+      {
+        "path": "lib/linkfox-discovery-api.mjs",
+        "sha256": "f1f7ef53f0f66a83cc5e264320209b3815936b71b1b65faef4771c6a3fbb4604"
+      },
+      {
+        "path": "lib/linkfox-discovery-connector.mjs",
+        "sha256": "3770055f0dc9275c6156f30559919dbbaa2d839a9b68c33d04cb14e8089ebf90"
+      },
+      {
+        "path": "lib/linkfox-discovery-credentials.mjs",
+        "sha256": "f132cc0cf39e4f86d35e7c94e1d502d785bdf755144d1dff0b8bc51114c9bbac"
+      },
+      {
+        "path": "lib/linkfox-gateway-transport.mjs",
+        "sha256": "befa6a08e82296a7c2b004c76395858ff4e3803cc0ad7e89a0cc3b0dabf21a36"
+      },
+      {
+        "path": "lib/linkfox-product-detail-api.mjs",
+        "sha256": "a1a10a76b096bc1bef5cf1aa250d509e1c9bb5c23d3aa55a46c92f4f0c185bf0"
+      },
+      {
+        "path": "lib/linkfox-product-detail-connector.mjs",
+        "sha256": "323eee6427128942bd24c7577cffbec585719bf1e7b2c1a40a1de951774a66dc"
+      },
+      {
+        "path": "lib/linkfox-read-job-runner.mjs",
+        "sha256": "dcb7d90930b6c72df9f978c71ca5acbd2c607520cee182b90751490f06345068"
+      },
+      {
+        "path": "lib/listing-preparation-review-boundary.mjs",
+        "sha256": "533cd536302e8d4e423fda09ad54b1814dbe31b82dde5901ec70676d6cd831ce"
+      },
+      {
+        "path": "lib/local-owner-identity.mjs",
+        "sha256": "53c03e99a2466f3fc89ae7d6cc1c7db4dbe3978dd8e5a9014487607153bbc619"
+      },
+      {
+        "path": "lib/market-sample-policy.mjs",
+        "sha256": "a6c8333621664da4313149b9425d97268a53c87265cc02062815371e833ef47e"
+      },
+      {
+        "path": "lib/multi-user-central-runtime.mjs",
+        "sha256": "5310dec9252e47f7abfeff3285da418a4d8c3f4a8e3efb1da802d09780f262eb"
+      },
+      {
+        "path": "lib/official-fx-reader.mjs",
+        "sha256": "33b8d70a75778ddcaed239fd7db77e4fc1045ecb1ae50f833dbaaad99a33e368"
+      },
+      {
+        "path": "lib/ozon-account-discovery-runtime.mjs",
+        "sha256": "a49f6d20b4ed9b64a398332dd516a7be558eb4114afc42ba8bed90dedeeb1864"
+      },
+      {
+        "path": "lib/ozon-account-discovery-services.mjs",
+        "sha256": "911e9370cbbb3a379bac9e599703c5d36df5e29ff6d368a179f84d917d72ea31"
+      },
+      {
+        "path": "lib/ozon-account-read-api.mjs",
+        "sha256": "3014b403f360a8e729a1e53783e6a5e87443661e67b7875466f1e0f749d6560c"
+      },
+      {
+        "path": "lib/ozon-account-read-contract.mjs",
+        "sha256": "02eb98123b919f8a2f1e63ec1e25f8c111ba1aee7e0edfe944260a92a0abbaf1"
+      },
+      {
+        "path": "lib/ozon-account-read-evidence.mjs",
+        "sha256": "bc62ba344c348f15ad9141da2b61217bc94d00a61057bbf0b8d50ef923868ec7"
+      },
+      {
+        "path": "lib/ozon-account-read-preparation.mjs",
+        "sha256": "220bebbd9bbbbea2c0dd5c7df2ef887ce4a2ced889006c9c709d95ad59413d2c"
+      },
+      {
+        "path": "lib/ozon-account-read-runtime.mjs",
+        "sha256": "336d9de08592aae225cb37cfa369fefa01814f71a3ab4a35345485663eb5856b"
+      },
+      {
+        "path": "lib/ozon-account-read-services.mjs",
+        "sha256": "cb905eef845188a012915bb72177f08fd87e7c06f60f8258573bb923fb85f322"
+      },
+      {
+        "path": "lib/ozon-de-http-configuration.mjs",
+        "sha256": "a1e4181afe7ecf324078762f804102ea7a1976625ba9765d4bafe74fa15ca66d"
+      },
+      {
+        "path": "lib/ozon-de-http-transport.mjs",
+        "sha256": "dda208bd4094efce09d9061f9e1ed0f6635b66c78ba208f6bee283fd2fcdc11a"
+      },
+      {
+        "path": "lib/ozon-de-preflight-evidence-reader.mjs",
+        "sha256": "b1cebfd3b4f87e5208477767b402a5541fa5a3d8b57e9302344432b792e0c0c6"
+      },
+      {
+        "path": "lib/ozon-de-preflight-provider.mjs",
+        "sha256": "b4a0da62316cb62a99017535aac8745c126de8d34173e1b38d2c3b319581886a"
+      },
+      {
+        "path": "lib/ozon-de-readonly-capability-probe.mjs",
+        "sha256": "7395bef2af84211d85cb02412dbc3e40b9a0741e9a56cfa7e3c79f56f50e47c2"
+      },
+      {
+        "path": "lib/ozon-inventory-prerequisite-policy.mjs",
+        "sha256": "1f5bb89423e9f85fcb4540ad3090fd74e14a7f92414a1956ddaa91a3ec5cfe07"
+      },
+      {
+        "path": "lib/ozon-production-strategy.mjs",
+        "sha256": "2beb7827fb866153c34c5b70db01f741eebbd6473f228d84f6ef76ef093efa84"
+      },
+      {
+        "path": "lib/ozon-sales-capture.mjs",
+        "sha256": "26744a057435203b0db5785983a3329b8f17385c515f0517922f5f8acd9488cc"
+      },
+      {
+        "path": "lib/ozon-seller-api-de-adapter.mjs",
+        "sha256": "912667d4c7e4a9c00427d13ef50242904ecb571cbd310e885bcd078c9b3ccf22"
+      },
+      {
+        "path": "lib/ozon-seller-api-production-adapter.mjs",
+        "sha256": "6f3b6792ab31f68987e3d239cb24a8ccb948b762c36f29ca9f83cbbfd26749af"
+      },
+      {
+        "path": "lib/phase-2a-simulation.mjs",
+        "sha256": "076990d9d2e0faf0aec1782acae3ba3ec66fb57a17498dbb3ae9b6357b182997"
+      },
+      {
+        "path": "lib/phase3-ab-deployment-boundary.mjs",
+        "sha256": "b5e9bf97e99bd588172bb39218e769ccd2a92bc1487d7734f3f5de19b3d0d216"
+      },
+      {
+        "path": "lib/phase4-c1-deployment-boundary.mjs",
+        "sha256": "f5b53f0c51dc075767d417f1ca4fc6cc75add3280d5c287b183db9977d80c50d"
+      },
+      {
+        "path": "lib/phase4-c1-fact-keyword-deployment-boundary.mjs",
+        "sha256": "d8a050dad671e8ffda1118a616ae62aac4b40bccbda64bbc55d6b2e27ec37a03"
+      },
+      {
+        "path": "lib/phase4-c1-keyword-auto-trigger-deployment-boundary.mjs",
+        "sha256": "a505c5047e2f26a2f0ecb60b6e7793f5735bfa103789b68d814b14af88153b90"
+      },
+      {
+        "path": "lib/phase4-k3-c1-deployment-boundary.mjs",
+        "sha256": "672af59f5d846e8cd9a71b61f6e9a765bfb3259a3c2f4b1a93182dcc812b30f4"
+      },
+      {
+        "path": "lib/phase5-c2-deployment-boundary.mjs",
+        "sha256": "112ccc86b86c50ed10561cb631288f482abdfb1fa1d19104257fd17cea439942"
+      },
+      {
+        "path": "lib/phase5b-c2-ui-deployment-boundary.mjs",
+        "sha256": "4bb3b17e9f2954a25dcf281f068cfe210c62524526e8b7bf97e511e154d753d1"
+      },
+      {
+        "path": "lib/platform-write-preflight-contract.mjs",
+        "sha256": "8e8bc3ce2750475ea870cfc74884ff016b8ef53eb4af9c83a6370ad81b27a8e7"
+      },
+      {
+        "path": "lib/platform-write-preflight.mjs",
+        "sha256": "ae66c8991509e64c8189890c53013c1363f7b0fd405357264347b3e82c5e222d"
+      },
+      {
+        "path": "lib/post-launch-observation.mjs",
+        "sha256": "e6c0af593f640e2c80d33058ed1d29dbe4aed0b759ab1ec81243ca9796761b70"
+      },
+      {
+        "path": "lib/product-lifecycle-schema.mjs",
+        "sha256": "b804cff98205b0196554472e6996379ee3fcb1d5292d2d944e75768d8dc56d48"
+      },
+      {
+        "path": "lib/production-authorization-preparation.mjs",
+        "sha256": "ff338f91f3e174e0c6681391ae2b32b61fa735d066848e47f88019df9e873459"
+      },
+      {
+        "path": "lib/production-authorization-snapshot.mjs",
+        "sha256": "7301c038a5ca04e8a8ccc77de3252173c0243d399cde3361cec5f5daf0260dfa"
+      },
+      {
+        "path": "lib/production-authorization.mjs",
+        "sha256": "72a994578cba5e5f53e8405b34b77b3f2e24efc05b1d7a1b43bf9cd7d482d473"
+      },
+      {
+        "path": "lib/production-contract-primitives.mjs",
+        "sha256": "2301438b995ffc0385311bac5520f1c93406ed6b27c6e9811b25749ddc2681c2"
+      },
+      {
+        "path": "lib/production-execution-failure.mjs",
+        "sha256": "15dc871db658e1a5c168dd4f4c31cf1e09586ae3dd1697030735a41d9a246907"
+      },
+      {
+        "path": "lib/production-owner-preparation.mjs",
+        "sha256": "c079e7509daa9b77c2e267e7141f019d22ecd77c0037f9f99b07603446103cc6"
+      },
+      {
+        "path": "lib/production-plan.mjs",
+        "sha256": "07815957aee495d9f088ce35b7bafb86aff66e04943972271db65d850b7ac415"
+      },
+      {
+        "path": "lib/production-record-contract.mjs",
+        "sha256": "855c7c8e6b8fd6a7f4de58a68e410146d293505cd2f34acba3fd41bc0d3228da"
+      },
+      {
+        "path": "lib/profit-model-calculation.mjs",
+        "sha256": "dd3711598556b161be9543912b43cee61af241798629ad105e2339bc4ddba2d4"
+      },
+      {
+        "path": "lib/profit-model.mjs",
+        "sha256": "638093c757c0606795f5d39c366de98b9963b68798560b421973e970d75196d8"
+      },
+      {
+        "path": "lib/profit-threshold-policy.mjs",
+        "sha256": "cc054bc7f31b8be85b018252c80ec494492480ed58e84e61bbb326b80dfec398"
+      },
+      {
+        "path": "lib/real-a-b-c1-flow.mjs",
+        "sha256": "fd14dde38af74a73baa74df284aed23aa89e30f5850da8447f6f4bf19eadc7c4"
+      },
+      {
+        "path": "lib/real-a-b-evidence-orchestration.mjs",
+        "sha256": "a9d417f4e43f396584f0762ae9b99fdfdbdc77f7764ae10681a78783ecf804f6"
+      },
+      {
+        "path": "lib/real-a-confirmation-card.mjs",
+        "sha256": "debb6bf8a1ec7c38657fd056c9a1684437866af13a2b08d25e697a7d9e95ae00"
+      },
+      {
+        "path": "lib/real-c1-preparation.mjs",
+        "sha256": "45db12a962b078682dc14470a37a361cb77471f1e42e36ec8499f75543e7683a"
+      },
+      {
+        "path": "lib/real-lifecycle-entry-preview.mjs",
+        "sha256": "7b38c3d204568b69a92fc7c716cce6de825d58baf613f086aaadf5d5d81b83bf"
+      },
+      {
+        "path": "lib/runtime-configuration.mjs",
+        "sha256": "618d7bbeb89ad16169d9bffffcf28b99259ef419e31a2fd000a93a0ae1ec1a84"
+      },
+      {
+        "path": "lib/runtime-identity-provider.mjs",
+        "sha256": "03cab26ea8e79ff5aed8ac2b1ba4afcd47cce84e4561aa1781e5c6980278fd94"
+      },
+      {
+        "path": "lib/runtime-identity.mjs",
+        "sha256": "d6d5c3e985f504c495019bea55a370d9cb5925104f392f82bbe6da17d6d78ffa"
+      },
+      {
+        "path": "lib/sales-snapshot.mjs",
+        "sha256": "35402daa1f90e520c7e20eed598982527c41ee4fddcc3f4a5df3d386eacaa096"
+      },
+      {
+        "path": "lib/seerfar-discovery-contract.mjs",
+        "sha256": "39f4b87fc93f359dc4c3190929b3cc23a0d3108efbb10a2c069a5abc5ed7fb32"
+      },
+      {
+        "path": "lib/seerfar-discovery-software-runner.mjs",
+        "sha256": "12b76087f4dba2c2f2e01b29b58a72881348b0679f5ecb8bcd88888657b8d3e8"
+      },
+      {
+        "path": "lib/seerfar-open-api-transport.mjs",
+        "sha256": "be2e6aca5eb98ac3693a9ac338ed06283fbd5a0e9105fe9074f30a729634ef8d"
+      },
+      {
+        "path": "lib/seerfar-runtime-connector.mjs",
+        "sha256": "1b1d65318222cba9e3023039e56101bb10dd70a88aa16d4d53991de0d28f814b"
+      },
+      {
+        "path": "lib/software-execution-state.mjs",
+        "sha256": "3158fd24e021221b8f064350aff7f7e719595fd585ce1ee4b290be6f2c72e32c"
+      },
+      {
+        "path": "lib/software-job-admission.mjs",
+        "sha256": "6fa008b155f86ddd1123874d97be2a0d81695aa2cceabea6fcb5711e60cad77f"
+      },
+      {
+        "path": "lib/software-job-contract.mjs",
+        "sha256": "54c3fbf841c82d49d32ae5f7ccf4ca0b23d581fce5c0d1a28c66ed8052841049"
+      },
+      {
+        "path": "lib/software-job-repository.mjs",
+        "sha256": "0f424aaa1eff87735409ca6e0ea949e0d07dad87a8b5a643a4892d46d80629e7"
+      },
+      {
+        "path": "lib/source-capture.mjs",
+        "sha256": "85179f07862b32bad1abc099cae47aaed4d7bb7286d926b07df71adcab07dea1"
+      },
+      {
+        "path": "lib/store-binding.mjs",
+        "sha256": "aea684659cad84c6c8e1bd2b0d57f89ac5b5e708ff319c21bd53c75c296c0310"
+      },
+      {
+        "path": "lib/supplier-option.mjs",
+        "sha256": "6cc41a667c3c5e6832c6313e621d7d55b63fa1bfd7f5790e5e60ef4a11bd3279"
+      },
+      {
+        "path": "lib/supplier-selection-flow.mjs",
+        "sha256": "aa64d81582a8528a2b7a0578d1bb71e26b58066f0d18c03a9f7cdc353496c0ff"
+      },
+      {
+        "path": "lib/three-store-map.mjs",
+        "sha256": "be34cc0371de3a8ab331305e4ac09522dfc765046ca6c105b5d98992d27c95a7"
+      },
+      {
+        "path": "lib/wb-commission-reference-reader.mjs",
+        "sha256": "59c09355dc62930d2434734f73f6183ba215915aaff9f535d26dc5a3b9c15fcf"
+      },
+      {
+        "path": "lib/worker-registry.mjs",
+        "sha256": "c3c6914e85832dc7936abb194ca267826c867dee2d2c676bfb10303fc28dcfc5"
+      },
+      {
+        "path": "lib/workflow-map.mjs",
+        "sha256": "6d498344c87ddaef49e2b4c3db645420e7b4b343a8661da02aac76abccec87a5"
+      },
+      {
+        "path": "lib/workflow.mjs",
+        "sha256": "51e26b6b116cde1d01f882a1f46c74fa6c31f8f0d812b18a5dfee7330aa55e4c"
+      },
+      {
+        "path": "package.json",
+        "sha256": "ba50618231c33013aca33f13c5d46ede016cb519b6117e69eb11c58bb2adf73c"
+      },
+      {
+        "path": "pnpm-lock.yaml",
+        "sha256": "f256d08b242a40df43f457c388e28f5aa135516af5a1a12cf6fb43d92920c406"
+      },
+      {
+        "path": "pnpm-workspace.yaml",
+        "sha256": "ac02d96368617c760f093cfe61fdec64b6244007ab3553e0d6621f706f54a353"
+      },
+      {
+        "path": "schema/a-discovery-v1.schema.json",
+        "sha256": "9ab6c822f908d938aca5faf34388d7bc2ae26e9df61a75d08d8c2b47a130e0b5"
+      },
+      {
+        "path": "schema/a-discovery-v2.schema.json",
+        "sha256": "8c0e109355286df5d0bdaed20e1342e3550e9ac61cb7424049df0cf5c93159d3"
+      },
+      {
+        "path": "schema/a-market-assessment-v1.1.schema.json",
+        "sha256": "b50f973f6977caa4597a63e4f17aad4e622dc45e00973e869e9a5454d95a2c77"
+      },
+      {
+        "path": "schema/a-product-detail-v1.schema.json",
+        "sha256": "9e152f4a44adbe5496429dbb5617f183c6774882fa2434db746f9bfdbec01451"
+      },
+      {
+        "path": "schema/a-supplier-image-search-v1.schema.json",
+        "sha256": "bd80221d4251b75bbb58c09a16f1b1a9d3b62664503e4eecb27ba0a0c5d7ee3b"
+      },
+      {
+        "path": "schema/c1-ai-authorized-execution-v1.schema.json",
+        "sha256": "aed4d79d723f0a558616196572677b552957d18b21cd886a1e5f6c5b0df7f25f"
+      },
+      {
+        "path": "schema/c1-ai-draft-payment-authorization-v1.schema.json",
+        "sha256": "7dac139ab1fad75c0bf34e5595ea9693193f20cbecd755d4bf39441e0ad6dcd5"
+      },
+      {
+        "path": "schema/c1-ai-draft-receipt-v1.schema.json",
+        "sha256": "132034beb5674e5b0fbaca46919120afe2045cb0f6e7f7de486bfc2e40bad6fb"
+      },
+      {
+        "path": "schema/c1-ai-draft-request-v1.schema.json",
+        "sha256": "adc9f00c81a6cba67b2868f11a93b8c3bfde1a5972a60c0670bdb6949009a5e8"
+      },
+      {
+        "path": "schema/c1-ai-settled-execution-v1.schema.json",
+        "sha256": "0c40395eb8c58d3ed5f5c2971d854c25dc8799ef785301bf84cbd831e6756dea"
+      },
+      {
+        "path": "schema/c1-fact-keyword-pipeline-v1.schema.json",
+        "sha256": "33014f11be87c1079d41a1925a9a4f9735ecfeefe62da606cca1383052c92bc0"
+      },
+      {
+        "path": "schema/c1-fact-keyword-runtime-input-v1.schema.json",
+        "sha256": "c99621888977687329ad63f703cc8e1c7a5702408f6147685c9754674808e753"
+      },
+      {
+        "path": "schema/c1-k3-keyword-adapter-v1.schema.json",
+        "sha256": "92cc29bcbdbdc4630dfebaaee433121f35b9af7218fb86c90f2efe0cad759527"
+      },
+      {
+        "path": "schema/c1-keyword-evidence-ready-event-v1.schema.json",
+        "sha256": "e75c9b5b6e4307e3328ffbfab1a812bcb2636872ba7f046944a80f5e22bd198d"
+      },
+      {
+        "path": "schema/c1-keyword-planning-evidence-v1.schema.json",
+        "sha256": "beb6bf4212dcba9af7e06353491d86a5c07ef05abb46894dbe23404e8b5332e3"
+      },
+      {
+        "path": "schema/c1-keyword-planning-local-material-production-v1.schema.json",
+        "sha256": "c5b938f7ee7daba00b632b264508a383da2e92d3ae0974b5c888bfed16aee999"
+      },
+      {
+        "path": "schema/c1-keyword-planning-local-material-v1.schema.json",
+        "sha256": "a2aad7cb9c2b6a106a0800e8312a590a75f322062d23d2a5301d8705a62d7fab"
+      },
+      {
+        "path": "schema/c1-keyword-planning-production-v1.schema.json",
+        "sha256": "2dce6bf644cf8e92a08b0aa135a8f83958fdfef55ca2d01982810e1a4fbadabf"
+      },
+      {
+        "path": "schema/c1-keyword-planning-source-evidence-v1.schema.json",
+        "sha256": "83304b24e25d47877d6c3bf26c93175d29956ffeaa67a342f3c553e8ba292e4d"
+      },
+      {
+        "path": "schema/c1-keyword-planning-source-record-v1.schema.json",
+        "sha256": "2ffbf31a419bb287ae0bfd52944f52a7cc4ca55a9e9183d1341274840de7886f"
+      },
+      {
+        "path": "schema/c1-keyword-software-job-plan-v1.schema.json",
+        "sha256": "cdf2a724da889a744cc5279f21413eeb35e37b346af60560961a6e7272a4e4ce"
+      },
+      {
+        "path": "schema/c1-product-plan-v1.1.schema.json",
+        "sha256": "8291a3bbc87d9c16f6b9c2112a7c68956e15839669ed4b533f7a4c029694405a"
+      },
+      {
+        "path": "schema/c1-sku-rights-review-record-v1.schema.json",
+        "sha256": "401dac41a085359f7ae7f47d369e54b95fc73ee0783afd35c01b74c9e76c07f8"
+      },
+      {
+        "path": "schema/c1-sku-rights-review-v1.schema.json",
+        "sha256": "a5fcb07282ac889bb741b6f036fde044b698462b9b137d8729838ce34d71681e"
+      },
+      {
+        "path": "schema/c1-software-evidence-stage-v1.schema.json",
+        "sha256": "1f46a1de86dd390d60caf997eaf136e75cb07c6e4e67bd340326e300495fb9aa"
+      },
+      {
+        "path": "schema/c1-software-input-preparation-v1.schema.json",
+        "sha256": "6756dc733c70a80bd3b0ce3f467f6007c8e12d2246188153cc5129153d351a90"
+      },
+      {
+        "path": "schema/c2-asset-lifecycle-v1.1.schema.json",
+        "sha256": "fa6e6e5cf3169e10ccd672f7b1969b04f3932207a575bc5c61bd27639e2e72e2"
+      },
+      {
+        "path": "schema/c2-software-input-v1.schema.json",
+        "sha256": "d06fe1c05432f794ed5933cd000a9cce688eca97aef8ad3da74ce18e513e9bfe"
+      },
+      {
+        "path": "schema/d-platform-observation-admission-v1.schema.json",
+        "sha256": "c3d88e6a6dcd3265cb0b39089fdcb2fe1ba791d7315201a48d5a5765c5a90e72"
+      },
+      {
+        "path": "schema/d-platform-observation-v1.schema.json",
+        "sha256": "aebb7ff9d88a58ce3502059d68f3ede793b3b5b7771e44c4a2ae2404c86c44ff"
+      },
+      {
+        "path": "schema/d-software-execution-state-v1.schema.json",
+        "sha256": "1388218bf47da37bf291236b6163ce8662a357d71887bd5919885944dd7d1285"
+      },
+      {
+        "path": "schema/d-software-execution-state-v2.schema.json",
+        "sha256": "c4d994d3650c01672300b42432df5aab1a7f4f79ea147b82d078dec22070fa08"
+      },
+      {
+        "path": "schema/d-software-execution-v1.schema.json",
+        "sha256": "e26c33392e3b36f6c45f5745348f920800ce5c5a8a13e03ce2736422c359be1b"
+      },
+      {
+        "path": "schema/d-software-execution-v2.schema.json",
+        "sha256": "60c67148c2c002a1a378d4f7d92811a4c60a14e9bfa6b04b47fdbab540f01db5"
+      },
+      {
+        "path": "schema/e-readback-attempt-v1.schema.json",
+        "sha256": "738e8b92da050b2265ca5f001f9d901c47940ae28fd9346837ecc700f63b3ff7"
+      },
+      {
+        "path": "schema/e-system-readback-v1.schema.json",
+        "sha256": "8b97e126eb40c1ff9517ffb2e84ede65aacc3c0d1c7a7c99c85469b2620782d4"
+      },
+      {
+        "path": "schema/e-verification-record-v1.1.schema.json",
+        "sha256": "5932ec61ce0f296884306f1ef82a8ddf7dea4f53b21ce8446f3b5b4f89422d30"
+      },
+      {
+        "path": "schema/external-listing-record-v1.1.schema.json",
+        "sha256": "c5b1e3742d59e9e80f76415ebc3711d2707390bc13436eda0530ddec3697a286"
+      },
+      {
+        "path": "schema/final-product-plan-confirmation-card-v1.1.schema.json",
+        "sha256": "a4afe6b3dafbf9e699baabebc80f0748862973532f6eca17f3139d53573cc149"
+      },
+      {
+        "path": "schema/keyword-evidence-preparation-v1.schema.json",
+        "sha256": "81f9041e878faeba8639be7359faef5fb3d81f3b99985f58eb66445a69d1849a"
+      },
+      {
+        "path": "schema/keyword-evidence-snapshot-v1.schema.json",
+        "sha256": "33d7f30a3e91f0d31c005f276162843f7758c746e257b5514820e73de1997124"
+      },
+      {
+        "path": "schema/keyword-scoring-v1.schema.json",
+        "sha256": "8ef8b788e31de66b6b3e94ac660a26a83e97078a67ce2012af81c7642c93a7d7"
+      },
+      {
+        "path": "schema/owner-supply-confirmation-v1.1.schema.json",
+        "sha256": "729ab397c5a849f8265e4053f13153af8df727443bdd6db55fb1265dda0f2100"
+      },
+      {
+        "path": "schema/ozon-account-read-v1.schema.json",
+        "sha256": "b5d3a7a24eb76bbd2893c42bd59767ad0e1bee4e337fec3973277d005270528f"
+      },
+      {
+        "path": "schema/ozon-account-read-v2.schema.json",
+        "sha256": "3fe6be0bb10d98e3363bd9519063f12c3397eb56bc75417a24b4c00b150e87a0"
+      },
+      {
+        "path": "schema/platform-write-preflight-v1.1.schema.json",
+        "sha256": "794b2bf920a7793f80dc8479e7ae3c8a035063bf4c0f2c821b42580f605ca645"
+      },
+      {
+        "path": "schema/platform-write-preflight-v1.2.schema.json",
+        "sha256": "cc356d288fa71a43cd4bce904c543fbc9c69e9bf0cbbbfd5a924abefeb7c10f9"
+      },
+      {
+        "path": "schema/product-lifecycle-v1.1.schema.json",
+        "sha256": "290c754960d381735c6f6f261ad603bd2ee197a045c83ae55a1cffe0216618ff"
+      },
+      {
+        "path": "schema/production-authorization-v1.1.schema.json",
+        "sha256": "dc941713a519f5a265146ca20a46972ec89cf9a777e58c57f98fb5185b17ee34"
+      },
+      {
+        "path": "schema/production-authorization-v1.2.schema.json",
+        "sha256": "a7ab828b2036162daf2a8781e4bdd75f8b55b816398be520c556bf818adbf392"
+      },
+      {
+        "path": "schema/production-plan-v1.1.schema.json",
+        "sha256": "438075a6eafc3d13174f91c6532bacfe1d2b7d4215446529bf186fbd299298e0"
+      },
+      {
+        "path": "schema/production-record-v1.1.schema.json",
+        "sha256": "fb4d1710b035ba7a84c592ba2c378ed2cbbdfe561b2b865c8d39a11905214138"
+      },
+      {
+        "path": "schema/profit-model-v1.1.schema.json",
+        "sha256": "ab63e789e981b925c3605d1aa888503678a7b8d22cde937b9801be04a5ad62d0"
+      },
+      {
+        "path": "schema/runtime-identity-v1.schema.json",
+        "sha256": "838c9cc19a9fbcc69076285485f708fce6e59cca3f18d4703119f0a6c4751c17"
+      },
+      {
+        "path": "schema/sales-snapshot-v1.1.schema.json",
+        "sha256": "c0aff657e0c216a1e294cd58af3f45f873067d8ea5e18f5e0067bdb408f8a9ed"
+      },
+      {
+        "path": "schema/software-job-admission-v1.schema.json",
+        "sha256": "5e74ffc28f11941aafebc70fccd260f7620592d83f68ea682863128995a68b6d"
+      },
+      {
+        "path": "schema/software-job-v1.schema.json",
+        "sha256": "788faf4aea5c07b854424f301a4fc535275b1aa15ebe04161c4e9e3fe001a425"
+      },
+      {
+        "path": "schema/software-job-v2.schema.json",
+        "sha256": "75f4cb3bacf7443942fa03903541bc020773e15b1d34284262210a42287d7bcf"
+      },
+      {
+        "path": "schema/software-job-v3.schema.json",
+        "sha256": "22bbb211fbf62bb75c454b87a417f34a32d6daad59401e47a1e536e1f15e87ea"
+      },
+      {
+        "path": "schema/supplier-option-v1.1.schema.json",
+        "sha256": "97154cb3b04dce6a4455f5e42a699ce073c35a018ab9e037cc7ac8d8ed2e3425"
+      },
+      {
+        "path": "scripts/capability-source-snapshot.mjs",
+        "sha256": "28f3a2e7ce8faf96ae1e7953f06706bdec83996175dd98976b14a3c28a54d3fd"
+      },
+      {
+        "path": "scripts/ci-api-boundary.mjs",
+        "sha256": "2c05fbd640c1e33fd8e1c8b888c08149dd6bb026598df6677d87230d3a32dc5e"
+      },
+      {
+        "path": "scripts/ci-test-policy.mjs",
+        "sha256": "66d8924be576ff45608433fb405138c43353d58b081e0b5bf81883ff7f17d4df"
+      },
+      {
+        "path": "scripts/ci-test-suites.mjs",
+        "sha256": "5c169847b360b75fa35e7012f75fdfe92e3ec7ed11a43a4478af1477adf0326b"
+      },
+      {
+        "path": "scripts/deploy-local-runtime.sh",
+        "sha256": "85dcd99d1b43fc647815eaea5b5a3182fb5f0368ecf99b7f8e4415e91d48345f"
+      },
+      {
+        "path": "scripts/dev.mjs",
+        "sha256": "218091cd853ef541f12186f43142d1b3d3e56bfeb2060ebe044994b0b6bdec09"
+      },
+      {
+        "path": "scripts/generate-c2-reference-schema.mjs",
+        "sha256": "9f251a2382cbc41f5e5c58cb7bfe88072714adac83900f4b540e4462df566a4a"
+      },
+      {
+        "path": "scripts/generate-capability-snapshot.mjs",
+        "sha256": "5a88fc6883d1ed626ea0460d30b769fb5decbcbb945ad2965642749fe603cf3c"
+      },
+      {
+        "path": "scripts/launch-server.sh",
+        "sha256": "f530d18ed6945db8b668d8a19891b4ef805c0a3020d1338ebfa3994062828dd5"
+      },
+      {
+        "path": "scripts/open-review-in-chrome.sh",
+        "sha256": "504331998ba05507d3d36b37f5d6006844bbb4d98d3359549228adbd3e692e4b"
+      },
+      {
+        "path": "scripts/prepare-local-runtime.mjs",
+        "sha256": "c671eefd78b7a6e330b9416b5422a5027a5f09cf5a38e7c136616c9bb37b108e"
+      },
+      {
+        "path": "scripts/run-ci-api-tests.mjs",
+        "sha256": "a9c1454947b8feea83e57461abd06e005114817dce9ddb200398542a7b76f8e4"
+      },
+      {
+        "path": "scripts/run-ci-tests.mjs",
+        "sha256": "862d95e38b892c7d60fd9f6732b586ce4d2f8b68d4030155bbeedec4eff0709e"
+      },
+      {
+        "path": "scripts/run-local-api-tests.mjs",
+        "sha256": "605a27fc1ab3d08c399260fbec1454a33ec2bfc6f29f66d910ce9475c05543a2"
+      },
+      {
+        "path": "scripts/runtime-package.mjs",
+        "sha256": "40dfbb6fd53cf53072658dc3f5c8ac1b069364431182590758b768d505b6bf81"
+      },
+      {
+        "path": "server.mjs",
+        "sha256": "de1e66c8bd50c19a091abc0fe02291168166976678e0a3f3a3e6f1b9b3eb0a8a"
+      },
+      {
+        "path": "src/App.jsx",
+        "sha256": "6c3fa32f29590428872ac56d449195a3456a37407531a046c15f72e8b49f938d"
+      },
+      {
+        "path": "src/aConfirmationInput.js",
+        "sha256": "54f6f28a61eb4d25323ee06a39fd02e4e0d687178a5a81ad7f95bdb8913a6b53"
+      },
+      {
+        "path": "src/aSupplierCaptureSelection.js",
+        "sha256": "c138bd0dd74a7b98ca1eac880301279c605235346699558d995ed633cd1b2b6e"
+      },
+      {
+        "path": "src/api.js",
+        "sha256": "b18b8a3fbeb237012dbf6e5be4b34f3e963214cc393863fd37e0b02ccd2f2888"
+      },
+      {
+        "path": "src/bExactCommissionInput.js",
+        "sha256": "a9d63864f87a5f16fc7bfc3f035242f7cff58ecc59afde638f33d4907ab22877"
+      },
+      {
+        "path": "src/c1PaidDraftInput.js",
+        "sha256": "6ae8ba79b6a2ab413e4a88be03b1a7acb93cee364cf2d4329c5fc365e61f7c77"
+      },
+      {
+        "path": "src/c1RightsReviewInput.js",
+        "sha256": "43a4d39d78b545430a9e3cb1fdea16cdaa7c78382705897e8d58eb7fd25c5499"
+      },
+      {
+        "path": "src/c2FinalAssetInput.js",
+        "sha256": "0854bbbe1928a7f250041ef37f0911d607b73d83f5da0cc1070c84f0479b34c1"
+      },
+      {
+        "path": "src/candidateViews.js",
+        "sha256": "8281a88c8f481c2fb57202b9040deddc5efde84dd49f8430889e859f24e57315"
+      },
+      {
+        "path": "src/captureStart.js",
+        "sha256": "c43271c7b0386ca9f111693fc5ccb84da4924d28594fa8c04bd17f2dd467d9ac"
+      },
+      {
+        "path": "src/commentInput.js",
+        "sha256": "df936e05a1aa4bc277e2a4850d8512644bf14594ad18c1e9f356bc9c47b42d95"
+      },
+      {
+        "path": "src/components/AddCandidateModal.jsx",
+        "sha256": "fe36fd2972b471e1f7284e2a02eed6a0ab2b0ab133ba6fd8d537b3c86b0290a4"
+      },
+      {
+        "path": "src/components/C1PaidDraftPanel.jsx",
+        "sha256": "a57337560dac3ff89494943ba4735cc45e7530147d631a09199b1e4b186be5d0"
+      },
+      {
+        "path": "src/components/C1RightsReviewPanel.jsx",
+        "sha256": "d234348e0722bb995eda0535527650145ae9a2a9b7f95b4c9bd0ab131255345b"
+      },
+      {
+        "path": "src/components/CandidateDetail.jsx",
+        "sha256": "eccf7e8e80d8423b71acf8ec3d6af402e6de5dd1cd72d75aecc39821c95a144f"
+      },
+      {
+        "path": "src/components/CandidateRail.jsx",
+        "sha256": "bec043ea00f736095d5e53551b5bdc078d21f99a0bffb77c7d9b45ab77516696"
+      },
+      {
+        "path": "src/components/DESoftwareRuntimeCard.jsx",
+        "sha256": "bef781973217124772ccbdac6e80f6e21ba484dabadb5dc41f1d5b868aecf605"
+      },
+      {
+        "path": "src/components/DailyProgress.jsx",
+        "sha256": "9c796d6482b42afc4470ebe52e42ef839c6d252f6020acce010f9a20f302a2ef"
+      },
+      {
+        "path": "src/components/ExecutionRuntimeCard.jsx",
+        "sha256": "4da9d623c042acec1eed92e6088112df69480a8b8579dedef1d7e9ed3a8309c4"
+      },
+      {
+        "path": "src/components/FinalPricingReviewForm.jsx",
+        "sha256": "f41eca41828227b91eb014783f7de6a9c8ded40b1859072c3c4711830b714aab"
+      },
+      {
+        "path": "src/components/FormRevisionNotice.jsx",
+        "sha256": "f09415a1ec659524cd0baa0c01e45a80d008e401a2131c12319d494d1ced796f"
+      },
+      {
+        "path": "src/components/Icons.jsx",
+        "sha256": "ffe7fb684e51fac940099d40dfd6d272d49c488840f7e470b401a30cfaa68cd0"
+      },
+      {
+        "path": "src/components/KeywordSoftwareRuntimeCard.jsx",
+        "sha256": "0bd111304f2dabb7e9d9d695bc72049594991a9ea7c4f87510203822ae3e8fa5"
+      },
+      {
+        "path": "src/components/LifecycleEntryPreview.jsx",
+        "sha256": "cc575dc3ec46ed932a5a19f06523c76544e3566d6207d4856b7cef4c14a3640c"
+      },
+      {
+        "path": "src/components/LifecycleStatusCard.jsx",
+        "sha256": "f46055fafb13cb6c467f20856f4c654cc4632c3579fcdebd4029b67686299392"
+      },
+      {
+        "path": "src/components/LocalOwnerAccessPanel.jsx",
+        "sha256": "cc951e0002ab92c1518495322be1970b17cccbed22767501cef72cb1e920eb5d"
+      },
+      {
+        "path": "src/components/OperatingRules.jsx",
+        "sha256": "9a1f461e36cd38f62f6484fe52272b2103085d6f0f129da0c2a3622d90674f49"
+      },
+      {
+        "path": "src/components/OzonAccountPreparationCard.jsx",
+        "sha256": "e7063df5b4d7b0e2daef0cb07b1c53af532d472c386163a8fb13022f9b614017"
+      },
+      {
+        "path": "src/components/OzonAccountReadCard.jsx",
+        "sha256": "2494ff9bf21ea6647307225e90051a97b51696d5069a966b271c0bc9ceada4f4"
+      },
+      {
+        "path": "src/components/Phase2ASimulation.jsx",
+        "sha256": "1590e3e4c8aa9b27836b4cbc9815a2e2c93b000e02c2848c28675e39bd5d4fc3"
+      },
+      {
+        "path": "src/components/ProcessingBreakdown.jsx",
+        "sha256": "3f53639f726e0137123967b2a819b0597f16e98b7c6272697eb9cb46b3786aa8"
+      },
+      {
+        "path": "src/components/ProductDetailPreparationCard.jsx",
+        "sha256": "a96baf8eb714cedba11d4025a095958a71f61b3bab72479a2a86cd51dd9fa181"
+      },
+      {
+        "path": "src/components/ProductDiscoveryCard.jsx",
+        "sha256": "d986040b52712fd3756362c87cc3bb4624ff33eb757f9c23e284891f2833900b"
+      },
+      {
+        "path": "src/components/ProductionOwnerDecisionForm.jsx",
+        "sha256": "3d39f0b292509d3a679e17c4178720fa84a27022f0b7dcee52da144d4002860f"
+      },
+      {
+        "path": "src/components/QueueTabs.jsx",
+        "sha256": "0b707133233a2c009b81b386f83bb4a53b609f787a052da986bb9032b098d386"
+      },
+      {
+        "path": "src/components/RealAConfirmationCard.jsx",
+        "sha256": "0b73bbc9fdc6c61aee646492f545c536069d86f373bf8d367442f8d54a8d5ac8"
+      },
+      {
+        "path": "src/components/RuntimeArchitectureStatus.jsx",
+        "sha256": "4d66219c68a7ac9e130e92671a214697a3605c1e15ad4a4902527ab56230f829"
+      },
+      {
+        "path": "src/components/StatusBadge.jsx",
+        "sha256": "3003816a16b95ea93977531b1a8a83216a42b950d0122ada8dc14c518e6f104e"
+      },
+      {
+        "path": "src/components/ThreeStoreMap.jsx",
+        "sha256": "13a6a6251ea1bfbcbe4fbae20cb9b3c7b9d435843abab78a21ebdda3d57e2c2f"
+      },
+      {
+        "path": "src/components/UserInspector.jsx",
+        "sha256": "42393edbb5ca8833254b4c00fe2d0fc3bac1818127089c3cdb11999b5402df54"
+      },
+      {
+        "path": "src/components/WorkflowMap.jsx",
+        "sha256": "cfa12b5c82e8bdb05aec23d0a7bb17d6480117e0c0da8f5a4725b768eba8d7d2"
+      },
+      {
+        "path": "src/components/useDialogFocus.js",
+        "sha256": "351f0bd6fc6751af182746a40df18223712987c61de5d9e0a7b488a064a2dce4"
+      },
+      {
+        "path": "src/constants.js",
+        "sha256": "ffe70098c7d4d6c37b9d78609fb8ecfc65cce4c023ebefbf6237c9e9efee8421"
+      },
+      {
+        "path": "src/dESoftwareRuntimeView.js",
+        "sha256": "e512c9fc5bda94ec48bf3cd509a85a952db800c3ad86e0354f0633f0b670fb69"
+      },
+      {
+        "path": "src/executionRuntimeView.js",
+        "sha256": "beb752697d210e4bc987c9e458c3f0014b8fcc67ec6b4e0b3f508ef1fe1209d7"
+      },
+      {
+        "path": "src/extensionStatus.js",
+        "sha256": "3eb5241245f1fa1f07e3378d653f93afc1eaba21ae0c81fd4a4bfea629e8a336"
+      },
+      {
+        "path": "src/finalPricingReviewInput.js",
+        "sha256": "5d2fe508f9dbf9f51446c5bde3216fa3250a11fd042d038436f9cf95c1e00dff"
+      },
+      {
+        "path": "src/finiteDisplay.js",
+        "sha256": "885a12365483474b8c4d5626bd06e5cc03840e76cc8a3e847ba678fe206fd32c"
+      },
+      {
+        "path": "src/formState.js",
+        "sha256": "fb35d48968a3d0437008c460f211a702902bdb26c7775fe4fa856a295408497e"
+      },
+      {
+        "path": "src/keywordSoftwareRuntimeView.js",
+        "sha256": "0ac4ea2ea2d9767403a9b0d96f0717cf67427756f61795b64cad5c4e63971833"
+      },
+      {
+        "path": "src/lifecycleStatusView.js",
+        "sha256": "2c171b38488fae4a0b89810f6f4af670ac71db92954b53267760a9e7de3ecfb2"
+      },
+      {
+        "path": "src/main.jsx",
+        "sha256": "b66e35a3c35cd68e5504bbe0cbacb429b3ef522d9e5efec457558c092eb52947"
+      },
+      {
+        "path": "src/ownerAccess.js",
+        "sha256": "a41871aa0729252fdba2cbfb2acd5335c9cee91b341757c142985c48a756f940"
+      },
+      {
+        "path": "src/productionAuthorizationInput.js",
+        "sha256": "63d6bab048a5597dbde9021e63364d759b55e4f4bb1b4bcb074383f6e31c6f2a"
+      },
+      {
+        "path": "src/runtimeArchitectureView.js",
+        "sha256": "17cea366f4a968dc0cf1bf67f0f32e5fb301538385c1ccc6e3cfd59d92b9312f"
+      },
+      {
+        "path": "src/styles.css",
+        "sha256": "bcc32fdd7cb4533892bb0ca4b995d86b7638a64899b847d10c6c255fd5ab79f6"
+      },
+      {
+        "path": "src/wbPresentation.js",
+        "sha256": "1004e23093c18e52f1a51f23eaa988ee382bdbd59fadb6668a9c2f926f859a21"
+      },
+      {
+        "path": "tests/a-discovery-api-boundary.test.mjs",
+        "sha256": "97bb72e8bc2e6cbcae5cc6b360808f76ad20e505ba66c0028ab15c76f23444ca"
+      },
+      {
+        "path": "tests/a-discovery-candidate-import.test.mjs",
+        "sha256": "3bc711be5f8a54ae46a05afe6b1a686781d6a5ac690eb92ea4f7c6277482c4ac"
+      },
+      {
+        "path": "tests/a-discovery-contract.test.mjs",
+        "sha256": "c18f2a075512a6d171b2485307379e5c348484046184efbca39948b60d3210c6"
+      },
+      {
+        "path": "tests/a-discovery-runtime-configuration.test.mjs",
+        "sha256": "7fc511ce3de8e9ddf303f1c5e99e660917b867a4ce0d59d7ef2a5118e44d5667"
+      },
+      {
+        "path": "tests/a-discovery-runtime-services.test.mjs",
+        "sha256": "e6ce8b7e37285136bfa169f7174ca7c74dadd7b5c9833683734cab16d1d1cd84"
+      },
+      {
+        "path": "tests/a-discovery-software-job-store.test.mjs",
+        "sha256": "4439f8846d6bae8ef9997dc56b1e237d5c8d43f7ac5b654aaeafedec31836579"
+      },
+      {
+        "path": "tests/a-discovery-software-runner.test.mjs",
+        "sha256": "0369861b8fc2201edf6068691008eeca1f6a5bcfac6b350d541fed4055de7a73"
+      },
+      {
+        "path": "tests/a-discovery-ui.test.mjs",
+        "sha256": "26288059c97be849d01f784026edb0760ecc7e330adc17736d9412f9e313985f"
+      },
+      {
+        "path": "tests/a-product-detail-api-boundary.test.mjs",
+        "sha256": "76ccda1928643b213e21fdbab02b1c4f44fe3e81c355fb5bc8b38cc4f3592cc9"
+      },
+      {
+        "path": "tests/a-product-detail-application.test.mjs",
+        "sha256": "aa2a0c6be20e097d8df3a4af855fdbfdcc1005bd8b2b61df543cdd1307b1a4c1"
+      },
+      {
+        "path": "tests/a-product-detail-contract.test.mjs",
+        "sha256": "5fc06c6c3a5b68e3a73c02032de47a769dc44ab96c61cdeb3d99187c64eb80f2"
+      },
+      {
+        "path": "tests/a-product-detail-evidence.test.mjs",
+        "sha256": "2a4fe39e2bffea6250c5cf07224823d8575798719076a2c6611bef0df2f057e2"
+      },
+      {
+        "path": "tests/a-product-detail-runner.test.mjs",
+        "sha256": "3f38f693099772c210258466db6bf7386ce011ca0bbc5d1f693a4860b2ebaad1"
+      },
+      {
+        "path": "tests/a-product-detail-runtime-services.test.mjs",
+        "sha256": "8790870d7e9260345e75b9fb7a24b20b629aef7ade34e132c67c6c00403a8707"
+      },
+      {
+        "path": "tests/a-product-detail-software-job-store.test.mjs",
+        "sha256": "334bf1ccc18258982ffc01351ee92ed23608c5606608c49fde1c19970854747a"
+      },
+      {
+        "path": "tests/a-product-detail-ui.test.mjs",
+        "sha256": "38e7c67847384be99ad2f74ddc1cee5d972af7dc97ce1402f1726b13c39d5f6c"
+      },
+      {
+        "path": "tests/a-read-restart-filter.test.mjs",
+        "sha256": "1f1fc354992232114fdb02f9e721331bd1b3883a9e5865e66b889f15c36e1662"
+      },
+      {
+        "path": "tests/a-stage-terra-gateway.test.mjs",
+        "sha256": "37385fe47bfd04c3a79012803a1977970abb694176d7f165b5fa5afc57c246aa"
+      },
+      {
+        "path": "tests/a-supplier-image-search-api.test.mjs",
+        "sha256": "df31e9aae0d5ae0d2ea40929fc372d0b88254d3cab7f8c2b934f071aa7be8d21"
+      },
+      {
+        "path": "tests/a-supplier-image-search-contract.test.mjs",
+        "sha256": "fd97f7d0250ddc854987e2df21bcce9d071f34042001bff175907b1ac78f36de"
+      },
+      {
+        "path": "tests/a-supplier-image-search-runner.test.mjs",
+        "sha256": "425be92f1f672aa6a93c4a603c9507ebb106fce896ff3d4153af3bdaa33f0b8c"
+      },
+      {
+        "path": "tests/a-supplier-image-search-runtime-services.test.mjs",
+        "sha256": "2635d54b50f12193d8e64e32c2f0bab2c21f7d4e499b1915dd9e2196d87861a6"
+      },
+      {
+        "path": "tests/a-supplier-image-search-store.test.mjs",
+        "sha256": "10296668171d001cd6c1b9c3d72cd5c2b97ea5970b5a0cae436d2d17c7568f1b"
+      },
+      {
+        "path": "tests/aliyun-oss-asset-transport.test.mjs",
+        "sha256": "a7dfe918b86937c6c82d0e1312bea32791f301662dc4fe6c332dfb5038ff12bf"
+      },
+      {
+        "path": "tests/aliyun-oss-d-asset-integration.test.mjs",
+        "sha256": "42b261f3a49ff250cd78ac0c6ac207960de66ca4a501c47f87fc5281222d95f4"
+      },
+      {
+        "path": "tests/aliyun-oss-runtime-deployment-boundary.test.mjs",
+        "sha256": "749662ef0e2615e3abbb9f812d987d81a5d807fb79f6d1e4d797948f1815c07e"
+      },
+      {
+        "path": "tests/aliyun-oss-runtime-provider.test.mjs",
+        "sha256": "f134b40f4f550476d820ba2cc280b5659d1d356054215cc61aeb29e1c5649faa"
+      },
+      {
+        "path": "tests/api-process-lifecycle.test.mjs",
+        "sha256": "972a5381d3c08a6be5dc81af054761559b90ffba0ef88e1251e8990db0a405ee"
+      },
+      {
+        "path": "tests/atomic-json-persistence.test.mjs",
+        "sha256": "9577bbc59031c3ab50cc9521b39ebcc068c16eab8c92b1da08b1cde60f5d16db"
+      },
+      {
+        "path": "tests/b-exact-commission-recalculation-http.test.mjs",
+        "sha256": "b847bec30fc7d898e01eddb69c0614be07c9f7b879527cd7091f9445deb70b0a"
+      },
+      {
+        "path": "tests/b-exact-commission-recalculation-use-case.test.mjs",
+        "sha256": "a3f1e916a57dba6407b725bd2042e04cfd4c898b2089f16f5a5950ee3040b8a7"
+      },
+      {
+        "path": "tests/b-exact-commission-runtime-view.test.mjs",
+        "sha256": "7c34b314524ae79d48c6296ed4448a66d58cccdbbc0900a0daf03e51da352afe"
+      },
+      {
+        "path": "tests/business-candidate-capacity.test.mjs",
+        "sha256": "02e87fb38456d5b1281fc8b6d10619c47e73e2e343b1382ce819ca4fc1c12018"
+      },
+      {
+        "path": "tests/business-mutation-transaction.test.mjs",
+        "sha256": "9c29222ab3b535125468bbde3c5234b1dbaf5b126a7fe435898404200c510dbb"
+      },
+      {
+        "path": "tests/business-state-repository.test.mjs",
+        "sha256": "6114a1b8a8d2c78446b9c38b886a40d8420ab5b8f35ea5612548e33a35575d8b"
+      },
+      {
+        "path": "tests/c1-ai-draft-contract.test.mjs",
+        "sha256": "5e5b44bb822d1efe1fd3025b7c50b3f3e9487594e2970348d7c9e956070ff066"
+      },
+      {
+        "path": "tests/c1-ai-software-job-contract.test.mjs",
+        "sha256": "88c3fa5ab4f9ad4f973150fe4267011563eb0e4851e4bd9391ad8d4833202da0"
+      },
+      {
+        "path": "tests/c1-draft-paid-flow.test.mjs",
+        "sha256": "eaf0f93d4086f0fef66d92020153a2c72049a6264b3f5ac1cf1a9791aa5ef1a9"
+      },
+      {
+        "path": "tests/c1-draft-runtime-services.test.mjs",
+        "sha256": "0e329a3ea63ea70b41dfd61ca3f20feb10f3e9a064b93d89189445ff0e19f3e9"
+      },
+      {
+        "path": "tests/c1-draft-runtime-view.test.mjs",
+        "sha256": "c9beb1a4e0cc5c1dc76984c74f5cd72ade1721d4b3f3a171c303983300294550"
+      },
+      {
+        "path": "tests/c1-draft-service-configuration.test.mjs",
+        "sha256": "f3cd4ccf1488699817de395dbef9b9d2f1077d3aa79ebba2151ddeb414b843e4"
+      },
+      {
+        "path": "tests/c1-draft-software-runtime.test.mjs",
+        "sha256": "5842e2c73e193f1e9d2c693e135868ef2718d245f0b4609f192a2c38565f7b28"
+      },
+      {
+        "path": "tests/c1-draft-software-use-case.test.mjs",
+        "sha256": "1dca9b5dcedd972f614915dea48f783dceef9e92c823adcbcf9ed5ee1be4f45f"
+      },
+      {
+        "path": "tests/c1-fact-keyword-persistence.test.mjs",
+        "sha256": "bcf99657bc507728980b5949394be466db60ddc8aede2fea3a8cc54837abd848"
+      },
+      {
+        "path": "tests/c1-fact-keyword-pipeline.test.mjs",
+        "sha256": "1c3b33f78993fd2cd4713df2be9c8b228cab872c264f125f5006defdb2f37542"
+      },
+      {
+        "path": "tests/c1-fact-keyword-runtime.test.mjs",
+        "sha256": "a17291ec0a44239d9908cbc59a5934a8d9e553a0a3d06c890e8c9001d0d41bc2"
+      },
+      {
+        "path": "tests/c1-fact-keyword-server-integration.test.mjs",
+        "sha256": "a8bddca27d9bb36076082e1d1eb88cf1a2013b13d1c2d895121b6a38fc288a2c"
+      },
+      {
+        "path": "tests/c1-gateway-acceptance.test.mjs",
+        "sha256": "b28c764e8ce4586cecf946df088393664de40ce0bc791d0d4865aac3335a2bf7"
+      },
+      {
+        "path": "tests/c1-gateway-source-binding.test.mjs",
+        "sha256": "df17a33f7bda7e99a9c4207576435616b2bcac03ad41ee358c05e16bb4e68110"
+      },
+      {
+        "path": "tests/c1-k3-keyword-adapter.test.mjs",
+        "sha256": "5bc91d6ba7dded32ce0ea87a6a7f2235d8dacc272bda7fdf0367daad37146196"
+      },
+      {
+        "path": "tests/c1-k3-runtime-bridge.test.mjs",
+        "sha256": "f6f4c44da5a7b1453f6ddcda6b376c4f401eef3c770f511383be3948601cc542"
+      },
+      {
+        "path": "tests/c1-keyword-evidence-auto-trigger.test.mjs",
+        "sha256": "557fbc395c765371052972f9934b6435ba8761a5f108af084a35da3fd7db7276"
+      },
+      {
+        "path": "tests/c1-keyword-handoff-retry-http.test.mjs",
+        "sha256": "01275a03897ce971fd26a5aafb3e04f0928a59428b5f6da5bccfbe9d9e99a374"
+      },
+      {
+        "path": "tests/c1-keyword-planning-evidence-persistence.test.mjs",
+        "sha256": "dfc701301e8f7d0eab51673d3b0d0429d34d5127d0c43283cf88f3c5759f0834"
+      },
+      {
+        "path": "tests/c1-keyword-planning-evidence-producer.test.mjs",
+        "sha256": "ff186fff3ea01d7196773dae87a05750c1e957ba35a397cb15f40b12e25a00a8"
+      },
+      {
+        "path": "tests/c1-keyword-planning-local-material.test.mjs",
+        "sha256": "d9973cdf0f8b069fb5f4258f8828def4b2eb4a7efeaba78af38be5edb46c5c8c"
+      },
+      {
+        "path": "tests/c1-keyword-planning-software-use-case.test.mjs",
+        "sha256": "c06705fc7ab1882d964029608cb8aabb072d3ce6372e890e7973c30dc88cb775"
+      },
+      {
+        "path": "tests/c1-keyword-planning-source-resolver.test.mjs",
+        "sha256": "5df2fa249466a4c0374b0b571dcb38c77caac24abceec0f75cc737e50bb3fddf"
+      },
+      {
+        "path": "tests/c1-keyword-runtime-store.test.mjs",
+        "sha256": "433391702c0cf6b7a2d2193120661c9c88466a617be89cd4a544268cd02f276f"
+      },
+      {
+        "path": "tests/c1-keyword-software-job-planner.test.mjs",
+        "sha256": "3a9c3dfbfa7c0918391eb36eb4f18efad089410fa20e5647278deb8caafc08da"
+      },
+      {
+        "path": "tests/c1-keyword-software-use-case.test.mjs",
+        "sha256": "e0a5f8c1e811085249d91904b4300cf1c1b71acaee5a7f1d6f0421347b5bfed3"
+      },
+      {
+        "path": "tests/c1-paid-draft-owner-api.test.mjs",
+        "sha256": "fd8473cf73acfc1c026d39a7806bf9abbfe11d3329db423cd9c1c5d6d615a605"
+      },
+      {
+        "path": "tests/c1-pricing-result-reuse.test.mjs",
+        "sha256": "305e4e027a9f1c4ee64892e2348e0a966ae0eacdbe2740ceb84d7c55baea4cfb"
+      },
+      {
+        "path": "tests/c1-product-plan.test.mjs",
+        "sha256": "4237b9624a10a044446d4dc550b6df500c64850e3af5bc4ef0c02864abaf049f"
+      },
+      {
+        "path": "tests/c1-rights-review-input.test.mjs",
+        "sha256": "920bad8de13f3148f60a74cc8e9346ce58b49972d8a8c37ec3abeedd109fefa5"
+      },
+      {
+        "path": "tests/c1-rights-security-boundary.test.mjs",
+        "sha256": "5b08ef04685ef624758b86642225ffd7f93fe1ac2b0091c8fc2ce7fc16f421a5"
+      },
+      {
+        "path": "tests/c1-sku-rights-review-submission.test.mjs",
+        "sha256": "4598de16649e27baf220732a750e6ad26b7a9af140ca0697d1b96e7775f0704c"
+      },
+      {
+        "path": "tests/c1-sku-rights-review.test.mjs",
+        "sha256": "62ddb76d3e1d169f6b0657c99debd1ed3bc9c7c359749d3d028ebfa2fb5a2f07"
+      },
+      {
+        "path": "tests/c1-software-evidence-stage.test.mjs",
+        "sha256": "076ec5dd281402708b04f58117c3a1a8c3e73bcd6c53c47e7adfe127840fab1d"
+      },
+      {
+        "path": "tests/c1-software-input-preparation.test.mjs",
+        "sha256": "6080a1498a38579345f5d42406783568c482e7bf6a08023aba7c8c370a254202"
+      },
+      {
+        "path": "tests/c2-final-assets-ui-contract.test.mjs",
+        "sha256": "57d1dced464daa2abb6e7b1b260323aa8b43ca66bfaa2767308888e2fa9548a7"
+      },
+      {
+        "path": "tests/c2-media-content-rules.test.mjs",
+        "sha256": "9a6fded16997e1e64f84aae43f76089a21036984cc150d31dad271bdb793af0d"
+      },
+      {
+        "path": "tests/c2-software-orchestrator.test.mjs",
+        "sha256": "c48edf629c5927ee0962f3ac3e314960ab1009bbc51980225abd33182c6d5fc1"
+      },
+      {
+        "path": "tests/c2-stable-asset-transport-use-case.test.mjs",
+        "sha256": "54ea005c9cdfaba9423f6d94a248ea3452107eb7342ab78199f20c69d98c5d90"
+      },
+      {
+        "path": "tests/c2-upload-api.test.mjs",
+        "sha256": "73e6879e2f7b86b0eb45f3447335d4c437bc895ec8ef48ccc2ab661823054247"
+      },
+      {
+        "path": "tests/c2-upload-draft.test.mjs",
+        "sha256": "19de1a1cdf554ab18be0f7b805ce5981de1b855873f829a91ac6a13a9429c419"
+      },
+      {
+        "path": "tests/candidate-comment-boundary.test.mjs",
+        "sha256": "6bb2624687a0f65a08ee75a4ae3250bb2066f2dde55848cd6409ecc95bf04feb"
+      },
+      {
+        "path": "tests/candidate-rights-compliance-ui.test.mjs",
+        "sha256": "82dfd82df06fd20bc3214606feddaa78706bfa39184441acc2353dcdf04b0346"
+      },
+      {
+        "path": "tests/candidate-user-fields.test.mjs",
+        "sha256": "f621b4d2f43b3a91018d8848f7d41ca83ef59da3b547cdcc1f749327f23d9d1b"
+      },
+      {
+        "path": "tests/candidateViews.test.mjs",
+        "sha256": "3c8e5e55af0138b0ae34077f996aa1bed22a62a306ab304323475b740ad2bd0c"
+      },
+      {
+        "path": "tests/capability-registry.test.mjs",
+        "sha256": "9e44861fc73f26b536ef817644339c9083ed3e836e203147b8ae6afc9eb2783f"
+      },
+      {
+        "path": "tests/capability-source-snapshot.test.mjs",
+        "sha256": "b9fe613cf6fcecddd07b8483e7dd9280c0999609adc1aa1a082716de7e6ec1bb"
+      },
+      {
+        "path": "tests/ci-api-boundary.test.mjs",
+        "sha256": "7a67a7c37f349a8707f966ed028520a9485139fb9e365e7912fc27b20ef397b3"
+      },
+      {
+        "path": "tests/ci-test-policy.test.mjs",
+        "sha256": "f6b246b775b58de53744a0ac1a23da3e19e84a414972af416704af8729dcea88"
+      },
+      {
+        "path": "tests/codex-dispatcher.test.mjs",
+        "sha256": "1f07525fbdf8cc9252726cb83ac480befa8461b1b849f77e02b129f6d56eddd2"
+      },
+      {
+        "path": "tests/codex-independence.test.mjs",
+        "sha256": "5b3747188156a72f373ce4bc4c88c08f80d4840e71ffc07a7d350d52748da0af"
+      },
+      {
+        "path": "tests/collaboration-api.test.mjs",
+        "sha256": "d46e65d95f52775a8550c67cb9ebf89c1453f2659effc3ccbf3842b4f7fae813"
+      },
+      {
+        "path": "tests/cross-stage-contract-schema.test.mjs",
+        "sha256": "4e8c0af5462784df376317a97801829b906d074db7254d1841749c5ad85d8e69"
+      },
+      {
+        "path": "tests/d-asset-transport-saved-job.test.mjs",
+        "sha256": "b61c92b49d62c0fa1b40001c5e051b50881393bf90338cbf86e4489e1ad7dd56"
+      },
+      {
+        "path": "tests/d-e-runtime-configuration.test.mjs",
+        "sha256": "9285ebae5e9ad95febe420ae79f45c11c783fde1b233161bfb4c026ea65e6f10"
+      },
+      {
+        "path": "tests/d-e-runtime-services.test.mjs",
+        "sha256": "48a8c6c9a9c74ace54efe498ded259ea5b9df63ab6e58e68789b6a37f540f98b"
+      },
+      {
+        "path": "tests/d-e-runtime-view.test.mjs",
+        "sha256": "45caa662bacfd2d77f896f561b87d488595cdb09978738c8af0a0a0f1ae8e89c"
+      },
+      {
+        "path": "tests/d-e-saved-continuation-api.test.mjs",
+        "sha256": "6cbbd32373bcc48dec0b4b673c529bbd0c71a9c77f8e911dfe417770d1607668"
+      },
+      {
+        "path": "tests/d-e-software-closure.test.mjs",
+        "sha256": "69290fb4505c41014887cf41d553eb3a470b0cd32a5455f40834d141330081cc"
+      },
+      {
+        "path": "tests/d-e-software-integration.test.mjs",
+        "sha256": "d88411dcc2f04ef9a3a276a284df01c8ae8e3b55d611cc2a80334a2873942333"
+      },
+      {
+        "path": "tests/d-e-software-job-admission.test.mjs",
+        "sha256": "99b1d1c475eed2193948bae728bed10d86f649b6867ad7d51e0ca1edd88c03fb"
+      },
+      {
+        "path": "tests/d-e-software-job-repository.test.mjs",
+        "sha256": "e48f7a18b1cea7ed3df9c42c054f3785c2533da68055f846398b4a815e3afded"
+      },
+      {
+        "path": "tests/d-e-software-job-schema.test.mjs",
+        "sha256": "1a3613046fca94b5661947bce5b07b6855c6d2c84841ec0fc2ca8e6e3cbe18d9"
+      },
+      {
+        "path": "tests/d-e-software-job-scope.test.mjs",
+        "sha256": "5084af4442a258f265aa3aa2e172c209d96fcfff078226efeb7adb8db836625b"
+      },
+      {
+        "path": "tests/d-e-software-job-terminal-schema.test.mjs",
+        "sha256": "9e0c3832519d4bbc687ffe4ba06f6cb5d0660b432f595ff770a4643cc2d2385d"
+      },
+      {
+        "path": "tests/d-e-software-persistence.test.mjs",
+        "sha256": "70b345e96204e82415a43b817018029eddee224a72c5eed91f4fadf17aff0740"
+      },
+      {
+        "path": "tests/d-e-software-runtime-view.test.mjs",
+        "sha256": "dc7fe32125091ae841dcef66f04f87258019e9fd2c2b9d2860912cbf7fb9e887"
+      },
+      {
+        "path": "tests/d-initial-import-stop-contract.test.mjs",
+        "sha256": "e438df98d36a02af5164174797a0ad5f1d4c7d6e343308f3847976a079fb32d6"
+      },
+      {
+        "path": "tests/d-platform-observation-job-store.test.mjs",
+        "sha256": "7bed4ab06092eb1048a564731097c0ce453869d269da7d08f11b490f21242847"
+      },
+      {
+        "path": "tests/d-platform-observation-runtime.test.mjs",
+        "sha256": "bcf2cc5d7504d809936eaeea446039a906bac800926ddab4068af1b4c85bd288"
+      },
+      {
+        "path": "tests/d-production-job-cursor.test.mjs",
+        "sha256": "62bdcb3b7349beb398632f6f6daf1032a9c1c627b43e1b23e1cd59a2a8e229b9"
+      },
+      {
+        "path": "tests/d-production-job-terminal-guards.test.mjs",
+        "sha256": "d147451c648541b1d308559f2e1aa68bf1cef4954c7ea931635df54be98ffb20"
+      },
+      {
+        "path": "tests/d-production-preparation.test.mjs",
+        "sha256": "b2b5681abadd6ec89da3fc79e7a6d8131269294fe404e5c99fdc2ad6f9b29f68"
+      },
+      {
+        "path": "tests/d-production-saved-job.test.mjs",
+        "sha256": "e527e0e06f02b1613aaabdc9b356c9090a1c6d4dc2020ae68d0aba4b30246302"
+      },
+      {
+        "path": "tests/d-remaining-inventory-admission.test.mjs",
+        "sha256": "c7a205d4289d34dccd09cdd7edbbdad550a8c94f93da6f08d0ad5823b6c371b5"
+      },
+      {
+        "path": "tests/dispatch-api.test.mjs",
+        "sha256": "68ac6f4425462e622ea9db24444a1eddcf0308a10eaf0a86580d54d0d5dc4aca"
+      },
+      {
+        "path": "tests/dispatch-delivery-integration.test.mjs",
+        "sha256": "5ba9f93115a661d50550727100655b91cfdeacf5c1e0f19dbfe6e9a585062489"
+      },
+      {
+        "path": "tests/draft-production-execution.test.mjs",
+        "sha256": "4cfeb7a1fb4dfbd0e5d51c7250cb8c3d425f99b8077329f6f2c04460f6db0977"
+      },
+      {
+        "path": "tests/e-readback-job-terminal-guards.test.mjs",
+        "sha256": "69b07042ce1d4dbb7aa6b6d18ed159843a220fc4a5a5071e28be1c56374178bf"
+      },
+      {
+        "path": "tests/e-readback-saved-job.test.mjs",
+        "sha256": "16711471e3235f3bfd4fb607596277a82548298dfa08600be2f34f24233160fc"
+      },
+      {
+        "path": "tests/e-readback-software-use-case.test.mjs",
+        "sha256": "ddb002614fa1d387fac243ea6338c46fc0d6bfba2250433cad94ff63cb05cf05"
+      },
+      {
+        "path": "tests/e-stage-readback.test.mjs",
+        "sha256": "dd8f1f57046b69d988e77536b32f75ce5c78fc526714ea34b29eb026fff75553"
+      },
+      {
+        "path": "tests/execution-runtime-view.test.mjs",
+        "sha256": "d25db33b7463d53f34ff686bd107132d84e8207b39f5d08a541d97c445d913b0"
+      },
+      {
+        "path": "tests/extension-capture-request.test.mjs",
+        "sha256": "5d89d3a745dcddf7dec45f9c712066ecb7e7f001f96c39ff167c51c2539634c7"
+      },
+      {
+        "path": "tests/extension-heartbeat-api.test.mjs",
+        "sha256": "18d0ffa3a779dac474814ed81fccbea9d09831ccb8b6398db865522fff963030"
+      },
+      {
+        "path": "tests/extension-status.test.mjs",
+        "sha256": "d17c3c4325d02442851b7b8293f176a5a9ff4d8ad16c2936906c309aa7bcf9d2"
+      },
+      {
+        "path": "tests/final-pricing-c1-reuse-integration.test.mjs",
+        "sha256": "ae94e596e97b54203aab3833feb56621be975b639f8c19d564cf08e3c34ea682"
+      },
+      {
+        "path": "tests/final-pricing-revalidation.test.mjs",
+        "sha256": "ce25e11f0f197cfa3bba98a28120583b0b24bcc1001f8a4c2eb96ac0acabe8e0"
+      },
+      {
+        "path": "tests/final-pricing-review-api.test.mjs",
+        "sha256": "c11661a473081ea5dca097c382be3ef17d0eef091ec8e28c1175f9ddb1cc9638"
+      },
+      {
+        "path": "tests/final-pricing-review-input.test.mjs",
+        "sha256": "acca841db8e05e6c96cf1e9bce9296fd84820bbabf58d1a68a640d5717c46d79"
+      },
+      {
+        "path": "tests/final-pricing-review-use-case.test.mjs",
+        "sha256": "5cf5521c5dd889baac0f37b8357174cf7492a24bd31cf4fd2989793c6794cd0e"
+      },
+      {
+        "path": "tests/fixtures/a-discovery-contract-fixture.mjs",
+        "sha256": "e756b302819f486fd4add0f18df9c449a873994cf5d9f693bcd795a120b63c0e"
+      },
+      {
+        "path": "tests/fixtures/a-discovery-runtime-fixture.mjs",
+        "sha256": "0e1fd47ea7479c183d15045f3258994a93ac54bc8a677d88ac647c1d76fbda49"
+      },
+      {
+        "path": "tests/fixtures/a-product-detail-contract-fixture.mjs",
+        "sha256": "b7b3d71a43df5af00f468037fd0fcf323c1516b85d022b3193ea7e01f381f552"
+      },
+      {
+        "path": "tests/fixtures/a-product-detail-evidence-fixture.mjs",
+        "sha256": "c7f8eb37f5d15d32852ea4c96dfba137ed07cf4a5235c5755e6dc583047141b5"
+      },
+      {
+        "path": "tests/fixtures/a-product-detail-runtime-fixture.mjs",
+        "sha256": "b1257cffc79119eed310e6db7b67f58f23e57f9dd3847b6cae46bd4c892f6772"
+      },
+      {
+        "path": "tests/fixtures/b-cost-policy-fixture.mjs",
+        "sha256": "fde89348529d38a28ad39b70b32d065185634a9528f62dd6bce85a59e0c92fa8"
+      },
+      {
+        "path": "tests/fixtures/c1-ai-draft-fixture.mjs",
+        "sha256": "cde351afd9e96412adfefcb62ceff74bfd789dafb52cb128ebb10ab83f39b54e"
+      },
+      {
+        "path": "tests/fixtures/c1-ai-software-job-fixture.mjs",
+        "sha256": "15574a99ecafd4d02b6eeaeb9cdefe3be28b9871dc774792d81c328ef9561c43"
+      },
+      {
+        "path": "tests/fixtures/c1-draft-source-fixture.mjs",
+        "sha256": "4c963f9b02bb4b242cf253b1abf44942bbbcca819e03fddf88ba8ec47902b295"
+      },
+      {
+        "path": "tests/fixtures/c1-keyword-handoff-retry-fixture.mjs",
+        "sha256": "bd1a45fd768d916edcdd04c31905772d76ce2666dceb827f647f565ea6b2318c"
+      },
+      {
+        "path": "tests/fixtures/c1-keyword-planning-fixture.mjs",
+        "sha256": "bf36fa6836d6357b6ea9a47b8ec18a9c500e8166cc420a36481e33e81bcf473a"
+      },
+      {
+        "path": "tests/fixtures/c1-paid-keyword-settlement-fixture.mjs",
+        "sha256": "e0cdc032a1f2550c702bcc2d873345e0114dcb0d48b9fc89454c6e3a1af34dd3"
+      },
+      {
+        "path": "tests/fixtures/c1-sku-rights-review-fixture.mjs",
+        "sha256": "7d9510dbd8c592139186fc4b61a699a54e3af50ce4b9c75c1a8aa7b3432153fe"
+      },
+      {
+        "path": "tests/fixtures/c2-source-package-fixture.mjs",
+        "sha256": "e2d5bf03a624cd9f654cdba60467853d4aa139a9b77c4daaf25404f179fe9ab7"
+      },
+      {
+        "path": "tests/fixtures/d-e-software-job-scope-fixture.mjs",
+        "sha256": "97570ace972ad2fa08bb82a9e16b55622c36cbe0152a35bc7a4bb4621cd275e4"
+      },
+      {
+        "path": "tests/fixtures/d-platform-observation-runtime-fixture.mjs",
+        "sha256": "fb1bc5f0b472388b7292006c60821afcc90d2e539282c5745091980eec6150d3"
+      },
+      {
+        "path": "tests/fixtures/d-production-job-cursor-fixture.mjs",
+        "sha256": "6e850b334d1a3c975caadb822184673bd5f94279d68cb4ec0de36807b512fa9c"
+      },
+      {
+        "path": "tests/fixtures/d-production-saved-job-fixture.mjs",
+        "sha256": "1110ff4911676703f11d31e398acb66bf9a93994f8e4c8a6e3e01c34aee8d5d0"
+      },
+      {
+        "path": "tests/fixtures/final-pricing-c1-reuse-fixture.mjs",
+        "sha256": "7f11cce93a88e69b353d51880094b4eb5fbbcc64454aaa1e825124b4142b0aef"
+      },
+      {
+        "path": "tests/fixtures/final-pricing-revalidation-fixture.mjs",
+        "sha256": "063184c8237df2c5037ab99d4bb299e2e2df1baa291aa5bc4a67c0b300a20349"
+      },
+      {
+        "path": "tests/fixtures/final-pricing-review-fixture.mjs",
+        "sha256": "b1a0b3052e5f0527f20bdb9c0125c619e224904e4ec27ce2c0df49286c6875e0"
+      },
+      {
+        "path": "tests/fixtures/formal-c1-flow-fixture.mjs",
+        "sha256": "7e6a05940cab5c258668010d0d5480b67027456a45cf0728b97f173b9ed27547"
+      },
+      {
+        "path": "tests/fixtures/legacy-candidate-input-fixture.mjs",
+        "sha256": "dc210554cae703bd1cc28af8d047a095e29449d75368606aab796da85d3ce0fd"
+      },
+      {
+        "path": "tests/fixtures/ozon-de-preflight-evidence-fixture.mjs",
+        "sha256": "12dee79cc5303c56f167caf5827445b8ddc02d60fb976e9ed329dbcde1d0bd4b"
+      },
+      {
+        "path": "tests/fixtures/production-owner-decision-fixture.mjs",
+        "sha256": "455f1e1bf430a733a701e76d13ae5e72c4eec89463a54ef54172b23e386c7486"
+      },
+      {
+        "path": "tests/fixtures/real-a-b-flow-fixture.mjs",
+        "sha256": "a0eb6c781a2ce2b61897179d69bcdeed62b3d0ce3a07bd90014177fc0505195d"
+      },
+      {
+        "path": "tests/fixtures/seerfar-discovery-runtime-fixture.mjs",
+        "sha256": "00fce3ebaad783ecfe643819dfe406cb828829f2d56217af33f8dc6a744f2bdf"
+      },
+      {
+        "path": "tests/fixtures/seerfar-market-entry-replay.mjs",
+        "sha256": "f89f9a96b555b2757cd73e02a6631b546a7d1d3dcf21505756851fae87726a79"
+      },
+      {
+        "path": "tests/fixtures/store-binding-fixture.mjs",
+        "sha256": "a721df56009c6753fe1659d52e79df3b3a3ec5a5660557f3b4d865c4ea1a168f"
+      },
+      {
+        "path": "tests/frontend-review-behavior.test.mjs",
+        "sha256": "4da0871c1d80bb55d25e5b3987f04f00f7a2177739e44d5c19c48b21d77431d1"
+      },
+      {
+        "path": "tests/global-pricing-policy.test.mjs",
+        "sha256": "61b075638853fe78df29bcf05f54baf1e54792bce4a2943fcf7c71f3bcddac34"
+      },
+      {
+        "path": "tests/guoo-route-comparison.test.mjs",
+        "sha256": "4bf341f49054aa61bc1ea627eb04daed54e4bdbcac84bed705b054590e54ace6"
+      },
+      {
+        "path": "tests/guoo-tariff-reader.test.mjs",
+        "sha256": "3015360588cdf0703c2105fb5509de8ce166349e987a813f0150652a77dd1006"
+      },
+      {
+        "path": "tests/helpers/a-supplier-image-search-fixture.mjs",
+        "sha256": "d33d2e076600c805ed68f0146fe5fa496d62b9126155f181529a49884a80d9d1"
+      },
+      {
+        "path": "tests/helpers/api-process-lifecycle.mjs",
+        "sha256": "7b43a77ef572099dc0ed3893bf1bf151fa897d7b82b819a4b8f7a05c2af3434c"
+      },
+      {
+        "path": "tests/helpers/c2-software-fixture.mjs",
+        "sha256": "eb6ca2406f0c59480705c9cca2a66abee98b187a0a64d6a09b7acd73bf90beae"
+      },
+      {
+        "path": "tests/helpers/d-e-saved-api-fixture.mjs",
+        "sha256": "1f2946d6ee218b6ad280130ab394400e39b5a7221482dfac5f227b9e38781930"
+      },
+      {
+        "path": "tests/helpers/d-software-fixture.mjs",
+        "sha256": "20a4f5963a96de0c821b8b0c7edefbd9f10ea03aa29bd2e73915e10abf76e876"
+      },
+      {
+        "path": "tests/helpers/d-synthetic-completion-adapter.mjs",
+        "sha256": "12c362c9c7ecbb664ab3039daaa38c24b83013f911fd6d084c7b965b1702ca25"
+      },
+      {
+        "path": "tests/helpers/e-readback-fixture.mjs",
+        "sha256": "4aafeee0cf4ed3e0a85a8ee83e9a6f02662ad5c2c8659d03de34003cb82fc5a2"
+      },
+      {
+        "path": "tests/helpers/extension-runtime-fixture.mjs",
+        "sha256": "1fbbce2168fa50ff65fc7558bf2a90a587586b36cc7c797f361fc8dd1e4bcdf7"
+      },
+      {
+        "path": "tests/helpers/legacy-candidate-fixture.mjs",
+        "sha256": "e4c19e03f9072f0dd3aa3b2eb4af90f6a1f5acd66fb3fcb4a0447c86a4898dd6"
+      },
+      {
+        "path": "tests/helpers/market-assessment-fixture.mjs",
+        "sha256": "e3438bf57599175e12326b8a9da68fc567aa149357d6a976b32472c7fbb74bc2"
+      },
+      {
+        "path": "tests/helpers/published-schema-validator.mjs",
+        "sha256": "7275be5c044dbd1499478d02c50614b5c25ee470ea2b7e8ea2eff6a4bf638cb3"
+      },
+      {
+        "path": "tests/http-api-boundary.test.mjs",
+        "sha256": "892a0144fbdc18103336c7a4719a6cf86d5e90406c4eea221f4c704b885b646b"
+      },
+      {
+        "path": "tests/keyword-evidence-orchestrator.test.mjs",
+        "sha256": "868d9170ea914ebc7174c76227d152088e119c66c6277f0b52a93bf455dd884c"
+      },
+      {
+        "path": "tests/keyword-evidence-provider-adapter.test.mjs",
+        "sha256": "55ae983ee1e6868a9f77c21ef8c831753d147afc9baae605bc5bfebccc0e2bee"
+      },
+      {
+        "path": "tests/keyword-evidence-ready-event-producer.test.mjs",
+        "sha256": "3b0c5b00deec546c934f4c570355f091f181925b3e2a9b7cf8d0a6bbe325ba2a"
+      },
+      {
+        "path": "tests/keyword-evidence-runtime-http.test.mjs",
+        "sha256": "e0323db3cb05b63ac44e52642bbc8806c1cba883e851253b2fb9b4cdcd7f0add"
+      },
+      {
+        "path": "tests/keyword-evidence-runtime-services.test.mjs",
+        "sha256": "ec04021c7f2d006ab9fb7381b54cbe80933a9628552aa92e8c766b84557fe8bf"
+      },
+      {
+        "path": "tests/keyword-evidence-scoring.test.mjs",
+        "sha256": "acbefb01635977611ac4215f082e7aab627b03a92716862f81f4bcb0cbb0ee29"
+      },
+      {
+        "path": "tests/keyword-evidence-snapshot.test.mjs",
+        "sha256": "152388421951889100db9c29ef7fcfd3e38d3a9430974353565bee0ac48abd1d"
+      },
+      {
+        "path": "tests/keyword-evidence-software-job-state.test.mjs",
+        "sha256": "6e94cad9d3c49b519349ec9fef54f7aea814b11354e5137b021a71b9a9dcd31e"
+      },
+      {
+        "path": "tests/keyword-evidence-software-runner.test.mjs",
+        "sha256": "1ff18750c6941c54e1fd51bb153ddc0e746a791981be7a05b109ccae7dac0838"
+      },
+      {
+        "path": "tests/keyword-software-runtime-view.test.mjs",
+        "sha256": "b1c9df87bbb4e9776691c1eaf8e17d5f3142399ac207c3b7645df2a177ce1766"
+      },
+      {
+        "path": "tests/launch-command-script.test.mjs",
+        "sha256": "081a33de2daaad48e3b408f01a58ca38d55739f4d589fce6fcf890bfac676673"
+      },
+      {
+        "path": "tests/legacy-candidate-adapter.test.mjs",
+        "sha256": "54280ed95d69ca68f26828e9d8f80088b642f2c037530685b57a43a63c170042"
+      },
+      {
+        "path": "tests/legacy-candidate-fixture.test.mjs",
+        "sha256": "5fd90407185139bcf7242804dd7333e5320f06920f07a0dbc912c074f7311bea"
+      },
+      {
+        "path": "tests/lifecycle-b-evidence-context.test.mjs",
+        "sha256": "4a3085e6cc7dc7847d74d52a412865d40fd72bc2ca0780375b6ccd98376af21e"
+      },
+      {
+        "path": "tests/lifecycle-b-evidence-preparation.test.mjs",
+        "sha256": "a808d388a502e79746625287f92ae65d88bcf894a6dabdc4a8798193b7c39a8f"
+      },
+      {
+        "path": "tests/lifecycle-b-evidence-providers.test.mjs",
+        "sha256": "e41646614e6df3ef54efe76c6eb6143ab22449405ee56334ec80ee9f62fb3ff4"
+      },
+      {
+        "path": "tests/lifecycle-b-evidence-runtime.test.mjs",
+        "sha256": "b9c128a733b5631904dd37069fc6bfb103e30c184c10d55dc3d7751244150fd7"
+      },
+      {
+        "path": "tests/lifecycle-b-input-bundle.test.mjs",
+        "sha256": "376b6b51db88210a29d5ded2c4db0273af9c50f148a02a2ef97452f920a07b49"
+      },
+      {
+        "path": "tests/lifecycle-b-real-evidence-readers.test.mjs",
+        "sha256": "d5bd043e41e1a060ae552480e70bd4201493b782d5606d7d39e492478ca0fe2f"
+      },
+      {
+        "path": "tests/lifecycle-c-stage-generic-api.test.mjs",
+        "sha256": "644696eb75f5b7a3dfd49cd485ecaab5b8ec3c343d7dea0512621b7625e7e10a"
+      },
+      {
+        "path": "tests/lifecycle-e-readback-generic-api.test.mjs",
+        "sha256": "5404f0b12b0336eb6edceddcb8356b4eb896e5fac76b65edae0269ed723885aa"
+      },
+      {
+        "path": "tests/lifecycle-evidence-scope.test.mjs",
+        "sha256": "a8e5c4b2bc516c298920790086dbd0a91a028fee17ba1c8db63d1532887d628d"
+      },
+      {
+        "path": "tests/lifecycle-status-view.test.mjs",
+        "sha256": "79eeb70fe5cec9e4a86012c7213fa4a1ff5862e5a2b61c9e8ce92686c66c667e"
+      },
+      {
+        "path": "tests/linkfox-discovery-api.test.mjs",
+        "sha256": "b4ae2146e7bb219631485fa7ba51636261269caa3e392ca0583de8d0a0546944"
+      },
+      {
+        "path": "tests/linkfox-discovery-connector.test.mjs",
+        "sha256": "a7aee4500ed6056192bc123bd449b80c8292463424c11faf32f3449831060ab8"
+      },
+      {
+        "path": "tests/linkfox-product-detail-api.test.mjs",
+        "sha256": "0a0d5f2e1dbd7383de663230d07cc886c79015c3550115267f22dfe88fa605c0"
+      },
+      {
+        "path": "tests/linkfox-product-detail-connector.test.mjs",
+        "sha256": "4b64d1282876730c105006a527e9672a8e701f2e9b6501cb8d55b87c256e8b48"
+      },
+      {
+        "path": "tests/listing-preparation-review-boundary.test.mjs",
+        "sha256": "ba80b5f619bb4b21345dbec05ebcc6379fe388ba1bc9398af9ba85004fad4627"
+      },
+      {
+        "path": "tests/local-owner-access-api.test.mjs",
+        "sha256": "4d71378b574883d4640025735811a2612eab6846c985a0526131b599970bf2d3"
+      },
+      {
+        "path": "tests/local-owner-access-ui.test.mjs",
+        "sha256": "f3d4ca891de024f46ee806ae931bce1c5eca9506bbe24c6d0ec2590d0d1cffbd"
+      },
+      {
+        "path": "tests/local-owner-identity.test.mjs",
+        "sha256": "80f2666f09225d8c655aa9315541a1248666c648b2d6b3b0740f7bb32fe4ffd0"
+      },
+      {
+        "path": "tests/market-sample-policy.test.mjs",
+        "sha256": "eac36af4e449573526fc7db0486f3205d6d6e857cbcd9924ff7a501b88b8be53"
+      },
+      {
+        "path": "tests/multi-user-central-runtime.test.mjs",
+        "sha256": "a221eab8a681e70ea1b71627e8bf315c733c32f5294420cba56b37eb811cee63"
+      },
+      {
+        "path": "tests/ozon-account-discovery-configuration.test.mjs",
+        "sha256": "1b275197638e1eaa09e41faec2a4730211c061c55ca3b6d230c2bc1bba41277e"
+      },
+      {
+        "path": "tests/ozon-account-discovery.test.mjs",
+        "sha256": "1723a0cc917848541701fba7e8152b67039100c9d8cf74c6583c90370203d6d5"
+      },
+      {
+        "path": "tests/ozon-account-preparation-api-boundary.test.mjs",
+        "sha256": "0b4dc9e7c6a020081a2be9c8d3adadbac391cfdac41d76d45bfc9898c3543b86"
+      },
+      {
+        "path": "tests/ozon-account-preparation-ui.test.mjs",
+        "sha256": "dc13b009a08f2e54cbc330dc004a9d7002c141b77f0a7c3fa1341ed34225f312"
+      },
+      {
+        "path": "tests/ozon-account-read-api-boundary.test.mjs",
+        "sha256": "2b265fb265b8a56b7999dcdc9abd1d26ce81700df328854e7d15c24e3dd55169"
+      },
+      {
+        "path": "tests/ozon-account-read-api.test.mjs",
+        "sha256": "f5d70ec328e4d141353548363bcb05efd1887c3f9a5246bfe325e6049f2a9077"
+      },
+      {
+        "path": "tests/ozon-account-read-integration.test.mjs",
+        "sha256": "8016a52ac19bf0ad1a90afc386d65fd1997f60725bed0aace844ecb07a9f5d31"
+      },
+      {
+        "path": "tests/ozon-account-read-runtime.test.mjs",
+        "sha256": "15e98ea0f2f002896fbfe5bbc702220d525fc551b74f3a141bfe32697e733877"
+      },
+      {
+        "path": "tests/ozon-account-read-ui.test.mjs",
+        "sha256": "de84b6ba9d8ca9321971092b4e8e7c02b50597b67f26f7f2f4b9391f755005c3"
+      },
+      {
+        "path": "tests/ozon-de-http-transport.test.mjs",
+        "sha256": "9cc7172399b0b86c4cf795d5d284c0b506b96e4d19259ceafcb93e7b888f8d81"
+      },
+      {
+        "path": "tests/ozon-de-preflight-evidence-reader.test.mjs",
+        "sha256": "c90b5768f687d858d5e8878e92ba9d39d35b42bb679ac5a7750f09a33369bfda"
+      },
+      {
+        "path": "tests/ozon-de-preflight-provider.test.mjs",
+        "sha256": "94db5763c57a882b0005037b2a2571441061f92ccc9d86053d6d3a41671459d4"
+      },
+      {
+        "path": "tests/ozon-de-readonly-capability-probe.test.mjs",
+        "sha256": "30cb6033115f7a54228c997ea5c54ba51011ec16a67fb08a798a81aed56fafde"
+      },
+      {
+        "path": "tests/ozon-de-transport-integration.test.mjs",
+        "sha256": "d9f73a55f89dbc95c68e5b0caaa4b515b8bce7df551ec404db6a928a5839964d"
+      },
+      {
+        "path": "tests/ozon-extension-collector.test.mjs",
+        "sha256": "3876806af9dd3feec2624ed706c6f0399f05d4ca1919f1953b447e594848a506"
+      },
+      {
+        "path": "tests/ozon-production-strategy.test.mjs",
+        "sha256": "07cee427a691982f449f3f3efe3e97da9f64ccbd902e0665a66521fbc7a37bf0"
+      },
+      {
+        "path": "tests/ozon-sales-capture-api.test.mjs",
+        "sha256": "d168af7a897ef10a42405a2d053509fc572cb14111f3517f442be7914d348ed6"
+      },
+      {
+        "path": "tests/ozon-seller-api-de-adapter.test.mjs",
+        "sha256": "31c60afde4ff47720602ad733df02c7ad39c206a0b4fcd6f8f9bea9280ae8f59"
+      },
+      {
+        "path": "tests/ozon-seller-api-production-adapter.test.mjs",
+        "sha256": "f0456987ebbaaaedf32e296aa64ff98de8a4889045998a84fed2bfbe3549a620"
+      },
+      {
+        "path": "tests/phase-2a-api-guards.test.mjs",
+        "sha256": "ad5d13d658a000480b06de68cf0536fcc3efedb5d47bf6b96f4fd9761c8ec240"
+      },
+      {
+        "path": "tests/phase-2a-simulation.test.mjs",
+        "sha256": "98b1e2984172fd6ed72f56490d477f2b7c360dfa32b59b3945cc88975c567664"
+      },
+      {
+        "path": "tests/phase3-ab-deployment-boundary.test.mjs",
+        "sha256": "a48b45bf92fc48b2e8a37bac13e152204ae458f592d2e30a00540d35c3d86dac"
+      },
+      {
+        "path": "tests/phase4-c1-deployment-boundary.test.mjs",
+        "sha256": "a0caa039d02b9e414047af373d4ae94e6cc69b3af7b709ae3bd2169d355fe712"
+      },
+      {
+        "path": "tests/phase4-c1-fact-keyword-deployment-boundary.test.mjs",
+        "sha256": "9363e5f62131a9df628163d7a5f3db2913b6bdd78b226462500823995446f69a"
+      },
+      {
+        "path": "tests/phase4-c1-keyword-auto-trigger-deployment-boundary.test.mjs",
+        "sha256": "88d3b874edfa3638b32717ea8fc2e0985aa92ed224f88cac755f0ae03b328339"
+      },
+      {
+        "path": "tests/phase4-c1-software-boundary.test.mjs",
+        "sha256": "46436d4b5e710638ae86371a212b12ed1087f889168813bc9975ca7802dda25b"
+      },
+      {
+        "path": "tests/phase4-k3-c1-deployment-boundary.test.mjs",
+        "sha256": "c3ce360ded79ed80de5fb4665378139d4801a7e1914101b4eddbd1e914716912"
+      },
+      {
+        "path": "tests/phase5-c2-deployment-boundary.test.mjs",
+        "sha256": "b04deeaad9b6bdaeec8557ab3dddbef85018d9d4623cb02de2e1b0e5f5492483"
+      },
+      {
+        "path": "tests/phase5-c2-software-boundary.test.mjs",
+        "sha256": "7c3736d1c5d2ad5dbf3733dabdadb3b4f903457ca89e098d30690a5fc5c84fd2"
+      },
+      {
+        "path": "tests/phase5b-c2-ui-deployment-boundary.test.mjs",
+        "sha256": "fea0992fd539847fa490f5879c9a41a97823e171491a4e6592a6efb8569610b3"
+      },
+      {
+        "path": "tests/platform-write-preflight.test.mjs",
+        "sha256": "b4636f0bbbbcd5dbd72fc44104c836042ed16cfe8758f6497423967c4a19e7eb"
+      },
+      {
+        "path": "tests/post-launch-observation.test.mjs",
+        "sha256": "68b33899c9a239e25f7b53aa08713d4e762b65dd74856ed0a6f00dd778de9995"
+      },
+      {
+        "path": "tests/product-lifecycle-schema.test.mjs",
+        "sha256": "155e139688399c4e02b1a0abc04d88d6f43722920e624e1317340867bf81747a"
+      },
+      {
+        "path": "tests/production-owner-decision-api.test.mjs",
+        "sha256": "a6bc75bb314c1a4be3d90d025ccd534aa9dbd6605374fb4d82093028fb87ae92"
+      },
+      {
+        "path": "tests/production-owner-decision.test.mjs",
+        "sha256": "eddf168c3eb0eb92c593602ab674bbf919f695779b41ded66882310aa81519c7"
+      },
+      {
+        "path": "tests/production-owner-preparation.test.mjs",
+        "sha256": "d539f8ed9b58c2493c70a407c689105cf3a8d7ffb841045d72a0f8c3bf6c69d5"
+      },
+      {
+        "path": "tests/production-plan.test.mjs",
+        "sha256": "9d1ba9c3ba09d02665cf97415c02dec5588feb8273f1e1d7a0baf87e70c5f2f8"
+      },
+      {
+        "path": "tests/profit-model.test.mjs",
+        "sha256": "6bc46fe2d0a8b276f60486c83a17e7eb17d6aa7db541192495e012e64800242f"
+      },
+      {
+        "path": "tests/real-13c-final-assets.test.mjs",
+        "sha256": "98adc3f3fe6db5527fe6657968924a25372de07131c7bed67ebe6fdaf43f50b5"
+      },
+      {
+        "path": "tests/real-a-b-c1-api.test.mjs",
+        "sha256": "368f35f28d78ae951e90e4cb2e8ac0569009b9c1addb2258814c4b37444d97f7"
+      },
+      {
+        "path": "tests/real-a-b-c1-flow.test.mjs",
+        "sha256": "14c66502695112e4155f27994ca8c62fa09b4c22f0abe95d1b89f1034d91b9af"
+      },
+      {
+        "path": "tests/real-a-b-evidence-orchestration.test.mjs",
+        "sha256": "d037b1e64a1bf7c712cee32338dd4528ac4aecf3bd21cb9a20500864a6dc10ac"
+      },
+      {
+        "path": "tests/real-a-confirmation-card.test.mjs",
+        "sha256": "3705d7e0a88c303ab3233dbff118fcdcf8e8ebd8f70c8440960dcb7478ca06d4"
+      },
+      {
+        "path": "tests/real-c1-preparation.test.mjs",
+        "sha256": "cfd181c91309ca20ac1844a74b8828f12a91ae1b4416d2c03817d6b495a1b630"
+      },
+      {
+        "path": "tests/real-lifecycle-entry-preview.test.mjs",
+        "sha256": "d22ae0ad0266134051fbc654361e1a420bb4be3baa8e24e8d73aa4b0bd5b2018"
+      },
+      {
+        "path": "tests/real-ozon-sales-snapshot.test.mjs",
+        "sha256": "6ec61127ac0600db711564cb719e875858371068b74ac9afc5d0cc2ebc4c4190"
+      },
+      {
+        "path": "tests/recovery-classification.test.mjs",
+        "sha256": "9767b3ae0071f1c4081ac756dc553ed3bfe443608b1c8c7857a77ef4b46c2116"
+      },
+      {
+        "path": "tests/runtime-architecture-view.test.mjs",
+        "sha256": "9559dac22189088da525af19632717824489b2fc252003411a6caa167d0814bc"
+      },
+      {
+        "path": "tests/runtime-configuration.test.mjs",
+        "sha256": "c3ee02806336603ed6bdcca1a7c9f5970fe12daadc095da12cc2cbe10861105b"
+      },
+      {
+        "path": "tests/runtime-identity-provider.test.mjs",
+        "sha256": "a6b7b4bbb6809a476f7099b5554b528d95864ce34e334da438036d3fa44da52b"
+      },
+      {
+        "path": "tests/runtime-identity-software-job.test.mjs",
+        "sha256": "4d1c21786ecc8d7ccbb5dd4d7dcdff734bf0cc96851e835b11d2f3016daaa550"
+      },
+      {
+        "path": "tests/runtime-package-api.test.mjs",
+        "sha256": "0cb18395e6c3aecbcb2c3c70a500cab898a71fe7188301def38be8c8468a3bcd"
+      },
+      {
+        "path": "tests/sales-snapshot.test.mjs",
+        "sha256": "2a3d84a2a788043ef14cb0570e432d0583156768fc52dbfcb45aa7107a5924ec"
+      },
+      {
+        "path": "tests/seerfar-discovery-contract.test.mjs",
+        "sha256": "c7e9a94aaf78278f4f50da5ec6ca0dfe7c61f4752fb930f5b7acb0afb519cff0"
+      },
+      {
+        "path": "tests/seerfar-discovery-integration.test.mjs",
+        "sha256": "3c06f5bfd6927db3de5ff40161f886f2579d2dd31f7d54584d185e0e1211bffc"
+      },
+      {
+        "path": "tests/seerfar-open-api-transport.test.mjs",
+        "sha256": "519684c5ea715bb7c68eb14403aed8dc289b4ddd2cd8714ac60d5c1c4bfc28ae"
+      },
+      {
+        "path": "tests/seerfar-runtime-connector.test.mjs",
+        "sha256": "fa320c8114fbef3ef42cc51b08cf7ccb815710123240345378e46f14eab9cd8e"
+      },
+      {
+        "path": "tests/seerfar-software-api-guard.test.mjs",
+        "sha256": "4a077692ae84acacfca5320bd8a5cb4725051f29f032d9fc8c7065bdf56d58f3"
+      },
+      {
+        "path": "tests/seerfar-software-server-integration.test.mjs",
+        "sha256": "6683b326615c0ebc423617679e6b98a914bcda260723c16e6d6b46ff11da742b"
+      },
+      {
+        "path": "tests/software-execution-state.test.mjs",
+        "sha256": "0afcba571eb9d282791cbf2c7f19ee23f0d2c6c2f58c0c5f1a7a5a863191b14e"
+      },
+      {
+        "path": "tests/software-job-admission.test.mjs",
+        "sha256": "6f208ee5a0696e9182749059bd8faca386abf9340fc9d615ef97ec8800e6fe98"
+      },
+      {
+        "path": "tests/software-job-repository.test.mjs",
+        "sha256": "1e6de0e34694862a629f946b6d7a95bc21c23c681dae39079228d16feec50a47"
+      },
+      {
+        "path": "tests/source-capture-api.test.mjs",
+        "sha256": "fd74f606374e9213717efd8f539967d11c634819f6ac21dc19f87e614dd801ae"
+      },
+      {
+        "path": "tests/source-capture-job-api.test.mjs",
+        "sha256": "812606af3268aff1faef9895bbfedb941d45dfb36e3f747ebf50f216c5a7676a"
+      },
+      {
+        "path": "tests/source-capture-restart-reconciliation.test.mjs",
+        "sha256": "1f40ba38be5fc65140db2486f8eb219449d2ac36468ff36e61f1ec6db118d1f8"
+      },
+      {
+        "path": "tests/source-capture.test.mjs",
+        "sha256": "7a37ce5c21a618bab798460ab61cf4e41afe4f3719acb98b0f162fe835999d0e"
+      },
+      {
+        "path": "tests/store-binding-api.test.mjs",
+        "sha256": "6249159620affe3d4704488b52c722663ea7c47e7a38b383456d4db47f571b34"
+      },
+      {
+        "path": "tests/store-binding.test.mjs",
+        "sha256": "dbc1e3482a9a53bcbac23dc3dd83a24cf25fa73f19c288df8e6cbb06f2420e20"
+      },
+      {
+        "path": "tests/structured-dispatch-integration.test.mjs",
+        "sha256": "b2faf5ee1295720c60a0b01fe32497d6283e69d598216288e2b184d916a313e8"
+      },
+      {
+        "path": "tests/supplier-option.test.mjs",
+        "sha256": "8b07cfda590686d8081b0e1c538aa56406244da1c2ed6e5eb98f195f1da5517d"
+      },
+      {
+        "path": "tests/supplier-selection-flow.test.mjs",
+        "sha256": "fa4fc87d6744af54a5b14d7caa87dadac1e4b7a38f32e58499717d6ff30b3789"
+      },
+      {
+        "path": "tests/three-store-map-api.test.mjs",
+        "sha256": "5139a1f3590c18154291c18195deef3792dd387d4aa6dc89acdbbe4614cb358c"
+      },
+      {
+        "path": "tests/three-store-map-ui-contract.test.mjs",
+        "sha256": "610a9eb60678e57e222ac84658944463245eca6621bb7381f9a29f5a4b59c6ef"
+      },
+      {
+        "path": "tests/three-store-map.test.mjs",
+        "sha256": "402bd311f18126b11433efb7c03ee59482f66d3b058336efb7c5addef08a777d"
+      },
+      {
+        "path": "tests/wb-commission-reference-reader.test.mjs",
+        "sha256": "681704858b0249eba4dfdc6076a8dbaefcef817e88c5de63b406b0878026fbef"
+      },
+      {
+        "path": "tests/wb-presentation.test.mjs",
+        "sha256": "f64859007754d4a932553493eddf968dff67341b4ede39ed2400e0e57fc2ba4d"
+      },
+      {
+        "path": "tests/worker-registry.test.mjs",
+        "sha256": "4a75e8b687eba490fc5f1479a31b9d06e3cc16a689584962d74c41e78740dfda"
+      },
+      {
+        "path": "tests/workflow-map.test.mjs",
+        "sha256": "95c340d94502c69ec4e619e316928be7cd78f2e9d7d64f536f93694597dc2175"
+      },
+      {
+        "path": "tests/workflow.test.mjs",
+        "sha256": "2c0477bbaaee1d16c461ace431e4f2cfa4f179dfb2aed18142aa9c4d8f50356c"
+      },
+      {
+        "path": "vite.config.js",
+        "sha256": "757cc29fafda46c36464ab7cfdeb1fa971f2aa4975aba4e53237a4b835b724a8"
+      },
+      {
+        "path": "启动今日选品评审台.command",
+        "sha256": "11c8276140a81e6c308c3c00b81fe803180effdbd6152a7d95c32ca8e4553715"
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "id": "1.1",
+      "wiringStatus": "connected",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/atomic-json-persistence.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/business-state-repository.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "server.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/App.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/business-state-repository.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "1.2",
+      "wiringStatus": "connected",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/business-mutation-transaction.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/product-lifecycle-schema.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/product-lifecycle-v1.1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/business-candidate-capacity.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/business-mutation-transaction.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "1.3",
+      "wiringStatus": "partial",
+      "verificationStatus": "non_blocking_risk",
+      "artifacts": [
+        {
+          "path": "lib/software-job-contract.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/software-job-repository.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/software-job-v1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/software-job-v2.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/software-job-repository.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "1.4",
+      "wiringStatus": "partial",
+      "verificationStatus": "non_blocking_risk",
+      "artifacts": [
+        {
+          "path": "lib/local-owner-identity.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/runtime-configuration.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/runtime-identity-provider.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/runtime-identity.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/worker-registry.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/LocalOwnerAccessPanel.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/RuntimeArchitectureStatus.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/ownerAccess.js",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/runtimeArchitectureView.js",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/runtime-identity-software-job.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "1.5",
+      "wiringStatus": "connected",
+      "verificationStatus": "source_changed_revalidation_required",
+      "artifacts": [
+        {
+          "path": "index.html",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/App.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/api.js",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/CandidateDetail.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/CandidateRail.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/main.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/styles.css",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/candidate-rights-compliance-ui.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/candidateViews.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "2.1",
+      "wiringStatus": "connected",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/a-discovery-candidate-import.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/a-discovery-runtime-services.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "server.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/AddCandidateModal.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/ProductDiscoveryCard.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/collaboration-api.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "2.2",
+      "wiringStatus": "partial",
+      "verificationStatus": "non_blocking_risk",
+      "artifacts": [
+        {
+          "path": "extension/1688-capture/background.js",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "extension/1688-capture/bridge.js",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "extension/1688-capture/collector-ozon.js",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/ozon-sales-capture.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/App.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/ozon-sales-capture-api.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "2.3",
+      "wiringStatus": "partial",
+      "verificationStatus": "non_blocking_risk",
+      "artifacts": [
+        {
+          "path": "extension/1688-capture/capture-request.js",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "extension/1688-capture/collector.js",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "extension/1688-capture/manifest.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "extension/1688-capture/source-routing.js",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/a-supplier-image-search-contract.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/a-supplier-image-search-runner.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/a-supplier-image-search-runtime-services.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/source-capture.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/a-supplier-image-search-v1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/App.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/a-supplier-image-search-api.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/a-supplier-image-search-contract.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/a-supplier-image-search-runner.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/a-supplier-image-search-runtime-services.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/a-supplier-image-search-store.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/helpers/a-supplier-image-search-fixture.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/source-capture-job-api.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "2.4",
+      "wiringStatus": "connected",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/a-product-detail-application.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/a-product-detail-evidence.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/a-product-detail-runtime-services.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/market-sample-policy.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/sales-snapshot.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/supplier-option.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/supplier-selection-flow.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/a-market-assessment-v1.1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/sales-snapshot-v1.1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/supplier-option-v1.1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/ProductDetailPreparationCard.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/supplier-option.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "2.5",
+      "wiringStatus": "partial",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/a-stage-terra-gateway.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/a-stage-terra-gateway.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "2.6",
+      "wiringStatus": "connected",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/real-a-confirmation-card.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/RealAConfirmationCard.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/real-a-confirmation-card.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "2.7",
+      "wiringStatus": "connected",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/supplier-selection-flow.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/owner-supply-confirmation-v1.1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/supplier-selection-flow.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "2.8",
+      "wiringStatus": "connected",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/real-a-b-c1-flow.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/supplier-selection-flow.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/real-a-b-c1-flow.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "3.1",
+      "wiringStatus": "connected",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/lifecycle-b-input-bundle.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/lifecycle-b-input-bundle.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "3.2",
+      "wiringStatus": "partial",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/lifecycle-b-evidence-providers.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/lifecycle-b-real-evidence-readers.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/wb-commission-reference-reader.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/lifecycle-b-real-evidence-readers.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/wb-commission-reference-reader.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "3.3",
+      "wiringStatus": "partial",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/guoo-route-comparison.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/guoo-tariff-reader.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/lifecycle-b-evidence-preparation.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/official-fx-reader.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/guoo-route-comparison.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/guoo-tariff-reader.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/lifecycle-b-evidence-preparation.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "3.4",
+      "wiringStatus": "connected",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/lifecycle-b-evidence-context.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/lifecycle-b-evidence-runtime.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/real-a-b-evidence-orchestration.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/lifecycle-b-evidence-runtime.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "3.5",
+      "wiringStatus": "connected",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/b-exact-commission-recalculation-use-case.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/b-exact-commission-runtime-view.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/global-pricing-policy.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/profit-model.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/profit-model-v1.1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/bExactCommissionInput.js",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/b-exact-commission-recalculation-http.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/b-exact-commission-recalculation-use-case.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/b-exact-commission-runtime-view.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/fixtures/b-cost-policy-fixture.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/fixtures/real-a-b-flow-fixture.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/global-pricing-policy.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/profit-model.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "3.6",
+      "wiringStatus": "connected",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/real-a-b-c1-flow.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/real-a-b-c1-flow.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "4.1",
+      "wiringStatus": "partial",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/c1-fact-keyword-pipeline.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/c1-product-plan.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/c1-software-input-preparation.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/c1-product-plan-v1.1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/c1-product-plan.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "4.2",
+      "wiringStatus": "partial",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/c1-keyword-planning-local-material-persistence.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/c1-keyword-planning-local-material.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/c1-keyword-planning-source-resolver.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/c1-keyword-planning-local-material-v1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/c1-keyword-planning-source-resolver.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "4.3",
+      "wiringStatus": "disconnected",
+      "verificationStatus": "blocked",
+      "artifacts": [
+        {
+          "path": "lib/c1-keyword-software-job-planner.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/c1-keyword-software-use-case.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/keyword-evidence-software-job-state.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/c1-keyword-software-job-plan-v1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/KeywordSoftwareRuntimeCard.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/c1-keyword-software-job-planner.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "4.4",
+      "wiringStatus": "disconnected",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/keyword-evidence-provider-adapter.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/keyword-evidence-runtime-services.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/keyword-evidence-software-runner.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/seerfar-open-api-transport.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/seerfar-runtime-connector.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/c1-keyword-runtime-store.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/keyword-evidence-runtime-http.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/keyword-evidence-runtime-services.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/seerfar-software-server-integration.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "4.5",
+      "wiringStatus": "partial",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/c1-k3-keyword-adapter.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/c1-k3-runtime-bridge.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/keyword-evidence-orchestrator.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/keyword-evidence-scoring.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/keyword-evidence-snapshot.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/keyword-evidence-snapshot-v1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/keyword-scoring-v1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/keyword-evidence-scoring.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "4.6",
+      "wiringStatus": "partial",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/c1-ai-draft-contract.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/c1-ai-gateway.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/c1-seo-draft.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/c1-software-orchestrator.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/c1-ai-draft-receipt-v1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/c1-ai-draft-request-v1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/c1-ai-draft-contract.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "4.7",
+      "wiringStatus": "disconnected",
+      "verificationStatus": "blocked",
+      "artifacts": [
+        {
+          "path": "lib/c1-fact-keyword-persistence.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/c1-keyword-evidence-auto-trigger.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/c1-software-evidence-stage.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/keyword-evidence-ready-event-producer.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/c1-keyword-evidence-ready-event-v1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/c1-fact-keyword-persistence.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "5.1",
+      "wiringStatus": "connected",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/c2-asset-lifecycle.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/c2-software-orchestrator.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/c2-asset-lifecycle-v1.1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/c2-software-input-v1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/c2-software-orchestrator.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "5.2",
+      "wiringStatus": "connected",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/c2-asset-lifecycle.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/phase5-c2-software-boundary.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "5.3",
+      "wiringStatus": "connected",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/c2-asset-lifecycle.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/c2-software-orchestrator.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "5.4",
+      "wiringStatus": "connected",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/c2-software-orchestrator.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/UserInspector.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/c2-final-assets-ui-contract.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "5.5",
+      "wiringStatus": "connected",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/c1-pricing-result-reuse.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/c2-pricing-upload-reuse.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/final-pricing-revalidation.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/final-pricing-review-use-case.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/final-pricing-review.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/final-product-plan-confirmation-card.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/final-product-plan-confirmation-card-v1.1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/FinalPricingReviewForm.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/UserInspector.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/finalPricingReviewInput.js",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/c1-pricing-result-reuse.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/final-pricing-c1-reuse-integration.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/final-pricing-revalidation.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/final-pricing-review-api.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/final-pricing-review-input.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/final-pricing-review-use-case.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/fixtures/final-pricing-c1-reuse-fixture.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/fixtures/final-pricing-revalidation-fixture.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/fixtures/final-pricing-review-fixture.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/real-13c-final-assets.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "6.1",
+      "wiringStatus": "partial",
+      "verificationStatus": "non_blocking_risk",
+      "artifacts": [
+        {
+          "path": "lib/production-authorization.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/production-owner-preparation.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/production-authorization-v1.1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "server.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/ProductionOwnerDecisionForm.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/productionAuthorizationInput.js",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/production-owner-decision.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "6.2",
+      "wiringStatus": "connected",
+      "verificationStatus": "non_blocking_risk",
+      "artifacts": [
+        {
+          "path": "lib/production-plan.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/production-plan-v1.1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/production-plan.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "6.3",
+      "wiringStatus": "partial",
+      "verificationStatus": "non_blocking_risk",
+      "artifacts": [
+        {
+          "path": "lib/platform-write-preflight.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/platform-write-preflight-v1.1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/platform-write-preflight-v1.2.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/platform-write-preflight.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "6.4",
+      "wiringStatus": "partial",
+      "verificationStatus": "blocked",
+      "artifacts": [
+        {
+          "path": "lib/d-e-software-closure.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/d-e-software-integration.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/d-software-execution-state-v1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/d-software-execution-state-v2.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/d-software-execution-v1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/d-software-execution-v2.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/d-e-software-closure.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "6.5",
+      "wiringStatus": "partial",
+      "verificationStatus": "non_blocking_risk",
+      "artifacts": [
+        {
+          "path": "lib/aliyun-oss-asset-transport.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/aliyun-oss-d-asset-integration.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/DESoftwareRuntimeCard.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/aliyun-oss-asset-transport.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/aliyun-oss-d-asset-integration.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "6.6",
+      "wiringStatus": "disconnected",
+      "verificationStatus": "blocked",
+      "artifacts": [
+        {
+          "path": "lib/ozon-seller-api-production-adapter.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/DESoftwareRuntimeCard.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/ozon-seller-api-production-adapter.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "6.7",
+      "wiringStatus": "disconnected",
+      "verificationStatus": "blocked",
+      "artifacts": [
+        {
+          "path": "lib/d-e-software-closure.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/d-e-software-integration.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "6.8",
+      "wiringStatus": "not_implemented",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "7.1",
+      "wiringStatus": "partial",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/e-stage-readback.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/external-listing-record-v1.1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/e-stage-readback.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "7.2",
+      "wiringStatus": "disconnected",
+      "verificationStatus": "blocked",
+      "artifacts": [
+        {
+          "path": "lib/ozon-de-readonly-capability-probe.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/ozon-seller-api-de-adapter.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/ozon-seller-api-de-adapter.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "7.3",
+      "wiringStatus": "partial",
+      "verificationStatus": "blocked",
+      "artifacts": [
+        {
+          "path": "lib/e-readback-software-use-case.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/e-stage-readback.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/e-readback-attempt-v1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/e-system-readback-v1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "schema/e-verification-record-v1.1.schema.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/e-readback-software-use-case.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/lifecycle-e-readback-generic-api.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "7.4",
+      "wiringStatus": "not_implemented",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "8.1",
+      "wiringStatus": "partial",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/software-execution-state.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/ExecutionRuntimeCard.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/software-execution-state.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "8.2",
+      "wiringStatus": "partial",
+      "verificationStatus": "non_blocking_risk",
+      "artifacts": [
+        {
+          "path": "lib/d-e-software-closure.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/recovery-classification.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "8.3",
+      "wiringStatus": "partial",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/software-execution-state.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/codex-independence.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "8.4",
+      "wiringStatus": "isolated",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/codex-independence.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/codex-independence.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "8.5",
+      "wiringStatus": "partial",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/software-execution-state.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/software-execution-state.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    },
+    {
+      "id": "8.6",
+      "wiringStatus": "not_implemented",
+      "verificationStatus": "test_files_present_not_run",
+      "artifacts": [
+        {
+          "path": "lib/multi-user-central-runtime.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/RuntimeArchitectureStatus.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/multi-user-central-runtime.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "realExecutionEvidence": "not_inspected_this_snapshot"
+    }
+  ],
+  "unplacedCapabilities": [
+    {
+      "id": "9.1",
+      "artifacts": [
+        {
+          "path": "data/workflow-map.json",
+          "status": "excluded_dynamic_data"
+        },
+        {
+          "path": "lib/workflow-map.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "historicalArtifactRefs": []
+    },
+    {
+      "id": "9.2",
+      "artifacts": [
+        {
+          "path": "lib/codex-dispatcher.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/codex-dispatcher.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/dispatch-api.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/dispatch-delivery-integration.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/structured-dispatch-integration.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "historicalArtifactRefs": []
+    },
+    {
+      "id": "9.3",
+      "artifacts": [
+        {
+          "path": "lib/phase-2a-simulation.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/Phase2ASimulation.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/phase-2a-api-guards.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/phase-2a-simulation.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "historicalArtifactRefs": []
+    },
+    {
+      "id": "9.4",
+      "artifacts": [
+        {
+          "path": "lib/lifecycle-c-stage.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/real-c1-preparation.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/real-c1-preparation.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "historicalArtifactRefs": []
+    },
+    {
+      "id": "9.5",
+      "artifacts": [
+        {
+          "path": "lib/phase3-ab-deployment-boundary.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/phase4-c1-deployment-boundary.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/phase4-c1-fact-keyword-deployment-boundary.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/phase4-c1-keyword-auto-trigger-deployment-boundary.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/phase4-k3-c1-deployment-boundary.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/phase5-c2-deployment-boundary.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/phase5b-c2-ui-deployment-boundary.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "historicalArtifactRefs": [
+        "scripts/build-phase3-ab-deploy-package.mjs",
+        "scripts/build-phase4-c1-deploy-package.mjs",
+        "scripts/build-phase4-c1-fact-keyword-deploy-package.mjs",
+        "scripts/build-phase4-c1-keyword-auto-trigger-deploy-package.mjs",
+        "scripts/build-phase4-k3-c1-deploy-package.mjs",
+        "scripts/build-phase5-c2-deploy-package.mjs",
+        "scripts/build-phase5b-c2-ui-deploy-package.mjs"
+      ]
+    },
+    {
+      "id": "9.6",
+      "artifacts": [
+        {
+          "path": "package.json",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "scripts/deploy-local-runtime.sh",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "scripts/dev.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "scripts/launch-server.sh",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "vite.config.js",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "historicalArtifactRefs": []
+    },
+    {
+      "id": "9.7",
+      "artifacts": [
+        {
+          "path": "lib/draft-production-execution.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/ozon-production-strategy.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/ozon-seller-api-de-adapter.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/post-launch-observation.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "historicalArtifactRefs": []
+    },
+    {
+      "id": "9.8",
+      "artifacts": [
+        {
+          "path": "lib/legacy-candidate-adapter.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/real-lifecycle-entry-preview.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/legacy-candidate-adapter.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "historicalArtifactRefs": []
+    },
+    {
+      "id": "9.9",
+      "artifacts": [
+        {
+          "path": "lib/workflow.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/api.js",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/post-launch-observation.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/workflow.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "historicalArtifactRefs": []
+    },
+    {
+      "id": "9.10",
+      "artifacts": [
+        {
+          "path": "lib/three-store-map.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/ThreeStoreMap.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/WorkflowMap.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/three-store-map-api.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/three-store-map-ui-contract.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/three-store-map.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "historicalArtifactRefs": []
+    },
+    {
+      "id": "9.11",
+      "artifacts": [],
+      "historicalArtifactRefs": [
+        "server 2.mjs"
+      ]
+    },
+    {
+      "id": "9.12",
+      "artifacts": [],
+      "historicalArtifactRefs": [
+        "scripts/accept-dd-h1-wb-test-risk.mjs",
+        "scripts/apply-2026-08-04-needs-audit.mjs",
+        "scripts/apply-2026-08-04-triage.mjs",
+        "scripts/apply-immediate-dispatch.mjs",
+        "scripts/backfill-direction-ceilings.mjs",
+        "scripts/mark-dd-h1-ozon-only.mjs",
+        "scripts/migrate-electrical-rule.mjs",
+        "scripts/migrate-processing-source-gaps.mjs",
+        "scripts/migrate-v2.mjs",
+        "scripts/normalize-processing-states.mjs",
+        "scripts/pause-dd-h1-listing-tests.mjs",
+        "scripts/update-dd-h1-wb-evidence-gap.mjs"
+      ]
+    },
+    {
+      "id": "9.13",
+      "artifacts": [
+        {
+          "path": "lib/ozon-de-readonly-capability-probe.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/ozon-de-readonly-capability-probe.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "historicalArtifactRefs": []
+    },
+    {
+      "id": "9.14",
+      "artifacts": [
+        {
+          "path": "tests/profit-model.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ],
+      "historicalArtifactRefs": [
+        "lib/product-lifecycle-b-flow.mjs",
+        "tests/single-sku-b-flow.test.mjs"
+      ]
+    }
+  ],
+  "overlapGroups": [
+    {
+      "id": "10.1",
+      "artifacts": [
+        {
+          "path": "lib/aliyun-oss-d-asset-integration.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/d-e-software-closure.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/draft-production-execution.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/e-stage-readback.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/ozon-production-strategy.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/ozon-seller-api-de-adapter.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/ozon-seller-api-production-adapter.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/aliyun-oss-d-asset-integration.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/d-e-software-closure.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/draft-production-execution.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/e-stage-readback.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/ozon-production-strategy.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/ozon-seller-api-de-adapter.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/ozon-seller-api-production-adapter.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ]
+    },
+    {
+      "id": "10.2",
+      "artifacts": [
+        {
+          "path": "lib/codex-dispatcher.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/workflow-map.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/codex-dispatcher.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/workflow-map.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ]
+    },
+    {
+      "id": "10.3",
+      "artifacts": [
+        {
+          "path": "lib/c1-fact-keyword-runtime.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/c1-product-plan.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/lifecycle-c-stage.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/real-c1-preparation.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/c1-fact-keyword-runtime.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/c1-product-plan.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/lifecycle-c-stage-generic-api.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/real-c1-preparation.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ]
+    },
+    {
+      "id": "10.4",
+      "artifacts": [
+        {
+          "path": "lib/phase-2a-simulation.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/real-a-b-c1-flow.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/phase-2a-simulation.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/real-a-b-c1-flow.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ]
+    },
+    {
+      "id": "10.5",
+      "artifacts": [
+        {
+          "path": "lib/e-stage-readback.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/ozon-seller-api-de-adapter.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/post-launch-observation.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/workflow.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/e-stage-readback.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/ozon-seller-api-de-adapter.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/post-launch-observation.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/workflow.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ]
+    },
+    {
+      "id": "10.6",
+      "artifacts": [
+        {
+          "path": "lib/phase3-ab-deployment-boundary.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/phase4-c1-deployment-boundary.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/phase5-c2-deployment-boundary.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "scripts/deploy-local-runtime.sh",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/aliyun-oss-runtime-deployment-boundary.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/phase3-ab-deployment-boundary.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/phase4-c1-deployment-boundary.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/phase5-c2-deployment-boundary.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ]
+    },
+    {
+      "id": "10.7",
+      "artifacts": [
+        {
+          "path": "lib/legacy-candidate-adapter.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/product-lifecycle-schema.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/real-lifecycle-entry-preview.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/legacy-candidate-adapter.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/product-lifecycle-schema.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/real-lifecycle-entry-preview.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ]
+    },
+    {
+      "id": "10.8",
+      "artifacts": [
+        {
+          "path": "lib/profit-model.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/real-a-b-c1-flow.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/profit-model.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/real-a-b-c1-flow.test.mjs",
+          "status": "present_in_integration_source"
+        }
+      ]
+    }
+  ],
+  "assignmentGroups": [
+    {
+      "id": "11.1",
+      "ownerIds": [
+        "9.6"
+      ],
+      "paths": [
+        "scripts/ci-api-boundary.mjs",
+        "scripts/ci-test-policy.mjs",
+        "scripts/ci-test-suites.mjs",
+        "scripts/run-ci-api-tests.mjs",
+        "scripts/run-ci-tests.mjs",
+        "scripts/run-local-api-tests.mjs",
+        "com.shuaizhang.selection-review-open-chrome.plist",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "scripts/open-review-in-chrome.sh",
+        "启动今日选品评审台.command"
+      ]
+    },
+    {
+      "id": "11.2",
+      "ownerIds": [
+        "1.5"
+      ],
+      "paths": [
+        "lib/candidate-initialization.mjs",
+        "src/formState.js",
+        "src/finiteDisplay.js",
+        "src/commentInput.js",
+        "src/components/FormRevisionNotice.jsx",
+        "src/components/useDialogFocus.js",
+        "tests/frontend-review-behavior.test.mjs",
+        "lib/candidate-comment-boundary.mjs",
+        "lib/candidate-user-fields.mjs",
+        "tests/candidate-comment-boundary.test.mjs",
+        "tests/candidate-user-fields.test.mjs",
+        "src/candidateViews.js",
+        "src/components/DailyProgress.jsx",
+        "src/components/Icons.jsx",
+        "src/components/LifecycleStatusCard.jsx",
+        "src/components/OperatingRules.jsx",
+        "src/components/ProcessingBreakdown.jsx",
+        "src/components/QueueTabs.jsx",
+        "src/components/StatusBadge.jsx",
+        "src/constants.js",
+        "src/lifecycleStatusView.js"
+      ]
+    },
+    {
+      "id": "11.3",
+      "ownerIds": [
+        "1.1",
+        "2.2",
+        "2.3",
+        "2.4",
+        "3.2",
+        "3.3",
+        "3.4",
+        "9.9",
+        "9.12"
+      ],
+      "paths": [
+        "lib/a-discovery-contract.mjs",
+        "lib/seerfar-discovery-contract.mjs",
+        "lib/seerfar-discovery-software-runner.mjs",
+        "lib/a-discovery-software-runner.mjs",
+        "lib/a-product-detail-contract.mjs",
+        "lib/a-product-detail-runner.mjs",
+        "lib/linkfox-read-job-runner.mjs",
+        "lib/linkfox-discovery-api.mjs",
+        "lib/linkfox-discovery-connector.mjs",
+        "lib/linkfox-discovery-credentials.mjs",
+        "lib/linkfox-gateway-transport.mjs",
+        "lib/linkfox-product-detail-api.mjs",
+        "lib/linkfox-product-detail-connector.mjs",
+        "schema/a-discovery-v1.schema.json",
+        "schema/a-discovery-v2.schema.json",
+        "schema/a-product-detail-v1.schema.json",
+        "schema/software-job-v3.schema.json",
+        "tests/a-discovery-api-boundary.test.mjs",
+        "tests/a-discovery-candidate-import.test.mjs",
+        "tests/a-discovery-contract.test.mjs",
+        "tests/seerfar-discovery-contract.test.mjs",
+        "tests/seerfar-discovery-integration.test.mjs",
+        "tests/a-discovery-runtime-configuration.test.mjs",
+        "tests/a-discovery-runtime-services.test.mjs",
+        "tests/a-discovery-software-job-store.test.mjs",
+        "tests/a-discovery-software-runner.test.mjs",
+        "tests/a-discovery-ui.test.mjs",
+        "tests/a-product-detail-api-boundary.test.mjs",
+        "tests/a-product-detail-application.test.mjs",
+        "tests/a-product-detail-contract.test.mjs",
+        "tests/a-product-detail-evidence.test.mjs",
+        "tests/a-product-detail-runner.test.mjs",
+        "tests/a-product-detail-runtime-services.test.mjs",
+        "tests/a-product-detail-software-job-store.test.mjs",
+        "tests/a-product-detail-ui.test.mjs",
+        "tests/a-read-restart-filter.test.mjs",
+        "tests/fixtures/a-discovery-contract-fixture.mjs",
+        "tests/fixtures/a-discovery-runtime-fixture.mjs",
+        "tests/fixtures/seerfar-market-entry-replay.mjs",
+        "tests/fixtures/seerfar-discovery-runtime-fixture.mjs",
+        "tests/fixtures/a-product-detail-contract-fixture.mjs",
+        "tests/fixtures/a-product-detail-evidence-fixture.mjs",
+        "tests/fixtures/a-product-detail-runtime-fixture.mjs",
+        "tests/linkfox-discovery-api.test.mjs",
+        "tests/linkfox-discovery-connector.test.mjs",
+        "tests/linkfox-product-detail-api.test.mjs",
+        "tests/linkfox-product-detail-connector.test.mjs",
+        "lib/store-binding.mjs",
+        "lib/lifecycle-evidence-scope.mjs",
+        "lib/capture-evidence-sanitization.mjs",
+        "lib/profit-model-calculation.mjs",
+        "lib/profit-threshold-policy.mjs",
+        "src/aConfirmationInput.js",
+        "src/captureStart.js",
+        "tests/store-binding.test.mjs",
+        "tests/store-binding-api.test.mjs",
+        "tests/lifecycle-evidence-scope.test.mjs",
+        "src/aSupplierCaptureSelection.js",
+        "src/extensionStatus.js",
+        "src/wbPresentation.js",
+        "tests/atomic-json-persistence.test.mjs",
+        "tests/extension-capture-request.test.mjs",
+        "tests/extension-heartbeat-api.test.mjs",
+        "tests/extension-status.test.mjs",
+        "tests/lifecycle-b-evidence-context.test.mjs",
+        "tests/lifecycle-b-evidence-providers.test.mjs",
+        "tests/market-sample-policy.test.mjs",
+        "tests/ozon-extension-collector.test.mjs",
+        "tests/real-a-b-c1-api.test.mjs",
+        "tests/real-a-b-evidence-orchestration.test.mjs",
+        "tests/real-ozon-sales-snapshot.test.mjs",
+        "tests/sales-snapshot.test.mjs",
+        "tests/source-capture-api.test.mjs",
+        "tests/source-capture-restart-reconciliation.test.mjs",
+        "tests/source-capture.test.mjs",
+        "tests/wb-presentation.test.mjs"
+      ]
+    },
+    {
+      "id": "11.4",
+      "ownerIds": [
+        "4.1",
+        "4.2",
+        "4.3",
+        "4.4",
+        "4.5",
+        "4.6",
+        "4.7"
+      ],
+      "paths": [
+        "lib/c1-ai-draft-request-source.mjs",
+        "lib/c1-draft-runtime-services.mjs",
+        "lib/c1-draft-runtime-view.mjs",
+        "lib/c1-review-presentation.mjs",
+        "lib/c1-sku-rights-review-submission.mjs",
+        "lib/c1-sku-rights-review.mjs",
+        "schema/c1-ai-draft-payment-authorization-v1.schema.json",
+        "schema/c1-sku-rights-review-record-v1.schema.json",
+        "schema/c1-sku-rights-review-v1.schema.json",
+        "src/c1PaidDraftInput.js",
+        "src/c1RightsReviewInput.js",
+        "src/components/C1PaidDraftPanel.jsx",
+        "src/components/C1RightsReviewPanel.jsx",
+        "tests/c1-draft-paid-flow.test.mjs",
+        "tests/c1-draft-runtime-services.test.mjs",
+        "tests/c1-keyword-handoff-retry-http.test.mjs",
+        "tests/fixtures/c1-keyword-handoff-retry-fixture.mjs",
+        "tests/c1-draft-runtime-view.test.mjs",
+        "tests/c1-draft-service-configuration.test.mjs",
+        "tests/c1-gateway-acceptance.test.mjs",
+        "tests/c1-gateway-source-binding.test.mjs",
+        "tests/c1-paid-draft-owner-api.test.mjs",
+        "tests/c1-rights-review-input.test.mjs",
+        "tests/c1-rights-security-boundary.test.mjs",
+        "tests/c1-sku-rights-review-submission.test.mjs",
+        "tests/c1-sku-rights-review.test.mjs",
+        "tests/fixtures/c1-draft-source-fixture.mjs",
+        "tests/fixtures/c1-sku-rights-review-fixture.mjs",
+        "lib/listing-preparation-review-boundary.mjs",
+        "lib/c1-draft-software-use-case.mjs",
+        "lib/c1-draft-software-runtime.mjs",
+        "schema/c1-ai-authorized-execution-v1.schema.json",
+        "schema/c1-ai-settled-execution-v1.schema.json",
+        "tests/c1-ai-software-job-contract.test.mjs",
+        "tests/c1-draft-software-use-case.test.mjs",
+        "tests/c1-draft-software-runtime.test.mjs",
+        "tests/listing-preparation-review-boundary.test.mjs",
+        "lib/c1-keyword-planning-evidence-persistence.mjs",
+        "lib/c1-keyword-planning-evidence-producer.mjs",
+        "lib/c1-keyword-planning-software-use-case.mjs",
+        "schema/c1-fact-keyword-pipeline-v1.schema.json",
+        "schema/c1-fact-keyword-runtime-input-v1.schema.json",
+        "schema/c1-k3-keyword-adapter-v1.schema.json",
+        "schema/c1-keyword-planning-evidence-v1.schema.json",
+        "schema/c1-keyword-planning-local-material-production-v1.schema.json",
+        "schema/c1-keyword-planning-production-v1.schema.json",
+        "schema/c1-keyword-planning-source-evidence-v1.schema.json",
+        "schema/c1-keyword-planning-source-record-v1.schema.json",
+        "schema/c1-software-evidence-stage-v1.schema.json",
+        "schema/c1-software-input-preparation-v1.schema.json",
+        "schema/keyword-evidence-preparation-v1.schema.json",
+        "src/keywordSoftwareRuntimeView.js",
+        "tests/c1-fact-keyword-pipeline.test.mjs",
+        "tests/c1-fact-keyword-runtime.test.mjs",
+        "tests/c1-fact-keyword-server-integration.test.mjs",
+        "tests/c1-k3-keyword-adapter.test.mjs",
+        "tests/c1-k3-runtime-bridge.test.mjs",
+        "tests/c1-keyword-evidence-auto-trigger.test.mjs",
+        "tests/c1-keyword-planning-evidence-persistence.test.mjs",
+        "tests/c1-keyword-planning-evidence-producer.test.mjs",
+        "tests/c1-keyword-planning-local-material.test.mjs",
+        "tests/c1-keyword-planning-software-use-case.test.mjs",
+        "tests/c1-keyword-software-use-case.test.mjs",
+        "tests/c1-software-evidence-stage.test.mjs",
+        "tests/c1-software-input-preparation.test.mjs",
+        "tests/keyword-evidence-orchestrator.test.mjs",
+        "tests/keyword-evidence-provider-adapter.test.mjs",
+        "tests/keyword-evidence-ready-event-producer.test.mjs",
+        "tests/keyword-evidence-snapshot.test.mjs",
+        "tests/keyword-evidence-software-job-state.test.mjs",
+        "tests/keyword-evidence-software-runner.test.mjs",
+        "tests/keyword-software-runtime-view.test.mjs",
+        "tests/seerfar-open-api-transport.test.mjs",
+        "tests/seerfar-runtime-connector.test.mjs",
+        "tests/seerfar-software-api-guard.test.mjs"
+      ]
+    },
+    {
+      "id": "11.5",
+      "ownerIds": [
+        "5.4",
+        "5.5",
+        "6.1",
+        "6.4",
+        "6.5",
+        "6.6",
+        "6.7",
+        "7.1",
+        "7.2",
+        "7.3",
+        "9.7",
+        "10.1",
+        "10.5"
+      ],
+      "paths": [
+        "lib/d-asset-transport-software-use-case.mjs",
+        "lib/d-e-runtime-services.mjs",
+        "lib/d-e-runtime-view.mjs",
+        "lib/d-platform-observation-policy.mjs",
+        "lib/d-platform-observation-contract.mjs",
+        "lib/d-platform-observation-use-case.mjs",
+        "lib/d-execution-request-codec.mjs",
+        "lib/d-executable-request-contract.mjs",
+        "lib/production-authorization-snapshot.mjs",
+        "schema/d-platform-observation-v1.schema.json",
+        "schema/d-platform-observation-admission-v1.schema.json",
+        "tests/d-platform-observation-runtime.test.mjs",
+        "tests/d-platform-observation-job-store.test.mjs",
+        "tests/d-remaining-inventory-admission.test.mjs",
+        "tests/d-initial-import-stop-contract.test.mjs",
+        "tests/fixtures/d-platform-observation-runtime-fixture.mjs",
+        "tests/helpers/d-synthetic-completion-adapter.mjs",
+        "lib/aliyun-oss-runtime-configuration.mjs",
+        "lib/aliyun-oss-runtime-provider.mjs",
+        "lib/ozon-de-http-configuration.mjs",
+        "lib/ozon-inventory-prerequisite-policy.mjs",
+        "lib/ozon-de-http-transport.mjs",
+        "lib/ozon-de-preflight-provider.mjs",
+        "lib/ozon-de-preflight-evidence-reader.mjs",
+        "lib/ozon-account-read-api.mjs",
+        "lib/ozon-account-read-contract.mjs",
+        "lib/ozon-account-read-runtime.mjs",
+        "lib/ozon-account-read-preparation.mjs",
+        "lib/ozon-account-read-evidence.mjs",
+        "lib/ozon-account-read-services.mjs",
+        "lib/ozon-account-discovery-services.mjs",
+        "lib/ozon-account-discovery-runtime.mjs",
+        "schema/ozon-account-read-v1.schema.json",
+        "schema/ozon-account-read-v2.schema.json",
+        "src/components/OzonAccountReadCard.jsx",
+        "src/components/OzonAccountPreparationCard.jsx",
+        "tests/ozon-account-discovery.test.mjs",
+        "tests/ozon-account-discovery-configuration.test.mjs",
+        "tests/ozon-account-preparation-ui.test.mjs",
+        "tests/ozon-account-preparation-api-boundary.test.mjs",
+        "tests/ozon-account-read-api.test.mjs",
+        "tests/ozon-account-read-runtime.test.mjs",
+        "tests/ozon-account-read-integration.test.mjs",
+        "tests/ozon-account-read-api-boundary.test.mjs",
+        "tests/ozon-account-read-ui.test.mjs",
+        "lib/d-e-software-job-admission.mjs",
+        "lib/d-e-software-job-handoff.mjs",
+        "lib/d-e-software-job-results.mjs",
+        "lib/d-production-preparation-contract.mjs",
+        "lib/e-readback-attempt.mjs",
+        "lib/platform-write-preflight-contract.mjs",
+        "lib/production-execution-failure.mjs",
+        "tests/d-asset-transport-saved-job.test.mjs",
+        "tests/d-e-runtime-configuration.test.mjs",
+        "tests/d-e-runtime-services.test.mjs",
+        "tests/d-e-runtime-view.test.mjs",
+        "tests/aliyun-oss-runtime-provider.test.mjs",
+        "tests/ozon-de-http-transport.test.mjs",
+        "tests/ozon-de-preflight-provider.test.mjs",
+        "tests/ozon-de-preflight-evidence-reader.test.mjs",
+        "tests/fixtures/ozon-de-preflight-evidence-fixture.mjs",
+        "tests/ozon-de-transport-integration.test.mjs",
+        "tests/d-e-saved-continuation-api.test.mjs",
+        "tests/d-e-software-job-admission.test.mjs",
+        "tests/d-e-software-job-repository.test.mjs",
+        "tests/d-e-software-job-schema.test.mjs",
+        "tests/d-e-software-job-terminal-schema.test.mjs",
+        "tests/d-production-job-terminal-guards.test.mjs",
+        "tests/d-production-preparation.test.mjs",
+        "tests/d-production-saved-job.test.mjs",
+        "tests/e-readback-job-terminal-guards.test.mjs",
+        "tests/e-readback-saved-job.test.mjs",
+        "tests/fixtures/d-production-saved-job-fixture.mjs",
+        "tests/fixtures/production-owner-decision-fixture.mjs",
+        "tests/helpers/d-e-saved-api-fixture.mjs",
+        "tests/production-owner-decision-api.test.mjs",
+        "lib/d-e-software-job-scope.mjs",
+        "lib/d-production-job-cursor.mjs",
+        "lib/production-record-contract.mjs",
+        "tests/d-e-software-job-scope.test.mjs",
+        "tests/d-production-job-cursor.test.mjs",
+        "tests/fixtures/d-e-software-job-scope-fixture.mjs",
+        "tests/fixtures/d-production-job-cursor-fixture.mjs",
+        "tests/helpers/e-readback-fixture.mjs",
+        "lib/c2-local-asset-store.mjs",
+        "lib/c2-media-content-rules.mjs",
+        "lib/c2-upload-draft.mjs",
+        "lib/c2-stable-asset-transport-use-case.mjs",
+        "src/c2FinalAssetInput.js",
+        "tests/c2-media-content-rules.test.mjs",
+        "tests/c2-upload-draft.test.mjs",
+        "tests/c2-upload-api.test.mjs",
+        "tests/c2-stable-asset-transport-use-case.test.mjs",
+        "tests/d-e-software-persistence.test.mjs",
+        "lib/production-authorization-preparation.mjs",
+        "lib/production-owner-preparation.mjs",
+        "schema/production-authorization-v1.2.schema.json",
+        "tests/production-owner-preparation.test.mjs",
+        "lib/production-contract-primitives.mjs",
+        "scripts/generate-c2-reference-schema.mjs",
+        "tests/cross-stage-contract-schema.test.mjs",
+        "schema/production-record-v1.1.schema.json",
+        "src/dESoftwareRuntimeView.js",
+        "tests/aliyun-oss-runtime-deployment-boundary.test.mjs",
+        "tests/d-e-software-runtime-view.test.mjs",
+        "tests/draft-production-execution.test.mjs",
+        "tests/ozon-production-strategy.test.mjs"
+      ]
+    },
+    {
+      "id": "11.6",
+      "ownerIds": [
+        "1.1",
+        "1.2",
+        "1.3",
+        "1.4",
+        "1.5",
+        "8.1",
+        "8.2",
+        "8.6",
+        "9.8"
+      ],
+      "paths": [
+        "lib/http-api-boundary.mjs",
+        "lib/software-job-admission.mjs",
+        "schema/software-job-admission-v1.schema.json",
+        "tests/http-api-boundary.test.mjs",
+        "tests/software-job-admission.test.mjs",
+        "schema/runtime-identity-v1.schema.json",
+        "src/components/LifecycleEntryPreview.jsx",
+        "src/executionRuntimeView.js",
+        "tests/execution-runtime-view.test.mjs",
+        "tests/lifecycle-status-view.test.mjs",
+        "tests/product-lifecycle-schema.test.mjs",
+        "tests/real-lifecycle-entry-preview.test.mjs",
+        "tests/runtime-architecture-view.test.mjs",
+        "tests/runtime-configuration.test.mjs",
+        "tests/runtime-identity-provider.test.mjs",
+        "tests/local-owner-identity.test.mjs",
+        "tests/local-owner-access-ui.test.mjs",
+        "tests/local-owner-access-api.test.mjs",
+        "tests/worker-registry.test.mjs"
+      ]
+    },
+    {
+      "id": "11.7",
+      "ownerIds": [
+        "9.5",
+        "9.6",
+        "10.6"
+      ],
+      "paths": [
+        "scripts/prepare-local-runtime.mjs",
+        "scripts/runtime-package.mjs",
+        "tests/runtime-package-api.test.mjs",
+        "tests/api-process-lifecycle.test.mjs",
+        "tests/ci-api-boundary.test.mjs",
+        "tests/ci-test-policy.test.mjs",
+        "tests/launch-command-script.test.mjs",
+        "tests/phase3-ab-deployment-boundary.test.mjs",
+        "tests/phase4-c1-deployment-boundary.test.mjs",
+        "tests/phase4-c1-fact-keyword-deployment-boundary.test.mjs",
+        "tests/phase4-c1-keyword-auto-trigger-deployment-boundary.test.mjs",
+        "tests/phase4-c1-software-boundary.test.mjs",
+        "tests/phase4-k3-c1-deployment-boundary.test.mjs",
+        "tests/phase5-c2-deployment-boundary.test.mjs",
+        "tests/phase5b-c2-ui-deployment-boundary.test.mjs"
+      ]
+    },
+    {
+      "id": "11.8",
+      "ownerIds": [
+        "1.1",
+        "2.4",
+        "4.2",
+        "4.5",
+        "5.4",
+        "6.1",
+        "6.4",
+        "7.1"
+      ],
+      "paths": [
+        "tests/fixtures/c1-paid-keyword-settlement-fixture.mjs",
+        "tests/fixtures/c1-ai-draft-fixture.mjs",
+        "tests/fixtures/c1-ai-software-job-fixture.mjs",
+        "tests/fixtures/formal-c1-flow-fixture.mjs",
+        "tests/fixtures/legacy-candidate-input-fixture.mjs",
+        "tests/fixtures/c2-source-package-fixture.mjs",
+        "tests/fixtures/store-binding-fixture.mjs",
+        "tests/helpers/api-process-lifecycle.mjs",
+        "tests/helpers/c2-software-fixture.mjs",
+        "tests/helpers/d-software-fixture.mjs",
+        "tests/helpers/extension-runtime-fixture.mjs",
+        "tests/helpers/legacy-candidate-fixture.mjs",
+        "tests/helpers/published-schema-validator.mjs",
+        "tests/legacy-candidate-fixture.test.mjs",
+        "tests/fixtures/c1-keyword-planning-fixture.mjs",
+        "tests/helpers/market-assessment-fixture.mjs"
+      ]
+    },
+    {
+      "id": "11.9",
+      "ownerIds": [
+        "9.1",
+        "10.2"
+      ],
+      "paths": [
+        "tests/workflow-map.test.mjs"
+      ]
+    },
+    {
+      "id": "11.10",
+      "ownerIds": [
+        "9.10"
+      ],
+      "paths": [
+        "lib/capability-registry.mjs",
+        "tests/capability-registry.test.mjs",
+        "tests/capability-source-snapshot.test.mjs",
+        "scripts/capability-source-snapshot.mjs",
+        "scripts/generate-capability-snapshot.mjs"
+      ]
+    }
+  ],
+  "intentDocumentsUsed": false,
+  "externalPlatformsAccessed": false,
+  "businessStateModified": false,
+  "runtimeCopyModified": false,
+  "deployed": false
+}

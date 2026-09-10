@@ -1,0 +1,3198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "software-job-v1.schema.json",
+  "title": "Software job envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "deNonPlaceholderRef": {
+      "type": "string",
+      "not": {
+        "pattern": "^(?:[Uu][Nn][Kk][Nn][Oo][Ww][Nn]|[Nn][Uu][Ll][Ll]|[Uu][Nn][Dd][Ee][Ff][Ii][Nn][Ee][Dd]|[Nn][Oo][Tt]_[Aa][Pp][Pp][Ll][Ii][Cc][Aa][Bb][Ll][Ee]|[Mm][Ii][Ss][Ss][Ii][Nn][Gg])$"
+      }
+    },
+    "deSourceRef": {
+      "allOf": [
+        {
+          "$ref": "c1-ai-draft-request-v1#/$defs/canonicalFrozenRef"
+        },
+        {
+          "$ref": "#/$defs/deNonPlaceholderRef"
+        }
+      ]
+    },
+    "deOpaqueSourceRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u001f\\u007f]+$",
+      "allOf": [
+        {
+          "$ref": "#/$defs/deNonPlaceholderRef"
+        }
+      ]
+    },
+    "deRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "deStoreRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stableStoreId",
+        "platformStoreId",
+        "mappingVersion"
+      ],
+      "properties": {
+        "stableStoreId": {
+          "$ref": "#/$defs/deSourceRef",
+          "maxLength": 200,
+          "type": "string"
+        },
+        "platformStoreId": {
+          "$ref": "#/$defs/deSourceRef",
+          "maxLength": 200,
+          "type": "string"
+        },
+        "mappingVersion": {
+          "$ref": "#/$defs/deSourceRef",
+          "maxLength": 200,
+          "type": "string"
+        }
+      }
+    },
+    "deG1Identity": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "c1-ai-draft-request-v1#/$defs/g1Identity"
+        }
+      ],
+      "properties": {
+        "platform": {
+          "const": "ozon"
+        },
+        "candidateId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "skuPackageId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "supplierSkuId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "storeRef": {
+          "$ref": "#/$defs/deStoreRef"
+        }
+      }
+    },
+    "deProductionBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bindingId",
+        "configurationVersion",
+        "warehouseId"
+      ],
+      "properties": {
+        "bindingId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,160}$"
+        },
+        "configurationVersion": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,160}$"
+        },
+        "warehouseId": {
+          "type": "string",
+          "pattern": "^(?:[1-9][0-9]{0,14}|[1-8][0-9]{15}|900[0-6][0-9]{12}|90070[0-9]{11}|90071[0-8][0-9]{10}|900719[0-8][0-9]{9}|9007199[0-1][0-9]{8}|90071992[0-4][0-9]{7}|900719925[0-3][0-9]{6}|9007199254[0-6][0-9]{5}|90071992547[0-3][0-9]{4}|9007199254740[0-8][0-9]{2}|90071992547409[0-8][0-9]{1}|9007199254740990|9007199254740991)$"
+        }
+      }
+    },
+    "deCommonScopeBinding": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "sideEffectScope",
+        "candidateId",
+        "skuPackageId",
+        "sourceRevision",
+        "resultRevision",
+        "sourceSkuRevision",
+        "resultSkuRevision",
+        "identity",
+        "variantKey",
+        "authorizationRef",
+        "authorizationFingerprint",
+        "productionBinding",
+        "warehouseRef",
+        "credentialAlias",
+        "merchantSku",
+        "inputFingerprint"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "software-job-scope-v1"
+        },
+        "sideEffectScope": {
+          "enum": [
+            "d_production_execution",
+            "e_independent_readback"
+          ]
+        },
+        "candidateId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "skuPackageId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "sourceRevision": {
+          "$ref": "#/$defs/deRevision"
+        },
+        "resultRevision": {
+          "$ref": "#/$defs/deRevision"
+        },
+        "sourceSkuRevision": {
+          "$ref": "#/$defs/deRevision"
+        },
+        "resultSkuRevision": {
+          "$ref": "#/$defs/deRevision"
+        },
+        "identity": {
+          "$ref": "#/$defs/deG1Identity"
+        },
+        "variantKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "authorizationRef": {
+          "$ref": "#/$defs/deOpaqueSourceRef"
+        },
+        "authorizationFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "productionBinding": {
+          "$ref": "#/$defs/deProductionBinding"
+        },
+        "warehouseRef": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "credentialAlias": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "merchantSku": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "inputFingerprint": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "dProductionExecutionScopeBinding": {
+      "type": "object",
+      "unevaluatedProperties": false,
+      "allOf": [
+        {
+          "$ref": "#/$defs/deCommonScopeBinding"
+        }
+      ],
+      "properties": {
+        "sideEffectScope": {
+          "const": "d_production_execution"
+        }
+      }
+    },
+    "eIndependentReadbackScopeBinding": {
+      "type": "object",
+      "unevaluatedProperties": false,
+      "allOf": [
+        {
+          "$ref": "#/$defs/deCommonScopeBinding"
+        }
+      ],
+      "required": [
+        "authorizationSourceRevision",
+        "authorizationResultRevision",
+        "sourceProductionRecordId",
+        "sourceProductionRecordFingerprint",
+        "sourceProductionPlanId",
+        "sourceProductionPlanFingerprint",
+        "sourceExecutionKey",
+        "requestReceiptRef",
+        "inventoryReceiptRef",
+        "platformProductId"
+      ],
+      "properties": {
+        "authorizationSourceRevision": {
+          "$ref": "#/$defs/deRevision"
+        },
+        "authorizationResultRevision": {
+          "$ref": "#/$defs/deRevision"
+        },
+        "sourceProductionRecordId": {
+          "$ref": "#/$defs/deOpaqueSourceRef"
+        },
+        "sourceProductionRecordFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sourceProductionPlanId": {
+          "$ref": "#/$defs/deOpaqueSourceRef"
+        },
+        "sourceProductionPlanFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sourceExecutionKey": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "requestReceiptRef": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "inventoryReceiptRef": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "platformProductId": {
+          "type": "string",
+          "pattern": "^(?:[1-9][0-9]{0,14}|[1-8][0-9]{15}|900[0-6][0-9]{12}|90070[0-9]{11}|90071[0-8][0-9]{10}|900719[0-8][0-9]{9}|9007199[0-1][0-9]{8}|90071992[0-4][0-9]{7}|900719925[0-3][0-9]{6}|9007199254[0-6][0-9]{5}|90071992547[0-3][0-9]{4}|9007199254740[0-8][0-9]{2}|90071992547409[0-8][0-9]{1}|9007199254740990|9007199254740991)$"
+        },
+        "sideEffectScope": {
+          "const": "e_independent_readback"
+        }
+      }
+    },
+    "strictRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^(?=.{1,256}$)(?!.*[\\u0000-\\u001f\\s?#@=&\\\\])(?!(?:[Ff][Ii][Ll][Ee]:|[Hh][Tt][Tt][Pp][Ss]?:|/|\\\\|[A-Za-z]:[\\\\/]))(?!.*//)[A-Za-z0-9][A-Za-z0-9._:~-]*$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "storeRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stableStoreId",
+        "platformStoreId",
+        "mappingVersion"
+      ],
+      "properties": {
+        "stableStoreId": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "platformStoreId": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "mappingVersion": {
+          "$ref": "#/$defs/strictRef"
+        }
+      }
+    },
+    "stableAssetHosts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(?=.{1,253}$)(?!-)(?!.*(?:^|\\.)(?:localhost|local|localdomain|lan|home|internal)$)(?:[a-z0-9-]+\\.)+[a-z]{2,63}$"
+      }
+    },
+    "c2StableAssetTransportScopeBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "candidateId",
+        "skuPackageId",
+        "sourceRevision",
+        "resultRevision",
+        "platform",
+        "storeRef",
+        "supplierSkuId",
+        "variantKey",
+        "sideEffectScope",
+        "authorizationRef",
+        "credentialAlias",
+        "inputFingerprint",
+        "stagedAssetManifestFingerprint",
+        "ownerStagingConfirmationRef",
+        "allowedStableAssetHosts"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "software-job-scope-v1"
+        },
+        "candidateId": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "skuPackageId": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "sourceRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resultRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "platform": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "storeRef": {
+          "$ref": "#/$defs/storeRef"
+        },
+        "supplierSkuId": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "variantKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "sideEffectScope": {
+          "const": "c2_stable_asset_transport"
+        },
+        "authorizationRef": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "credentialAlias": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "inputFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "stagedAssetManifestFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "ownerStagingConfirmationRef": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "allowedStableAssetHosts": {
+          "$ref": "#/$defs/stableAssetHosts"
+        }
+      }
+    },
+    "c1AiDraftScopeBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "candidateId",
+        "skuPackageId",
+        "sourceRevision",
+        "resultRevision",
+        "sourceSkuRevision",
+        "identity",
+        "variantKey",
+        "sideEffectScope",
+        "authorizationRef",
+        "credentialAlias",
+        "inputFingerprint",
+        "requestFingerprint",
+        "provider"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "software-job-scope-v1"
+        },
+        "candidateId": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "skuPackageId": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "sourceRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resultRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sourceSkuRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "identity": {
+          "$ref": "c1-ai-draft-request-v1#/$defs/g1Identity"
+        },
+        "variantKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "sideEffectScope": {
+          "const": "c1_ai_draft"
+        },
+        "authorizationRef": {
+          "$ref": "c1-ai-authorized-execution-v1#/$defs/c1OpaqueAuthorizationId"
+        },
+        "credentialAlias": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "inputFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "requestFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "provider": {
+          "enum": [
+            "terra",
+            "sol"
+          ]
+        }
+      }
+    },
+    "c1PaidKeywordEvidenceScopeBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "candidateId",
+        "skuPackageId",
+        "sourceRevision",
+        "resultRevision",
+        "platform",
+        "targetStore",
+        "supplierSkuId",
+        "variantKey",
+        "sideEffectScope",
+        "authorizationRef",
+        "credentialAlias",
+        "inputFingerprint",
+        "planningEvidenceFingerprint",
+        "runtimeInputFingerprint",
+        "seerfarRequestFingerprint",
+        "salesSnapshotFingerprint",
+        "supplySnapshotFingerprint",
+        "profitModelFingerprint",
+        "c1FactsFingerprint",
+        "pointBudgetEvidenceRef",
+        "quotaEvidenceRef",
+        "pointsAuthorized",
+        "provider"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "software-job-scope-v1"
+        },
+        "candidateId": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "skuPackageId": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "sourceRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resultRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "platform": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "targetStore": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "supplierSkuId": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "variantKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "sideEffectScope": {
+          "const": "c1_paid_keyword_evidence"
+        },
+        "authorizationRef": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "credentialAlias": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "inputFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "planningEvidenceFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "runtimeInputFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "seerfarRequestFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "salesSnapshotFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "supplySnapshotFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "profitModelFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "c1FactsFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "pointBudgetEvidenceRef": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "quotaEvidenceRef": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "pointsAuthorized": {
+          "const": 15
+        },
+        "provider": {
+          "const": "seerfar_open_api"
+        }
+      }
+    },
+    "dProductionJobResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "executionKey",
+        "executionRevision",
+        "sourceAuthorizationFingerprint",
+        "productionRecordId",
+        "productionRecordFingerprint",
+        "candidateRevision",
+        "continuationBlocked"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "d-production-job-result-v1"
+        },
+        "executionKey": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "executionRevision": {
+          "const": 8
+        },
+        "sourceAuthorizationFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "productionRecordId": {
+          "$ref": "#/$defs/deOpaqueSourceRef"
+        },
+        "productionRecordFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "candidateRevision": {
+          "$ref": "#/$defs/deRevision"
+        },
+        "continuationBlocked": {
+          "type": "boolean"
+        }
+      }
+    },
+    "eReadbackJobResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "attemptId",
+        "sourceProductionRecordId",
+        "sourceProductionRecordFingerprint",
+        "attemptFingerprint",
+        "verificationStatus",
+        "candidateRevision",
+        "verificationApplied"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "e-readback-job-result-v1"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/deOpaqueSourceRef"
+        },
+        "sourceProductionRecordId": {
+          "$ref": "#/$defs/deOpaqueSourceRef"
+        },
+        "sourceProductionRecordFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "attemptFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "verificationStatus": {
+          "enum": [
+            "verified",
+            "not_verified"
+          ]
+        },
+        "candidateRevision": {
+          "$ref": "#/$defs/deRevision"
+        },
+        "verificationApplied": {
+          "type": "boolean"
+        }
+      }
+    },
+    "dProductionResultEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "resultRef",
+        "jobId",
+        "jobType",
+        "candidateId",
+        "skuPackageId",
+        "revision",
+        "workerId",
+        "leaseId",
+        "externalRequestRef",
+        "externalRequestState",
+        "payloadKind",
+        "payload",
+        "payloadFingerprint",
+        "applicationDisposition",
+        "recordedAt"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "software-job-result-envelope-v1"
+        },
+        "resultRef": {
+          "type": "string",
+          "pattern": "^d-production-result:[a-f0-9]{64}$"
+        },
+        "jobId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "jobType": {
+          "const": "d_production_execution"
+        },
+        "candidateId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "skuPackageId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "revision": {
+          "$ref": "#/$defs/deRevision"
+        },
+        "workerId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "leaseId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "externalRequestRef": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "externalRequestState": {
+          "const": "succeeded"
+        },
+        "payloadKind": {
+          "const": "d_production_execution"
+        },
+        "payload": {
+          "$ref": "#/$defs/dProductionJobResult"
+        },
+        "payloadFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "applicationDisposition": {
+          "enum": [
+            "applied",
+            "revision_conflict_not_applied"
+          ]
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "applicationDisposition": {
+                "const": "applied"
+              }
+            },
+            "required": [
+              "applicationDisposition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "continuationBlocked": {
+                    "const": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "applicationDisposition": {
+                "const": "revision_conflict_not_applied"
+              }
+            },
+            "required": [
+              "applicationDisposition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "continuationBlocked": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "dProductionTerminalJob": {
+      "type": "object",
+      "properties": {
+        "jobType": {
+          "const": "d_production_execution"
+        },
+        "revision": {
+          "$ref": "#/$defs/deRevision"
+        },
+        "attempt": {
+          "const": 1
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lastProgressAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "workerId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "workerVersion": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "leaseId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "leaseExpiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "workerCapabilitiesSnapshot": {
+          "type": "array",
+          "contains": {
+            "const": "ozon-production-execution"
+          }
+        },
+        "admissionDecision": {
+          "allOf": [
+            {
+              "$ref": "software-job-admission-v1.schema.json#/$defs/deSoftwareJobAdmissionDecision"
+            }
+          ],
+          "type": "object",
+          "properties": {
+            "phase": {
+              "enum": [
+                "claim",
+                "external_request"
+              ]
+            }
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "status": {
+              "const": "completed"
+            },
+            "externalRequestState": {
+              "const": "succeeded"
+            },
+            "failureClass": {
+              "type": "null"
+            },
+            "externalRequestRef": {
+              "$ref": "#/$defs/deSourceRef"
+            },
+            "resultRef": {
+              "type": "string",
+              "pattern": "^d-production-result:[a-f0-9]{64}$"
+            },
+            "resultEnvelope": {
+              "$ref": "#/$defs/dProductionResultEnvelope"
+            }
+          }
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "failed"
+            },
+            "externalRequestState": {
+              "enum": [
+                "not_sent",
+                "succeeded"
+              ]
+            },
+            "failureClass": {
+              "$ref": "#/$defs/deSourceRef"
+            },
+            "resultRef": {
+              "type": "null"
+            },
+            "resultEnvelope": {
+              "type": "null"
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "externalRequestState": {
+                    "enum": [
+                      "failed",
+                      "succeeded"
+                    ]
+                  }
+                },
+                "required": [
+                  "externalRequestState"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "externalRequestRef": {
+                    "$ref": "#/$defs/deSourceRef"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "externalRequestState": {
+                    "const": "succeeded"
+                  }
+                },
+                "required": [
+                  "externalRequestState"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "failureClass": {
+                    "enum": [
+                      "d-production-prewrite-rejected",
+                      "d-production-preflight-not-ready",
+                      "d-production-preparation-context-changed",
+                      "d-production-local-preflight-unavailable",
+                      "d-assets-source-conflict",
+                      "d-error-before-external-request"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "unknown_outcome"
+            },
+            "externalRequestState": {
+              "const": "unknown_outcome"
+            },
+            "externalRequestRef": {
+              "$ref": "#/$defs/deSourceRef"
+            },
+            "failureClass": {
+              "$ref": "#/$defs/deSourceRef"
+            },
+            "resultRef": {
+              "type": "null"
+            },
+            "resultEnvelope": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "eReadbackResultEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "resultRef",
+        "jobId",
+        "jobType",
+        "candidateId",
+        "skuPackageId",
+        "revision",
+        "workerId",
+        "leaseId",
+        "externalRequestRef",
+        "externalRequestState",
+        "payloadKind",
+        "payload",
+        "payloadFingerprint",
+        "applicationDisposition",
+        "recordedAt"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "software-job-result-envelope-v1"
+        },
+        "resultRef": {
+          "type": "string",
+          "pattern": "^e-readback-result:[a-f0-9]{64}$"
+        },
+        "jobId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "jobType": {
+          "const": "e_independent_readback"
+        },
+        "candidateId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "skuPackageId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "revision": {
+          "$ref": "#/$defs/deRevision"
+        },
+        "workerId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "leaseId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "externalRequestRef": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "externalRequestState": {
+          "const": "succeeded"
+        },
+        "payloadKind": {
+          "const": "e_independent_readback"
+        },
+        "payload": {
+          "$ref": "#/$defs/eReadbackJobResult"
+        },
+        "payloadFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "applicationDisposition": {
+          "enum": [
+            "applied",
+            "revision_conflict_not_applied",
+            "result_recorded_no_candidate_mutation"
+          ]
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "applicationDisposition": {
+                "const": "applied"
+              }
+            },
+            "required": [
+              "applicationDisposition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "verificationApplied": {
+                    "const": true
+                  },
+                  "verificationStatus": {
+                    "const": "verified"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "applicationDisposition": {
+                "const": "revision_conflict_not_applied"
+              }
+            },
+            "required": [
+              "applicationDisposition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "verificationApplied": {
+                    "const": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "applicationDisposition": {
+                "const": "result_recorded_no_candidate_mutation"
+              }
+            },
+            "required": [
+              "applicationDisposition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "verificationApplied": {
+                    "const": false
+                  },
+                  "verificationStatus": {
+                    "const": "not_verified"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "eReadbackTerminalJob": {
+      "type": "object",
+      "properties": {
+        "jobType": {
+          "const": "e_independent_readback"
+        },
+        "revision": {
+          "$ref": "#/$defs/deRevision"
+        },
+        "attempt": {
+          "const": 1
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lastProgressAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "workerId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "workerVersion": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "leaseId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "leaseExpiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "workerCapabilitiesSnapshot": {
+          "type": "array",
+          "contains": {
+            "const": "ozon-independent-readback"
+          }
+        },
+        "admissionDecision": {
+          "allOf": [
+            {
+              "$ref": "software-job-admission-v1.schema.json#/$defs/deSoftwareJobAdmissionDecision"
+            }
+          ],
+          "type": "object",
+          "properties": {
+            "phase": {
+              "enum": [
+                "claim",
+                "external_request"
+              ]
+            }
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "status": {
+              "const": "completed"
+            },
+            "externalRequestState": {
+              "const": "succeeded"
+            },
+            "failureClass": {
+              "type": "null"
+            },
+            "externalRequestRef": {
+              "$ref": "#/$defs/deSourceRef"
+            },
+            "resultRef": {
+              "type": "string",
+              "pattern": "^e-readback-result:[a-f0-9]{64}$"
+            },
+            "resultEnvelope": {
+              "$ref": "#/$defs/eReadbackResultEnvelope"
+            }
+          }
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "failed"
+            },
+            "externalRequestState": {
+              "const": "not_sent"
+            },
+            "failureClass": {
+              "$ref": "#/$defs/deSourceRef"
+            },
+            "resultRef": {
+              "type": "null"
+            },
+            "resultEnvelope": {
+              "type": "null"
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "externalRequestState": {
+                    "enum": [
+                      "failed",
+                      "succeeded"
+                    ]
+                  }
+                },
+                "required": [
+                  "externalRequestState"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "externalRequestRef": {
+                    "$ref": "#/$defs/deSourceRef"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "unknown_outcome"
+            },
+            "externalRequestState": {
+              "const": "unknown_outcome"
+            },
+            "externalRequestRef": {
+              "$ref": "#/$defs/deSourceRef"
+            },
+            "failureClass": {
+              "$ref": "#/$defs/deSourceRef"
+            },
+            "resultRef": {
+              "type": "null"
+            },
+            "resultEnvelope": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "dProductionPreparation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "preparationId",
+        "jobId",
+        "candidateId",
+        "skuPackageId",
+        "revision",
+        "sourceCandidateRevision",
+        "sourceAuthorizationFingerprint",
+        "sourceProductionPlanId",
+        "sourceProductionPlanFingerprint",
+        "workerId",
+        "leaseId",
+        "startedAt",
+        "completedAt",
+        "status",
+        "result",
+        "continuationBlocked"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "d-production-preparation-v1"
+        },
+        "requestMode": {
+          "description": "New intents always save the mode. Absence is accepted only for existing v1 external-read evidence.",
+          "enum": [
+            "external_read",
+            "persisted_evidence_only"
+          ]
+        },
+        "preparationId": {
+          "type": "string",
+          "pattern": "^d-preparation:[a-f0-9]{64}$"
+        },
+        "jobId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "candidateId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "skuPackageId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "revision": {
+          "$ref": "#/$defs/deRevision"
+        },
+        "sourceCandidateRevision": {
+          "$ref": "#/$defs/deRevision"
+        },
+        "sourceAuthorizationFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sourceProductionPlanId": {
+          "$ref": "#/$defs/deOpaqueSourceRef"
+        },
+        "sourceProductionPlanFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "workerId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "leaseId": {
+          "$ref": "#/$defs/deSourceRef"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "format": "date-time"
+            }
+          ]
+        },
+        "status": {
+          "enum": [
+            "in_flight",
+            "ready",
+            "not_ready",
+            "unknown_outcome"
+          ]
+        },
+        "result": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "platformWritePreflight",
+                "capabilities",
+                "preparedExecution"
+              ],
+              "properties": {
+                "platformWritePreflight": {
+                  "oneOf": [
+                    {
+                      "$ref": "platform-write-preflight-v1.1"
+                    },
+                    {
+                      "$ref": "platform-write-preflight-v1.2"
+                    }
+                  ]
+                },
+                "capabilities": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "status",
+                    "adapterVersion",
+                    "protocolVersion",
+                    "inspectedAt",
+                    "evidenceRef",
+                    "gaps"
+                  ],
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "ready",
+                        "not_ready"
+                      ]
+                    },
+                    "adapterVersion": {
+                      "$ref": "#/$defs/deSourceRef"
+                    },
+                    "protocolVersion": {
+                      "$ref": "#/$defs/deSourceRef"
+                    },
+                    "inspectedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "evidenceRef": {
+                      "oneOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "$ref": "#/$defs/deSourceRef"
+                        }
+                      ]
+                    },
+                    "gaps": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "code",
+                          "field",
+                          "message"
+                        ],
+                        "properties": {
+                          "code": {
+                            "$ref": "#/$defs/deSourceRef"
+                          },
+                          "field": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 1024
+                          },
+                          "message": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2048
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "preparedExecution": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "status",
+                    "gaps"
+                  ],
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "ready",
+                        "not_ready"
+                      ]
+                    },
+                    "gaps": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "code",
+                          "field",
+                          "message"
+                        ],
+                        "properties": {
+                          "code": {
+                            "$ref": "#/$defs/deSourceRef"
+                          },
+                          "field": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 1024
+                          },
+                          "message": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2048
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "continuationBlocked": {
+          "type": "boolean"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "status": {
+              "const": "in_flight"
+            },
+            "completedAt": {
+              "type": "null"
+            },
+            "result": {
+              "type": "null"
+            },
+            "continuationBlocked": {
+              "const": false
+            }
+          },
+          "type": "object"
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "unknown_outcome"
+            },
+            "completedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "result": {
+              "type": "null"
+            },
+            "continuationBlocked": {
+              "const": true
+            }
+          },
+          "type": "object"
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "ready"
+            },
+            "completedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "result": {
+              "properties": {
+                "preparedExecution": {
+                  "properties": {
+                    "status": {
+                      "const": "ready"
+                    },
+                    "gaps": {
+                      "maxItems": 0,
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                },
+                "capabilities": {
+                  "properties": {
+                    "status": {
+                      "const": "ready"
+                    },
+                    "evidenceRef": {
+                      "$ref": "#/$defs/deSourceRef"
+                    }
+                  },
+                  "type": "object"
+                },
+                "platformWritePreflight": {
+                  "properties": {
+                    "technicalStatus": {
+                      "const": "completed"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "not_ready"
+            },
+            "completedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "result": {
+              "properties": {
+                "preparedExecution": {
+                  "properties": {
+                    "status": {
+                      "const": "not_ready"
+                    },
+                    "gaps": {
+                      "minItems": 1,
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "dObservationPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "sourceDJobId",
+        "sourceExecutionKey",
+        "queryIndex",
+        "scopeFingerprint",
+        "observationFingerprint",
+        "disposition"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "d-platform-observation-job-result-v1"
+        },
+        "sourceDJobId": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "sourceExecutionKey": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "queryIndex": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "scopeFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "observationFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "disposition": {
+          "enum": [
+            "waiting_platform",
+            "imported",
+            "platform_failed",
+            "platform_skipped",
+            "unknown_outcome",
+            "blocked",
+            "price_verified",
+            "inventory_observed"
+          ]
+        }
+      }
+    },
+    "dPlatformStopPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "sourceExecutionKey",
+        "taskId",
+        "requestReceiptRef",
+        "stopReason",
+        "lastObservationJobId",
+        "observationFingerprint",
+        "inventoryWriteState"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "d-platform-stop-job-result-v1"
+        },
+        "sourceExecutionKey": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "requestReceiptRef": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "stopReason": {
+          "enum": [
+            "platform_failed",
+            "platform_skipped",
+            "unknown_outcome",
+            "blocked",
+            "query_budget_exhausted",
+            "inventory_not_sent_interrupted"
+          ]
+        },
+        "lastObservationJobId": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "observationFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "inventoryWriteState": {
+          "const": "not_sent"
+        }
+      }
+    },
+    "dObservationResultEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "resultRef",
+        "jobId",
+        "jobType",
+        "candidateId",
+        "skuPackageId",
+        "revision",
+        "workerId",
+        "leaseId",
+        "externalRequestRef",
+        "externalRequestState",
+        "payloadKind",
+        "payload",
+        "payloadFingerprint",
+        "applicationDisposition",
+        "recordedAt"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "software-job-result-envelope-v1"
+        },
+        "resultRef": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "jobId": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "jobType": {
+          "const": "e_d_platform_observation"
+        },
+        "candidateId": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "skuPackageId": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "workerId": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/strictRef"
+            }
+          ]
+        },
+        "leaseId": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/strictRef"
+            }
+          ]
+        },
+        "externalRequestRef": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/strictRef"
+            }
+          ]
+        },
+        "externalRequestState": {
+          "enum": [
+            "not_sent",
+            "succeeded",
+            "unknown_outcome"
+          ]
+        },
+        "payloadKind": {
+          "const": "e_d_platform_observation"
+        },
+        "payload": {
+          "$ref": "#/$defs/dObservationPayload"
+        },
+        "payloadFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "applicationDisposition": {
+          "const": "result_recorded_no_candidate_mutation"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "workerId": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "workerId"
+            ]
+          },
+          "then": {
+            "properties": {
+              "leaseId": {
+                "type": "null"
+              },
+              "externalRequestState": {
+                "const": "not_sent"
+              },
+              "externalRequestRef": {
+                "type": "null"
+              },
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "disposition": {
+                    "const": "blocked"
+                  }
+                },
+                "required": [
+                  "disposition"
+                ]
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "leaseId": {
+                "$ref": "#/$defs/strictRef"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "dPlatformStopResultEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "resultRef",
+        "jobId",
+        "jobType",
+        "candidateId",
+        "skuPackageId",
+        "revision",
+        "workerId",
+        "leaseId",
+        "externalRequestRef",
+        "externalRequestState",
+        "payloadKind",
+        "payload",
+        "payloadFingerprint",
+        "applicationDisposition",
+        "recordedAt"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "software-job-result-envelope-v1"
+        },
+        "resultRef": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "jobId": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "jobType": {
+          "const": "d_production_execution"
+        },
+        "candidateId": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "skuPackageId": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "workerId": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "leaseId": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/strictRef"
+            }
+          ]
+        },
+        "externalRequestRef": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/strictRef"
+            }
+          ]
+        },
+        "externalRequestState": {
+          "enum": [
+            "succeeded",
+            "unknown_outcome"
+          ]
+        },
+        "payloadKind": {
+          "const": "d_production_execution"
+        },
+        "payload": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/dPlatformStopPayload"
+            },
+            {
+              "$ref": "#/$defs/dInitialImportStopPayload"
+            }
+          ]
+        },
+        "payloadFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "applicationDisposition": {
+          "const": "result_recorded_no_candidate_mutation"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "schemaVersion": {
+                    "const": "d-initial-import-stop-job-result-v1"
+                  }
+                },
+                "required": [
+                  "schemaVersion"
+                ]
+              }
+            },
+            "required": [
+              "payload"
+            ]
+          },
+          "then": {
+            "properties": {
+              "workerId": {
+                "$ref": "#/$defs/strictRef"
+              },
+              "leaseId": {
+                "$ref": "#/$defs/strictRef"
+              },
+              "externalRequestRef": {
+                "$ref": "#/$defs/strictRef"
+              },
+              "externalRequestState": {
+                "const": "succeeded"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "dInitialImportStopPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "sourceExecutionKey",
+        "taskId",
+        "requestReceiptRef",
+        "stopReason",
+        "checkpointFingerprint",
+        "inventoryWriteState"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "d-initial-import-stop-job-result-v1"
+        },
+        "sourceExecutionKey": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "requestReceiptRef": {
+          "$ref": "#/$defs/strictRef"
+        },
+        "stopReason": {
+          "enum": [
+            "lease_expired",
+            "context_changed"
+          ]
+        },
+        "checkpointFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "inventoryWriteState": {
+          "const": "not_sent"
+        }
+      }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "jobId",
+    "candidateId",
+    "skuPackageId",
+    "revision",
+    "jobType",
+    "status",
+    "createdAt",
+    "startedAt",
+    "lastProgressAt",
+    "completedAt",
+    "requestedByUserId",
+    "ownerUserId",
+    "requiredCapabilities",
+    "workerId",
+    "workerVersion",
+    "workerCapabilitiesSnapshot",
+    "leaseId",
+    "leaseExpiresAt",
+    "attempt",
+    "idempotencyKey",
+    "externalRequestState",
+    "externalRequestRef",
+    "progressRef",
+    "resultRef",
+    "resultEnvelope",
+    "failureClass",
+    "automaticRetryAllowed",
+    "admissionDecision",
+    "scopeBinding"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "software-job-v1"
+    },
+    "jobId": {
+      "$ref": "#/$defs/strictRef"
+    },
+    "candidateId": {
+      "$ref": "#/$defs/strictRef"
+    },
+    "skuPackageId": {
+      "$ref": "#/$defs/strictRef"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "jobType": {
+      "enum": [
+        "ozon_account_read",
+        "c2_stable_asset_transport",
+        "c1_paid_keyword_evidence",
+        "c1_ai_draft",
+        "d_production_execution",
+        "e_independent_readback",
+        "e_d_platform_observation"
+      ]
+    },
+    "status": {
+      "enum": [
+        "queued",
+        "claimed",
+        "waiting_platform",
+        "completed",
+        "failed",
+        "unknown_outcome"
+      ]
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "startedAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "lastProgressAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "completedAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "requestedByUserId": {
+      "$ref": "#/$defs/strictRef"
+    },
+    "ownerUserId": {
+      "$ref": "#/$defs/strictRef"
+    },
+    "requiredCapabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "chrome",
+          "ozon-login",
+          "wb-login",
+          "1688-login",
+          "seerfar-browser",
+          "company-vpn",
+          "file-upload",
+          "image-processing",
+          "stable-asset-transport",
+          "seerfar-open-api",
+          "ai-draft-gateway",
+          "ozon-production-execution",
+          "ozon-independent-readback",
+          "ozon-account-read",
+          "linkfox-discovery-api",
+          "seerfar-category-discovery-api",
+          "linkfox-product-detail-api"
+        ]
+      }
+    },
+    "workerId": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/strictRef"
+        }
+      ]
+    },
+    "workerVersion": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/strictRef"
+        }
+      ]
+    },
+    "workerCapabilitiesSnapshot": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "chrome",
+          "ozon-login",
+          "wb-login",
+          "1688-login",
+          "seerfar-browser",
+          "company-vpn",
+          "file-upload",
+          "image-processing",
+          "stable-asset-transport",
+          "seerfar-open-api",
+          "ai-draft-gateway",
+          "ozon-production-execution",
+          "ozon-independent-readback",
+          "ozon-account-read",
+          "linkfox-discovery-api",
+          "seerfar-category-discovery-api",
+          "linkfox-product-detail-api",
+          "1688-image-search-browser"
+        ]
+      }
+    },
+    "leaseId": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/strictRef"
+        }
+      ]
+    },
+    "leaseExpiresAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "attempt": {
+      "enum": [
+        0,
+        1
+      ]
+    },
+    "idempotencyKey": {
+      "$ref": "#/$defs/strictRef"
+    },
+    "externalRequestState": {
+      "enum": [
+        "not_sent",
+        "in_flight",
+        "failed",
+        "unknown_outcome",
+        "succeeded"
+      ]
+    },
+    "externalRequestRef": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/strictRef"
+        }
+      ]
+    },
+    "progressRef": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/strictRef"
+        }
+      ]
+    },
+    "resultRef": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/strictRef"
+        }
+      ]
+    },
+    "resultEnvelope": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "software-job-admission-v1.schema.json#/$defs/softwareJobResultEnvelope",
+          "not": {
+            "type": "object",
+            "properties": {
+              "jobType": {
+                "enum": [
+                  "e_d_platform_observation"
+                ]
+              }
+            },
+            "required": [
+              "jobType"
+            ]
+          }
+        },
+        {
+          "$ref": "#/$defs/dProductionResultEnvelope"
+        },
+        {
+          "$ref": "#/$defs/eReadbackResultEnvelope"
+        },
+        {
+          "$ref": "#/$defs/dObservationResultEnvelope"
+        },
+        {
+          "$ref": "#/$defs/dPlatformStopResultEnvelope"
+        }
+      ]
+    },
+    "failureClass": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/strictRef"
+        }
+      ]
+    },
+    "automaticRetryAllowed": {
+      "const": false
+    },
+    "admissionDecision": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "software-job-admission-v1.schema.json#/$defs/softwareJobAdmissionDecision"
+        },
+        {
+          "$ref": "d-platform-observation-admission-v1.schema.json"
+        }
+      ]
+    },
+    "scopeBinding": {
+      "oneOf": [
+        {
+          "$ref": "ozon-account-read-v1.schema.json#/$defs/scope"
+        },
+        {
+          "$ref": "#/$defs/c2StableAssetTransportScopeBinding"
+        },
+        {
+          "$ref": "#/$defs/c1PaidKeywordEvidenceScopeBinding"
+        },
+        {
+          "$ref": "#/$defs/c1AiDraftScopeBinding"
+        },
+        {
+          "$ref": "#/$defs/dProductionExecutionScopeBinding"
+        },
+        {
+          "$ref": "#/$defs/eIndependentReadbackScopeBinding"
+        },
+        {
+          "$ref": "d-platform-observation-v1.schema.json"
+        }
+      ]
+    },
+    "preparationEvidence": {
+      "$ref": "#/$defs/dProductionPreparation"
+    },
+    "platformContinuation": {
+      "$ref": "d-software-execution-state-v2.schema.json#/$defs/platformContinuation"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "jobType": {
+            "const": "ozon_account_read"
+          }
+        },
+        "required": [
+          "jobType"
+        ]
+      },
+      "then": {
+        "properties": {
+          "scopeBinding": {
+            "$ref": "ozon-account-read-v1.schema.json#/$defs/scope"
+          },
+          "requiredCapabilities": {
+            "const": [
+              "ozon-account-read"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "jobType": {
+            "const": "d_production_execution"
+          }
+        },
+        "required": [
+          "jobType"
+        ]
+      },
+      "then": {
+        "properties": {
+          "requiredCapabilities": {
+            "const": [
+              "ozon-production-execution"
+            ]
+          },
+          "scopeBinding": {
+            "$ref": "#/$defs/dProductionExecutionScopeBinding"
+          },
+          "admissionDecision": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "jobType": {
+                    "const": "d_production_execution"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "jobType": {
+            "const": "e_independent_readback"
+          }
+        },
+        "required": [
+          "jobType"
+        ]
+      },
+      "then": {
+        "properties": {
+          "requiredCapabilities": {
+            "const": [
+              "ozon-independent-readback"
+            ]
+          },
+          "scopeBinding": {
+            "$ref": "#/$defs/eIndependentReadbackScopeBinding"
+          },
+          "admissionDecision": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "jobType": {
+                    "const": "e_independent_readback"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "jobType": {
+            "enum": [
+              "d_production_execution",
+              "e_independent_readback"
+            ]
+          }
+        },
+        "required": [
+          "jobType"
+        ]
+      },
+      "then": {
+        "oneOf": [
+          {
+            "properties": {
+              "status": {
+                "enum": [
+                  "queued",
+                  "claimed",
+                  "waiting_platform"
+                ]
+              },
+              "revision": {
+                "$ref": "#/$defs/deRevision"
+              },
+              "externalRequestState": {
+                "enum": [
+                  "not_sent",
+                  "in_flight"
+                ]
+              },
+              "resultEnvelope": {
+                "type": "null"
+              },
+              "resultRef": {
+                "type": "null"
+              },
+              "completedAt": {
+                "type": "null"
+              },
+              "failureClass": {
+                "type": "null"
+              },
+              "admissionDecision": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "software-job-admission-v1.schema.json#/$defs/deSoftwareJobAdmissionDecision"
+                  }
+                ]
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "admissionDecision": {
+                      "type": "null"
+                    }
+                  },
+                  "required": [
+                    "admissionDecision"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "status": {
+                      "const": "queued"
+                    },
+                    "attempt": {
+                      "const": 0
+                    },
+                    "externalRequestState": {
+                      "const": "not_sent"
+                    },
+                    "startedAt": {
+                      "type": "null"
+                    },
+                    "lastProgressAt": {
+                      "type": "null"
+                    },
+                    "workerId": {
+                      "type": "null"
+                    },
+                    "workerVersion": {
+                      "type": "null"
+                    },
+                    "workerCapabilitiesSnapshot": {
+                      "const": []
+                    },
+                    "leaseId": {
+                      "type": "null"
+                    },
+                    "leaseExpiresAt": {
+                      "type": "null"
+                    },
+                    "externalRequestRef": {
+                      "type": "null"
+                    },
+                    "progressRef": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "$ref": "#/$defs/dProductionTerminalJob"
+          },
+          {
+            "$ref": "#/$defs/eReadbackTerminalJob"
+          },
+          {
+            "required": [
+              "platformContinuation"
+            ],
+            "properties": {
+              "jobType": {
+                "const": "d_production_execution"
+              },
+              "status": {
+                "const": "waiting_platform"
+              },
+              "externalRequestState": {
+                "const": "succeeded"
+              },
+              "attempt": {
+                "const": 1
+              },
+              "leaseId": {
+                "type": "null"
+              },
+              "leaseExpiresAt": {
+                "type": "null"
+              },
+              "completedAt": {
+                "type": "null"
+              },
+              "resultRef": {
+                "type": "null"
+              },
+              "resultEnvelope": {
+                "type": "null"
+              },
+              "failureClass": {
+                "type": "null"
+              },
+              "platformContinuation": {
+                "$ref": "d-software-execution-state-v2.schema.json#/$defs/platformContinuation"
+              }
+            }
+          },
+          {
+            "required": [
+              "platformContinuation"
+            ],
+            "properties": {
+              "jobType": {
+                "const": "d_production_execution"
+              },
+              "status": {
+                "enum": [
+                  "failed",
+                  "unknown_outcome"
+                ]
+              },
+              "externalRequestState": {
+                "enum": [
+                  "succeeded",
+                  "unknown_outcome"
+                ]
+              },
+              "resultEnvelope": {
+                "$ref": "#/$defs/dPlatformStopResultEnvelope"
+              },
+              "completedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "failureClass": {
+                "$ref": "#/$defs/strictRef"
+              },
+              "platformContinuation": {
+                "$ref": "d-software-execution-state-v2.schema.json#/$defs/platformContinuation"
+              }
+            }
+          }
+        ]
+      },
+      "else": {
+        "if": {
+          "properties": {
+            "jobType": {
+              "const": "e_d_platform_observation"
+            }
+          },
+          "required": [
+            "jobType"
+          ]
+        },
+        "then": {
+          "properties": {
+            "admissionDecision": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "d-platform-observation-admission-v1.schema.json"
+                }
+              ]
+            },
+            "resultEnvelope": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/dObservationResultEnvelope"
+                }
+              ]
+            }
+          }
+        },
+        "else": {
+          "properties": {
+            "admissionDecision": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "software-job-admission-v1.schema.json#/$defs/credentialSoftwareJobAdmissionDecision"
+                }
+              ]
+            },
+            "resultEnvelope": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "software-job-admission-v1.schema.json#/$defs/softwareJobResultEnvelope"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "jobType": {
+            "const": "c1_ai_draft"
+          }
+        },
+        "required": [
+          "jobType"
+        ]
+      },
+      "then": {
+        "properties": {
+          "requiredCapabilities": {
+            "const": [
+              "ai-draft-gateway"
+            ]
+          },
+          "scopeBinding": {
+            "$ref": "#/$defs/c1AiDraftScopeBinding"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "failed"
+          },
+          "externalRequestState": {
+            "const": "succeeded"
+          }
+        },
+        "required": [
+          "status",
+          "externalRequestState"
+        ]
+      },
+      "then": {
+        "oneOf": [
+          {
+            "properties": {
+              "jobType": {
+                "const": "c1_paid_keyword_evidence"
+              },
+              "failureClass": {
+                "const": "c1-paid-keyword-local-preparation-failed"
+              },
+              "resultRef": {
+                "type": "null"
+              },
+              "resultEnvelope": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "jobType": {
+                "const": "ozon_account_read"
+              },
+              "failureClass": {
+                "$ref": "#/$defs/strictRef"
+              },
+              "resultRef": {
+                "type": "null"
+              },
+              "resultEnvelope": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "jobType": {
+                "const": "c1_ai_draft"
+              },
+              "resultEnvelope": {
+                "$ref": "software-job-admission-v1.schema.json#/$defs/softwareJobResultEnvelope"
+              }
+            }
+          },
+          {
+            "properties": {
+              "jobType": {
+                "const": "d_production_execution"
+              },
+              "failureClass": {
+                "enum": [
+                  "d-production-prewrite-rejected",
+                  "d-production-preflight-not-ready",
+                  "d-production-preparation-context-changed",
+                  "d-production-local-preflight-unavailable",
+                  "d-assets-source-conflict",
+                  "d-error-before-external-request"
+                ]
+              },
+              "resultRef": {
+                "type": "null"
+              },
+              "resultEnvelope": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "required": [
+              "platformContinuation"
+            ],
+            "properties": {
+              "jobType": {
+                "const": "d_production_execution"
+              },
+              "resultEnvelope": {
+                "$ref": "#/$defs/dPlatformStopResultEnvelope"
+              },
+              "failureClass": {
+                "$ref": "#/$defs/strictRef"
+              },
+              "platformContinuation": {
+                "$ref": "d-software-execution-state-v2.schema.json#/$defs/platformContinuation"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "jobType": {
+            "const": "c2_stable_asset_transport"
+          }
+        },
+        "required": [
+          "jobType"
+        ]
+      },
+      "then": {
+        "properties": {
+          "requiredCapabilities": {
+            "const": [
+              "stable-asset-transport"
+            ]
+          },
+          "scopeBinding": {
+            "$ref": "#/$defs/c2StableAssetTransportScopeBinding"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "jobType": {
+            "const": "c1_paid_keyword_evidence"
+          }
+        },
+        "required": [
+          "jobType"
+        ]
+      },
+      "then": {
+        "properties": {
+          "requiredCapabilities": {
+            "const": [
+              "seerfar-open-api"
+            ]
+          },
+          "scopeBinding": {
+            "$ref": "#/$defs/c1PaidKeywordEvidenceScopeBinding"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "jobType": {
+            "const": "d_production_execution"
+          }
+        },
+        "required": [
+          "jobType"
+        ]
+      },
+      "then": {},
+      "else": {
+        "properties": {
+          "preparationEvidence": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "preparationEvidence": {}
+        },
+        "required": [
+          "preparationEvidence"
+        ]
+      },
+      "then": {
+        "properties": {
+          "jobType": {
+            "const": "d_production_execution"
+          },
+          "attempt": {
+            "const": 1
+          },
+          "workerId": {
+            "$ref": "#/$defs/deSourceRef"
+          },
+          "leaseId": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/strictRef"
+              }
+            ]
+          }
+        },
+        "if": {
+          "properties": {
+            "preparationEvidence": {
+              "type": "object",
+              "properties": {
+                "requestMode": {
+                  "const": "persisted_evidence_only"
+                }
+              },
+              "required": [
+                "requestMode"
+              ]
+            },
+            "externalRequestState": {
+              "const": "not_sent"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "status": {
+              "enum": [
+                "claimed",
+                "failed"
+              ]
+            },
+            "externalRequestRef": {
+              "type": "null"
+            }
+          }
+        },
+        "else": {
+          "properties": {
+            "status": {
+              "enum": [
+                "waiting_platform",
+                "completed",
+                "failed",
+                "unknown_outcome"
+              ]
+            },
+            "externalRequestRef": {
+              "type": "string",
+              "pattern": "^d-production-request:[a-f0-9]{64}$"
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "platformContinuation"
+              ],
+              "properties": {
+                "platformContinuation": {
+                  "$ref": "d-software-execution-state-v2.schema.json#/$defs/platformContinuation"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "preparationEvidence": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "const": "ready"
+                    }
+                  }
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "leaseId": {
+                  "$ref": "#/$defs/strictRef"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "failureClass": {
+            "const": "d-production-local-preflight-unavailable"
+          }
+        },
+        "required": [
+          "failureClass"
+        ]
+      },
+      "then": {
+        "required": [
+          "preparationEvidence"
+        ],
+        "properties": {
+          "jobType": {
+            "const": "d_production_execution"
+          },
+          "status": {
+            "const": "failed"
+          },
+          "externalRequestState": {
+            "enum": [
+              "not_sent",
+              "succeeded"
+            ]
+          },
+          "preparationEvidence": {
+            "type": "object",
+            "required": [
+              "requestMode"
+            ],
+            "properties": {
+              "requestMode": {
+                "const": "persisted_evidence_only"
+              },
+              "status": {
+                "const": "unknown_outcome"
+              },
+              "continuationBlocked": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "jobType": {
+            "const": "e_d_platform_observation"
+          }
+        },
+        "required": [
+          "jobType"
+        ]
+      },
+      "then": {
+        "properties": {
+          "scopeBinding": {
+            "$ref": "d-platform-observation-v1.schema.json"
+          },
+          "requiredCapabilities": {
+            "const": [
+              "ozon-independent-readback"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "platformContinuation"
+        ],
+        "properties": {
+          "platformContinuation": {
+            "$ref": "d-software-execution-state-v2.schema.json#/$defs/platformContinuation"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "jobType": {
+            "const": "d_production_execution"
+          },
+          "attempt": {
+            "const": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "resultEnvelope": {
+            "type": "object",
+            "properties": {
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "schemaVersion": {
+                    "const": "d-initial-import-stop-job-result-v1"
+                  }
+                },
+                "required": [
+                  "schemaVersion"
+                ]
+              }
+            },
+            "required": [
+              "payload"
+            ]
+          }
+        },
+        "required": [
+          "resultEnvelope"
+        ]
+      },
+      "then": {
+        "properties": {
+          "jobType": {
+            "const": "d_production_execution"
+          },
+          "status": {
+            "const": "failed"
+          },
+          "externalRequestState": {
+            "const": "succeeded"
+          },
+          "attempt": {
+            "const": 1
+          },
+          "failureClass": {
+            "enum": [
+              "d-initial-import-lease-expired",
+              "d-initial-import-context-changed"
+            ]
+          },
+          "platformContinuation": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "blocked"
+              },
+              "queryCount": {
+                "const": 0
+              },
+              "observationHistory": {
+                "const": []
+              },
+              "inventoryWriteState": {
+                "const": "not_sent"
+              }
+            },
+            "required": [
+              "status",
+              "queryCount",
+              "observationHistory",
+              "inventoryWriteState"
+            ]
+          }
+        },
+        "required": [
+          "platformContinuation"
+        ]
+      }
+    }
+  ]
+}

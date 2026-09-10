@@ -1,4 +1,5 @@
-import { collectRealOzonSalesSnapshot } from "./sales-snapshot.mjs";
+import { collectRealOzonSalesSnapshot, extractOzonProductId } from "./sales-snapshot.mjs";
+export { extractOzonProductId } from "./sales-snapshot.mjs";
 
 const FAILURE_MESSAGES = Object.freeze({
   extension_not_installed: "未检测到本机商品采集扩展",
@@ -21,17 +22,6 @@ function text(value, max = 1000) {
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-export function extractOzonProductId(value) {
-  try {
-    const url = new URL(String(value || ""));
-    if (!/(^|\.)ozon\.ru$/i.test(url.hostname)) return "";
-    const match = url.pathname.match(/^\/product\/(?:[^/]*-)?(\d{7,})(?:\/|$)/i);
-    return match?.[1] || "";
-  } catch {
-    return "";
-  }
 }
 
 export function canonicalOzonProductUrl(value, expectedProductId = "") {

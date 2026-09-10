@@ -1,12 +1,75 @@
+export { PRODUCTION_EXECUTION_BINDING_FAILURE_CODES, productionExecutionPrewriteFailure, isProductionExecutionPrewriteFailure } from "./production-execution-failure.mjs";
+import { isCompleteStoreRef, sameStoreRef } from "./store-binding.mjs";
 import { createHash } from "node:crypto";
-import { assertValidProductionPlan, fingerprintProductionPlan } from "./production-plan.mjs";
+import { assertValidProductionPlan, fingerprintProductionPlan, fingerprintProductionAuthorization, projectProductionPlanInputs, projectProductionPlanImportPayload } from "./production-plan.mjs";
+import { isDeepStrictEqual } from "node:util";
+import { buildOzonSellerImportRequest } from "./ozon-seller-api-production-adapter.mjs";
+import { assertCurrentProductionAuthorization } from "./production-authorization.mjs";
+import { isRuntimeConfigurationTimestamp, normalizeProductionBindings } from "./runtime-configuration.mjs";
+import { ozonProductionConnectionRequirements } from "./ozon-production-strategy.mjs";
 
-export const PLATFORM_WRITE_PREFLIGHT_VERSION = "platform-write-preflight-v1.1";
+import { PLATFORM_WRITE_PREFLIGHT_VERSION, assertValidPlatformWritePreflight, platformWritePreflightTechnicalStatus } from "./platform-write-preflight-contract.mjs";
+export { PLATFORM_WRITE_PREFLIGHT_VERSION, validatePlatformWritePreflight, assertValidPlatformWritePreflight, assertCurrentPlatformWritePreflight } from "./platform-write-preflight-contract.mjs";
+/** Checks the current non-secret configuration against the owner's frozen execution scope. */
+export function assertCurrentProductionExecutionBinding({ productionAuthorization, currentProductionBinding, checkedAt }) {
+  if (!isRuntimeConfigurationTimestamp(checkedAt)) throw new Error("PRODUCTION_EXECUTION_BINDING_TIME_INVALID: 执行前检时间无效");
+  assertCurrentProductionAuthorization(productionAuthorization, { observedAt: checkedAt });
+  if (!currentProductionBinding) throw new Error("PRODUCTION_EXECUTION_BINDING_REQUIRED: 缺少当前服务端生产配置");
+  if (Date.parse(checkedAt) < Date.parse(productionAuthorization.authorizedAt)) {
+    throw new Error("PRODUCTION_EXECUTION_BINDING_TIME_INVALID: 执行前检时间无效");
+  }
+  const scope = productionAuthorization.lockedScope;
+  // The expected store is taken from the authorization, never inferred from the configuration being checked.
+  const [binding] = normalizeProductionBindings([currentProductionBinding], [{
+    targetStore: scope.storeRef.stableStoreId, platform: scope.platform, storeRef: scope.storeRef
+  }]);
+  const expected = productionAuthorization.executionBinding;
+  if (["bindingId", "configurationVersion", "warehouseId"].some(field => binding[field] !== expected[field]) ||
+      binding.platform !== scope.platform || !sameStoreRef(binding.storeRef, scope.storeRef) ||
+      binding.warehouseRef !== scope.warehouseRef || binding.credentialAlias !== scope.credentialAlias) {
+    throw new Error("PRODUCTION_EXECUTION_BINDING_DRIFT: 当前生产配置已变化，须重新取得主人确认");
+  }
+  const now = Date.parse(checkedAt);
+  if (now < Date.parse(binding.verification.checkedAt) || now >= Date.parse(binding.verification.expiresAt)) {
+    throw new Error("PRODUCTION_EXECUTION_BINDING_UNVERIFIED: 当前店铺仓库配置核验不在有效期内");
+  }
+  return binding;
+}
+
+/** Only service-owned execution context can connect a request to the saved authorization. */
+export function assertCurrentDExecutionContext({ request, executionContext }) {
+  if (!executionContext || Object.keys(executionContext).length !== 3 ||
+      !["productionPlan", "currentProductionBinding", "serverClock"].every(field => Object.hasOwn(executionContext, field)) ||
+      typeof executionContext.serverClock !== "function") throw new Error("D_EXECUTION_CONTEXT_REQUIRED");
+  const { productionPlan, currentProductionBinding, serverClock } = executionContext;
+  assertValidProductionPlan(productionPlan);
+  const binding = assertCurrentProductionExecutionBinding({ productionAuthorization: productionPlan.sourceAuthorization,
+    currentProductionBinding, checkedAt: serverClock() });
+  const inputs = projectProductionPlanInputs(productionPlan);
+  const authorization = productionPlan.sourceAuthorization;
+  const expected = {
+    candidateId: inputs.candidateId, sourceProductionPlanId: productionPlan.planId,
+    sourceProductionPlanFingerprint: fingerprintProductionPlan(productionPlan),
+    sourceAuthorizationId: authorization.authorizationId, sourceAuthorizationVersion: authorization.schemaVersion,
+    sourceAuthorizationFingerprint: fingerprintProductionAuthorization(authorization), platform: inputs.platform,
+    store: inputs.store, storeRef: inputs.storeRef, warehouseRef: inputs.warehouseRef, credentialAlias: inputs.credentialAlias,
+    skuPackageId: inputs.skuPackageId, supplierSkuId: inputs.sku.supplierSkuId, merchantSku: inputs.sku.merchantSku,
+    platformWritePrice: inputs.platformWritePrice, stock: inputs.stock, assetsFinalUploadsVersion: inputs.assetsFinalUploadsVersion,
+    publishScope: inputs.publishScope, exclusions: inputs.exclusions
+  };
+  if (!request || Object.entries(expected).some(([field, value]) => !isDeepStrictEqual(request[field], value)) ||
+      request.inventoryWrite?.warehouseId !== binding.warehouseId || request.inventoryWrite.stock !== inputs.stock ||
+      !Array.isArray(request.allowedWriteFields) || request.allowedWriteFields.some(field => !inputs.allowedWriteFields.includes(field))) {
+    throw new Error("D_EXECUTION_AUTHORIZATION_SCOPE_MISMATCH");
+  }
+  const importRequest = buildOzonSellerImportRequest(projectProductionPlanImportPayload({ productionPlan, resolvedFinalUploads: request.finalUploads }));
+  if (!isDeepStrictEqual(request.productImport, importRequest)) throw new Error("D_EXECUTION_AUTHORIZATION_SCOPE_MISMATCH: 导入字段不属于冻结计划");
+  return binding;
+}
 
 const PERMISSION_STATUSES = new Set(["verified", "denied", "permission_required", "unknown"]);
 const CONNECTION_STATUSES = new Set(["connected", "unavailable", "system_error", "permission_required", "unknown"]);
 const IMAGE_PERMISSION_STATUSES = new Set(["verified", "denied", "permission_required", "unknown"]);
-const TECHNICAL_STATUSES = new Set(["completed", "system_error", "permission_required", "data_unavailable"]);
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -27,10 +90,6 @@ function deepFreeze(value) {
   return value;
 }
 
-function push(errors, path, message) {
-  errors.push({ path, message });
-}
-
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (!isObject(value)) return value;
@@ -45,76 +104,13 @@ function stringArray(value) {
   return Array.isArray(value) && value.every(nonEmptyString);
 }
 
-function validateConnection(value, path, errors) {
-  if (!isObject(value)) {
-    push(errors, path, "必须是对象");
-    return;
-  }
-  if (!CONNECTION_STATUSES.has(value.status)) push(errors, `${path}.status`, "连接状态无效");
-  if (!nonEmptyString(value.checkedVia)) push(errors, `${path}.checkedVia`, "必须说明检查路径");
-  if (!nonEmptyString(value.evidenceRef)) push(errors, `${path}.evidenceRef`, "必须保存证据引用");
-}
-
-export function validatePlatformWritePreflight(preflight) {
-  const errors = [];
-  if (!isObject(preflight)) return { valid: false, errors: [{ path: "$", message: "必须是对象" }] };
-  if (preflight.schemaVersion !== PLATFORM_WRITE_PREFLIGHT_VERSION) push(errors, "schemaVersion", `必须是${PLATFORM_WRITE_PREFLIGHT_VERSION}`);
-  for (const field of ["preflightId", "sourceProductionPlanId", "sourceProductionPlanFingerprint", "targetPlatform", "checkedAt"]) {
-    if (!nonEmptyString(preflight[field])) push(errors, field, "必须是非空字符串");
-  }
-  if (!isoDateTime(preflight.checkedAt)) push(errors, "checkedAt", "必须是有效时间");
-  if (!isObject(preflight.storeIdentity) || !nonEmptyString(preflight.storeIdentity.expectedStore) || !nonEmptyString(preflight.storeIdentity.observedStore) || !["matched", "mismatched", "unverified"].includes(preflight.storeIdentity.status) || !nonEmptyString(preflight.storeIdentity.evidenceRef)) {
-    push(errors, "storeIdentity", "必须保存预期店铺、观察店铺、匹配状态和证据");
-  }
-  if (!isObject(preflight.permission) || !PERMISSION_STATUSES.has(preflight.permission.status) || !nonEmptyString(preflight.permission.evidenceRef)) {
-    push(errors, "permission", "必须保存权限状态和证据");
-  }
-  if (!isObject(preflight.connectionStatus)) {
-    push(errors, "connectionStatus", "必须是对象");
-  } else {
-    validateConnection(preflight.connectionStatus.api, "connectionStatus.api", errors);
-    validateConnection(preflight.connectionStatus.sellerBackend, "connectionStatus.sellerBackend", errors);
-  }
-  if (!stringArray(preflight.authorizedWriteFields) || preflight.authorizedWriteFields.length === 0) push(errors, "authorizedWriteFields", "必须继承生产计划授权字段");
-  if (!stringArray(preflight.platformWritableFields)) push(errors, "platformWritableFields", "必须是字符串数组");
-  if (!stringArray(preflight.effectiveWritableFields)) push(errors, "effectiveWritableFields", "必须是字符串数组");
-  if (stringArray(preflight.effectiveWritableFields) && stringArray(preflight.authorizedWriteFields) && preflight.effectiveWritableFields.some((field) => !preflight.authorizedWriteFields.includes(field))) {
-    push(errors, "effectiveWritableFields", "不得超出生产计划授权字段");
-  }
-  if (stringArray(preflight.effectiveWritableFields) && stringArray(preflight.platformWritableFields) && preflight.effectiveWritableFields.some((field) => !preflight.platformWritableFields.includes(field))) {
-    push(errors, "effectiveWritableFields", "不得超出平台现场可写字段");
-  }
-  if (!isObject(preflight.imagePermission) || !IMAGE_PERMISSION_STATUSES.has(preflight.imagePermission.status) || !nonEmptyString(preflight.imagePermission.evidenceRef)) {
-    push(errors, "imagePermission", "必须保存图片权限状态和证据");
-  }
-  if (!isObject(preflight.priceCurrency) || !nonEmptyString(preflight.priceCurrency.expected) || !nonEmptyString(preflight.priceCurrency.observed) || !["matched", "mismatched", "unverified"].includes(preflight.priceCurrency.status) || !nonEmptyString(preflight.priceCurrency.evidenceRef)) {
-    push(errors, "priceCurrency", "必须保存平台价格字段币种核验");
-  }
-  if (!Array.isArray(preflight.risks) || preflight.risks.some((risk) => !isObject(risk) || !nonEmptyString(risk.code) || !nonEmptyString(risk.message))) {
-    push(errors, "risks", "风险必须是带代码和说明的数组");
-  }
-  if (!TECHNICAL_STATUSES.has(preflight.technicalStatus)) push(errors, "technicalStatus", "技术状态无效");
-  if (preflight.businessStateEffect !== "none") push(errors, "businessStateEffect", "技术检查不得影响商品业务状态");
-  if (preflight.readyForPlatformWrite !== false) push(errors, "readyForPlatformWrite", "第13B-1阶段不得进入真实写入");
-  if (preflight.productCreated !== false) push(errors, "productCreated", "不得创建商品");
-  if (preflight.imagesUploaded !== 0) push(errors, "imagesUploaded", "不得上传图片");
-  if (preflight.inventoryModified !== false) push(errors, "inventoryModified", "不得修改库存");
-  if (preflight.storeDataModified !== false) push(errors, "storeDataModified", "不得修改店铺数据");
-  if (preflight.productionRecordCreated !== false) push(errors, "productionRecordCreated", "不得生成生产记录");
-  if (preflight.platformWrites !== 0) push(errors, "platformWrites", "不得产生平台写入");
-  return { valid: errors.length === 0, errors };
-}
-
-export function assertValidPlatformWritePreflight(preflight) {
-  const result = validatePlatformWritePreflight(preflight);
-  if (!result.valid) throw new Error(`PlatformWritePreflight校验失败：${result.errors.map((item) => `${item.path}: ${item.message}`).join("；")}`);
-  return preflight;
-}
-
 function validateInspection(inspection) {
   if (!isObject(inspection)) throw new Error("PLATFORM_PREFLIGHT_INSPECTION_INVALID: 检查器必须返回结构化结果");
   if (!nonEmptyString(inspection.observedStore) || !["matched", "mismatched", "unverified"].includes(inspection.storeIdentityStatus) || !nonEmptyString(inspection.storeIdentityEvidenceRef)) {
     throw new Error("PLATFORM_PREFLIGHT_INSPECTION_INVALID: 店铺身份检查结果不完整");
+  }
+  if (!Object.hasOwn(inspection, "observedStoreRef") || !(inspection.observedStoreRef === null || isCompleteStoreRef(inspection.observedStoreRef, inspection.observedStore))) {
+    throw new Error("PLATFORM_PREFLIGHT_INSPECTION_INVALID: 必须返回完整观察店铺身份或明确未验证");
   }
   if (!PERMISSION_STATUSES.has(inspection.permissionStatus) || !nonEmptyString(inspection.permissionEvidenceRef)) {
     throw new Error("PLATFORM_PREFLIGHT_INSPECTION_INVALID: 权限检查结果不完整");
@@ -135,14 +131,6 @@ function validateInspection(inspection) {
   if (!Array.isArray(inspection.risks)) throw new Error("PLATFORM_PREFLIGHT_INSPECTION_INVALID: 风险必须是数组");
 }
 
-function technicalStatusFor(inspection) {
-  const connectionStatuses = [inspection.connections.api.status, inspection.connections.sellerBackend.status];
-  if (inspection.permissionStatus === "permission_required" || inspection.imagePermissionStatus === "permission_required" || connectionStatuses.includes("permission_required")) return "permission_required";
-  if (connectionStatuses.includes("system_error") || connectionStatuses.includes("unavailable")) return "system_error";
-  if (connectionStatuses.includes("unknown") || inspection.permissionStatus === "unknown" || inspection.storeIdentityStatus === "unverified") return "data_unavailable";
-  return "completed";
-}
-
 /**
  * 第13B-1阶段只执行只读平台前检。所有商品字段来自ProductionPlan；检查器只提供当前技术证据。
  */
@@ -150,41 +138,49 @@ export async function runPlatformWritePreflight({ productionPlan, inspectPlatfor
   assertValidProductionPlan(productionPlan);
   if (typeof inspectPlatform !== "function") throw new Error("PLATFORM_PREFLIGHT_INSPECTOR_REQUIRED: 缺少只读平台检查器");
   if (!isoDateTime(checkedAt)) throw new Error("PLATFORM_PREFLIGHT_INPUT_GAP: 检查时间无效");
+  const inputs = projectProductionPlanInputs(productionPlan);
+  const connectionRequirements = ozonProductionConnectionRequirements(inputs.executionStrategy.primaryPath);
   const protectedPlan = structuredClone(productionPlan);
   const inspection = await inspectPlatform(deepFreeze({
     mode: "read_only_preflight",
-    targetPlatform: productionPlan.platform,
-    expectedStore: productionPlan.store,
-    requestedWriteFields: structuredClone(productionPlan.allowedWriteFields),
-    imageUploadRequested: productionPlan.allowedWriteFields.includes("assets.finalUploads"),
-    productCreationRequested: productionPlan.allowedWriteFields.includes("create_product"),
-    inventoryWriteRequested: productionPlan.allowedWriteFields.includes("stock"),
-    expectedPlatformWriteCurrency: productionPlan.platformWritePrice.currency,
+    targetPlatform: inputs.platform,
+    expectedStore: inputs.store,
+    expectedStoreRef: structuredClone(inputs.storeRef),
+    requestedWriteFields: structuredClone(inputs.allowedWriteFields),
+    imageUploadRequested: inputs.allowedWriteFields.includes("assets.finalUploads"),
+    productCreationRequested: inputs.allowedWriteFields.includes("create_product"),
+    inventoryWriteRequested: inputs.allowedWriteFields.includes("stock"),
+    expectedPlatformWriteCurrency: inputs.platformWritePrice.currency,
     platformWriteRequested: false
   }));
   validateInspection(inspection);
   if (JSON.stringify(protectedPlan) !== JSON.stringify(productionPlan)) throw new Error("PLATFORM_PREFLIGHT_PLAN_MUTATED: 检查器修改了ProductionPlan");
 
   const platformWritableFields = [...new Set(inspection.platformWritableFields)];
-  const effectiveWritableFields = productionPlan.allowedWriteFields.filter((field) => platformWritableFields.includes(field));
+  const effectiveWritableFields = inputs.allowedWriteFields.filter((field) => platformWritableFields.includes(field));
   const risks = structuredClone(inspection.risks);
-  if (inspection.storeIdentityStatus !== "matched") risks.push({ code: "store_identity_not_verified", message: "店铺身份尚未验证一致" });
-  const priceCurrencyMatched = inspection.priceFieldCurrency === productionPlan.platformWritePrice.currency;
-  if (!priceCurrencyMatched) risks.push({ code: "platform_price_currency_mismatch", message: `授权写入币种${productionPlan.platformWritePrice.currency}与平台字段币种${inspection.priceFieldCurrency}不一致` });
-  if (effectiveWritableFields.length !== productionPlan.allowedWriteFields.length) risks.push({ code: "write_scope_not_fully_available", message: "平台当前权限不能覆盖全部授权字段" });
-  const technicalStatus = technicalStatusFor(inspection);
+  const storeStatus = inspection.storeIdentityStatus === "unverified" || inspection.observedStoreRef === null ? "unverified"
+    : inspection.storeIdentityStatus === "matched" && inspection.observedStore === inputs.store && sameStoreRef(inputs.storeRef, inspection.observedStoreRef) ? "matched" : "mismatched";
+  if (storeStatus !== "matched") risks.push({ code: "store_identity_not_verified", message: "店铺身份尚未验证一致" });
+  const priceCurrencyMatched = inspection.priceFieldCurrency === inputs.platformWritePrice.currency;
+  if (!priceCurrencyMatched) risks.push({ code: "platform_price_currency_mismatch", message: `授权写入币种${inputs.platformWritePrice.currency}与平台字段币种${inspection.priceFieldCurrency}不一致` });
+  if (effectiveWritableFields.length !== inputs.allowedWriteFields.length) risks.push({ code: "write_scope_not_fully_available", message: "平台当前权限不能覆盖全部授权字段" });
+  const technicalStatus = platformWritePreflightTechnicalStatus({ ...inspection, storeIdentityStatus: storeStatus }, connectionRequirements.requiredConnections);
   if (technicalStatus !== "completed") risks.push({ code: `technical_${technicalStatus}`, message: "平台前置检查未完成，仅记录技术状态，不改变商品业务状态" });
 
   const preflight = {
     schemaVersion: PLATFORM_WRITE_PREFLIGHT_VERSION,
-    preflightId: `platform-preflight:${productionPlan.planId}:${fingerprint({ checkedAt, inspection }).slice(0, 12)}`,
+    preflightId: `platform-preflight:${productionPlan.planId}:${fingerprint({ schemaVersion: PLATFORM_WRITE_PREFLIGHT_VERSION, connectionRequirements, checkedAt, inspection }).slice(0, 12)}`,
     sourceProductionPlanId: productionPlan.planId,
     sourceProductionPlanFingerprint: fingerprintProductionPlan(productionPlan),
-    targetPlatform: productionPlan.platform,
+    targetPlatform: inputs.platform,
+    connectionRequirements: structuredClone(connectionRequirements),
     storeIdentity: {
-      expectedStore: productionPlan.store,
+      expectedStore: inputs.store,
       observedStore: inspection.observedStore,
-      status: inspection.storeIdentityStatus,
+      expectedStoreRef: structuredClone(inputs.storeRef),
+      observedStoreRef: structuredClone(inspection.observedStoreRef),
+      status: storeStatus,
       evidenceRef: inspection.storeIdentityEvidenceRef
     },
     permission: {
@@ -192,7 +188,7 @@ export async function runPlatformWritePreflight({ productionPlan, inspectPlatfor
       evidenceRef: inspection.permissionEvidenceRef
     },
     connectionStatus: structuredClone(inspection.connections),
-    authorizedWriteFields: structuredClone(productionPlan.allowedWriteFields),
+    authorizedWriteFields: structuredClone(inputs.allowedWriteFields),
     platformWritableFields,
     effectiveWritableFields,
     imagePermission: {
@@ -200,7 +196,7 @@ export async function runPlatformWritePreflight({ productionPlan, inspectPlatfor
       evidenceRef: inspection.imagePermissionEvidenceRef
     },
     priceCurrency: {
-      expected: productionPlan.platformWritePrice.currency,
+      expected: inputs.platformWritePrice.currency,
       observed: inspection.priceFieldCurrency,
       status: priceCurrencyMatched ? "matched" : "mismatched",
       evidenceRef: inspection.priceCurrencyEvidenceRef

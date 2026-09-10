@@ -1,4 +1,5 @@
-import { SELLER_TYPES, validateSalesSnapshot } from "./sales-snapshot.mjs";
+import { isCompleteStoreRef, STORE_PLATFORMS } from "./store-binding.mjs";
+import { SELLER_TYPES, validateSalesSnapshot, extractOzonProductId } from "./sales-snapshot.mjs";
 
 export const A_MARKET_ASSESSMENT_SCHEMA_VERSION = "a-market-assessment-v1.1";
 export const SELLER_SAMPLE_PRIORITY = Object.freeze([
@@ -262,4 +263,81 @@ export function resolveBMarketPrice(opportunityPackage, salesSnapshotId) {
   const price = assessment.recommendedSalePrice;
   if (!positiveNumber(price?.amount) || !nonEmptyString(price?.currency)) throw new Error("B_INPUT_GAP: A阶段建议成交价依据缺失");
   return deepFreeze({ assessment, snapshot, recommendedSalePrice: price });
+}
+
+function finalPricingError(code) { throw Object.assign(new Error(code), { code }); }
+function finalClosed(value, keys) {
+  return isObject(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
+}
+function finalRef(value) {
+  return typeof value === 'string' && value.length > 0 && value.length <= 500 && value.trim() === value &&
+    !/[\u0000-\u001f\u007f]/.test(value) && !['unknown', 'null', 'undefined'].includes(value);
+}
+function finalDate(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+}
+
+/** Final-stage comparison only; does not alter A admission or choose an owner's selling price. */
+export function evaluateFinalMarketPricing(input) {
+  if (!finalClosed(input, ['assessmentId', 'assessedAt', 'target', 'salesSnapshots', 'reviews', 'selectedPriceRub'])) finalPricingError('FINAL_PRICING_INPUT_INVALID');
+  const { assessmentId, assessedAt, target, salesSnapshots, reviews, selectedPriceRub } = input;
+  if (!finalRef(assessmentId) || !isoDateTime(assessedAt) || !positiveNumber(selectedPriceRub) ||
+      !finalClosed(target, ['candidateId', 'sourceRevision', 'skuPackageId', 'platform', 'store', 'storeRef', 'market']) ||
+      !['candidateId', 'skuPackageId', 'market'].every(key => finalRef(target[key])) ||
+      !Number.isSafeInteger(target.sourceRevision) || target.sourceRevision < 1 ||
+      STORE_PLATFORMS[target.store] !== target.platform || !isCompleteStoreRef(target.storeRef, target.store) ||
+      !Array.isArray(salesSnapshots) || salesSnapshots.length > 20 || !Array.isArray(reviews) || reviews.length !== salesSnapshots.length) finalPricingError('FINAL_PRICING_INPUT_INVALID');
+  const ids = new Set(), productUrls = new Set(), reviewMap = new Map();
+  for (const review of reviews) {
+    if (!finalClosed(review, ['snapshotId', 'exactProduct', 'exactSpecification', 'sameMarket', 'currentlyForSale', 'salesWindow', 'anomaly']) ||
+        !finalRef(review.snapshotId) || reviewMap.has(review.snapshotId)) finalPricingError('FINAL_PRICING_REVIEW_INVALID');
+    for (const key of ['exactProduct', 'exactSpecification', 'sameMarket', 'currentlyForSale']) {
+      if (!finalClosed(review[key], ['value', 'evidenceRef']) || typeof review[key].value !== 'boolean' || !finalRef(review[key].evidenceRef)) finalPricingError('FINAL_PRICING_REVIEW_INVALID');
+    }
+    if (review.anomaly !== null && (!finalClosed(review.anomaly, ['reason', 'evidenceRef']) ||
+        !['brand_difference', 'promotion', 'specification_difference', 'anomalous_price'].includes(review.anomaly.reason) || !finalRef(review.anomaly.evidenceRef))) finalPricingError('FINAL_PRICING_REVIEW_INVALID');
+    const window = review.salesWindow;
+    if (window !== null && (!finalClosed(window, ['count', 'startDate', 'endDate', 'dayCount', 'provenance', 'evidenceRef', 'validityStatus', 'validityEvidenceRef']) ||
+        !Number.isSafeInteger(window.count) || window.count < 0 || window.dayCount !== 30 ||
+        !finalDate(window.startDate) || !finalDate(window.endDate) ||
+        ![29, 30].includes((Date.parse(window.endDate) - Date.parse(window.startDate)) / 86400000) ||
+        window.endDate > new Date(assessedAt).toISOString().slice(0, 10) ||
+        !['official_actual', 'third_party_estimate'].includes(window.provenance) || !finalRef(window.evidenceRef) ||
+        !['current', 'expired', 'unknown'].includes(window.validityStatus) || !finalRef(window.validityEvidenceRef))) finalPricingError('FINAL_PRICING_WINDOW_INVALID');
+    reviewMap.set(review.snapshotId, review);
+  }
+  const samples = salesSnapshots.map(snapshot => {
+    const productId = extractOzonProductId(snapshot.productUrl);
+    if (!productId || !validateSalesSnapshot(snapshot).valid || ids.has(snapshot.snapshotId) || productUrls.has(productId) || !reviewMap.has(snapshot.snapshotId)) finalPricingError('FINAL_PRICING_SNAPSHOT_INVALID');
+    ids.add(snapshot.snapshotId);
+    productUrls.add(productId);
+    const review = reviewMap.get(snapshot.snapshotId), reasons = [];
+    for (const key of ['exactProduct', 'exactSpecification', 'sameMarket', 'currentlyForSale']) if (!review[key].value) reasons.push(key);
+    if (snapshot.platform !== target.platform || snapshot.marketScope !== target.market) reasons.push('market_mismatch');
+    if (snapshot.currency !== 'RUB' || !positiveNumber(snapshot.currentPrice)) reasons.push('price_unavailable');
+    if (snapshot.sellerType === 'local_ru') reasons.push('local_background');
+    if (!review.salesWindow) reasons.push('sales_window_missing');
+    else if (review.salesWindow.validityStatus !== 'current') reasons.push(`sales_window_${review.salesWindow.validityStatus}`);
+    if (Date.parse(snapshot.collectedAt) > Date.parse(assessedAt)) reasons.push('future_snapshot');
+    return { snapshotId: snapshot.snapshotId, eligible: reasons.length === 0, reasons,
+      priceRub: snapshot.currentPrice, sellerType: snapshot.sellerType, evidenceRef: snapshot.evidenceRef,
+      salesWindow: structuredClone(review.salesWindow), anomaly: structuredClone(review.anomaly) };
+  });
+  const eligible = samples.filter(sample => sample.eligible).sort((a, b) => b.salesWindow.count - a.salesWindow.count ||
+    sellerRank(a.sellerType) - sellerRank(b.sellerType) || a.snapshotId.localeCompare(b.snapshotId));
+  const windows = new Set(eligible.map(sample => `${sample.salesWindow.startDate}:${sample.salesWindow.endDate}`));
+  const issues = [];
+  if (windows.size > 1) issues.push('sales_window_mismatch');
+  const core = windows.size <= 1 ? eligible.slice(0, 3) : [];
+  const supplementary = core.some(sample => sample.anomaly !== null) ? eligible.slice(3, 5) : [];
+  const selected = [...core, ...supplementary];
+  if (selected.length < 2) issues.push('multiple_comparable_samples_required');
+  const prices = selected.map(sample => sample.priceRub);
+  return deepFreeze({ schemaVersion: 'final-market-pricing-assessment-v1', assessmentId, assessedAt,
+    target: structuredClone(target), status: issues.length ? 'pending' : 'ready', issues,
+    coreSampleIds: core.map(sample => sample.snapshotId), supplementarySampleIds: supplementary.map(sample => sample.snapshotId),
+    insufficientSamples: core.length < 3, comparableSampleCount: eligible.length,
+    priceBand: prices.length ? { currency: 'RUB', minimum: Math.min(...prices), maximum: Math.max(...prices) } : null,
+    selectedPriceRub, selectedPricePosition: prices.length ? selectedPriceRub < Math.min(...prices) ? 'below_band' : selectedPriceRub > Math.max(...prices) ? 'above_band' : 'within_band' : 'unknown',
+    samples });
 }

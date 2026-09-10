@@ -1,7 +1,92 @@
+import { isCompleteStoreRef, sameStoreRef, STORE_PLATFORMS } from "./store-binding.mjs";
+
 export const GLOBAL_PRICING_POLICY_VERSION = "ozon-wb-global-pricing-2026-08-21-v3-project-or-threshold-v1";
 export const GLOBAL_LABEL_FEE_PER_ORDER_CNY = 1.5;
 export const GLOBAL_DAMAGE_LOSS_RESERVE_RATE = 0.05;
 export const GLOBAL_WITHDRAWAL_FEE_RATE = 0.02;
+
+const COST_FIELDS = Object.freeze(["labelRmb", "fixedOtherRmb", "advertisingRate", "returnReserveRate", "damageReserveRate", "withdrawalFeeRate", "acquiringRate", "taxRate", "otherRate"]);
+function costError(code) { throw Object.assign(new Error(code), { code }); }
+function exactCostObject(value, fields) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) &&
+    Object.keys(value).length === fields.length && fields.every(key => Object.hasOwn(value, key));
+}
+function costRef(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= 500 && value.trim() === value &&
+    !/[\u0000-\u001f\u007f]/.test(value) && !["unknown", "null", "undefined"].includes(value.toLowerCase());
+}
+function costTime(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) &&
+    Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
+}
+function costScope(value) {
+  return value && STORE_PLATFORMS[value.store] === value.platform && isCompleteStoreRef(value.storeRef, value.store) &&
+    costRef(value.salesScheme) && value.salesScheme === value.salesScheme.toLowerCase();
+}
+function validResolvedCosts(value) {
+  return exactCostObject(value, [...COST_FIELDS, "policyId", "policyVersion"]) && costRef(value.policyId) && costRef(value.policyVersion) &&
+    COST_FIELDS.every(key => Number.isFinite(value[key]) && value[key] >= 0 && (!key.endsWith("Rate") || value[key] < 1));
+}
+
+/** Resolve only evidenced, applicable costs; no global values fill missing policy inputs. */
+export function resolveLifecycleBCostPolicy({ snapshot, context, asOf }) {
+  if (!exactCostObject(snapshot, ["schemaVersion", "policyId", "policyVersion", "scope", "effectiveFrom", "effectiveTo", "policyEvidenceRef", "items"]) ||
+      snapshot.schemaVersion !== "b-cost-policy-snapshot-v1" || !costRef(snapshot.policyId) || !costRef(snapshot.policyVersion) || !costRef(snapshot.policyEvidenceRef) ||
+      !exactCostObject(snapshot.scope, ["platform", "store", "storeRef", "salesScheme"]) || !costScope(snapshot.scope) ||
+      !exactCostObject(snapshot.items, COST_FIELDS)) costError("B_COST_POLICY_INVALID");
+  if (!costScope(context) || ["platform", "store", "salesScheme"].some(key => snapshot.scope[key] !== context[key]) ||
+      !sameStoreRef(snapshot.scope.storeRef, context.storeRef)) costError("B_COST_POLICY_SCOPE_MISMATCH");
+  if (!costTime(asOf) || [snapshot.effectiveFrom, snapshot.effectiveTo].some(value => value !== null && !costTime(value)) ||
+      (snapshot.effectiveFrom !== null && snapshot.effectiveTo !== null && Date.parse(snapshot.effectiveFrom) >= Date.parse(snapshot.effectiveTo))) costError("B_COST_POLICY_TIME_INVALID");
+  if (snapshot.effectiveFrom !== null && Date.parse(snapshot.effectiveFrom) > Date.parse(asOf)) costError("B_COST_POLICY_NOT_EFFECTIVE");
+  if (snapshot.effectiveTo !== null && Date.parse(snapshot.effectiveTo) <= Date.parse(asOf)) costError("B_COST_POLICY_EXPIRED");
+  const resolved = { policyId: snapshot.policyId, policyVersion: snapshot.policyVersion };
+  for (const key of COST_FIELDS) {
+    const item = snapshot.items[key];
+    const basis = key === "labelRmb" ? "per_order_cny" : key === "fixedOtherRmb" ? "per_unit_cny" : "target_price_cny_rate";
+    if (!exactCostObject(item, ["status", "value", "basis", "evidenceRef", "includedIn"]) || item.basis !== basis || !costRef(item.evidenceRef) ||
+        !["applicable", "not_applicable", "included_in_settlement", "unknown"].includes(item.status) ||
+        (item.includedIn !== null && !costRef(item.includedIn))) costError("B_COST_POLICY_ITEM_INVALID");
+    if (item.status === "included_in_settlement") costError("B_COST_POLICY_UNSUPPORTED_SETTLEMENT_BASIS");
+    if (item.includedIn !== null) costError("B_COST_POLICY_ITEM_INVALID");
+    if (item.status === "unknown") {
+      if (item.value !== null) costError("B_COST_POLICY_ITEM_INVALID");
+      costError("B_COST_POLICY_UNKNOWN");
+    }
+    if (item.status === "not_applicable") {
+      if (item.value !== null) costError("B_COST_POLICY_ITEM_INVALID");
+      resolved[key] = 0;
+    } else {
+      if (!Number.isFinite(item.value) || item.value < 0 || (key.endsWith("Rate") && item.value >= 1)) costError("B_COST_POLICY_ITEM_INVALID");
+      resolved[key] = item.value;
+    }
+  }
+  return Object.freeze(resolved);
+}
+
+export const B_COST_POLICY_TEMPLATE_VERSION = "b-cost-policy-template-v1";
+const TEMPLATE_FIELDS = Object.freeze(["schemaVersion", "policyId", "policyVersion", "salesSchemes", "effectiveFrom", "effectiveTo", "policyEvidenceRef", "items"]);
+
+/**
+ * Bind a store's owner-approved cost policy template to the current evidenced scope. The template carries the declared
+ * items, evidence and validity; the scope (platform, store identity, sales scheme) comes from the candidate's own evidence
+ * context and must be listed by the template. The returned snapshot is validated by resolveLifecycleBCostPolicy like any
+ * explicit snapshot; nothing is filled from global defaults.
+ */
+export function instantiateLifecycleBCostPolicySnapshot({ template, context }) {
+  if (!exactCostObject(template, TEMPLATE_FIELDS) || template.schemaVersion !== B_COST_POLICY_TEMPLATE_VERSION ||
+      !costRef(template.policyId) || !costRef(template.policyVersion) || !costRef(template.policyEvidenceRef) ||
+      !Array.isArray(template.salesSchemes) || template.salesSchemes.length === 0 || template.salesSchemes.length > 20 ||
+      template.salesSchemes.some(scheme => !costRef(scheme) || scheme !== scheme.toLowerCase()) ||
+      !exactCostObject(template.items, COST_FIELDS)) costError("B_COST_POLICY_INVALID");
+  if (!costScope(context) || !template.salesSchemes.includes(context.salesScheme)) costError("B_COST_POLICY_SCOPE_MISMATCH");
+  return {
+    schemaVersion: "b-cost-policy-snapshot-v1", policyId: template.policyId, policyVersion: template.policyVersion,
+    scope: { platform: context.platform, store: context.store, storeRef: structuredClone(context.storeRef), salesScheme: context.salesScheme },
+    effectiveFrom: template.effectiveFrom, effectiveTo: template.effectiveTo, policyEvidenceRef: template.policyEvidenceRef,
+    items: structuredClone(template.items)
+  };
+}
 
 function finiteNonNegative(value, label) {
   if (!Number.isFinite(value) || value < 0) throw new Error(`PRICING_INPUT_GAP: ${label}必须是非负数字`);
@@ -50,6 +135,7 @@ export function calculateProjectSourceMarketFit({
   priceIncrementCny,
   quantity = 1,
   marketSampleCount = 0,
+  resolvedCostPolicy,
 }) {
   positive(marketReferencePriceCny, "A阶段市场目标成交价");
   positive(quantity, "定价数量");
@@ -65,11 +151,15 @@ export function calculateProjectSourceMarketFit({
   const minimumProfit = finiteNonNegative(minimumUnitProfitCny, "最低单件利润");
   const increment = positive(priceIncrementCny, "售价步进");
 
+  if (resolvedCostPolicy !== undefined && (!validResolvedCosts(resolvedCostPolicy) ||
+      resolvedCostPolicy.fixedOtherRmb !== fixedOther || resolvedCostPolicy.advertisingRate !== advertising ||
+      resolvedCostPolicy.returnReserveRate !== returns)) costError("B_COST_POLICY_RESOLVED_CONFLICT");
+  const policy = resolvedCostPolicy;
   const fixedCosts = [
     { key: "purchase", amountCny: purchase, scope: "purchase", basis: "per_unit" },
     { key: "packaging", amountCny: packaging, scope: "packaging", basis: "per_unit" },
     { key: "international_logistics", amountCny: logistics, scope: "cross_border", basis: "per_order" },
-    { key: "label", amountCny: GLOBAL_LABEL_FEE_PER_ORDER_CNY, scope: "labeling", basis: "per_order" },
+    { key: "label", amountCny: policy ? policy.labelRmb : GLOBAL_LABEL_FEE_PER_ORDER_CNY, scope: "labeling", basis: "per_order" },
     { key: "fixed_other", amountCny: fixedOther, scope: "other_fixed", basis: "per_unit" },
   ];
   const orderFixedCostCny = fixedCosts.reduce((sum, item) =>
@@ -77,13 +167,13 @@ export function calculateProjectSourceMarketFit({
   const equivalentFixedCostPerUnitCny = orderFixedCostCny / quantity;
   const variableRates = {
     commission,
-    acquiring: 0,
-    tax: 0,
+    acquiring: policy ? policy.acquiringRate : 0,
+    tax: policy ? policy.taxRate : 0,
     advertising,
     returnOperations: returns,
-    damageLoss: GLOBAL_DAMAGE_LOSS_RESERVE_RATE,
-    withdrawalFee: GLOBAL_WITHDRAWAL_FEE_RATE,
-    other: 0,
+    damageLoss: policy ? policy.damageReserveRate : GLOBAL_DAMAGE_LOSS_RESERVE_RATE,
+    withdrawalFee: policy ? policy.withdrawalFeeRate : GLOBAL_WITHDRAWAL_FEE_RATE,
+    other: policy ? policy.otherRate : 0,
   };
   const totalVariableRate = Object.values(variableRates).reduce((sum, value) => sum + value, 0);
   const netRate = 1 - totalVariableRate;
@@ -110,7 +200,7 @@ export function calculateProjectSourceMarketFit({
         : "severe_market_conflict";
 
   return Object.freeze({
-    pricingPolicyVersion: GLOBAL_PRICING_POLICY_VERSION,
+    pricingPolicyVersion: policy ? policy.policyVersion : GLOBAL_PRICING_POLICY_VERSION,
     pricingMode: "source-market-fit",
     quantity,
     fixedCosts,
@@ -137,6 +227,8 @@ export function calculateProjectSourceMarketFit({
       comparableCountIsHardGate: false,
     },
     evaluatedAtMarketPrice: {
+      unroundedMarketReferencePriceCny: marketReferencePriceCny,
+      unroundedUnitProfitCny: evaluatedUnitProfitCny,
       unitProfitCny: roundMoney(evaluatedUnitProfitCny),
       profitMargin: roundRate(evaluatedProfitMargin),
       thresholdPassed,

@@ -273,7 +273,7 @@ export class CodexDispatcher {
       this.request("initialize", {
         clientInfo: {
           name: "selection-review-app",
-          title: "今日选品评审台",
+          title: "全店经营工作台",
           version: "1.0.0"
         },
         capabilities: { experimentalApi: true }
@@ -498,7 +498,7 @@ export class CodexDispatcher {
       ? dispatch.requiredSkills.map((skill) => skill.name).filter(Boolean)
       : requiredSkillsForDispatch(node, candidate, this.skillCatalog).map((skill) => skill.name);
     return [
-      "【今日选品评审台一次性派发】",
+      "【全店经营工作台一次性派发】",
       `派发编号：${dispatch.id}`,
       `节点：${node.id} ${node.title}`,
       `范围：${scopeText}`,

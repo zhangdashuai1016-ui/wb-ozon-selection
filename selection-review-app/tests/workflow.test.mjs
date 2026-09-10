@@ -9,12 +9,16 @@ import {
   profitReviewGate,
   codexAutoEliminationGate,
   businessDate,
+  buildCurrentExecutionRuntimeView,
   dailySummary,
   dispatchQueueSummary,
   recoverStaleProcessing,
   recentAvoidanceFeedback,
   purchaseCeilingSummary,
   processingStatusSummary,
+  currentProcessingStatusSummary,
+  currentMaintenanceActivity,
+  recordCurrentMaintenanceProgress,
   queueUserDispatch,
   claimEligible,
   requiredInputFields,
@@ -32,6 +36,124 @@ import {
   registerProcessingAttempt,
   stopNoProgressRuns
 } from "../lib/workflow.mjs";
+import { createSoftwareExecutionRuntime, openExceptionCase, authorizeExceptionMaintenance, recordExceptionMaintenanceStarted, waitForOwner } from "../lib/software-execution-state.mjs";
+import { createFormalC1C2Fixture } from "./fixtures/formal-c1-flow-fixture.mjs";
+import { localFinalAssets, ownerDecision, authorizedProductionFixture, historicalAuthorizedProductionFixture } from "./helpers/c2-software-fixture.mjs";
+import { prepareC2FinalUploadManifest, confirmC2SoftwareFinalUploads } from "../lib/c2-software-orchestrator.mjs";
+import { createFinalProductPlanConfirmationCard } from "../lib/final-product-plan-confirmation-card.mjs";
+
+function maintenanceFixture(workflowStatus = "codex_processing") {
+  const at = "2026-09-07T00:00:00.000Z";
+  const field = workflowStatus === "codex_processing" ? "processing" : "listingHandoff";
+  const runtime = createSoftwareExecutionRuntime({ candidateId: "SKU-1", dataRevision: 2, at });
+  const exception = openExceptionCase(runtime, { exceptionId: "exc-1", reasonCode: "system_failure", failureLayer: "local", evidenceRefs: ["test:local"], at });
+  const authorized = authorizeExceptionMaintenance(exception, { exceptionId: "exc-1", maintenanceAuthorizationId: "maintenance-1", at });
+  const candidate = {
+    id: "SKU-1", workflowStatus, dataRevision: 2,
+    [field]: { state: "running", runId: "turn-1", claimRevision: 2, currentStep: "maintenance started", startedAt: at, lastProgressAt: at, progressEvents: [] },
+    executionRuntime: recordExceptionMaintenanceStarted(authorized, { exceptionId: "exc-1", turnId: "turn-1", at })
+  };
+  const activeDispatch = { id: "D-1", candidateId: candidate.id, status: "running", dataRevision: 2, workflowStatusAtDispatch: workflowStatus,
+    runId: "turn-1", turnId: "turn-1", lastEventAt: at };
+  return { candidate, activeDispatch, field, at };
+}
+
+test("current processing projection does not adopt old running or queued state", () => {
+  const at = new Date("2026-09-07T00:01:00.000Z");
+  for (const state of ["queued", "running"]) {
+    const candidate = { dataRevision: 1, processing: { state, runId: "old-run", startedAt: "2026-09-07T00:00:00.000Z", lastProgressAt: "2026-09-07T00:00:00.000Z" } };
+    const before = structuredClone(candidate);
+    const view = currentProcessingStatusSummary(candidate, { at });
+    assert.equal(view.actualRunning, false);
+    assert.equal(view.key, "historical_unconfirmed");
+    assert.deepEqual(candidate, before);
+  }
+  const { candidate, activeDispatch } = maintenanceFixture();
+  assert.equal(currentProcessingStatusSummary(candidate, { activeDispatch, at }).actualRunning, true);
+  assert.equal(currentProcessingStatusSummary(candidate, { activeDispatch, at: new Date("2026-09-08T00:00:00.000Z") }).actualRunning, false);
+});
+
+test("maintenance activity uses the current phase and exact claim, run and substantive time", () => {
+  for (const phase of ["codex_processing", "listing_preparation", "ready_to_list"]) {
+    const fixture = maintenanceFixture(phase);
+    const { candidate, activeDispatch, field } = fixture;
+    const at = new Date("2026-09-07T00:01:00.000Z");
+    const otherField = field === "processing" ? "listingHandoff" : "processing";
+    candidate[otherField] = { state: "running", runId: "old-run", currentStep: "old unrelated step" };
+    assert.deepEqual(currentMaintenanceActivity(candidate, activeDispatch, at), { field, activity: candidate[field] });
+    const view = currentProcessingStatusSummary(candidate, { activeDispatch, at });
+    assert.equal(view.actualRunning, true);
+    assert.equal(view.currentStep, "maintenance started");
+    assert.equal(currentProcessingStatusSummary(candidate, { at }).actualRunning, false, "persisted identity alone does not prove admission");
+    assert.notEqual(currentMaintenanceActivity(candidate, activeDispatch, "2026-09-07T00:15:00.000Z"), null);
+    assert.equal(currentMaintenanceActivity(candidate, activeDispatch, "2026-09-07T00:15:00.001Z"), null);
+    const mutations = [
+      value => { delete value.candidate[field].claimRevision; },
+      value => { value.candidate[field].claimRevision = 1; },
+      value => { value.candidate[field].runId = "other-run"; },
+      value => { value.candidate[field].manualHold = true; },
+      value => { value.candidate[field].state = "claimed"; },
+      value => { value.candidate[field].currentStep = " "; },
+      value => { value.candidate[field].startedAt = "invalid"; },
+      value => { value.candidate[field].lastProgressAt = "invalid"; },
+      value => { value.candidate[field].lastProgressAt = "2026-09-06T23:59:59.999Z"; },
+      value => { value.candidate[field].lastProgressAt = "2026-09-07T00:01:00.001Z"; },
+      value => { delete value.candidate[field].lastProgressAt; },
+      value => { value.candidate.id = "other-candidate"; },
+      value => { value.candidate.dataRevision += 1; },
+      value => { value.activeDispatch.dataRevision = "2"; },
+      value => { value.activeDispatch.workflowStatusAtDispatch = "other-phase"; },
+      value => { delete value.activeDispatch.runId; },
+      value => { value.activeDispatch.turnId = "other-turn"; },
+      value => { value.activeDispatch.status = "completed"; },
+      value => { value.candidate.executionRuntime.candidateId = "other-candidate"; },
+      value => { value.candidate.executionRuntime.exceptionCase.candidateId = "other-candidate"; },
+      value => { value.candidate.executionRuntime.exceptionCase.turnId = "other-turn"; },
+      value => { value.candidate.executionRuntime.exceptionCase.maintenanceAuthorizationId = " "; },
+      value => { value.candidate.executionRuntime.exceptionCase.dispatchState = "queued"; },
+      value => { value.candidate.executionRuntime.exceptionCase.schemaVersion = "exception-case-v1"; },
+      value => { value.candidate.executionRuntime.exceptionCase.status = "resolved"; }
+    ];
+    for (const change of mutations) {
+      const invalid = structuredClone(fixture);
+      change(invalid);
+      assert.equal(currentMaintenanceActivity(invalid.candidate, invalid.activeDispatch, at), null);
+      assert.equal(currentProcessingStatusSummary(invalid.candidate, { activeDispatch: invalid.activeDispatch, at }).actualRunning, false);
+    }
+    const waitingPermission = { ...activeDispatch, status: "permission_required" };
+    const waiting = currentProcessingStatusSummary(candidate, { activeDispatch: waitingPermission, at });
+    assert.equal(waiting.key, "permission_required");
+    assert.equal(waiting.actualRunning, false);
+  }
+});
+
+test("maintenance progress records only the admitted run's real progress without mutating input", () => {
+  for (const phase of ["codex_processing", "listing_preparation", "ready_to_list"]) {
+    const { candidate, activeDispatch, field } = maintenanceFixture(phase);
+    const before = structuredClone(candidate);
+    const at = "2026-09-07T00:01:00.000Z";
+    const input = { dataRevision: 2, runId: "turn-1", progressType: "step_change", currentStep: "verified current fixture" };
+    const next = recordCurrentMaintenanceProgress(candidate, activeDispatch, input, at);
+    assert.equal(next.field, field);
+    assert.equal(next.activity.lastProgressAt, at);
+    assert.equal(next.activity.progressEvents.length, 1);
+    assert.equal(next.activity.progressEvents[0].currentStep, input.currentStep);
+    assert.deepEqual(candidate, before);
+    const progressed = { ...candidate, [field]: next.activity };
+    assert.throws(() => recordCurrentMaintenanceProgress(progressed, activeDispatch, input, at), /没有实质变化/);
+    const evidence = { ...input, progressType: "new_evidence", evidenceRef: "test:readback-1" };
+    const readback = recordCurrentMaintenanceProgress(progressed, activeDispatch, evidence, at);
+    assert.equal(readback.activity.progressEvents.length, 2);
+    assert.throws(() => recordCurrentMaintenanceProgress({ ...candidate, [field]: readback.activity }, activeDispatch, evidence, at), /相同证据已记录/);
+    assert.throws(() => recordCurrentMaintenanceProgress(candidate, activeDispatch, { ...input, dataRevision: 1 }, at), /MAINTENANCE_PROGRESS_REVISION_CONFLICT/);
+    assert.throws(() => recordCurrentMaintenanceProgress(candidate, activeDispatch, { ...input, runId: " turn-1 " }, at), /MAINTENANCE_PROGRESS_RUN_CONFLICT/);
+    assert.throws(() => recordCurrentMaintenanceProgress(candidate, null, input, at), /MAINTENANCE_ACTIVITY_NOT_CURRENT/);
+    assert.throws(() => recordCurrentMaintenanceProgress(candidate, { ...activeDispatch, status: "permission_required" }, input, at), /MAINTENANCE_ACTIVITY_NOT_CURRENT/);
+    assert.throws(() => recordCurrentMaintenanceProgress(candidate, activeDispatch, input, "2026-09-07T00:15:00.001Z"), /MAINTENANCE_ACTIVITY_NOT_CURRENT/);
+    assert.throws(() => recordCurrentMaintenanceProgress(candidate, activeDispatch, { ...evidence, evidenceRef: "" }, at), /必须提供证据引用/);
+    assert.deepEqual(candidate, before);
+  }
+});
 
 test("user activity clears stale blockers and requests immediate dispatch", () => {
   const processing = queueUserDispatch(
@@ -604,7 +726,7 @@ test("B profit gate allows an authorized commission estimate after A supplier co
   assert.equal(profitReviewGate(candidate, DEFAULT_RULES).passed, false);
 });
 
-test("daily target is ten B-profit-passed items across all three stores", () => {
+test("daily target remains ten and historical review labels cannot count as formal B profit", () => {
   const candidates = ["dandanshu", "miska", "wb"].map((targetStore, index) => passingCandidate({
     id: `B-${index}`,
     targetStore,
@@ -617,10 +739,113 @@ test("daily target is ten B-profit-passed items across all three stores", () => 
   }));
   const summary = dailySummary(candidates, DEFAULT_RULES, "2026-08-11");
   assert.equal(summary.combined.target, 10);
-  assert.equal(summary.combined.profitPassed, 3);
-  assert.equal(summary.combined.exactProfitPassed, 2);
-  assert.equal(summary.combined.estimatedProfitPassed, 1);
-  assert.equal(summary.combined.remaining, 7);
+  assert.equal(summary.combined.profitPassed, 0);
+  assert.equal(summary.combined.exactProfitPassed, 0);
+  assert.equal(summary.combined.estimatedProfitPassed, 0);
+  assert.equal(summary.combined.remaining, 10);
+});
+
+test("a current single-owner handoff replaces the C2 owner wait without fabricating D execution", () => {
+  const authorized = authorizedProductionFixture();
+  const sku = authorized.skuPackage;
+  const candidate = { id: authorized.candidateId, dataRevision: authorized.candidateRevision, targetPlatform: sku.targetPlatform,
+    targetStore: sku.targetStore, storeRef: structuredClone(sku.g1Identity.storeRef), lifecycleV11: { skuPackage: sku } };
+  const waiting = waitForOwner(createSoftwareExecutionRuntime({ candidateId: candidate.id,
+    dataRevision: authorized.candidateRevision - 1, at: authorized.createdAt }), {
+    stepId: "C2_OWNER_BUSINESS_CONFIRMATION", inputRevision: authorized.candidateRevision - 1, at: authorized.createdAt
+  });
+  for (const executionRuntime of [undefined, waiting]) {
+    const current = { ...candidate, executionRuntime };
+    const before = structuredClone(current);
+    const view = buildCurrentExecutionRuntimeView(current);
+    assert.equal(view.source, "production_authorization_handoff");
+    assert.equal(view.stepId, "D_TECHNICAL_ADMISSION");
+    assert.equal(view.status, "not_started");
+    assert.equal(view.executorType, "software");
+    assert.equal(view.inputRevision, candidate.dataRevision);
+    assert.equal(view.currentExecutionConfirmed, false);
+    assert.equal(view.codexWakeupCount, 0);
+    assert.deepEqual(current, before);
+    for (const change of [
+      value => { value.dataRevision += 1; },
+      value => { value.lifecycleV11.skuPackage.dHandoff = null; },
+      value => { value.lifecycleV11.skuPackage.productionAuthorization.executionBinding.warehouseId = "70002"; }
+    ]) {
+      const invalid = structuredClone(current); change(invalid);
+      assert.equal(buildCurrentExecutionRuntimeView(invalid).recordIssue, "production_authorization_handoff_invalid_or_stale");
+    }
+  }
+  const blocked = openExceptionCase(waiting, { exceptionId: "auth-projection-failure", reasonCode: "system_failure",
+    failureLayer: "d", evidenceRefs: ["test:authorization-failure"], at: authorized.createdAt });
+  assert.equal(buildCurrentExecutionRuntimeView({ ...candidate, executionRuntime: blocked }).status, "blocked");
+  const historical = historicalAuthorizedProductionFixture();
+  assert.notEqual(buildCurrentExecutionRuntimeView({ ...candidate, lifecycleV11: { skuPackage: historical.skuPackage } }).source,
+    "production_authorization_handoff");
+});
+
+test("daily summary reads an actual final card from formal B→C1→C2 local confirmation and rejects mismatched readiness", () => {
+  const fixture = createFormalC1C2Fixture({ candidateId: "candidate:summary-ready", supplierSkuId: "SHELF-SUMMARY",
+    variantKey: "规格:白色置物架", productName: "测试置物架", categoryPath: "Дом / Полки" });
+  const sourceSku = fixture.c2.skuPackage;
+  const manifest = prepareC2FinalUploadManifest({ skuPackage: sourceSku, expectedDataRevision: sourceSku.dataRevision,
+    finalUploadAssets: localFinalAssets(), preparedAt: fixture.at });
+  const confirmed = confirmC2SoftwareFinalUploads({ skuPackage: sourceSku, expectedDataRevision: sourceSku.dataRevision,
+    finalManifest: manifest, ownerDecision: ownerDecision(manifest), confirmedAt: fixture.at });
+  const final = createFinalProductPlanConfirmationCard({ skuPackage: confirmed.skuPackage, createdAt: fixture.at });
+  const candidate = { ...fixture.candidate, lifecycleV11: { ...fixture.candidate.lifecycleV11, skuPackage: final.skuPackage } };
+  const before = structuredClone(candidate);
+  const day = businessDate(fixture.at);
+  const summary = dailySummary([candidate], DEFAULT_RULES, day);
+  assert.deepEqual([summary.combined.exactProfitPassed, summary.combined.cCompleted, summary.combined.readyToList], [1, 1, 1]);
+  assert.deepEqual(candidate, before);
+  assert.equal(candidate.lifecycleV11.skuPackage.productionAuthorization, null);
+  assert.equal(candidate.lifecycleV11.skuPackage.productionRecord, null);
+  assert.equal(Object.hasOwn(final.confirmationCard, "inputSnapshot"), false);
+  assert.equal(Object.hasOwn(final.skuPackage.c2FinalAssets.productionAuthorizationPreparation.finalCardInputSnapshot, "profitModel"), false);
+  const currentView = buildCurrentExecutionRuntimeView(candidate);
+  assert.equal(currentView.status, "waiting_owner");
+  assert.equal(currentView.stepId, "C2_OWNER_BUSINESS_CONFIRMATION");
+  assert.equal(currentView.currentExecutionConfirmed, false);
+  assert.equal(currentView.inferenceReceiptId, null);
+  assert.deepEqual(candidate, before, "projection never writes a runtime or changes the confirmed card");
+  const invalidCard = structuredClone(candidate);
+  invalidCard.lifecycleV11.skuPackage.productionConfirmationCard.productInformation.sku.value.supplierSkuId = "wrong-sku";
+  assert.equal(buildCurrentExecutionRuntimeView(invalidCard).recordIssue, "final_confirmation_record_invalid_or_wrong_sku");
+  const existingRuntime = createSoftwareExecutionRuntime({ candidateId: candidate.id, dataRevision: candidate.dataRevision, at: fixture.at });
+  const blockedRuntime = openExceptionCase(existingRuntime, { exceptionId: "c2-error", reasonCode: "system_failure",
+    failureLayer: "c2", evidenceRefs: ["test:c2-failure"], at: fixture.at });
+  assert.equal(buildCurrentExecutionRuntimeView({ ...candidate, executionRuntime: blockedRuntime }).status, "blocked");
+  const unknownCard = structuredClone(candidate);
+  unknownCard.lifecycleV11.skuPackage.productionConfirmationCard.riskAndUnknowns.status = "owner_review_required";
+  unknownCard.lifecycleV11.skuPackage.productionConfirmationCard.riskAndUnknowns.materialRisks = ["category_restrictions_unknown"];
+  assert.equal(buildCurrentExecutionRuntimeView(unknownCard).status, "waiting_owner", "waiting for review is not production readiness");
+  assert.equal(dailySummary([unknownCard], DEFAULT_RULES, day).combined.readyToList, 0);
+  for (const change of [
+    sku => { delete sku.productionConfirmationCard; },
+    sku => { delete sku.productionConfirmationCard.profitResult; },
+    sku => { delete sku.productionConfirmationCard.profitResult.commissionMode; },
+    sku => { sku.productionConfirmationCard.profitResult.profitModelVersion = "profit-other"; },
+    sku => { sku.productionConfirmationCard.profitResult.unitProfitRmb.value += 1; },
+    sku => { sku.productionConfirmationCard.profitResult.recommendedSalePrice.value.cny += 1; },
+    sku => { sku.productionConfirmationCard.profitResult.profitMargin.sourceRefs = ["profit-other"]; },
+    sku => { sku.activeProfitModelVersion = "profit-other"; },
+    sku => { sku.profitModels.push(structuredClone(sku.profitModels[0])); },
+    sku => { sku.profitModels[0].commissionMode = "estimated"; },
+    sku => { sku.profitModels[0].result = "failed"; },
+    sku => { delete sku.c2FinalAssets.productionAuthorizationPreparation.finalCardInputSnapshot.activeProfitModel; },
+    sku => { sku.c2FinalAssets.productionAuthorizationPreparation.finalManifestSha256 = "f".repeat(64); },
+    sku => { sku.productionConfirmationCard.c2Assets.finalUploads.reverse(); },
+    sku => { sku.productionConfirmationCard.productInformation.sku.value.supplierSkuId = "another-sku"; },
+    sku => { sku.productionConfirmationCard.productInformation.targetPlatform.value.storeRef.mappingVersion = "another-mapping"; },
+    sku => { sku.g1Identity.storeRef.platformStoreId = "another-seller"; }
+  ]) {
+    const invalid = structuredClone(candidate);
+    change(invalid.lifecycleV11.skuPackage);
+    const invalidBefore = structuredClone(invalid);
+    const result = dailySummary([invalid], DEFAULT_RULES, day);
+    assert.equal(result.combined.readyToList, 0);
+    assert.deepEqual(invalid, invalidBefore);
+  }
 });
 
 test("powered products require current platform and route evidence instead of automatic elimination", () => {

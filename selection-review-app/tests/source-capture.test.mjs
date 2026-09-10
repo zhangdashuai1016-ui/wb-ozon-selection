@@ -15,6 +15,7 @@ import {
 } from "../extension/1688-capture/source-routing.js";
 import {
   normalize1688CaptureSource,
+  extract1688OfferId,
   resolveCapturedSku,
   resolveCapturedSkus,
   sanitize1688Evidence,
@@ -23,17 +24,19 @@ import {
   sourceCaptureFailureDestinationLabel
 } from "../lib/source-capture.mjs";
 import { toggleLocalSupplierSkuSelection } from "../src/aSupplierCaptureSelection.js";
+import { harness, idle, message, startCapture, supplierJob, SUPPLIER_URL, PING, START } from "./helpers/extension-runtime-fixture.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-function fakeDocument() {
+function fakeDocument(json = null) {
   return {
     title: "机械发条木质火车",
     body: { innerText: "商品详情" },
     querySelector(selector) {
       return selector === "h1" ? { textContent: "机械发条木质火车" } : null;
     },
-    querySelectorAll() {
+    querySelectorAll(selector) {
+      if (selector === 'script[type="application/json"]' && json) return [{ textContent: JSON.stringify(json) }];
       return [];
     }
   };
@@ -43,7 +46,7 @@ test("1688 collector keeps direct SKU prices and leaves missing stock or price n
   const previousWindow = globalThis.window;
   const previousDocument = globalThis.document;
   globalThis.window = {
-    location: { pathname: "/offer/712421624571.html" },
+    location: { href: "https://detail.1688.com/offer/712421624571.html", pathname: "/offer/712421624571.html" },
     context: {
       result: {
         global: {
@@ -72,7 +75,8 @@ test("1688 collector keeps direct SKU prices and leaves missing stock or price n
       }
     }
   };
-  globalThis.document = fakeDocument();
+  globalThis.document = fakeDocument(globalThis.window.context);
+  delete globalThis.window.context;
   try {
     const result = await collect1688Page("712421624571");
     assert.equal(result.status, "captured");
@@ -136,6 +140,94 @@ test("A supplier routing accepts only exact detail links or the narrow qr short-
     "712421624571"
   ), null);
   assert.equal(normalize1688CaptureSource("https://qr.1688.com/other/7OnLCakq").type, "invalid");
+});
+
+test("offer identity rejects untrusted URL text and recognizes mobile only for capture-required gates", () => {
+  for (const url of ["evil.example.com/offer/712421624571.html", "/offer/712421624571.html", "https://evil.example.com/offer/712421624571.html", "https://detail.1688.com.evil.test/offer/712421624571.html", "http://detail.1688.com/offer/712421624571.html", "https://user:pass@detail.1688.com/offer/712421624571.html", "https://detail.1688.com:8080/offer/712421624571.html"]) {
+    assert.equal(extract1688OfferId(url), "", url);
+    assert.equal(normalize1688CaptureSource(url).type, "invalid", url);
+  }
+  assert.equal(extract1688OfferId("https://m.1688.com/offer/123.html"), "123");
+  assert.equal(normalize1688CaptureSource("https://m.1688.com/offer/123.html").type, "invalid");
+});
+
+function syntheticCapture(overrides = {}) {
+  return { offerId: "712421624571", sourceUrl: "https://detail.1688.com/offer/712421624571.html", observedAt: "2026-09-03T00:00:00.000Z", title: "Synthetic product", skus: [{ sourceSkuId: "sku-five", attributes: { size: "5cm" }, priceCny: 20, priceSource: "fixture.price", stock: 1000, stockSource: "fixture.stock" }], ...overrides };
+}
+
+test("capture sanitizer never converts a fabricated offer or URL into an authoritative detail URL", () => {
+  for (const sourceUrl of [undefined, "evil.test/offer/712421624571.html", "https://evil.test/offer/712421624571.html", "https://m.1688.com/offer/712421624571.html", "https://detail.1688.com/offer/123.html"])
+    assert.throws(() => sanitize1688Evidence(syntheticCapture({ sourceUrl }), "712421624571"), /wrong_offer/);
+  for (const offerId of ["123?x", " 712421624571", {}, 712421624571])
+    assert.throws(() => sanitize1688Evidence(syntheticCapture({ offerId }), offerId), /wrong_offer/);
+});
+
+test("capture prices require exact scalar decimals, stock requires nonnegative integer", () => {
+  for (const value of [true, false, [], [1], {}, "1,234.56", "12.50-15.00", "库存1000件", "1e3", "9007199254740993", Number.MAX_SAFE_INTEGER + 1, Infinity, NaN]) {
+    const evidence = syntheticCapture();
+    evidence.skus[0].priceCny = value;
+    evidence.skus[0].stock = value;
+    const sanitized = sanitize1688Evidence(evidence, evidence.offerId);
+    assert.equal(sanitized.skus[0].priceCny, null);
+    assert.equal(sanitized.skus[0].stock, null);
+    assert.equal(resolveCapturedSku({}, sanitized, "sku-five").status, "exact_price_unavailable");
+  }
+  const evidence = syntheticCapture();
+  evidence.skus[0].stock = 1.5;
+  assert.equal(sanitize1688Evidence(evidence, evidence.offerId).skus[0].stock, null);
+});
+
+test("automatic SKU matching retains ambiguity across different supplier SKUs", () => {
+  const exact = { sourceSkuId: "exact", attributes: { size: "5cm" }, priceCny: 20 };
+  for (const size of ["5–15cm", "5-15cm", "5~15cm", "5到15cm"]) {
+    const range = { sourceSkuId: "range", attributes: { size }, priceCny: 10 };
+    for (const skus of [[exact, range], [range, exact]]) {
+      const evidence = { skus };
+      const before = structuredClone(evidence);
+      const result = resolveCapturedSku({ productName: "5cm" }, evidence);
+      assert.equal(result.status, "needs_selection", `must retain ${size} in either SKU order`);
+      assert.equal(result.selected, undefined, "不得因过滤歧义SKU而自动选中另一条");
+      assert.deepEqual(result.choices, skus, "所有SKU仍作为人工选择证据保留");
+      assert.deepEqual(evidence, before);
+    }
+  }
+});
+
+test("unambiguous other SKUs do not block exact matching and explicit selection stays explicit", () => {
+  const exact = { sourceSkuId: "exact", attributes: { size: "5cm" }, priceCny: 20 };
+  const other = { sourceSkuId: "other", attributes: { size: "15cm" }, priceCny: 30 };
+  assert.equal(resolveCapturedSku({ productName: "5cm" }, { skus: [exact, other] }).selected.sourceSkuId, "exact");
+  const evidence = { skus: [exact, { ...other, attributes: { size: "5–15cm" } }] };
+  const explicit = resolveCapturedSku({ productName: "5cm" }, evidence, "exact");
+  assert.equal(explicit.status, "matched");
+  assert.equal(explicit.selected.sourceSkuId, "exact");
+  assert.deepEqual(explicit.matchTerms, [], "显式选择不能被称为自动规格推断");
+});
+
+test("SKU quantity/unit matching cannot select a substring specification or mine IDs", () => {
+  for (const [wanted, actual] of [["5cm", "15cm"], ["20片", "320片"], ["5cm", "5mm"], ["0.5kg", "10.5kg"], ["5cm", "5cmm"], ["5cm", "-5cm"], ["15cm", "10-15cm"], ["15cm", "5×15cm"], ["5cm", "1e5cm"], ["15cm", "10到15cm"], ["5cm", "x-5cm"], ["5cm", "1,5cm"]]) {
+    const evidence = { skus: [{ sourceSkuId: `contains-${wanted}`, propPath: wanted, attributes: { size: actual }, priceCny: 20 }] };
+    assert.equal(resolveCapturedSku({ productName: `商品${wanted}` }, evidence).status, "needs_selection", `${wanted}/${actual}`);
+  }
+  const exact = { skus: [{ sourceSkuId: "a", attributes: { size: "5 cm", quantity: "20片" }, priceCny: 20 }] };
+  assert.equal(resolveCapturedSku({ productName: "5cm商品20片" }, exact).status, "matched");
+  const ambiguous = { skus: [...exact.skus, { ...exact.skus[0], sourceSkuId: "b" }] };
+  assert.equal(resolveCapturedSku({ productName: "5cm商品20片" }, ambiguous).status, "needs_selection");
+  assert.equal(resolveCapturedSku({ productName: "5cm商品20片", codexReview: { sourceSku: { variant: "5-15cm" } } }, exact).status, "needs_selection", "ambiguous source cannot disappear behind another candidate field");
+  assert.equal(resolveCapturedSku({ productName: "5cm商品20片" }, { skus: [{ ...exact.skus[0], attributes: { size: "5cm", quantity: "20片", alternatives: "10-15cm" } }] }).status, "needs_selection", "ambiguous SKU field cannot disappear behind an exact one");
+});
+
+test("supplier image evidence cannot retain untrusted hosts, credentials or secret query strings", () => {
+  for (const imageUrl of ["https://user:pass@evil.invalid/a.jpg?token=SYNTHETIC_ONLY", "https://cbu01.alicdn.com.evil.invalid/a.jpg", "https://user:pass@cbu01.alicdn.com/a.jpg"]) {
+    const raw = syntheticCapture();
+    raw.skus[0].imageUrl = imageUrl;
+    const result = sanitize1688Evidence(raw, raw.offerId);
+    assert.equal(result.skus[0].imageUrl, null);
+    assert.doesNotMatch(JSON.stringify(result), /SYNTHETIC_ONLY|user:pass/);
+  }
+  const raw = syntheticCapture();
+  raw.skus[0].imageUrl = "https://cbu01.alicdn.com/a.jpg?token=SYNTHETIC_ONLY";
+  assert.equal(sanitize1688Evidence(raw, raw.offerId).skus[0].imageUrl, "https://cbu01.alicdn.com/a.jpg");
 });
 
 test("short-link navigation failures become fixed enums without leaking URLs, queries or tokens", () => {
@@ -286,9 +378,9 @@ test("A confirmation card supplier multi-selection is local, defaults empty, and
   assert.deepEqual(toggleLocalSupplierSkuSelection(["sku-a"], "sku-b", true), ["sku-a", "sku-b"]);
   assert.deepEqual(toggleLocalSupplierSkuSelection(["sku-a", "sku-b"], "sku-a", false), ["sku-b"]);
   const component = await readFile(path.join(appDir, "src", "components", "RealAConfirmationCard.jsx"), "utf8");
-  assert.match(component, /useState\(\[\]\)/);
-  assert.match(component, /setLocalSelectedSkuIds\(\[\]\)/);
-  assert.match(component, /card\.sourceCandidateId, card\.sourceDataRevision, card\.supplierCapture\?\.captureId/);
+  assert.match(component, /useCandidateForm\(record, \{ form: initial, localSelectedSkuIds: \[\] \}\)/);
+  assert.match(component, /id: card\.sourceCandidateId, dataRevision: card\.sourceDataRevision/);
+  assert.match(component, /guard\.assertCurrent\(\)/);
   assert.match(component, /type="checkbox"/);
   assert.match(component, /toggleLocalSupplierSkuSelection/);
   assert.match(component, /不会调用接口、保存选择、确认供应方案或进入B\/C1/);
@@ -298,7 +390,7 @@ test("A confirmation card supplier multi-selection is local, defaults empty, and
 test("1688 collector rejects a different offer before returning SKU evidence", async () => {
   const previousWindow = globalThis.window;
   const previousDocument = globalThis.document;
-  globalThis.window = { location: { pathname: "/offer/999.html" }, context: null, __INIT_DATA: null };
+  globalThis.window = { location: { href: "https://detail.1688.com/offer/999.html", pathname: "/offer/999.html" } };
   globalThis.document = fakeDocument();
   try {
     const result = await collect1688Page("712421624571");
@@ -314,7 +406,7 @@ test("1688 collector accepts a real top-level SKU ID on a single-specification o
   const previousWindow = globalThis.window;
   const previousDocument = globalThis.document;
   globalThis.window = {
-    location: { pathname: "/offer/728389288187.html" },
+    location: { href: "https://detail.1688.com/offer/728389288187.html", pathname: "/offer/728389288187.html" },
     context: {
       result: {
         global: {
@@ -333,7 +425,8 @@ test("1688 collector accepts a real top-level SKU ID on a single-specification o
       }
     }
   };
-  globalThis.document = fakeDocument();
+  globalThis.document = fakeDocument(globalThis.window.context);
+  delete globalThis.window.context;
   try {
     const result = await collect1688Page("728389288187");
     assert.equal(result.status, "captured");
@@ -351,7 +444,11 @@ test("1688 collector accepts a real top-level SKU ID on a single-specification o
 test("extension manifest stays limited to the 1688 short-link/detail allowlist, Ozon product pages and the local review app", async () => {
   const manifest = JSON.parse(await readFile(path.join(appDir, "extension", "1688-capture", "manifest.json"), "utf8"));
   assert.equal(manifest.version, "1.2.7");
-  assert.deepEqual(manifest.permissions.sort(), ["alarms", "scripting", "storage", "tabs"]);
+  assert.equal(manifest.name, "全店经营工作台 · 商品只读采集器");
+  assert.equal(manifest.action.default_title, "全店经营工作台 · 商品只读采集器");
+  assert.match(manifest.description, /本机全店经营工作台/);
+  assert.deepEqual(manifest.permissions.sort(), ["alarms", "scripting"]);
+  assert.equal(manifest.minimum_chrome_version, "120");
   assert.deepEqual(manifest.host_permissions.sort(), [
     "http://127.0.0.1:4317/*",
     "https://detail.1688.com/offer/*",
@@ -362,40 +459,75 @@ test("extension manifest stays limited to the 1688 short-link/detail allowlist, 
 });
 
 test("extension background resolves an A-stage short link once and never auto-selects a supplier SKU", async () => {
-  const background = await readFile(path.join(appDir, "extension", "1688-capture", "background.js"), "utf8");
-  const request = await readFile(path.join(appDir, "extension", "1688-capture", "capture-request.js"), "utf8");
-  assert.match(request, /payload\.mode !== SUPPLIER_CAPTURE_MODE/);
-  assert.match(request, /payload\.allowShortLinkResolution !== true/);
-  assert.match(background, /const matching = source\.type === "detail"[\s\S]*?: null/);
-  assert.match(background, /chrome\.tabs\.create\(\{ url: source\.sourceUrl, active: true \}\)/);
-  assert.match(background, /resolvedSourceUrl: resolved\.sourceUrl/);
-  assert.match(background, /classify1688NavigationOutcome/);
-  assert.match(background, /shouldWaitFor1688Destination/);
-  assert.match(background, /failureDiagnostics: error\.failureDiagnostics/);
-  assert.doesNotMatch(background, /finalUrl\s*:/);
-  assert.doesNotMatch(background, /selectedSkuIds\s*=/);
+  const job = supplierJob({ sourceUrl: "https://qr.1688.com/s/fixture", expectedOfferId: "", allowShortLinkResolution: true });
+  const h = harness({ job, destination: SUPPLIER_URL });
+  const receipt = await startCapture(h.runtime, job.captureId);
+  assert.equal(receipt.accepted, true);
+  await idle(h.runtime);
+  assert.deepEqual(h.calls.created, [{ url: job.sourceUrl, active: false }]);
+  assert.equal(h.calls.executions[0].world, "ISOLATED");
+  const result = h.calls.requests[1].body;
+  assert.equal(result.resolvedSourceUrl, SUPPLIER_URL);
+  assert.equal(result.evidence.offerId, "876240928352");
+  for (const key of ["selectedSkuIds", "ownerSupplyConfirmed", "finalUrl"]) assert.equal(Object.hasOwn(result, key), false);
+  assert.deepEqual(h.calls.removed, [7]);
 });
 
 test("page bridge and extension background preserve precise capture rejection codes", async () => {
-  const bridge = await readFile(path.join(appDir, "extension", "1688-capture", "bridge.js"), "utf8");
-  const background = await readFile(path.join(appDir, "extension", "1688-capture", "background.js"), "utf8");
-  assert.match(bridge, /SELECTION_REVIEW_1688_CAPTURE_REQUEST/);
-  assert.match(bridge, /response\?\.code/);
-  assert.match(background, /validateSupplierCaptureRequest/);
-  assert.match(background, /captureRequestErrorMessage/);
-  assert.match(background, /body\?\.captureJob/);
-  assert.match(background, /void runCapture\(payload\)/);
+  const h = harness({ heartbeat: async () => ({ ok: false, status: 403 }) });
+  assert.equal(message(h.runtime, { type: START, payload: supplierJob() }).response.code, "start_signal_invalid");
+  assert.equal(message(h.runtime, { type: START, captureId: "job-1" }, { url: "https://evil.test/" }).response.code, "request_origin_invalid");
+  assert.equal(h.calls.requests.length, 0);
+  const status = await h.runtime.heartbeat();
+  assert.equal(status.accepted, false);
+  assert.equal(status.code, "extension_identity_rejected");
+  assert.equal(h.calls.created.length, 0);
 });
 
 test("extension status handshake verifies the background worker instead of only the page bridge", async () => {
-  const bridge = await readFile(path.join(appDir, "extension", "1688-capture", "bridge.js"), "utf8");
-  const background = await readFile(path.join(appDir, "extension", "1688-capture", "background.js"), "utf8");
-  assert.match(bridge, /SELECTION_REVIEW_EXTENSION_BACKGROUND_PING/);
-  assert.match(bridge, /backgroundReady/);
-  assert.match(background, /SELECTION_REVIEW_EXTENSION_BACKGROUND_PING/);
-  assert.match(background, /sendResponse\(\{ accepted: true, version:/);
-  assert.match(background, /\/api\/extension\/heartbeat/);
-  assert.match(background, /selection-review-extension-heartbeat/);
-  assert.match(background, /periodInMinutes: 0\.5/);
-  assert.match(bridge, /setInterval\(\(\) => void publishStatus\(\), 10000\)/);
+  const h = harness();
+  assert.equal(message(h.runtime, { type: PING }).response.accepted, false);
+  assert.equal(h.calls.requests.length, 0);
+  await h.runtime.heartbeat();
+  assert.equal(message(h.runtime, { type: PING }).response.accepted, true);
+  assert.equal(h.calls.requests.length, 1, "status ping must not claim or call transport");
+  assert.equal(h.calls.created.length, 0);
+  assert.equal(h.calls.executions.length, 0);
+});
+
+test("startup, alarms and heartbeat never execute returned historical jobs", async () => {
+  const h = harness({ job: supplierJob() });
+  h.runtime.install();
+  h.chromeApi.runtime.onStartup.emit();
+  await h.runtime.heartbeat();
+  h.chromeApi.alarms.onAlarm.emit({ name: "selection-review-extension-heartbeat" });
+  await h.runtime.heartbeat();
+  assert.equal(message(h.runtime, { type: PING }).response.accepted, true);
+  assert.equal(h.calls.created.length, 0);
+  assert.equal(h.calls.executions.length, 0);
+  assert.ok(h.calls.requests.every((request) => request.url.endsWith("/heartbeat")));
+});
+
+test("explicit capture claims only the requested ID and rejects mismatched or repeated jobs", async () => {
+  const mismatch = harness({ job: supplierJob({ captureId: "different-job" }) });
+  assert.equal((await startCapture(mismatch.runtime, "job-1")).code, "capture_job_invalid");
+  assert.equal(mismatch.calls.created.length, 0);
+  assert.match(mismatch.calls.requests[0].url, /capture-jobs\/job-1\/claim$/);
+  assert.deepEqual(mismatch.calls.requests[0].body, { version: "1.2.7" });
+  assert.equal((await startCapture(mismatch.runtime, "job-1")).code, "capture_replay_rejected");
+  assert.equal(mismatch.calls.requests.length, 1);
+
+  const valid = harness({ job: supplierJob() });
+  assert.equal((await startCapture(valid.runtime, "job-1")).accepted, true);
+  await idle(valid.runtime);
+  assert.equal((await startCapture(valid.runtime, "job-1")).code, "capture_replay_rejected");
+  assert.equal(valid.calls.created.length, 1);
+});
+
+test("uncertain claim transport cannot be repeated by a second page signal", async () => {
+  const h = harness({ claim: async () => { throw new Error("connection interrupted"); } });
+  assert.equal((await startCapture(h.runtime, "job-1")).code, "capture_claim_unconfirmed");
+  assert.equal((await startCapture(h.runtime, "job-1")).code, "capture_replay_rejected");
+  assert.equal(h.calls.requests.length, 1);
+  assert.equal(h.calls.created.length, 0);
 });

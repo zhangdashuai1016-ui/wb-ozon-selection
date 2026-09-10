@@ -1,26 +1,16 @@
-import { createHash } from "node:crypto";
-import {
-  assertValidProductionAuthorization,
-  readAuthorizedProductionSnapshot
-} from "./production-authorization.mjs";
-import {
-  createOzonProductionStrategy,
-  validateOzonProductionStrategy
-} from "./ozon-production-strategy.mjs";
+import { isDeepStrictEqual } from "node:util";
+import { assertValidProductionAuthorization, assertCurrentProductionAuthorization, validateProductionAuthorization, readAuthorizedProductionSnapshot } from "./production-authorization.mjs";
+import { fingerprintCanonicalRecord } from "./production-contract-primitives.mjs";
+import { createOzonProductionStrategy } from "./ozon-production-strategy.mjs";
 
 export const PRODUCTION_PLAN_VERSION = "production-plan-v1.1";
-
-function isObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function nonEmptyString(value) {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function isoDateTime(value) {
-  return nonEmptyString(value) && !Number.isNaN(Date.parse(value));
-}
+const PLAN_FIELDS = Object.freeze([
+  "schemaVersion", "planId", "mode", "status", "createdAt", "sourceAuthorization", "sourceReadPolicy", "sourceDataAccess",
+  "productResearchPerformed", "platformWrites", "productCreated", "assetsUploaded", "readbackPerformed"
+]);
+const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
+const nonEmpty = value => typeof value === "string" && value.trim().length > 0;
+const iso = value => nonEmpty(value) && !Number.isNaN(Date.parse(value));
 
 function deepFreeze(value) {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
@@ -29,156 +19,154 @@ function deepFreeze(value) {
   return value;
 }
 
-function push(errors, path, message) {
-  errors.push({ path, message });
+export function fingerprintProductionAuthorization(authorization) {
+  assertValidProductionAuthorization(authorization);
+  return fingerprintCanonicalRecord(authorization);
 }
 
-function canonicalize(value) {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (!isObject(value)) return value;
-  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]));
+export function fingerprintProductionPlan(plan) {
+  assertValidProductionPlan(plan);
+  return fingerprintCanonicalRecord(plan);
 }
 
-export function fingerprintProductionAuthorization(productionAuthorization) {
-  assertValidProductionAuthorization(productionAuthorization);
-  return createHash("sha256")
-    .update(JSON.stringify(canonicalize(productionAuthorization)))
-    .digest("hex");
-}
-
-export function fingerprintProductionPlan(productionPlan) {
-  assertValidProductionPlan(productionPlan);
-  return createHash("sha256")
-    .update(JSON.stringify(canonicalize(productionPlan)))
-    .digest("hex");
+function planId(authorization) {
+  return `production-plan:${authorization.authorizationId}:${fingerprintProductionAuthorization(authorization).slice(0, 12)}`;
 }
 
 export function validateProductionPlan(plan) {
   const errors = [];
+  const push = (path, message) => errors.push({ path, message });
   if (!isObject(plan)) return { valid: false, errors: [{ path: "$", message: "必须是对象" }] };
-  if (plan.schemaVersion !== PRODUCTION_PLAN_VERSION) push(errors, "schemaVersion", `必须是${PRODUCTION_PLAN_VERSION}`);
-  if (!nonEmptyString(plan.planId)) push(errors, "planId", "必须是非空字符串");
-  if (plan.mode !== "simulation") push(errors, "mode", "第13A阶段只能是simulation");
-  if (plan.status !== "prepared") push(errors, "status", "必须是prepared");
-  if (!isoDateTime(plan.createdAt)) push(errors, "createdAt", "必须是有效时间");
-  for (const field of [
-    "sourceAuthorizationId", "sourceAuthorizationFingerprint", "platform", "store",
-    "skuPackageId", "titleVersion", "attributeVersion", "assetsFinalUploadsVersion", "publishScope"
-  ]) {
-    if (!nonEmptyString(plan[field])) push(errors, field, "必须是非空字符串");
+  if (Object.keys(plan).length !== PLAN_FIELDS.length || PLAN_FIELDS.some(field => !Object.hasOwn(plan, field))) {
+    push("$", "必须使用完整sourceAuthorization合同，禁止旧平铺镜像或未声明字段");
   }
-  if (!Number.isInteger(plan.sourceAuthorizationRevision) || plan.sourceAuthorizationRevision < 0) {
-    push(errors, "sourceAuthorizationRevision", "必须锁定非负授权修订号");
+  const constants = {
+    schemaVersion: PRODUCTION_PLAN_VERSION, mode: "simulation", status: "prepared",
+    sourceReadPolicy: "authorization_snapshot_only", sourceDataAccess: "production_authorization_only",
+    productResearchPerformed: false, platformWrites: 0, productCreated: false, assetsUploaded: 0, readbackPerformed: false
+  };
+  for (const [field, value] of Object.entries(constants)) if (plan[field] !== value) push(field, "与计划合同不一致");
+  if (!iso(plan.createdAt)) push("createdAt", "必须是有效时间");
+  const authorization = validateProductionAuthorization(plan.sourceAuthorization);
+  if (!authorization.valid) {
+    for (const error of authorization.errors) push(`sourceAuthorization.${error.path}`, error.message);
+  } else {
+    if (plan.planId !== planId(plan.sourceAuthorization)) push("planId", "必须绑定完整正式授权");
+    if (Date.parse(plan.createdAt) < Date.parse(plan.sourceAuthorization.authorizedAt)) push("createdAt", "不能早于正式授权");
   }
-  if (!isObject(plan.sku) || !nonEmptyString(plan.sku.supplierSkuId) || !nonEmptyString(plan.sku.variantKey)) {
-    push(errors, "sku", "必须锁定供应SKU和变体");
-  }
-  if (!nonEmptyString(plan.title)) push(errors, "title", "必须锁定标题正文");
-  if (!isObject(plan.attributes)) push(errors, "attributes", "必须锁定属性值");
-  if (!isObject(plan.platformCategory)) push(errors, "platformCategory", "必须锁定平台类目");
-  for (const field of ["buyerTargetPrice", "platformWritePrice"]) {
-    if (!isObject(plan[field]) || !Number.isFinite(plan[field].amount) || plan[field].amount <= 0 || !nonEmptyString(plan[field].currency)) {
-      push(errors, field, "必须锁定金额和币种");
-    }
-  }
-  if (!isObject(plan.priceConversion) || !Number.isFinite(plan.priceConversion.rubPerCny) || plan.priceConversion.rubPerCny <= 0 || !nonEmptyString(plan.priceConversion.evidenceRef)) {
-    push(errors, "priceConversion", "必须锁定价格换算证据");
-  }
-  if (String(plan.platform).toLowerCase() === "ozon" && (plan.buyerTargetPrice?.currency !== "RUB" || plan.platformWritePrice?.currency !== "CNY")) {
-    push(errors, "platformWritePrice", "Ozon中国卖家计划必须将RUB买家价与CNY后台写入价分开");
-  }
-  const strategyValidation = validateOzonProductionStrategy(plan.executionStrategy);
-  if (!strategyValidation.valid) push(errors, "executionStrategy", strategyValidation.errors.join("；"));
-  if (plan.stock !== 100) push(errors, "stock", "新品库存必须为100");
-  if (!Array.isArray(plan.finalUploads) || plan.finalUploads.length === 0) push(errors, "finalUploads", "必须锁定最终素材清单");
-  if (!Array.isArray(plan.exclusions)) push(errors, "exclusions", "必须继承授权排除项");
-  if (!Array.isArray(plan.allowedWriteFields) || plan.allowedWriteFields.length === 0) push(errors, "allowedWriteFields", "必须继承授权字段范围");
-  if (plan.sourceReadPolicy !== "authorization_snapshot_only") push(errors, "sourceReadPolicy", "只能读取授权快照");
-  if (plan.sourceDataAccess !== "production_authorization_only") push(errors, "sourceDataAccess", "不得读取A/B/C原始数据");
-  if (plan.productResearchPerformed !== false) push(errors, "productResearchPerformed", "不得重新寻找商品信息");
-  if (plan.platformWrites !== 0) push(errors, "platformWrites", "第13A阶段不得平台写入");
-  if (plan.productCreated !== false) push(errors, "productCreated", "第13A阶段不得创建商品");
-  if (plan.assetsUploaded !== 0) push(errors, "assetsUploaded", "第13A阶段不得上传素材");
-  if (plan.readbackPerformed !== false) push(errors, "readbackPerformed", "第13A阶段不得执行E回读");
   return { valid: errors.length === 0, errors };
 }
 
 export function assertValidProductionPlan(plan) {
   const result = validateProductionPlan(plan);
-  if (!result.valid) throw new Error(`ProductionPlan校验失败：${result.errors.map((item) => `${item.path}: ${item.message}`).join("；")}`);
+  if (!result.valid) throw new Error(`ProductionPlan校验失败：${result.errors.map(item => `${item.path}: ${item.message}`).join("；")}`);
   return plan;
 }
 
-/**
- * 第13A阶段只生成D执行模拟计划。所有业务字段仅来自ProductionAuthorization锁定快照。
- */
-export function createProductionPlan({ productionAuthorization, createdAt }) {
-  assertValidProductionAuthorization(productionAuthorization);
-  if (!isoDateTime(createdAt)) throw new Error("PRODUCTION_PLAN_INPUT_GAP: 创建时间无效");
-  const snapshot = readAuthorizedProductionSnapshot(productionAuthorization);
-  const scope = snapshot.lockedScope;
-  const authorizationFingerprint = fingerprintProductionAuthorization(productionAuthorization);
-  const plan = {
-    schemaVersion: PRODUCTION_PLAN_VERSION,
-    planId: `production-plan:${snapshot.authorizationId}:${authorizationFingerprint.slice(0, 12)}`,
-    mode: "simulation",
-    status: "prepared",
-    createdAt,
-    sourceAuthorizationId: snapshot.authorizationId,
-    sourceAuthorizationRevision: snapshot.authorizedDataRevision,
-    sourceAuthorizationFingerprint: authorizationFingerprint,
-    platform: scope.platform,
-    store: scope.store,
-    skuPackageId: scope.skuPackageId,
-    sku: {
-      supplierSkuId: scope.supplierSkuId,
-      variantKey: scope.variantKey
-    },
-    titleVersion: scope.titleVersion,
-    title: scope.title,
-    attributeVersion: scope.attributeVersion,
-    attributes: structuredClone(scope.attributes),
-    platformCategory: structuredClone(scope.platformCategory),
-    buyerTargetPrice: structuredClone(scope.buyerTargetPrice),
-    platformWritePrice: structuredClone(scope.platformWritePrice),
-    priceConversion: structuredClone(scope.priceConversion),
-    stock: scope.stock,
-    assetsFinalUploadsVersion: scope.assetsFinalUploadsVersion,
-    finalUploads: structuredClone(scope.finalUploads),
-    executionStrategy: createOzonProductionStrategy({
-      platform: scope.platform,
-      finalUploads: scope.finalUploads
-    }),
-    publishScope: scope.publishScope,
-    exclusions: structuredClone(scope.exclusions),
-    allowedWriteFields: structuredClone(scope.allowedWriteFields),
-    sourceReadPolicy: snapshot.readPolicy,
-    sourceDataAccess: "production_authorization_only",
-    productResearchPerformed: false,
-    platformWrites: 0,
-    productCreated: false,
-    assetsUploaded: 0,
-    readbackPerformed: false
-  };
+function requireFact(field, path) {
+  if (!isObject(field) || field.verificationStatus !== "confirmed" || !Object.hasOwn(field, "value") ||
+      !Array.isArray(field.sourceRefs) || field.sourceRefs.length === 0 || field.sourceRefs.some(ref => !nonEmpty(ref))) {
+    throw new Error(`PRODUCTION_PLAN_INPUT_GAP: ${path}缺少已确认事实和来源`);
+  }
+  return field.value;
+}
+
+function requirePositive(value, path) {
+  if (!Number.isFinite(value) || value <= 0) throw new Error(`PRODUCTION_PLAN_INPUT_GAP: ${path}必须是正数`);
+}
+
+// Transient execution inputs have one source. They are never saved as a second plan or accepted from the browser.
+export function projectProductionPlanInputs(plan) {
   assertValidProductionPlan(plan);
+  const authorization = plan.sourceAuthorization;
+  const scope = authorization.lockedScope;
+  const c1 = scope.finalCardInputSnapshot.c1Snapshot;
+  if (!isObject(c1)) throw new Error("PRODUCTION_PLAN_INPUT_GAP: 缺少冻结C1");
+  const title = c1.seoTitleDraft?.text;
+  const description = c1.descriptionDraft?.text;
+  const bullets = Array.isArray(c1.bulletPointsDraft) ? c1.bulletPointsDraft.map(item => item?.text) : null;
+  const keywords = Array.isArray(c1.searchKeywordsDraft?.keywords) ? c1.searchKeywordsDraft.keywords.map(item => item?.query) : null;
+  if (!nonEmpty(title) || !nonEmpty(description) || !Array.isArray(bullets) || !bullets.length || bullets.some(value => !nonEmpty(value)) ||
+      !Array.isArray(keywords) || !keywords.length || keywords.some(value => !nonEmpty(value))) {
+    throw new Error("PRODUCTION_PLAN_INPUT_GAP: 冻结标题、描述、五点或搜索词不完整");
+  }
+  const weight = requireFact(c1.productAttributes?.weight, "productAttributes.weight");
+  const dimensions = requireFact(c1.productAttributes?.dimensions, "productAttributes.dimensions");
+  if (!isObject(weight) || !["g", "kg"].includes(weight.unit) || !isObject(dimensions) || !["mm", "cm"].includes(dimensions.unit)) {
+    throw new Error("PRODUCTION_PLAN_INPUT_GAP: 包装重量或尺寸单位不明确");
+  }
+  requirePositive(weight.value, "packing.weight");
+  for (const field of ["length", "width", "height"]) requirePositive(dimensions[field], `packing.dimensions.${field}`);
+  const writeBindings = requireFact(c1.schemaSnapshot?.writeBindings, "schemaSnapshot.writeBindings");
+  const rawSchema = c1.inputSnapshots?.platformSchemaRules;
+  if (!isObject(writeBindings) || writeBindings.schemaRevision !== scope.schemaRevision ||
+      rawSchema?.schemaRevision !== scope.schemaRevision || !isDeepStrictEqual(writeBindings, rawSchema.writeBindings) ||
+      !nonEmpty(writeBindings.evidenceRef) || !isObject(writeBindings.content) || !Array.isArray(writeBindings.requiredAttributes)) {
+    throw new Error("PRODUCTION_PLAN_INPUT_GAP: 写入绑定未与冻结Schema修订对齐");
+  }
+  if (scope.platform === "ozon") {
+    for (const field of ["descriptionCategoryId", "typeId"]) {
+      const value = requireFact(c1.platformCategory?.[field], `platformCategory.${field}`);
+      if (!/^[1-9]\d*$/.test(String(value)) || !Number.isSafeInteger(Number(value))) throw new Error(`PRODUCTION_PLAN_INPUT_GAP: ${field}不是准确平台ID`);
+    }
+  }
+  return deepFreeze({
+    platform: scope.platform, store: scope.storeRef.stableStoreId, storeRef: structuredClone(scope.storeRef), candidateId: scope.candidateId,
+    skuPackageId: scope.skuPackageId, sku: { supplierSkuId: scope.supplierSkuId, merchantSku: scope.merchantSku, variantKey: scope.variantKey },
+    warehouseRef: scope.warehouseRef, credentialAlias: scope.credentialAlias,
+    title, titleVersion: authorization.sourceC1Fingerprint,
+    content: { description, bulletPoints: [...bullets], searchKeywords: [...keywords] }, contentVersion: authorization.sourceC1Fingerprint,
+    attributes: structuredClone(c1.productAttributes), attributeVersion: c1.factVerificationVersion,
+    packing: { weight: structuredClone(weight), dimensions: structuredClone(dimensions) },
+    schemaWriteBindings: structuredClone(writeBindings), platformCategory: structuredClone(c1.platformCategory),
+    buyerTargetPrice: structuredClone(scope.buyerTargetPrice), platformWritePrice: structuredClone(scope.platformWritePrice), priceConversion: structuredClone(scope.priceConversion),
+    stock: scope.stock, assetsFinalUploadsVersion: scope.finalManifestVersion, finalUploads: structuredClone(scope.finalUploads),
+    executionStrategy: createOzonProductionStrategy({ platform: scope.platform, finalUploads: scope.finalUploads }),
+    publishScope: scope.publishScope, exclusions: [...scope.exclusions], allowedWriteFields: [...scope.allowedWriteFields]
+  });
+}
+
+export function createProductionPlan({ productionAuthorization, candidateId, candidateRevision, skuPackage, createdAt }) {
+  if (!iso(createdAt)) throw new Error("PRODUCTION_PLAN_INPUT_GAP: 创建时间无效");
+  assertCurrentProductionAuthorization(productionAuthorization, { observedAt: createdAt });
+  const authorization = readAuthorizedProductionSnapshot({ productionAuthorization, candidateId, candidateRevision, skuPackage, checkedAt: createdAt });
+  const plan = {
+    schemaVersion: PRODUCTION_PLAN_VERSION, planId: planId(authorization), mode: "simulation", status: "prepared", createdAt,
+    sourceAuthorization: authorization, sourceReadPolicy: "authorization_snapshot_only", sourceDataAccess: "production_authorization_only",
+    productResearchPerformed: false, platformWrites: 0, productCreated: false, assetsUploaded: 0, readbackPerformed: false
+  };
+  projectProductionPlanInputs(plan);
   return deepFreeze(plan);
 }
 
-/**
- * 计划创建后若授权对象发生任何变化，明确报告漂移；绝不更新既有计划。
- */
-export function validateProductionPlanAuthorizationBinding(plan, productionAuthorization) {
-  assertValidProductionPlan(plan);
-  assertValidProductionAuthorization(productionAuthorization);
-  const currentFingerprint = fingerprintProductionAuthorization(productionAuthorization);
-  const matches = plan.sourceAuthorizationId === productionAuthorization.authorizationId &&
-    plan.sourceAuthorizationRevision === productionAuthorization.authorizedDataRevision &&
-    plan.sourceAuthorizationFingerprint === currentFingerprint;
-  return deepFreeze({
-    valid: matches,
-    status: matches ? "authorization_unchanged" : "authorization_drift_detected",
-    planId: plan.planId,
-    sourceAuthorizationId: plan.sourceAuthorizationId,
-    currentAuthorizationId: productionAuthorization.authorizationId
+/** One transient payload projection, shared by preparation and the final write boundary. */
+export function projectProductionPlanImportPayload({ productionPlan, resolvedFinalUploads }) {
+  const inputs = projectProductionPlanInputs(productionPlan);
+  if (!Array.isArray(resolvedFinalUploads) || resolvedFinalUploads.length !== inputs.finalUploads.length) {
+    throw new Error("D_EXECUTION_AUTHORIZATION_SCOPE_MISMATCH: 最终素材数量不属于冻结计划");
+  }
+  const finalUploads = inputs.finalUploads.map((asset, index) => {
+    const resolved = resolvedFinalUploads[index];
+    if (!resolved || ["assetId", "sha256", "order", "role"].some(field => resolved[field] !== asset[field]) ||
+        !nonEmpty(resolved.platformAcceptedUrl)) throw new Error("D_EXECUTION_AUTHORIZATION_SCOPE_MISMATCH: 最终素材不属于冻结计划");
+    return { ...structuredClone(asset), assetRef: resolved.platformAcceptedUrl };
   });
+  return deepFreeze({
+    mode: "single_sku_create_and_moderate", merchantSku: inputs.sku.merchantSku,
+    platform: inputs.platform, store: inputs.store, storeRef: structuredClone(inputs.storeRef),
+    warehouseRef: inputs.warehouseRef, credentialAlias: inputs.credentialAlias,
+    skuPackageId: inputs.skuPackageId, supplierSkuId: inputs.sku.supplierSkuId, variantKey: inputs.sku.variantKey,
+    title: inputs.title, content: structuredClone(inputs.content), attributes: structuredClone(inputs.attributes),
+    packing: structuredClone(inputs.packing), schemaWriteBindings: structuredClone(inputs.schemaWriteBindings),
+    platformCategory: structuredClone(inputs.platformCategory), platformWritePrice: structuredClone(inputs.platformWritePrice),
+    finalUploads, publishScope: inputs.publishScope
+  });
+}
+
+export function validateProductionPlanAuthorizationBinding(plan, authorization) {
+  assertValidProductionPlan(plan);
+  assertValidProductionAuthorization(authorization);
+  const matches = isDeepStrictEqual(plan.sourceAuthorization, authorization);
+  return deepFreeze({ valid: matches, status: matches ? "authorization_unchanged" : "authorization_drift_detected", planId: plan.planId,
+    sourceAuthorizationId: plan.sourceAuthorization.authorizationId, currentAuthorizationId: authorization.authorizationId });
 }

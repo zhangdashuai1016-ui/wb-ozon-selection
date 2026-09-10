@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "a-discovery-plan-v1",
+  "planId": "plan:desk-organization-20260908",
+  "version": "version:1",
+  "provider": "linkfox",
+  "contractVersion": "linkfox-discovery-93a1dbf-v1",
+  "direction": "桌面整理小件（待核实非电、规格与权利）",
+  "requests": [
+    {"requestId":"search:desk-market-1","method":"ozon_market_search","keywords":["органайзер для стола"],"pageSize":20},
+    {"requestId":"search:desk-supply-1","method":"supplier_search","keywords":["桌面收纳盒"],"pageSize":10},
+    {"requestId":"search:desk-supply-2","method":"supplier_search","keywords":["桌面整理架"],"pageSize":10}
+  ],
+  "budget":{"unit":"linkfox_credits","maxRequests":3,"maxCredits":30},
+  "exclusions":["已存在或已淘汰的同身份商品","明确第三方品牌或IP风险","已知带电、液体、易碎或需要本轮之外合规证明的商品"],
+  "selection":{"schemaVersion":"a-discovery-selection-v1","marketOrder":"provider_order","supplierOrder":"provider_order","maxCandidates":1}
+}

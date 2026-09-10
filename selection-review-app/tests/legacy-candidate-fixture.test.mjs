@@ -35,7 +35,9 @@ test("synthetic A-to-B candidate supplies explicit packaging cost before evidenc
   // the server here would start a service, so exercise the pure cost boundary.
   assert.equal(candidate.targetStore, "dandanshu");
   const rule = DEFAULT_RULES.ozonDandanshu;
-  const costs = buildLifecycleBExplicitOtherCosts(candidate, rule);
+  // The B evidence context (applied at A confirmation) declares the sales scheme the owner-approved cost policy is bound to.
+  candidate.lifecycleEvidenceContextV11 = { salesScheme: "rfbs" };
+  const { costPolicySnapshot, ...costs } = buildLifecycleBExplicitOtherCosts(candidate, rule, { asOf: "2026-09-09T12:00:00.000Z" });
   assert.deepEqual(costs, {
     packagingRmb: 1.5,
     labelRmb: 1.5,
@@ -44,12 +46,19 @@ test("synthetic A-to-B candidate supplies explicit packaging cost before evidenc
     returnReserveRate: 0.05,
     damageReserveRate: 0.05,
     withdrawalFeeRate: 0.02,
+    acquiringRate: 0,
+    taxRate: 0,
+    otherRate: 0,
     targetMarginRate: 0.15,
     minimumUnitProfitRmb: 20,
     priceIncrementCny: 1,
     thresholdLogic: "any",
-    pricingPolicyVersion: "ozon-wb-global-pricing-2026-08-21-v3-project-or-threshold-v1"
+    pricingPolicyVersion: "owner-approved-store-costs-2026-09-09-v1"
   });
+  assert.deepEqual(costPolicySnapshot.scope, { platform: "ozon", store: "dandanshu", storeRef: candidate.storeRef, salesScheme: "rfbs" });
+  assert.deepEqual(["acquiringRate", "taxRate", "otherRate", "fixedOtherRmb"].map(key => costPolicySnapshot.items[key].status),
+    ["not_applicable", "not_applicable", "not_applicable", "not_applicable"]);
+  assert.ok(Object.values(costPolicySnapshot.items).every(item => typeof item.evidenceRef === "string" && item.evidenceRef.startsWith("owner-decision:")));
   delete candidate.packagingCostRmb;
   assert.throws(() => buildLifecycleBExplicitOtherCosts(candidate, rule), /B_EVIDENCE_COST_POLICY_INCOMPLETE/);
   assert.equal(createMusicBoxCandidate().packagingCostRmb, 1.5);
@@ -77,7 +86,8 @@ test("synthetic generic C-stage baseline is valid and contains no frozen train S
   assert.equal(skuPackage.supplierSkuId, "SINK-ORGANIZER-BLUE");
   assert.equal(skuPackage.businessPhase, "B");
   assert.equal(skuPackage.businessResult, "passed");
-  assert.equal(opportunityPackage.salesSnapshots[0].currentPrice, 1200);
+  assert.equal(opportunityPackage.salesSnapshots.find(snapshot => snapshot.schemaVersion === "sales-snapshot-v1.1").currentPrice, 1200);
+  assert.equal(opportunityPackage.marketAssessment.recommendedSalePrice.amount, 1200);
   assert.equal(skuPackage.profitModels[0].recommendedSalePriceRub, 1200);
   assert.equal(skuPackage.productionAuthorization, null);
   assert.equal(skuPackage.productionRecord, null);
@@ -103,7 +113,9 @@ test("synthetic E idempotency baseline is a valid observation record, not a prod
   assert.equal(sku.productionRecord, null);
   assert.equal(sku.productionAuthorization.productionExecuted, false);
   assert.equal(candidate.lifecycleV11.platformWrites, 0);
-  assert.deepEqual(sku.productionAuthorization, createAuthorizedTrainCandidate().lifecycleV11.skuPackage.productionAuthorization);
+  assert.deepEqual(sku.productionAuthorization, createAuthorizedTrainCandidate({ candidateId: candidate.id }).lifecycleV11.skuPackage.productionAuthorization);
+  assert.equal(sku.g1Identity.candidateId, candidate.id);
+  assert.notEqual(sku.externalListingRecord.merchantSku, sku.supplierSkuId);
   sku.eVerificationRecord.platformProductId = "test-mutation";
   assert.equal(createVerifiedGenericCandidate().lifecycleV11.skuPackage.eVerificationRecord.platformProductId, "TEST-EXTERNALLY-VERIFIED-001");
 });

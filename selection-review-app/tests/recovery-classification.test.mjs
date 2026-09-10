@@ -8,7 +8,8 @@ import { spawn } from "node:child_process";
 import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const port = 43923;
+const port = Number(process.env.SELECTION_REVIEW_TEST_PORT);
+if (!Number.isSafeInteger(port) || port < 1 || port > 65535 || [4317, 4318, 4173].includes(port)) throw new Error("TEST_REQUIRES_ISOLATED_PORT");
 const baseUrl = `http://127.0.0.1:${port}`;
 
 async function waitFor(check, message) {
@@ -94,21 +95,22 @@ test("stopped backlog is classified without asking for handwritten advice", asyn
   await waitFor(async () => (await fetch(`${baseUrl}/api/health`)).ok, `测试服务未启动：${stderr.join("")}`);
 
   const preview = await (await fetch(`${baseUrl}/api/control/reconcile-stopped`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: false })
+    method: "POST", headers: { Origin: baseUrl, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" }, body: JSON.stringify({ confirm: false })
   })).json();
   assert.deepEqual(preview.preview.map((item) => item.kind), ["system_recovery", "needs_data", "business_decision", "external_failure"]);
 
   const response = await fetch(`${baseUrl}/api/control/reconcile-stopped`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: true })
+    method: "POST", headers: { Origin: baseUrl, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" }, body: JSON.stringify({ confirm: true })
   });
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.equal(body.dispatchIds.length, 1);
+  assert.equal(body.dispatchIds.length, 0);
 
   const state = await (await fetch(`${baseUrl}/api/state`)).json();
   const byId = Object.fromEntries(state.candidates.map((item) => [item.id, item]));
-  assert.equal(byId.SYSTEM.processing.state, "queued");
-  assert.equal(byId.SYSTEM.activeDispatch.nodeId, "M04");
+  assert.equal(byId.SYSTEM.processing.state, "blocked");
+  assert.equal(byId.SYSTEM.processing.dispatchState, "legacy_read_only");
+  assert.equal(byId.SYSTEM.activeDispatch, null);
   assert.equal(byId.MISSING.workflowStatus, "needs_user_data");
   assert.deepEqual(byId.MISSING.needsFromUser, ["采购到手总价（含国内运费）"]);
   assert.deepEqual(byId.MISSING.neededFieldKeys, ["purchasePriceRmb"]);

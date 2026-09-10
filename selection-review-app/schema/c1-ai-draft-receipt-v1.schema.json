@@ -1,0 +1,303 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "c1-ai-draft-receipt-v1",
+  "title": "C1第三方AI草稿回执 v1",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "receiptId",
+    "providerRequestId",
+    "requestId",
+    "requestFingerprint",
+    "provider",
+    "modelVersion",
+    "serviceVersion",
+    "status",
+    "attempt",
+    "startedAt",
+    "completedAt",
+    "inputEvidenceRefs",
+    "outputFingerprint",
+    "externalPlatformAccesses",
+    "codexDispatches",
+    "productionWrites",
+    "output",
+    "softwareJobId",
+    "gatewayJobId",
+    "accounting"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "c1-ai-draft-receipt-v1"
+    },
+    "receiptId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "providerRequestId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requestFingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "provider": {
+      "enum": [
+        "terra",
+        "sol"
+      ]
+    },
+    "modelVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "serviceVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "const": "completed"
+    },
+    "attempt": {
+      "const": 1
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "completedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "inputEvidenceRefs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "outputFingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "externalPlatformAccesses": {
+      "const": 0
+    },
+    "codexDispatches": {
+      "const": 0
+    },
+    "productionWrites": {
+      "const": 0
+    },
+    "output": {
+      "type": "object",
+      "required": [
+        "status",
+        "locale",
+        "claimCoverage",
+        "unsupportedClaims",
+        "title",
+        "description",
+        "bulletPoints",
+        "searchKeywords"
+      ],
+      "properties": {
+        "status": {
+          "const": "draft_only"
+        },
+        "locale": {
+          "const": "ru-RU"
+        },
+        "claimCoverage": {
+          "const": "complete"
+        },
+        "unsupportedClaims": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "title": {
+          "$ref": "#/$defs/citedText"
+        },
+        "description": {
+          "$ref": "#/$defs/citedText"
+        },
+        "bulletPoints": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/citedText"
+          }
+        },
+        "searchKeywords": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/citedText"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "softwareJobId": {
+      "$ref": "#/$defs/opaqueEvidenceRef"
+    },
+    "gatewayJobId": {
+      "$ref": "#/$defs/opaqueEvidenceRef"
+    },
+    "accounting": {
+      "$ref": "#/$defs/c1AiAccounting"
+    }
+  },
+  "$defs": {
+    "canonicalFrozenRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^(?=.{1,256}$)(?!.*[\\r\\n])(?!.*//)(?!(?:[bB][eE][aA][rR][eE][rR]|[bB][aA][sS][iI][cC])(?:[._~@#+-]|$))(?!(?:(?:[aA][._~-]*[uU][._~-]*[tT][._~-]*[hH][._~-]*[oO][._~-]*[rR][._~-]*[iI][._~-]*[zZ][._~-]*[aA][._~-]*[tT][._~-]*[iI][._~-]*[oO][._~-]*[nN]|[bB][._~-]*[eE][._~-]*[aA][._~-]*[rR][._~-]*[eE][._~-]*[rR]|[bB][._~-]*[aA][._~-]*[sS][._~-]*[iI][._~-]*[cC]|[pP][._~-]*[aA][._~-]*[sS][._~-]*[sS][._~-]*[wW][._~-]*[oO][._~-]*[rR][._~-]*[dD]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[sS]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[jJ][._~-]*[aA][._~-]*[rR]|[hH][._~-]*[eE][._~-]*[aA][._~-]*[dD][._~-]*[eE][._~-]*[rR][._~-]*[sS]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[tT][._~-]*[oO][._~-]*[kK][._~-]*[eE][._~-]*[nN]|[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[sS][._~-]*[eE][._~-]*[cC][._~-]*[rR][._~-]*[eE][._~-]*[tT]|[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL][._~-]*[sS]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][sS][._~-]*[aA][tT]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE][._~-]*[aA][tT]|[aA][pP][iI][._~-]*[kK][eE][yY]|[aA][pP][iI][._~-]*[kK][eE][yY][._~-]*[aA][tT]|[sS][._~-]*[iI][._~-]*[gG][._~-]*[nN][._~-]*[aA][._~-]*[tT][._~-]*[uU][._~-]*[rR][._~-]*[eE]|[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[vV][aA][lL][uU][eE]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[tT][oO][kK][eE][nN]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[pP][aA][sS][sS][wW][oO][rR][dD]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT][._~-]*[aA][tT]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[bB][oO][dD][yY]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[hH][tT][mM][lL]|[rR][aA][wW][._~-]*[pP][aA][yY][lL][oO][aA][dD])|[eE][xX][pP][iI][rR][eE][sS]|[eE][xX][pP][iI][rR][eE][sS][._~-]*[aA][tT]|[eE][xX][pP][iI][rR][yY]|[eE][xX][pP][iI][rR][yY][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[xX][._~-]*[aA][mM][zZ][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[aA][wW][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[gG][oO][oO][gG][lL][eE][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[oO][sS][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[vV][eE][rR][sS][iI][oO][nN]|[xX][._~-]*[oO][sS][sS][._~-]*[dD][aA][tT][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[eE][xX][pP][iI][rR][eE][sS]|[xX][._~-]*[oO][sS][sS][._~-]*[aA][dD][dD][iI][tT][iI][oO][nN][aA][lL][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[sS][iI][gG])(?:[:/]|$))(?!.*(?:^|[/:])(?:(?:[aA][._~-]*[uU][._~-]*[tT][._~-]*[hH][._~-]*[oO][._~-]*[rR][._~-]*[iI][._~-]*[zZ][._~-]*[aA][._~-]*[tT][._~-]*[iI][._~-]*[oO][._~-]*[nN]|[bB][._~-]*[eE][._~-]*[aA][._~-]*[rR][._~-]*[eE][._~-]*[rR]|[bB][._~-]*[aA][._~-]*[sS][._~-]*[iI][._~-]*[cC]|[pP][._~-]*[aA][._~-]*[sS][._~-]*[sS][._~-]*[wW][._~-]*[oO][._~-]*[rR][._~-]*[dD]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[sS]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[jJ][._~-]*[aA][._~-]*[rR]|[hH][._~-]*[eE][._~-]*[aA][._~-]*[dD][._~-]*[eE][._~-]*[rR][._~-]*[sS]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[tT][._~-]*[oO][._~-]*[kK][._~-]*[eE][._~-]*[nN]|[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[sS][._~-]*[eE][._~-]*[cC][._~-]*[rR][._~-]*[eE][._~-]*[tT]|[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL][._~-]*[sS]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][sS][._~-]*[aA][tT]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE][._~-]*[aA][tT]|[aA][pP][iI][._~-]*[kK][eE][yY]|[aA][pP][iI][._~-]*[kK][eE][yY][._~-]*[aA][tT]|[sS][._~-]*[iI][._~-]*[gG][._~-]*[nN][._~-]*[aA][._~-]*[tT][._~-]*[uU][._~-]*[rR][._~-]*[eE]|[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[vV][aA][lL][uU][eE]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[tT][oO][kK][eE][nN]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[pP][aA][sS][sS][wW][oO][rR][dD]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT][._~-]*[aA][tT]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[bB][oO][dD][yY]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[hH][tT][mM][lL]|[rR][aA][wW][._~-]*[pP][aA][yY][lL][oO][aA][dD])|[eE][xX][pP][iI][rR][eE][sS]|[eE][xX][pP][iI][rR][eE][sS][._~-]*[aA][tT]|[eE][xX][pP][iI][rR][yY]|[eE][xX][pP][iI][rR][yY][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[xX][._~-]*[aA][mM][zZ][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[aA][wW][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[gG][oO][oO][gG][lL][eE][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[oO][sS][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[vV][eE][rR][sS][iI][oO][nN]|[xX][._~-]*[oO][sS][sS][._~-]*[dD][aA][tT][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[eE][xX][pP][iI][rR][eE][sS]|[xX][._~-]*[oO][sS][sS][._~-]*[aA][dD][dD][iI][tT][iI][oO][nN][aA][lL][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[sS][iI][gG])(?::|/|$))[A-Za-z0-9][A-Za-z0-9._~:/@#+-]*$"
+    },
+    "citedText": {
+      "type": "object",
+      "required": [
+        "text",
+        "factRefs",
+        "keywordRefs",
+        "assertions"
+      ],
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "factRefs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "keywordRefs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "assertions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "factPath",
+              "value"
+            ],
+            "properties": {
+              "factPath": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "opaqueEvidenceRef": {
+      "$ref": "#/$defs/canonicalFrozenRef"
+    },
+    "c1AiAccounting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "gatewayJobId",
+        "providerRequestId",
+        "usage",
+        "charge"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "c1-ai-accounting-v1"
+        },
+        "gatewayJobId": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        },
+        "providerRequestId": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/canonicalFrozenRef"
+            }
+          ]
+        },
+        "usage": {
+          "oneOf": [
+            {
+              "const": "unknown"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "properties": {
+                "prompt_tokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "completion_tokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "total_tokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              }
+            }
+          ]
+        },
+        "charge": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "reason"
+          ],
+          "properties": {
+            "status": {
+              "const": "unknown"
+            },
+            "reason": {
+              "const": "provider_charge_not_reported"
+            }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

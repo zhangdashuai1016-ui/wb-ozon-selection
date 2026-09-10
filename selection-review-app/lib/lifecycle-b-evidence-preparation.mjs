@@ -1,7 +1,11 @@
+import { buildExpectedEvidenceScope, evidenceScopeMatches } from "./lifecycle-evidence-scope.mjs";
 import {
   inspectLifecycleBInputReadiness,
   resolveLifecycleEvidenceContext,
-  validateLifecycleEvidenceData
+  validateLifecycleEvidenceData,
+  isLifecycleEvidenceTraceValid,
+  inspectCommissionCatalogValidity,
+  normalizeCurrentCommissionCatalogs
 } from "./lifecycle-b-input-bundle.mjs";
 
 export const LIFECYCLE_B_EVIDENCE_PREPARATION_VERSION = "lifecycle-b-evidence-preparation-v1.1";
@@ -25,10 +29,6 @@ function isoDateTime(value) {
   return nonEmptyString(value) && !Number.isNaN(Date.parse(value));
 }
 
-function normalizedText(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
 function deepFreeze(value) {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
   Object.freeze(value);
@@ -36,34 +36,7 @@ function deepFreeze(value) {
   return value;
 }
 
-function expectedScope(kind, context) {
-  if (kind === "commission") return {
-    platform: context.platform,
-    store: context.store,
-    category: context.category,
-    salesScheme: context.salesScheme
-  };
-  if (kind === "logistics_tariff") return {
-    route: context.route,
-    ruleVersion: context.logisticsRuleVersion
-  };
-  if (kind === "exchange_rate") return { pair: context.exchangePair };
-  if (kind === "schema") return {
-    platform: context.platform,
-    store: context.store,
-    category: context.category,
-    ruleVersion: context.schemaRuleVersion
-  };
-  throw new Error(`B_EVIDENCE_KIND_UNSUPPORTED: ${kind}`);
-}
-
-function exactScope(actual, expected) {
-  return isObject(actual) && Object.entries(expected).every(
-    ([key, value]) => normalizedText(actual[key]) === normalizedText(value)
-  );
-}
-
-function validatePreparedPack(pack, kind, context, preparedAt) {
+function validatePreparedPack(pack, kind, context, preparedAt, currentCommissionCatalogs) {
   const problems = [];
   if (!isObject(pack)) return ["提供器没有返回结构化证据包"];
   if (!nonEmptyString(pack.id)) problems.push("缺证据包ID");
@@ -71,13 +44,15 @@ function validatePreparedPack(pack, kind, context, preparedAt) {
   if (pack.status !== "active") problems.push("证据状态必须为active");
   if (!nonEmptyString(pack.sourceType) || !nonEmptyString(pack.sourceRef)) problems.push("缺可追溯来源");
   if (!isoDateTime(pack.checkedAt)) problems.push("取得时间无效");
-  if (!isoDateTime(pack.expiresAt)) problems.push("失效时间无效");
+  if (!isLifecycleEvidenceTraceValid(pack)) problems.push("来源或有效期合同无效");
   if (isoDateTime(pack.checkedAt) && Date.parse(pack.checkedAt) > Date.parse(preparedAt)) problems.push("取得时间晚于本轮冻结时间");
   if (isoDateTime(pack.checkedAt) && isoDateTime(pack.expiresAt) && Date.parse(pack.expiresAt) <= Date.parse(pack.checkedAt)) {
     problems.push("失效时间必须晚于取得时间");
   }
   if (isoDateTime(pack.expiresAt) && Date.parse(pack.expiresAt) <= Date.parse(preparedAt)) problems.push("证据在本轮冻结时已经过期");
-  if (!exactScope(pack.scope, expectedScope(kind, context))) problems.push("证据适用范围不一致");
+  if (!evidenceScopeMatches(kind, pack.scope, buildExpectedEvidenceScope(kind, context))) problems.push("证据适用范围不一致");
+  const catalog = inspectCommissionCatalogValidity({ pack, currentCommissionCatalogs, asOf: preparedAt });
+  if (!catalog.available) problems.push(catalog.message);
   const evidenceValidation = validateLifecycleEvidenceData(kind, pack.evidenceData);
   if (!evidenceValidation.valid) {
     problems.push(...evidenceValidation.errors.map((item) => `${item.path} ${item.message}`));
@@ -85,20 +60,20 @@ function validatePreparedPack(pack, kind, context, preparedAt) {
   return problems;
 }
 
-export function buildLifecycleBEvidencePreparationPlan({ candidate, evidencePacks = [], plannedAt }) {
+export function buildLifecycleBEvidencePreparationPlan({ candidate, evidencePacks = [], plannedAt, currentCommissionCatalogs = [] }) {
   if (!isObject(candidate) || !nonEmptyString(candidate.id) || !Number.isInteger(candidate.dataRevision)) {
     throw new Error("B_EVIDENCE_PREPARATION_INVALID_CANDIDATE: 候选身份或修订号无效");
   }
   if (!isoDateTime(plannedAt)) throw new Error("B_EVIDENCE_PREPARATION_INVALID_TIME: 计划时间无效");
   const context = resolveLifecycleEvidenceContext(candidate);
-  const readiness = inspectLifecycleBInputReadiness({ candidate, evidencePacks, asOf: plannedAt });
+  const readiness = inspectLifecycleBInputReadiness({ candidate, evidencePacks, asOf: plannedAt, currentCommissionCatalogs });
   const actions = readiness.fields.map((field) => ({
     kind: field.key,
     action: field.available ? "reuse" : "prepare_once",
     currentStatus: field.status,
     evidencePackId: field.evidencePackId,
     reason: field.message,
-    expectedScope: context.ready ? expectedScope(field.key, context.values) : null,
+    expectedScope: context.ready ? buildExpectedEvidenceScope(field.key, context.values) : null,
     maximumAutomaticAttempts: field.available ? 0 : 1
   }));
   return deepFreeze({
@@ -143,9 +118,13 @@ export async function runLifecycleBEvidencePreparation({
   providers = {},
   plannedAt,
   preparedAt,
-  clock = () => new Date()
+  clock = () => new Date(),
+  currentCommissionCatalogs = [],
+  getCurrentCommissionCatalogs = () => currentCommissionCatalogs
 }) {
-  const plan = buildLifecycleBEvidencePreparationPlan({ candidate, evidencePacks, plannedAt });
+  if (typeof getCurrentCommissionCatalogs !== 'function') throw new Error('CURRENT_COMMISSION_CATALOGS_READER_INVALID');
+  const currentCatalogs = () => normalizeCurrentCommissionCatalogs(getCurrentCommissionCatalogs());
+  const plan = buildLifecycleBEvidencePreparationPlan({ candidate, evidencePacks, plannedAt, currentCommissionCatalogs: currentCatalogs() });
   if (preparedAt !== undefined && (!isoDateTime(preparedAt) || Date.parse(preparedAt) < Date.parse(plannedAt))) {
     throw new Error("B_EVIDENCE_PREPARATION_INVALID_TIME: 完成时间不得早于计划时间");
   }
@@ -165,7 +144,7 @@ export async function runLifecycleBEvidencePreparation({
     });
   }
   if (plan.status === "ready_from_reuse") {
-    const finalReadiness = inspectLifecycleBInputReadiness({ candidate, evidencePacks, asOf: completionTime() });
+    const finalReadiness = inspectLifecycleBInputReadiness({ candidate, evidencePacks, asOf: completionTime(), currentCommissionCatalogs: currentCatalogs() });
     if (!finalReadiness.ready) {
       return failureResult({
         plan,
@@ -210,6 +189,7 @@ export async function runLifecycleBEvidencePreparation({
       candidateRevision: candidate.dataRevision,
       kind: action.kind,
       scope: structuredClone(action.expectedScope),
+      relatedSchemaScope: action.kind === "commission" ? buildExpectedEvidenceScope("schema", plan.context.values) : null,
       maximumAttempts: 1,
       readOnly: true,
       platformWritesAllowed: false,
@@ -234,7 +214,7 @@ export async function runLifecycleBEvidencePreparation({
         discardedEvidencePackIds: preparedPacks.map((item) => item.id)
       });
     }
-    const problems = validatePreparedPack(pack, action.kind, plan.context.values, completionTime());
+    const problems = validatePreparedPack(pack, action.kind, plan.context.values, completionTime(), currentCatalogs());
     if (problems.length) {
       providerCalls[providerCalls.length - 1] = {
         kind: action.kind,
@@ -257,7 +237,8 @@ export async function runLifecycleBEvidencePreparation({
   const finalReadiness = inspectLifecycleBInputReadiness({
     candidate,
     evidencePacks: [...evidencePacks, ...preparedPacks],
-    asOf: completionTime()
+    asOf: completionTime(),
+    currentCommissionCatalogs: currentCatalogs()
   });
   if (!finalReadiness.ready) {
     return failureResult({

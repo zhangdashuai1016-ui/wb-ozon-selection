@@ -20,8 +20,8 @@ export function extensionConnectionStatus({ liveVersion = "", cachedVersion = ""
       return { code: "reload_required", label: `插件代码已更新 · 请重新加载（当前v${activeVersion}，需要v${EXPECTED_EXTENSION_VERSION}）` };
     }
     return activeBackgroundReady
-      ? { code: "connected", label: `插件已连接 · 后台可用 · v${activeVersion}` }
-      : { code: "background_unavailable", label: `插件已安装 · 后台暂未响应 · 系统会自动重连（v${activeVersion}）` };
+      ? { code: "authentication_unverified", label: `已检测到插件v${activeVersion} · 后台认证/领取能力未核验，采集不可用` }
+      : { code: "background_unavailable", label: `插件已安装 · 后台暂未响应 · 请核对后台连接（v${activeVersion}）` };
   }
   if (cached === EXPECTED_EXTENSION_VERSION) {
     return { code: "page_refresh_required", label: "插件已安装 · 当前页面需要刷新" };

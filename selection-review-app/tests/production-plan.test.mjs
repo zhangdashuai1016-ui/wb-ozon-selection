@@ -1,161 +1,115 @@
+import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import test from "node:test";
-import {
-  createProductionPlan,
-  PRODUCTION_PLAN_VERSION,
-  validateProductionPlan,
-  validateProductionPlanAuthorizationBinding
-} from "../lib/production-plan.mjs";
+import { authorizedProductionFixture } from "./helpers/c2-software-fixture.mjs";
+import { historicalPlanFixture } from "./helpers/d-software-fixture.mjs";
+import { loadPublishedSchemaValidator } from "./helpers/published-schema-validator.mjs";
+import { createProductionPlan, projectProductionPlanInputs, PRODUCTION_PLAN_VERSION, validateProductionPlan, validateProductionPlanAuthorizationBinding } from "../lib/production-plan.mjs";
 
-function authorizationFixture() {
-  return {
-    schemaVersion: "production-authorization-v1.1",
-    authorizationId: "production-auth:sku-lifecycle:CX-20260803-010:4993364145574:23",
-    status: "confirmed",
-    confirmedBy: "owner",
-    confirmedAt: "2026-08-12T13:30:00.000Z",
-    sourceConfirmationCardId: "final-plan-card:CX-20260803-010:22",
-    authorizedDataRevision: 23,
-    lockedScope: {
-      platform: "ozon",
-      store: "dandanshu",
-      skuPackageId: "sku-lifecycle:CX-20260803-010:4993364145574",
-      supplierSkuId: "4993364145574",
-      variantKey: "豪华小火车",
-      titleVersion: "c1-seo-draft-v1.1:2026-08-12T13:00:00.000Z",
-      title: "Механический деревянный 3D-пазл «Паровоз», 320 деталей",
-      attributeVersion: "c1-fact-verification-v1.1:2026-08-12T12:30:00.000Z",
-      attributes: { brand: { value: "unknown", status: "unknown" } },
-      platformCategory: {
-        descriptionCategoryId: { value: "17028665", verificationStatus: "confirmed" },
-        typeId: { value: "92935", verificationStatus: "confirmed" }
-      },
-      recommendedPrice: { rub: 1831, cny: 151.78 },
-      buyerTargetPrice: { amount: 1831, currency: "RUB" },
-      platformWritePrice: { amount: 151.78, currency: "CNY" },
-      priceConversion: { rubPerCny: 12.0637, evidenceRef: "fx:cbr:2026-08-07:RUB-CNY", checkedAt: "2026-08-07T00:00:00.000Z" },
-      stock: 100,
-      assetsFinalUploadsVersion: "c2-assets:CX-20260803-010:2026-08-12T13:12:00.000Z",
-      finalUploads: [{
-        assetId: "final:CX-20260803-010:main",
-        ownerConfirmed: true,
-        productionEligible: true
-      }],
-      publishScope: "create_draft_only",
-      exclusions: ["do_not_submit", "do_not_publish"],
-      allowedWriteFields: ["create_product", "title", "attributes", "price", "stock", "assets.finalUploads", "publish_scope"]
-    },
-    scopeExpansionAllowed: false,
-    fieldMutationAllowed: false,
-    skuReplacementAllowed: false,
-    assetReplacementAllowed: false,
-    readPolicy: "authorization_snapshot_only",
-    productionExecuted: false,
-    platformWrites: 0
-  };
-}
-
-test("13A creates a complete ProductionPlan only from ProductionAuthorization", () => {
-  const plan = createProductionPlan({
-    productionAuthorization: authorizationFixture(),
-    createdAt: "2026-08-12T14:00:00.000Z"
-  });
+test("D计划遵循公开合同保存完整正式授权，唯一投影保留商家和供应身份", () => {
+  const fixture = authorizedProductionFixture();
+  const plan = createProductionPlan(fixture);
+  const inputs = projectProductionPlanInputs(plan);
   assert.equal(plan.schemaVersion, PRODUCTION_PLAN_VERSION);
-  assert.equal(plan.platform, "ozon");
-  assert.equal(plan.store, "dandanshu");
-  assert.equal(plan.skuPackageId, "sku-lifecycle:CX-20260803-010:4993364145574");
-  assert.deepEqual(plan.sku, { supplierSkuId: "4993364145574", variantKey: "豪华小火车" });
-  assert.match(plan.titleVersion, /^c1-seo-draft-v1\.1:/);
-  assert.match(plan.title, /Паровоз/);
-  assert.match(plan.attributeVersion, /^c1-fact-verification-v1\.1:/);
-  assert.equal(plan.platformCategory.typeId.value, "92935");
-  assert.deepEqual(plan.buyerTargetPrice, { amount: 1831, currency: "RUB" });
-  assert.deepEqual(plan.platformWritePrice, { amount: 151.78, currency: "CNY" });
-  assert.equal(plan.executionStrategy.primaryPath, "seller_api");
-  assert.equal(plan.executionStrategy.manualActionsRequired, 1);
-  assert.equal(plan.executionStrategy.forbiddenBrowserActions.includes("fill_price"), true);
-  assert.equal(plan.stock, 100);
-  assert.match(plan.assetsFinalUploadsVersion, /^c2-assets:/);
-  assert.equal(plan.publishScope, "create_draft_only");
+  assert.deepEqual(plan.sourceAuthorization, fixture.productionAuthorization);
   assert.deepEqual(validateProductionPlan(plan), { valid: true, errors: [] });
+  assert.equal(inputs.platform, "ozon");
+  assert.deepEqual(inputs.storeRef, fixture.productionAuthorization.lockedScope.storeRef);
+  assert.equal(inputs.sku.merchantSku, "MERCHANT-SHELF-001");
+  assert.equal(inputs.sku.supplierSkuId, "SHELF-WHITE");
+  assert.notEqual(inputs.sku.merchantSku, inputs.sku.supplierSkuId);
+  assert.equal(inputs.title, "Полки для ванной");
+  assert.equal(inputs.content.description, "Полки для ванной");
+  assert.equal(inputs.content.bulletPoints.length, 1);
+  assert.deepEqual(inputs.content.searchKeywords, ["Полки для ванной"]);
+  assert.equal(inputs.packing.weight.value, 0.3);
+  assert.equal(inputs.schemaWriteBindings.schemaRevision, "ozon-schema:17028665:92935:2026-08-12");
+  assert.equal(inputs.platformCategory.typeId.value, "92935");
+  assert.deepEqual(inputs.platformWritePrice, { amount: 151.78, currency: "CNY" });
+  assert.deepEqual(inputs.buyerTargetPrice, { amount: 1831, currency: "RUB" });
+  assert.equal(inputs.stock, 100);
+  assert.equal(inputs.finalUploads.length, 2);
+  assert.equal(inputs.warehouseRef, fixture.productionAuthorization.lockedScope.warehouseRef);
+  assert.equal(inputs.credentialAlias, fixture.productionAuthorization.lockedScope.credentialAlias);
 });
 
-test("13A exposes no A/B/C source input and performs no research or external operation", () => {
-  const plan = createProductionPlan({
-    productionAuthorization: authorizationFixture(),
-    createdAt: "2026-08-12T14:00:00.000Z"
-  });
-  assert.equal(plan.sourceDataAccess, "production_authorization_only");
-  assert.equal(plan.sourceReadPolicy, "authorization_snapshot_only");
-  assert.equal(plan.productResearchPerformed, false);
-  assert.equal("salesSnapshot" in plan, false);
-  assert.equal("supplierOption" in plan, false);
-  assert.equal("profitModel" in plan, false);
-  assert.equal("c1ProductPlan" in plan, false);
-  assert.equal("c2FinalAssets" in plan, false);
+test("首次创建精确校验候选和SKU修订；不读取当前C1或其他原始商品信息", () => {
+  const fixture = authorizedProductionFixture();
+  const sku = structuredClone(fixture.skuPackage);
+  sku.c1ProductPlan = null;
+  sku.skuFacts = { material: "must-not-read" };
+  const plan = createProductionPlan({ ...fixture, skuPackage: sku });
+  assert.equal(projectProductionPlanInputs(plan).attributes.material.value, "plastic");
+  for (const input of [
+    { ...fixture, candidateId: "another" }, { ...fixture, candidateRevision: fixture.candidateRevision - 1 },
+    { ...fixture, skuPackage: { ...fixture.skuPackage, dataRevision: fixture.skuPackage.dataRevision + 1 } },
+    { productionAuthorization: fixture.productionAuthorization, createdAt: fixture.createdAt }
+  ]) assert.throws(() => createProductionPlan(input), /校验失败|CONTEXT_REQUIRED/);
   assert.equal(plan.platformWrites, 0);
+  assert.equal(plan.productResearchPerformed, false);
   assert.equal(plan.productCreated, false);
   assert.equal(plan.assetsUploaded, 0);
   assert.equal(plan.readbackPerformed, false);
 });
 
-test("13A freezes the plan and never mutates its ProductionAuthorization input", () => {
-  const authorization = authorizationFixture();
-  const before = structuredClone(authorization);
-  const plan = createProductionPlan({
-    productionAuthorization: authorization,
-    createdAt: "2026-08-12T14:00:00.000Z"
-  });
-  assert.deepEqual(authorization, before);
-  assert.equal(Object.isFrozen(plan), true);
-  assert.equal(Object.isFrozen(plan.platformWritePrice), true);
-  assert.throws(() => { plan.stock = 5; }, TypeError);
-  assert.throws(() => { plan.platformWritePrice.amount = 1; }, TypeError);
+test("冻结包装资料缺失时明确拒绝，不用当前资料补全", () => {
+  const fixture = authorizedProductionFixture();
+  const plan = structuredClone(createProductionPlan(fixture));
+  delete plan.sourceAuthorization.lockedScope.finalCardInputSnapshot.c1Snapshot.productAttributes.weight;
+  const original = structuredClone(plan);
+  assert.throws(() => projectProductionPlanInputs(plan), /校验失败/);
+  assert.throws(() => createProductionPlan({ ...fixture, productionAuthorization: plan.sourceAuthorization }), /校验失败/);
+  assert.deepEqual(plan, original);
 });
 
-test("13A keeps an existing plan unchanged and reports later authorization drift", () => {
-  const authorization = authorizationFixture();
-  const plan = createProductionPlan({
-    productionAuthorization: authorization,
-    createdAt: "2026-08-12T14:00:00.000Z"
-  });
-  const originalPlan = structuredClone(plan);
-  const unchanged = validateProductionPlanAuthorizationBinding(plan, authorization);
-  assert.equal(unchanged.valid, true);
-  assert.equal(unchanged.status, "authorization_unchanged");
-
-  const changedAuthorization = structuredClone(authorization);
-  changedAuthorization.lockedScope.title = "Изменённый заголовок";
-  const drift = validateProductionPlanAuthorizationBinding(plan, changedAuthorization);
-  assert.equal(drift.valid, false);
-  assert.equal(drift.status, "authorization_drift_detected");
-  assert.deepEqual(plan, originalPlan);
-  assert.equal(plan.platformWritePrice.amount, 151.78);
+test("计划与授权均不可变；重新载入后不接受字段镜像或其他正式授权替换", () => {
+  const fixture = authorizedProductionFixture();
+  const before = structuredClone(fixture);
+  const plan = createProductionPlan(fixture);
+  assert.ok(Object.isFrozen(plan.sourceAuthorization.lockedScope));
+  assert.throws(() => { plan.sourceAuthorization.lockedScope.stock = 5; }, TypeError);
+  assert.deepEqual(fixture, before);
+  assert.equal(validateProductionPlanAuthorizationBinding(plan, fixture.productionAuthorization).valid, true);
+  const other = authorizedProductionFixture({ publishScope: "create_draft_only" });
+  assert.equal(validateProductionPlanAuthorizationBinding(plan, other.productionAuthorization).status, "authorization_drift_detected");
+  for (const change of [
+    value => { value.title = "unapproved"; },
+    value => { value.platformWritePrice = { amount: 1, currency: "CNY" }; },
+    value => { value.sourceAuthorization.lockedScope.merchantSku = "unapproved"; }
+  ]) {
+    const loaded = JSON.parse(JSON.stringify(plan)); change(loaded);
+    assert.equal(validateProductionPlan(loaded).valid, false);
+    assert.throws(() => projectProductionPlanInputs(loaded), /校验失败/);
+  }
 });
 
-test("13A rejects an invalid or unconfirmed authorization instead of building a fallback plan", () => {
-  const invalid = authorizationFixture();
+test("无效或未确认授权不生成计划", () => {
+  const fixture = authorizedProductionFixture();
+  const invalid = structuredClone(fixture.productionAuthorization);
   invalid.status = "pending";
-  assert.throws(() => createProductionPlan({
-    productionAuthorization: invalid,
-    createdAt: "2026-08-12T14:00:00.000Z"
-  }), /ProductionAuthorization校验失败/);
+  assert.throws(() => createProductionPlan({ ...fixture, productionAuthorization: invalid }), /ProductionAuthorization校验失败/);
 });
 
-test("published ProductionPlan schema freezes the simulation-only no-write boundary", async () => {
-  const url = new URL("../schema/production-plan-v1.1.schema.json", import.meta.url);
-  const schema = JSON.parse(await readFile(url, "utf8"));
-  for (const field of [
-    "platform", "store", "skuPackageId", "sku", "titleVersion", "title", "attributeVersion",
-    "attributes", "platformCategory", "buyerTargetPrice", "platformWritePrice", "priceConversion", "stock", "assetsFinalUploadsVersion", "finalUploads", "executionStrategy", "publishScope"
-  ]) assert.ok(schema.required.includes(field), field);
-  assert.equal(schema.properties.mode.const, "simulation");
-  assert.equal(schema.properties.sourceDataAccess.const, "production_authorization_only");
-  assert.equal(schema.properties.sourceReadPolicy.const, "authorization_snapshot_only");
-  assert.equal(schema.properties.stock.const, 100);
-  assert.equal(schema.properties.platformWrites.const, 0);
-  assert.equal(schema.properties.productCreated.const, false);
-  assert.equal(schema.properties.assetsUploaded.const, 0);
-  assert.equal(schema.properties.readbackPerformed.const, false);
+test("v1.1 plans remain strict readable history while new production plans require actual v1.2 owner authorization", async () => {
+  const { fixture, plan } = historicalPlanFixture();
+  const before = structuredClone(plan);
+  assert.deepEqual(validateProductionPlan(plan), { valid: true, errors: [] });
+  assert.equal(projectProductionPlanInputs(plan).sku.merchantSku, fixture.productionAuthorization.lockedScope.merchantSku);
+  const validator = (await loadPublishedSchemaValidator()).getSchema("production-plan-v1.1");
+  assert.equal(validator(plan), true, JSON.stringify(validator.errors));
+  assert.throws(() => createProductionPlan(fixture), /PRODUCTION_AUTHORIZATION_RECONFIRMATION_REQUIRED/);
+  assert.deepEqual(plan, before);
+  const current = createProductionPlan(authorizedProductionFixture());
+  assert.equal(current.sourceAuthorization.schemaVersion, "production-authorization-v1.2");
+  assert.equal(validator(current), true, JSON.stringify(validator.errors));
+});
+
+test("published ProductionPlan schema and runtime share the exact frozen no-write contract", async () => {
+  const schema = JSON.parse(await readFile(new URL("../schema/production-plan-v1.1.schema.json", import.meta.url), "utf8"));
+  const plan = createProductionPlan(authorizedProductionFixture());
+  assert.deepEqual(Object.keys(plan).sort(), [...schema.required].sort());
+  assert.deepEqual(Object.keys(plan).sort(), Object.keys(schema.properties).sort());
+  assert.deepEqual(schema.properties.sourceAuthorization.oneOf, [{ $ref: "production-authorization-v1.1" }, { $ref: "production-authorization-v1.2" }]);
+  assert.equal(schema.additionalProperties, false);
+  for (const [key, property] of Object.entries(schema.properties)) if (Object.hasOwn(property, "const")) assert.equal(plan[key], property.const, key);
 });

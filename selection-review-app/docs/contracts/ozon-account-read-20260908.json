@@ -1,0 +1,913 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Документация Ozon Seller API",
+    "version": 2.1
+  },
+  "servers": [
+    {
+      "url": "//api-seller.ozon.ru"
+    }
+  ],
+  "paths": {
+    "/v1/roles": {
+      "post": {
+        "summary": "Получить список ролей и методов по API-ключу",
+        "description": "Метод для получения информации и ролях и методах, привязанных к API-ключу.\n",
+        "operationId": "AccessAPI_RolesByToken",
+        "tags": [
+          "APIkey"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Client-Id"
+          },
+          {
+            "$ref": "#/components/parameters/Api-Key"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Список ролей и методов",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/v1RolesByTokenResponse"
+                },
+                "example": {
+                  "expires_at": "2026-02-18T09:54:23.296Z",
+                  "roles": [
+                    {
+                      "name": "Admin",
+                      "methods": [
+                        "/v1/actions"
+                      ]
+                    },
+                    {
+                      "name": "Posting FBS",
+                      "methods": [
+                        "/v1/posting"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/rpcStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/seller/info": {
+      "post": {
+        "tags": [
+          "SellerInfo"
+        ],
+        "summary": "Информация о кабинете продавца",
+        "operationId": "SellerAPI_SellerInfo",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Client-Id"
+          },
+          {
+            "$ref": "#/components/parameters/Api-Key"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Информация о кабинете продавца",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/v1SellerInfoResponse"
+                },
+                "example": {
+                  "company": {
+                    "country": "Россия",
+                    "currency": "RUB",
+                    "inn": "7707083893",
+                    "legal_name": "Общество с ограниченной ответственностью 'Ромашка'",
+                    "name": "ООО 'Ромашка'",
+                    "ogrn": "1027700132195",
+                    "ownership_form": "Частная собственность",
+                    "tax_system": "ОСНО"
+                  },
+                  "ratings": [
+                    {
+                      "current_value": {
+                        "date_from": "2023-01-15T09:00:00Z",
+                        "date_to": "2023-12-31T23:59:59Z",
+                        "formatted": "AA+",
+                        "status": {
+                          "danger": false,
+                          "premium": true,
+                          "warning": false
+                        },
+                        "value": 85
+                      },
+                      "name": "Финансовая устойчивость",
+                      "past_value": {
+                        "date_from": "2022-01-01T00:00:00Z",
+                        "date_to": "2022-12-31T23:59:59Z",
+                        "formatted": "A",
+                        "status": {
+                          "danger": false,
+                          "premium": false,
+                          "warning": true
+                        },
+                        "value": 78
+                      },
+                      "rating": "Высокий уровень",
+                      "status": "Активно",
+                      "value_type": "Количественный"
+                    }
+                  ],
+                  "subscription": {
+                    "is_premium": true,
+                    "type": "Профессиональный"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/googlerpcStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v2/warehouse/list": {
+      "post": {
+        "summary": "Список складов",
+        "description": "Метод возвращает список складов FBS и rFBS. Чтобы получить список складов FBO, используйте метод [/v1/warehouse/fbo/list](#operation/SupplyDraftAPI_DraftGetWarehouseFboList).\n",
+        "operationId": "WarehouseListV2",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Client-Id"
+          },
+          {
+            "$ref": "#/components/parameters/Api-Key"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/v2WarehouseListV2Request"
+              },
+              "example": {
+                "cursor": "string",
+                "limit": 0,
+                "warehouse_ids": [
+                  20605650762000
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Список складов",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/v2WarehouseListV2Response"
+                },
+                "example": {
+                  "cursor": "string",
+                  "warehouses": [
+                    {
+                      "address_info": {
+                        "address": "Россия, Московская Область, Софьино, промзона ССТ, к2, 2",
+                        "latitude": 55.495093,
+                        "longitude": 38.172731,
+                        "utc": "UTC+03:00"
+                      },
+                      "carriage_label_type": "BIG",
+                      "courier_comment": "",
+                      "courier_phones": [
+                        "+7(999)999-99-99"
+                      ],
+                      "created_at": "2025-03-11T11:57:51.811Z",
+                      "first_mile": {
+                        "type": "PICK_UP",
+                        "dropoff_point_id": "1020002075314000",
+                        "timeslot_from": "20:59",
+                        "timeslot_id": 287231,
+                        "timeslot_to": "21:00",
+                        "first_mile_is_changing": false
+                      },
+                      "has_entrusted_acceptance": true,
+                      "has_postings_limit": false,
+                      "is_auto_assembly": true,
+                      "is_kgt": true,
+                      "is_rfbs": true,
+                      "is_waybill_enabled": true,
+                      "min_postings_limit": 2,
+                      "is_comfort": true,
+                      "is_express": true,
+                      "warehouse_type": "string",
+                      "cut_in_time": 0,
+                      "name": "17023",
+                      "phone": "+7(999)999-99-99",
+                      "postings_limit": -1,
+                      "sla_cut_in": 2939,
+                      "status": "created",
+                      "timetable": {
+                        "timetable_from": "2025-03-11T11:57:51.811Z",
+                        "timetable_to": "2025-03-11T11:57:51.811Z",
+                        "working_hours": [
+                          {
+                            "time_from": "2025-03-11T11:57:51.811Z",
+                            "time_to": "2025-03-11T11:57:51.811Z"
+                          }
+                        ]
+                      },
+                      "updated_at": "2025-03-11T11:57:51.811Z",
+                      "warehouse_id": 20605650762000,
+                      "with_item_list": true,
+                      "working_days": [
+                        "MONDAY",
+                        "TUESDAY",
+                        "WEDNESDAY",
+                        "THURSDAY",
+                        "FRIDAY"
+                      ]
+                    }
+                  ],
+                  "has_next": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/rpcStatus"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "WarehouseAPI"
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "rpcStatus": {
+        "type": "object",
+        "title": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Код ошибки."
+          },
+          "details": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/protobufAny"
+            },
+            "description": "Дополнительная информация об ошибке."
+          },
+          "message": {
+            "type": "string",
+            "description": "Описание ошибки."
+          }
+        }
+      },
+      "protobufAny": {
+        "type": "object",
+        "title": "object",
+        "properties": {
+          "typeUrl": {
+            "type": "string",
+            "description": "Тип протокола передачи данных."
+          },
+          "value": {
+            "type": "string",
+            "format": "byte",
+            "description": "Значение ошибки."
+          }
+        }
+      },
+      "v2WarehouseListV2Response": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "description": "Указатель для выборки следующих данных."
+          },
+          "warehouses": {
+            "description": "Список складов.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WarehouseListV2ResponseWarehouse"
+            }
+          },
+          "has_next": {
+            "type": "boolean",
+            "description": "`true`, если в ответе вернулись не все значения.\n"
+          }
+        }
+      },
+      "WarehouseListV2ResponseWarehouse": {
+        "type": "object",
+        "properties": {
+          "address_info": {
+            "$ref": "#/components/schemas/WarehouseAddressInfo"
+          },
+          "carriage_label_type": {
+            "$ref": "#/components/schemas/WarehouseCarriageLabelTypeEnum"
+          },
+          "courier_comment": {
+            "description": "Комментарий для курьера.",
+            "type": "string"
+          },
+          "courier_phones": {
+            "description": "Номера телефонов для связи с курьером.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "created_at": {
+            "description": "Дата и время создания склада.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "cut_in_time": {
+            "description": "Время на отгрузку в минутах.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "first_mile": {
+            "$ref": "#/components/schemas/WarehouseFirstMile"
+          },
+          "has_entrusted_acceptance": {
+            "type": "boolean",
+            "description": "Признак подключения доверительной приемки."
+          },
+          "has_postings_limit": {
+            "type": "boolean",
+            "description": "Признак наличия лимита минимального количества заказов. `true`, если лимит есть."
+          },
+          "is_auto_assembly": {
+            "type": "boolean",
+            "description": "Признак включённой автосборки."
+          },
+          "is_comfort": {
+            "type": "boolean",
+            "description": "Признак доставки comfort. Время доставки до покупателя от 60 минут."
+          },
+          "is_express": {
+            "description": "Признак доставки express. Время доставки до покупателя не больше 60 минут.",
+            "type": "boolean"
+          },
+          "is_kgt": {
+            "type": "boolean",
+            "description": "Признак, что склад принимает крупногабаритные товары."
+          },
+          "is_rfbs": {
+            "type": "boolean",
+            "description": "Признак работы склада по схеме rFBS."
+          },
+          "is_waybill_enabled": {
+            "description": "Признак включённой печати транспортной накладной.",
+            "type": "boolean"
+          },
+          "min_postings_limit": {
+            "description": "Минимальное количество заказов, которое можно привезти в одной поставке.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "description": "Название склада.",
+            "type": "string"
+          },
+          "pause_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Дата, когда продавец поставил склад на паузу. Если значение `null`, склад активный. Только для rFBS-склада."
+          },
+          "phone": {
+            "description": "Номер телефона склада.",
+            "type": "string"
+          },
+          "postings_limit": {
+            "description": "Лимит заказов. `-1`, если лимита нет.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "sla_cut_in": {
+            "description": "Минимальное время на сборку заказа в минутах.",
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "description": "Статус склада.",
+            "type": "string"
+          },
+          "timetable": {
+            "$ref": "#/components/schemas/WarehouseTimetable"
+          },
+          "updated_at": {
+            "description": "Дата и время последнего обновления данных склада.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "warehouse_id": {
+            "description": "Идентификатор склада.",
+            "type": "integer",
+            "format": "int64"
+          },
+          "warehouse_type": {
+            "description": "Тип склада.",
+            "type": "string"
+          },
+          "with_item_list": {
+            "description": "Признак включённой печати листа подбора.",
+            "type": "boolean"
+          },
+          "working_days": {
+            "description": "Рабочие дни склада:\n- `UNSPECIFIED` — значение не определено;\n- `MONDAY` — понедельник;\n- `TUESDAY` — вторник;\n- `WEDNESDAY` — среда;\n- `THURSDAY` — четверг;\n- `FRIDAY` — пятница;\n- `SATURDAY` — суббота;\n- `SUNDAY` — воскресенье.\n",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WarehouseWorkingDaysEnum"
+            }
+          }
+        }
+      },
+      "WarehouseWorkingDaysEnum": {
+        "type": "string",
+        "default": "UNSPECIFIED",
+        "enum": [
+          "UNSPECIFIED",
+          "MONDAY",
+          "TUESDAY",
+          "WEDNESDAY",
+          "THURSDAY",
+          "FRIDAY",
+          "SATURDAY",
+          "SUNDAY"
+        ]
+      },
+      "WarehouseTimetable": {
+        "type": "object",
+        "description": "Расписание работы склада.",
+        "properties": {
+          "timetable_from": {
+            "description": "Дата начала работы склада.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "timetable_to": {
+            "description": "Дата окончания работы склада.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "working_hours": {
+            "description": "Часы работы склада.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TimetableWorkingHours"
+            }
+          }
+        }
+      },
+      "TimetableWorkingHours": {
+        "type": "object",
+        "description": "Часы работы склада.",
+        "properties": {
+          "time_from": {
+            "description": "Время начала работы.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "time_to": {
+            "description": "Время окончания работы.",
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "WarehouseFirstMile": {
+        "type": "object",
+        "description": "Первая миля.",
+        "properties": {
+          "dropoff_point_id": {
+            "type": "string",
+            "description": "Идентификатор drop-off пункта."
+          },
+          "first_mile_is_changing": {
+            "type": "boolean",
+            "description": "Признак, что настройки склада обновляются."
+          },
+          "timeslot_from": {
+            "type": "string",
+            "description": "Время начала таймслота."
+          },
+          "timeslot_id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Идентификатор таймслота."
+          },
+          "timeslot_to": {
+            "type": "string",
+            "description": "Время окончания таймслота."
+          },
+          "type": {
+            "$ref": "#/components/schemas/FirstMileTypeEnum"
+          }
+        }
+      },
+      "FirstMileTypeEnum": {
+        "type": "string",
+        "default": "UNSPECIFIED",
+        "description": "Тип первой мили — `PICK_UP` или `DROP_OFF`.",
+        "enum": [
+          "UNSPECIFIED",
+          "PICK_UP",
+          "DROP_OFF"
+        ]
+      },
+      "WarehouseCarriageLabelTypeEnum": {
+        "type": "string",
+        "default": "UNSPECIFIED",
+        "description": "Тип этикетки:\n- `UNSPECIFIED` — неизвестный тип;\n- `BIG` — большая этикетка;\n- `SMALL` — маленькая этикетка.\n",
+        "enum": [
+          "UNSPECIFIED",
+          "BIG",
+          "SMALL"
+        ]
+      },
+      "WarehouseAddressInfo": {
+        "type": "object",
+        "description": "Информация о расположении склада.",
+        "properties": {
+          "address": {
+            "description": "Адрес склада.",
+            "type": "string"
+          },
+          "latitude": {
+            "description": "Широта.",
+            "type": "number",
+            "format": "double"
+          },
+          "longitude": {
+            "description": "Долгота.",
+            "type": "number",
+            "format": "double"
+          },
+          "utc": {
+            "description": "Часовой пояс.",
+            "type": "string"
+          }
+        }
+      },
+      "v2WarehouseListV2Request": {
+        "required": [
+          "limit"
+        ],
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "required": true,
+            "maximum": 200,
+            "description": "Количество значений в ответе."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Указатель для выборки следующих данных."
+          },
+          "warehouse_ids": {
+            "description": "Идентификаторы складов.",
+            "type": "array",
+            "maximum": 200,
+            "items": {
+              "type": "string",
+              "format": "int64"
+            }
+          }
+        }
+      },
+      "googlerpcStatus": {
+        "type": "object",
+        "title": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Код ошибки."
+          },
+          "details": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/protobufAny"
+            },
+            "description": "Дополнительная информация об ошибке."
+          },
+          "message": {
+            "type": "string",
+            "description": "Описание ошибки."
+          }
+        }
+      },
+      "v1SellerInfoResponse": {
+        "type": "object",
+        "properties": {
+          "company": {
+            "$ref": "#/components/schemas/SellerInfoResponseCompany"
+          },
+          "ratings": {
+            "type": "array",
+            "description": "Список рейтингов.",
+            "items": {
+              "$ref": "#/components/schemas/SellerInfoResponseRating"
+            }
+          },
+          "subscription": {
+            "$ref": "#/components/schemas/SellerInfoResponseSubscription"
+          }
+        }
+      },
+      "SellerInfoResponseSubscription": {
+        "type": "object",
+        "description": "Подписка.",
+        "properties": {
+          "is_premium": {
+            "type": "boolean",
+            "description": "`true`, если есть подписка.\n"
+          },
+          "type": {
+            "$ref": "#/components/schemas/SellerInfoResponseSubscriptionTypeEnum"
+          }
+        }
+      },
+      "SellerInfoResponseSubscriptionTypeEnum": {
+        "type": "string",
+        "default": "UNKNOWN",
+        "description": "Тип подписки:\n- `UNKNOWN` — неизвестный,\n- `UNSPECIFIED` — нет подписки,\n- `PREMIUM` — Premium,\n- `PREMIUM_LITE` — Premium Lite,\n- `PREMIUM_PLUS` — Premium Plus,\n- `PREMIUM_PRO` — Premium Pro.\n",
+        "enum": [
+          "UNKNOWN",
+          "UNSPECIFIED",
+          "PREMIUM",
+          "PREMIUM_LITE",
+          "PREMIUM_PLUS",
+          "PREMIUM_PRO"
+        ]
+      },
+      "SellerInfoResponseRating": {
+        "type": "object",
+        "properties": {
+          "current_value": {
+            "$ref": "#/components/schemas/RatingValueCurrent"
+          },
+          "name": {
+            "type": "string",
+            "description": "Название рейтинга."
+          },
+          "past_value": {
+            "$ref": "#/components/schemas/RatingValuePast"
+          },
+          "rating": {
+            "type": "string",
+            "description": "Название рейтинга в системе."
+          },
+          "status": {
+            "$ref": "#/components/schemas/RatingStatusEnum"
+          },
+          "value_type": {
+            "$ref": "#/components/schemas/SellerInfoResponseRatingTypeEnum"
+          }
+        }
+      },
+      "SellerInfoResponseRatingTypeEnum": {
+        "type": "string",
+        "description": "Тип значения:\n- `UNKNOWN` — не определён, \n- `INDEX` — индекс,\n- `PERCENT` — процент,\n- `TIME` — время,\n- `RATIO` — коэффициент,\n- `REVIEW_SCORE` — оценка,\n- `COUNT` — счёт.\n",
+        "default": "UNKNOWN",
+        "enum": [
+          "UNKNOWN",
+          "INDEX",
+          "PERCENT",
+          "TIME",
+          "RATIO",
+          "REVIEW_SCORE",
+          "COUNT"
+        ]
+      },
+      "RatingStatusEnum": {
+        "type": "string",
+        "description": "Статус рейтинга:\n- `UNKNOWN` — не определён;\n- `OK` — хороший;\n- `WARNING` — показатели требуют внимания;\n- `CRITICAL` — критичный.\n",
+        "default": "UNKNOWN",
+        "enum": [
+          "UNKNOWN",
+          "OK",
+          "WARNING",
+          "CRITICAL"
+        ]
+      },
+      "RatingValuePast": {
+        "type": "object",
+        "description": "Предыдущее значение рейтинга.",
+        "properties": {
+          "date_from": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Дата начала подсчёта рейтинга."
+          },
+          "date_to": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Дата конца подсчёта рейтинга."
+          },
+          "formatted": {
+            "type": "string",
+            "description": "Отформатированное значение рейтинга."
+          },
+          "status": {
+            "$ref": "#/components/schemas/v1RatingStatus"
+          },
+          "value": {
+            "type": "number",
+            "format": "double",
+            "description": "Значение рейтинга в системе."
+          }
+        }
+      },
+      "v1RatingStatus": {
+        "type": "object",
+        "title": "object",
+        "description": "Статус рейтинга.",
+        "properties": {
+          "danger": {
+            "type": "boolean",
+            "description": "Признак, превышено ли пороговое значение рейтинга для блокировки."
+          },
+          "premium": {
+            "type": "boolean",
+            "description": "Признак, достигнуто ли пороговое значение для участия в Premium-программе."
+          },
+          "warning": {
+            "type": "boolean",
+            "description": "Признак наличия предупреждения о возможном превышении порогового значения для блокировки."
+          }
+        }
+      },
+      "RatingValueCurrent": {
+        "type": "object",
+        "description": "Значение рейтинга.",
+        "properties": {
+          "date_from": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Дата начала подсчёта рейтинга."
+          },
+          "date_to": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Дата конца подсчёта рейтинга."
+          },
+          "formatted": {
+            "type": "string",
+            "description": "Отформатированное значение рейтинга."
+          },
+          "status": {
+            "$ref": "#/components/schemas/v1RatingStatus"
+          },
+          "value": {
+            "type": "number",
+            "format": "double",
+            "description": "Значение рейтинга в системе."
+          }
+        }
+      },
+      "SellerInfoResponseCompany": {
+        "type": "object",
+        "description": "Компания.",
+        "properties": {
+          "country": {
+            "type": "string",
+            "description": "Страна."
+          },
+          "currency": {
+            "type": "string",
+            "description": "Валюта:\n- `RUB` — российский рубль;\n- `EUR` — евро;\n- `USD` — доллар США;\n- `CNY` — юань;\n- `BYN` — белорусский рубль;\n- `KZT` — тенге;\n- `KGS` — киргизский сом.\n"
+          },
+          "inn": {
+            "type": "string",
+            "description": "ИНН."
+          },
+          "legal_name": {
+            "type": "string",
+            "description": "Название юридического лица."
+          },
+          "name": {
+            "type": "string",
+            "description": "Название компании на Ozon."
+          },
+          "ogrn": {
+            "type": "string",
+            "description": "ОГРН."
+          },
+          "ownership_form": {
+            "type": "string",
+            "description": "Форма собственности."
+          },
+          "tax_system": {
+            "$ref": "#/components/schemas/CompanyTaxSystemEnum"
+          }
+        }
+      },
+      "CompanyTaxSystemEnum": {
+        "type": "string",
+        "description": "Система налогообложения:\n- `UNKNOWN` — неизвестная,\n- `UNSPECIFIED` — не определена,\n- `OSNO` — ОСНО,\n- `USN` — УСН,\n- `NPD` — НПД,\n- `AUSN` — АУСН,\n- `PSN` — ПСН.\n",
+        "default": "UNKNOWN",
+        "enum": [
+          "UNKNOWN",
+          "UNSPECIFIED",
+          "OSNO",
+          "USN",
+          "NPD",
+          "AUSN",
+          "PSN"
+        ]
+      },
+      "v1RolesByTokenResponse": {
+        "type": "object",
+        "properties": {
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Дата истечения срока действия ключа."
+          },
+          "roles": {
+            "type": "array",
+            "description": "Информация о доступных ролях и методах.",
+            "items": {
+              "$ref": "#/components/schemas/RolesByTokenResponseRoles"
+            }
+          }
+        }
+      },
+      "RolesByTokenResponseRoles": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Название роли."
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Методы, доступные для роли."
+          }
+        }
+      }
+    },
+    "parameters": {
+      "Api-Key": {
+        "description": "API-ключ.",
+        "in": "header",
+        "name": "Api-Key",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "Client-Id": {
+        "description": "Идентификатор клиента.",
+        "in": "header",
+        "name": "Client-Id",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

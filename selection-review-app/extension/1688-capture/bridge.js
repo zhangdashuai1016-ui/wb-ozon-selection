@@ -5,7 +5,6 @@ const ROUTES = Object.freeze({
 const STATUS_PING = "SELECTION_REVIEW_EXTENSION_STATUS_PING";
 const STATUS_RESPONSE = "SELECTION_REVIEW_EXTENSION_STATUS_RESPONSE";
 const BACKGROUND_PING = "SELECTION_REVIEW_EXTENSION_BACKGROUND_PING";
-const LAST_SEEN_KEY = "selection-review-extension-last-seen";
 const version = chrome.runtime.getManifest().version;
 
 async function readBackgroundStatus() {
@@ -13,18 +12,16 @@ async function readBackgroundStatus() {
     const response = await chrome.runtime.sendMessage({ type: BACKGROUND_PING });
     return {
       backgroundReady: response?.accepted === true,
-      backgroundError: response?.accepted === true ? "" : "插件后台没有确认可用状态"
+      serviceConnected: response?.serviceConnected === true,
+      backgroundError: response?.accepted === true ? "" : response?.code === "extension_identity_rejected" ? "插件身份未获服务端允许，禁止领取作业" : "插件后台或评审台连接尚未确认"
     };
-  } catch (error) {
-    return { backgroundReady: false, backgroundError: String(error?.message || error) };
+  } catch {
+    return { backgroundReady: false, serviceConnected: false, backgroundError: "插件后台没有响应" };
   }
 }
 
 async function publishStatus(nonce = "") {
   const background = await readBackgroundStatus();
-  try {
-    window.localStorage.setItem(LAST_SEEN_KEY, JSON.stringify({ version, seenAt: new Date().toISOString() }));
-  } catch {}
   window.postMessage({ type: STATUS_RESPONSE, version, nonce, ...background }, window.location.origin);
 }
 
@@ -36,27 +33,35 @@ window.addEventListener("message", async (event) => {
   if (event.source !== window || event.origin !== "http://127.0.0.1:4317") return;
   const message = event.data;
   if (message?.type === STATUS_PING) {
-    await publishStatus(String(message.nonce || ""));
+    await publishStatus(typeof message.nonce === "string" ? message.nonce.slice(0, 128) : "");
     return;
   }
   const ackType = message && ROUTES[message.type];
-  if (!ackType || !message.payload?.captureId) return;
+  if (!ackType) return;
+  const validSignal = Object.keys(message).length === 2 &&
+    typeof message.captureId === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(message.captureId);
+  if (!validSignal) {
+    // Correlate a rejection for an older page without forwarding any of its payload to the worker.
+    const rejectedId = [message.captureId, message.payload?.captureId].find((value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(value)) || "";
+    window.postMessage({ type: ackType, captureId: rejectedId, accepted: false, code: "start_signal_invalid", error: "仅接受无凭据的开始提示" }, window.location.origin);
+    return;
+  }
 
   let response = { accepted: false, error: "扩展后台没有响应" };
   try {
     response = await chrome.runtime.sendMessage({
       type: message.type,
-      payload: message.payload
+      captureId: message.captureId
     });
-  } catch (error) {
-    response = { accepted: false, code: "background_unavailable", error: String(error?.message || error) };
+  } catch {
+    response = { accepted: false, code: "background_unavailable" };
   }
 
   window.postMessage({
     type: ackType,
-    captureId: message.payload.captureId,
+    captureId: message.captureId,
     accepted: response?.accepted === true,
-    code: response?.code || "",
-    error: response?.error || ""
+    code: ["request_origin_invalid", "start_signal_invalid", "capture_busy", "capture_job_invalid", "capture_job_not_claimed", "heartbeat_unavailable", "extension_identity_rejected", "background_unavailable"].includes(response?.code) ? response.code : "",
+    error: response?.accepted === true ? "" : "插件未确认领取作业，请查看当前技术状态"
   }, window.location.origin);
 });

@@ -1,15 +1,17 @@
 import test from "node:test";
+import { packageFixture, assetRegions } from "./helpers/c2-software-fixture.mjs";
+import { createC2SoftwareContainer } from "../lib/c2-software-orchestrator.mjs";
 import assert from "node:assert/strict";
-import { createTrainCandidate, createMusicBoxCandidate } from "./helpers/legacy-candidate-fixture.mjs";
+import { createMusicBoxCandidate } from "./helpers/legacy-candidate-fixture.mjs";
 import {
   mapLifecycleStatus,
   withTechnicalFailureDisplay
 } from "../src/lifecycleStatusView.js";
 
-async function currentCandidate(id = "CX-20260803-010") {
-  if (id === "CX-20260803-010") return createTrainCandidate();
-  assert.equal(id, "CX-20260802-014");
-  return createMusicBoxCandidate();
+function currentCandidate() {
+  const source = packageFixture({ candidateId: "candidate:fixture:display" });
+  const { skuPackage } = createC2SoftwareContainer({ skuPackage: source, expectedDataRevision: source.dataRevision, assetRegions: assetRegions(), createdAt: "2026-08-22T06:00:00.000Z" });
+  return { id: source.g1Identity.candidateId, dataRevision: 1, lifecycleV11: { skuPackage } };
 }
 
 test("a stored SKU lifecycle package renders all four current state lines", async () => {
@@ -49,7 +51,7 @@ test("lifecycle display is no longer tied to a candidate ID and still requires a
 });
 
 test("an OpportunityPackage-only candidate renders its four lines without upgrading unknown to A", async () => {
-  const candidate = structuredClone(await currentCandidate("CX-20260802-014"));
+  const candidate = structuredClone(createMusicBoxCandidate());
   delete candidate.lifecycleV11.skuPackage;
   candidate.lifecycleV11.opportunityPackage.businessPhase = "unknown";
   const status = mapLifecycleStatus(candidate);

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "commission-reference-source-v1",
+  "catalogId": "wb-china-commission",
+  "catalogVersion": "2026-09-09T05:02:34.628109Z",
+  "platform": "wb",
+  "sellerRegion": "CN",
+  "sourceUrl": "https://common-api.wildberries.ru/api/v1/tariffs/commission",
+  "acquiredAt": "2026-09-09T05:02:34.628109Z",
+  "sourceReceiptRef": "wb-download-receipt-20260909",
+  "sourceField": "kgvpChina",
+  "rowCount": 7408,
+  "categoryIdentityField": "subjectID",
+  "effectiveFrom": null,
+  "effectiveTo": null,
+  "salesSchemes": null,
+  "priceConditions": null,
+  "applicabilityStatus": "official_mode_and_price_conditions_not_yet_verified",
+  "purpose": "saved_official_reference_not_formal_profit_evidence",
+  "refreshFrequency": null,
+  "productionEvidenceCommitted": false
+}

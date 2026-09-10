@@ -1,71 +1,23 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { currentProductionBindingFixture } from "./helpers/d-software-fixture.mjs";
+import { authorizedProductionFixture, packageFixture } from "./helpers/c2-software-fixture.mjs";
 import {
   executeSingleSkuDraftCreation,
   PRODUCTION_RECORD_VERSION,
   validateProductionRecord
 } from "../lib/draft-production-execution.mjs";
 import {
-  createProductionPlan,
+  createProductionPlan, projectProductionPlanInputs,
   fingerprintProductionPlan
 } from "../lib/production-plan.mjs";
 
-function authorizationFixture() {
-  return {
-    schemaVersion: "production-authorization-v1.1",
-    authorizationId: "production-auth:sku-lifecycle:TEST-SKU-001:SUP-001:23",
-    status: "confirmed",
-    confirmedBy: "owner",
-    confirmedAt: "2026-08-12T15:00:00.000Z",
-    sourceConfirmationCardId: "final-plan-card:TEST-SKU-001:22",
-    authorizedDataRevision: 23,
-    lockedScope: {
-      platform: "ozon",
-      store: "dandanshu",
-      skuPackageId: "sku-lifecycle:TEST-SKU-001:SUP-001",
-      supplierSkuId: "SUP-001",
-      variantKey: "single-variant",
-      titleVersion: "title-v1",
-      title: "Тестовый деревянный 3D-пазл",
-      attributeVersion: "attributes-v1",
-      attributes: {
-        requiredPlatformFields: [
-          { fieldKey: "brand", fact: { value: "Нет бренда", verificationStatus: "confirmed" } },
-          { fieldKey: "model_name", fact: { value: "Тестовый пазл", verificationStatus: "confirmed" } }
-        ]
-      },
-      platformCategory: {
-        descriptionCategoryId: { value: "17028665", verificationStatus: "confirmed" },
-        typeId: { value: "92935", verificationStatus: "confirmed" }
-      },
-      recommendedPrice: { rub: 1831, cny: 151.78 },
-      buyerTargetPrice: { amount: 1831, currency: "RUB" },
-      platformWritePrice: { amount: 151.78, currency: "CNY" },
-      priceConversion: { rubPerCny: 12.0637, evidenceRef: "fx:cbr:2026-08-07:RUB-CNY", checkedAt: "2026-08-07T00:00:00.000Z" },
-      stock: 100,
-      assetsFinalUploadsVersion: "assets-final-v1",
-      finalUploads: [{ assetId: "final-main", assetRef: "/owner/final-main.png", ownerConfirmed: true, productionEligible: true }],
-      publishScope: "create_draft_only",
-      exclusions: ["no_publish", "no_activate", "no_moderation_submission", "no_advertising"],
-      allowedWriteFields: ["create_product", "title", "attributes", "price", "stock", "assets.finalUploads", "publish_scope"]
-    },
-    scopeExpansionAllowed: false,
-    fieldMutationAllowed: false,
-    skuReplacementAllowed: false,
-    assetReplacementAllowed: false,
-    readPolicy: "authorization_snapshot_only",
-    productionExecuted: false,
-    platformWrites: 0
-  };
-}
-
-function planAndPreflight() {
-  const authorization = authorizationFixture();
-  const plan = createProductionPlan({
-    productionAuthorization: authorization,
-    createdAt: "2026-08-12T15:05:00.000Z"
-  });
+function planAndPreflight(options = {}) {
+  const fixture = authorizedProductionFixture({ publishScope: "create_draft_only", ...options });
+  const authorization = fixture.productionAuthorization;
+  const plan = createProductionPlan(fixture);
+  const inputs = projectProductionPlanInputs(plan);
   const preflight = {
     schemaVersion: "platform-write-preflight-v1.1",
     preflightId: "platform-preflight:TEST-SKU-001",
@@ -75,6 +27,7 @@ function planAndPreflight() {
     storeIdentity: {
       expectedStore: "dandanshu",
       observedStore: "dandanshu",
+      expectedStoreRef: structuredClone(inputs.storeRef), observedStoreRef: structuredClone(inputs.storeRef),
       status: "matched",
       evidenceRef: "test:store-identity"
     },
@@ -83,15 +36,15 @@ function planAndPreflight() {
       api: { status: "connected", checkedVia: "test_read_only", evidenceRef: "test:api" },
       sellerBackend: { status: "connected", checkedVia: "test_read_only", evidenceRef: "test:backend" }
     },
-    authorizedWriteFields: [...plan.allowedWriteFields],
+    authorizedWriteFields: [...inputs.allowedWriteFields],
     platformWritableFields: ["create_product", "title", "attributes", "price", "stock", "assets.finalUploads", "publish_scope"],
-    effectiveWritableFields: ["create_product", "title", "attributes", "price", "stock", "assets.finalUploads", "publish_scope"],
+    effectiveWritableFields: inputs.allowedWriteFields.filter(field => field !== "description"),
     imagePermission: { status: "verified", evidenceRef: "test:image-permission" },
     priceCurrency: { expected: "CNY", observed: "CNY", status: "matched", evidenceRef: "test:currency" },
     risks: [],
     technicalStatus: "completed",
     businessStateEffect: "none",
-    checkedAt: "2026-08-12T15:06:00.000Z",
+    checkedAt: "2026-08-22T07:06:00.000Z",
     readyForPlatformWrite: false,
     productCreated: false,
     imagesUploaded: 0,
@@ -100,21 +53,23 @@ function planAndPreflight() {
     productionRecordCreated: false,
     platformWrites: 0
   };
-  return { authorization, plan, preflight };
+  return { authorization, plan, inputs, preflight };
 }
 
 test("13B-2 creates exactly one draft and saves the returned platform product ID", async () => {
-  const { authorization, plan, preflight } = planAndPreflight();
+  const { authorization, plan, inputs, preflight } = planAndPreflight();
   let callCount = 0;
   let payload;
   const result = await executeSingleSkuDraftCreation({
     productionPlan: plan,
     productionAuthorization: authorization,
+    currentProductionBinding: currentProductionBindingFixture(authorization),
     platformWritePreflight: preflight,
-    executedAt: "2026-08-12T15:10:00.000Z",
+    executedAt: "2026-08-22T07:10:00.000Z",
     createPlatformDraft: async (value) => {
       callCount += 1;
       payload = value;
+      assert.equal(payload.schemaWriteBindings.schemaRevision, "ozon-schema:17028665:92935:2026-08-12");
       return {
         status: "draft",
         productId: "OZON-DRAFT-1001",
@@ -124,17 +79,17 @@ test("13B-2 creates exactly one draft and saves the returned platform product ID
         activated: false,
         advertisingOpened: false,
         inventoryModified: true,
-        imagesUploaded: 1
+        imagesUploaded: 2
       };
     },
     readbackPlatformDraft: async () => ({
       status: "draft",
       productId: "OZON-DRAFT-1001",
-      title: plan.title,
-      price: plan.platformWritePrice,
+      title: inputs.title,
+      price: inputs.platformWritePrice,
       stock: 100,
-      finalUploadAssetIds: ["final-main"],
-      mainImageAssetId: "final-main",
+      finalUploadAssetIds: inputs.finalUploads.map(asset => asset.assetId),
+      mainImageAssetId: inputs.finalUploads[0].assetId,
       evidenceRef: "ozon:draft-readback:OZON-DRAFT-1001",
       published: false,
       activated: false,
@@ -143,11 +98,13 @@ test("13B-2 creates exactly one draft and saves the returned platform product ID
   });
   assert.equal(callCount, 1);
   assert.equal(payload.batchSize, 1);
-  assert.equal(payload.supplierSkuId, "SUP-001");
-  assert.equal(payload.title, plan.title);
-  assert.deepEqual(payload.attributes, plan.attributes);
-  assert.deepEqual(payload.buyerTargetPrice, plan.buyerTargetPrice);
-  assert.deepEqual(payload.platformWritePrice, plan.platformWritePrice);
+  assert.equal(payload.supplierSkuId, "SHELF-WHITE");
+  assert.equal(payload.title, inputs.title);
+  assert.deepEqual(payload.content, inputs.content);
+  assert.deepEqual(payload.packing, inputs.packing);
+  assert.deepEqual(payload.attributes, inputs.attributes);
+  assert.deepEqual(payload.buyerTargetPrice, inputs.buyerTargetPrice);
+  assert.deepEqual(payload.platformWritePrice, inputs.platformWritePrice);
   assert.equal(payload.publishScope, "create_draft_only");
   assert.equal(payload.publish, false);
   assert.equal(payload.activate, false);
@@ -155,7 +112,7 @@ test("13B-2 creates exactly one draft and saves the returned platform product ID
   assert.equal(payload.writeInventory, true);
   assert.equal(payload.uploadImages, true);
   assert.equal(payload.stock, 100);
-  assert.deepEqual(payload.finalUploads, plan.finalUploads);
+  assert.deepEqual(payload.finalUploads, inputs.finalUploads);
 
   const record = result.productionRecord;
   assert.equal(record.schemaVersion, PRODUCTION_RECORD_VERSION);
@@ -165,21 +122,34 @@ test("13B-2 creates exactly one draft and saves the returned platform product ID
   assert.deepEqual(validateProductionRecord(record), { valid: true, errors: [] });
 });
 
-test("13B-2 reads only ProductionPlan fields and cannot expand into A/B/C, images, inventory, publish, activate or advertising", async () => {
+test("legacy draft entry cannot bypass the current owner-frozen production configuration", async () => {
   const { authorization, plan, preflight } = planAndPreflight();
+  const binding = currentProductionBindingFixture(authorization); let writes = 0; let readbacks = 0;
+  for (const currentProductionBinding of [null, { ...binding, configurationVersion: "config-v2" }, { ...binding, warehouseId: "70002" }]) {
+    await assert.rejects(() => executeSingleSkuDraftCreation({ productionPlan: plan, productionAuthorization: authorization,
+      platformWritePreflight: preflight, currentProductionBinding, executedAt: "2026-08-22T07:10:00.000Z",
+      createPlatformDraft: async () => { writes += 1; throw new Error("must not write"); },
+      readbackPlatformDraft: async () => { readbacks += 1; throw new Error("must not read"); } }), /PRODUCTION_EXECUTION_BINDING_/);
+  }
+  assert.equal(writes, 0); assert.equal(readbacks, 0);
+});
+
+test("13B-2 reads only ProductionPlan fields and cannot expand into A/B/C, images, inventory, publish, activate or advertising", async () => {
+  const { authorization, plan, inputs, preflight } = planAndPreflight();
   let keys;
   const result = await executeSingleSkuDraftCreation({
     productionPlan: plan,
     productionAuthorization: authorization,
+    currentProductionBinding: currentProductionBindingFixture(authorization),
     platformWritePreflight: preflight,
-    executedAt: "2026-08-12T15:10:00.000Z",
+    executedAt: "2026-08-22T07:10:00.000Z",
     createPlatformDraft: async (payload) => {
       keys = Object.keys(payload);
       return { status: "draft", productId: "1002", writeEvidenceRef: "test:draft:1002" };
     },
     readbackPlatformDraft: async () => ({
-      status: "draft", productId: "1002", title: plan.title, price: plan.platformWritePrice, stock: 100,
-      finalUploadAssetIds: ["final-main"], mainImageAssetId: "final-main", evidenceRef: "test:readback:1002"
+      status: "draft", productId: "1002", title: inputs.title, price: inputs.platformWritePrice, stock: 100,
+      finalUploadAssetIds: inputs.finalUploads.map(asset => asset.assetId), mainImageAssetId: inputs.finalUploads[0].assetId, evidenceRef: "test:readback:1002"
     })
   });
   for (const forbidden of ["salesSnapshot", "profitModel", "c1ProductPlan", "c2FinalAssets"]) {
@@ -191,41 +161,32 @@ test("13B-2 reads only ProductionPlan fields and cannot expand into A/B/C, image
   assert.equal(result.productionRecord.advertisingOpened, false);
   assert.equal(result.productionRecord.inventoryModified, true);
   assert.equal(result.productionRecord.stockWritten, 100);
-  assert.equal(result.productionRecord.imagesUploaded, 1);
-  assert.deepEqual(result.productionRecord.finalUploadAssetIds, ["final-main"]);
+  assert.equal(result.productionRecord.imagesUploaded, 2);
+  assert.deepEqual(result.productionRecord.finalUploadAssetIds, inputs.finalUploads.map(asset => asset.assetId));
   assert.equal(result.productionRecord.independentReadbackVerified, true);
   assert.equal(result.otherSkuExecuted, false);
 });
 
 test("13B-2 creates one product for validation/moderation without inventory or activation", async () => {
-  const authorization = authorizationFixture();
-  authorization.authorizationId += ":moderation";
-  authorization.lockedScope.publishScope = "create_and_allow_validation_moderation";
-  authorization.lockedScope.exclusions = ["no_publish_or_activation", "no_inventory_write", "no_warehouse_or_logistics_change", "no_promotion_change", "no_advertising_change", "no_other_sku_write"];
-  authorization.lockedScope.allowedWriteFields = ["create_product", "title", "attributes", "price", "assets.finalUploads", "publish_scope"];
-  const plan = createProductionPlan({ productionAuthorization: authorization, createdAt: "2026-08-13T09:00:00.000Z" });
-  const base = planAndPreflight().preflight;
-  const preflight = {
-    ...base,
-    sourceProductionPlanId: plan.planId,
-    sourceProductionPlanFingerprint: fingerprintProductionPlan(plan),
-    authorizedWriteFields: [...plan.allowedWriteFields],
-    platformWritableFields: [...plan.allowedWriteFields],
-    effectiveWritableFields: [...plan.allowedWriteFields]
-  };
+  const { authorization, plan, inputs, preflight } = planAndPreflight({
+    publishScope: "create_and_allow_validation_moderation",
+    exclusions: ["no_publish_or_activation", "no_inventory_write", "no_warehouse_or_logistics_change", "no_promotion_change", "no_advertising_change", "no_other_sku_write"],
+    allowedWriteFields: ["create_product", "title", "attributes", "price", "assets.finalUploads", "publish_scope"]
+  });
   let payload;
   const result = await executeSingleSkuDraftCreation({
     productionPlan: plan,
     productionAuthorization: authorization,
+    currentProductionBinding: currentProductionBindingFixture(authorization),
     platformWritePreflight: preflight,
-    executedAt: "2026-08-13T09:05:00.000Z",
+    executedAt: "2026-08-22T08:05:00.000Z",
     createPlatformDraft: async (value) => {
       payload = value;
       return { status: "validation_or_moderation", productId: "OZON-2001", offerId: "TEST-SKU-001", writeEvidenceRef: "test:write:2001", moderationSubmitted: true, published: false, activated: false };
     },
     readbackPlatformDraft: async () => ({
-      status: "validation_or_moderation", productId: "OZON-2001", title: plan.title, price: plan.platformWritePrice,
-      inventoryModified: false, finalUploadAssetIds: ["final-main"], mainImageAssetId: "final-main",
+      status: "validation_or_moderation", productId: "OZON-2001", title: inputs.title, price: inputs.platformWritePrice,
+      inventoryModified: false, finalUploadAssetIds: inputs.finalUploads.map(asset => asset.assetId), mainImageAssetId: inputs.finalUploads[0].assetId,
       evidenceRef: "test:readback:2001", moderationSubmitted: true, published: false, activated: false
     })
   });
@@ -241,15 +202,14 @@ test("13B-2 creates one product for validation/moderation without inventory or a
 });
 
 test("13B-2 rejects changed authorization before the platform adapter is called", async () => {
-  const { authorization, plan, preflight } = planAndPreflight();
-  const changed = structuredClone(authorization);
-  changed.lockedScope.title = "Изменённый заголовок";
+  const { authorization, plan, inputs, preflight } = planAndPreflight();
+  const changed = authorizedProductionFixture({ publishScope: "create_draft_only", merchantSku: "MERCHANT-CHANGED" }).productionAuthorization;
   let calls = 0;
   await assert.rejects(() => executeSingleSkuDraftCreation({
     productionPlan: plan,
     productionAuthorization: changed,
     platformWritePreflight: preflight,
-    executedAt: "2026-08-12T15:10:00.000Z",
+    executedAt: "2026-08-22T07:10:00.000Z",
     createPlatformDraft: async () => { calls += 1; },
     readbackPlatformDraft: async () => { calls += 1; }
   }), /AUTHORIZATION_VERSION_CHANGED/);
@@ -258,21 +218,14 @@ test("13B-2 rejects changed authorization before the platform adapter is called"
 
 test("13B-2 rejects unknown required attributes and stale preflight without calling the platform", async () => {
   const first = planAndPreflight();
-  const unknownAuthorization = structuredClone(first.authorization);
-  unknownAuthorization.lockedScope.attributes.requiredPlatformFields[0].fact = { value: "unknown", verificationStatus: "unknown" };
-  const unknownPlan = createProductionPlan({
-    productionAuthorization: unknownAuthorization,
-    createdAt: "2026-08-12T15:05:00.000Z"
-  });
+  const sourceSkuPackage = packageFixture({ stableStoreId: "dandanshu", executableOzon: true });
+  sourceSkuPackage.c1ProductPlan.productAttributes.requiredPlatformFields[0].fact = { value: "unknown", verificationStatus: "unknown", sourceRefs: [] };
   let calls = 0;
-  await assert.rejects(() => executeSingleSkuDraftCreation({
-    productionPlan: unknownPlan,
-    productionAuthorization: unknownAuthorization,
-    platformWritePreflight: first.preflight,
-    executedAt: "2026-08-12T15:10:00.000Z",
-    createPlatformDraft: async () => { calls += 1; },
-    readbackPlatformDraft: async () => { calls += 1; }
-  }), /DRAFT_DATA_GAP/);
+  assert.throws(() => {
+    const invalid = planAndPreflight({ sourceSkuPackage });
+    calls += 1;
+    return invalid;
+  }, /C2素材包校验失败|ProductionAuthorization|INPUT_GAP/);
   assert.equal(calls, 0);
 
   const stalePreflight = structuredClone(first.preflight);
@@ -281,7 +234,7 @@ test("13B-2 rejects unknown required attributes and stale preflight without call
     productionPlan: first.plan,
     productionAuthorization: first.authorization,
     platformWritePreflight: stalePreflight,
-    executedAt: "2026-08-12T15:10:00.000Z",
+    executedAt: "2026-08-22T07:10:00.000Z",
     createPlatformDraft: async () => { calls += 1; },
     readbackPlatformDraft: async () => { calls += 1; }
   }), /DRAFT_PREFLIGHT_STALE/);
@@ -289,7 +242,7 @@ test("13B-2 rejects unknown required attributes and stale preflight without call
 });
 
 test("13B-2 saves no ProductionRecord when platform result is not a draft with product ID", async () => {
-  const { authorization, plan, preflight } = planAndPreflight();
+  const { authorization, plan, inputs, preflight } = planAndPreflight();
   for (const result of [
     { status: "published", productId: "1003", writeEvidenceRef: "test:published" },
     { status: "draft", productId: "", writeEvidenceRef: "test:no-id" },
@@ -298,8 +251,9 @@ test("13B-2 saves no ProductionRecord when platform result is not a draft with p
     await assert.rejects(() => executeSingleSkuDraftCreation({
       productionPlan: plan,
       productionAuthorization: authorization,
+    currentProductionBinding: currentProductionBindingFixture(authorization),
       platformWritePreflight: preflight,
-      executedAt: "2026-08-12T15:10:00.000Z",
+      executedAt: "2026-08-22T07:10:00.000Z",
       createPlatformDraft: async () => result,
       readbackPlatformDraft: async () => ({})
     }), /DRAFT_PLATFORM/);
@@ -307,15 +261,16 @@ test("13B-2 saves no ProductionRecord when platform result is not a draft with p
 });
 
 test("13B-2 refuses completion when independent readback does not match stock or final images", async () => {
-  const { authorization, plan, preflight } = planAndPreflight();
+  const { authorization, plan, inputs, preflight } = planAndPreflight();
   await assert.rejects(() => executeSingleSkuDraftCreation({
     productionPlan: plan,
     productionAuthorization: authorization,
+    currentProductionBinding: currentProductionBindingFixture(authorization),
     platformWritePreflight: preflight,
-    executedAt: "2026-08-12T15:10:00.000Z",
+    executedAt: "2026-08-22T07:10:00.000Z",
     createPlatformDraft: async () => ({ status: "draft", productId: "1005", writeEvidenceRef: "test:draft:1005" }),
     readbackPlatformDraft: async () => ({
-      status: "draft", productId: "1005", title: plan.title, price: plan.platformWritePrice, stock: 0,
+      status: "draft", productId: "1005", title: inputs.title, price: inputs.platformWritePrice, stock: 0,
       finalUploadAssetIds: [], mainImageAssetId: null, evidenceRef: "test:readback:1005"
     })
   }), /DRAFT_READBACK_MISMATCH/);
@@ -325,7 +280,7 @@ test("published ProductionRecord schema locks draft-only single-SKU execution", 
   const url = new URL("../schema/production-record-v1.1.schema.json", import.meta.url);
   const schema = JSON.parse(await readFile(url, "utf8"));
   assert.deepEqual(schema.properties.status.enum, ["draft", "validation_or_moderation"]);
-  assert.deepEqual(schema.properties.executionMode.enum, ["single_sku_draft_only", "single_sku_create_and_moderate"]);
+  assert.deepEqual(schema.properties.executionMode.enum, ["single_sku_draft_only", "single_sku_create_and_moderate", "single_sku_seller_api"]);
   assert.equal(schema.properties.batchSize.const, 1);
   assert.equal(schema.properties.published.const, false);
   assert.equal(schema.properties.activated.const, false);

@@ -1,237 +1,197 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { DEFAULT_RULES } from "../lib/workflow.mjs";
-import { createTrainCandidate, createGenericCStageCandidate } from "./helpers/legacy-candidate-fixture.mjs";
+import { validateProductionAuthorizationRecord } from "../lib/product-lifecycle-schema.mjs";
+import { createTrainCandidate } from "./helpers/legacy-candidate-fixture.mjs";
+import { createFinalPricingRevalidationFixture } from "./fixtures/final-pricing-revalidation-fixture.mjs";
 import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
-const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const port = 35000 + (process.pid % 20000);
-const baseUrl = `http://127.0.0.1:${port}`;
+const appDir = fileURLToPath(new URL("..", import.meta.url));
+const port = Number(process.env.SELECTION_REVIEW_TEST_PORT);
+if (!Number.isSafeInteger(port) || port < 1 || [4317, 4318, 4173].includes(port)) throw new Error("TEST_REQUIRES_ISOLATED_PORT");
+const base = `http://127.0.0.1:${port}`;
 const TEST_ID = "GENERIC-NON-TRAIN-001";
 const TEST_SKU = "SINK-ORGANIZER-BLUE";
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWP4z8DwnwGMERQARNAF+661WskAAAAASUVORK5CYII=", "base64");
+const DETAIL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAD0lEQVQImWNgYPgPRsgUADjcBfvDPgM9AAAAAElFTkSuQmCC", "base64");
 
-
-async function waitForHealth(child, stderr) {
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    if (child.exitCode !== null) throw new Error(`测试服务提前退出：${stderr.join("")}`);
-    try {
-      const response = await fetch(`${baseUrl}/api/health`);
-      if (response.ok) return;
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error(`测试服务未启动：${stderr.join("")}`);
-}
-
-async function post(pathname, body) {
-  const response = await fetch(`${baseUrl}${pathname}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
-  });
-  const bodyJson = await response.json();
-  return { response, body: bodyJson };
-}
-
-test("第二个非火车SKU用通用C1、C2和ProductionAuthorization完成隔离测试", async (t) => {
+test("非火车SKU从正式C1回执经HTTP持久素材确认和单主人授权，旧手工C1入口不能越过合同", async t => {
+  // This shared fixture runs the real B -> C1 receipt merge -> C2 domain chain with synthetic evidence.
+  // Paid provider HTTP execution belongs to the dedicated software use-case tests.
+  // The final pricing fixture wraps the formal B -> C1 -> C2 fixture with the B evidence bundle, cost policy and synthetic
+  // market samples that the owner's multi-sample final pricing review re-checks before production authorization.
+  const pricing = createFinalPricingRevalidationFixture({ candidateId: TEST_ID, supplierSkuId: TEST_SKU, variantKey: "颜色:蓝色",
+    candidateRevision: 1, sourceOfferId: "900000000001", captureId: "capture:synthetic:sink-organizer",
+    productName: "硅胶水槽收纳架", material: "silicone", categoryName: "Органайзеры для кухни" });
+  const formal = pricing.formal;
+  const candidate = { ...pricing.candidate, salesSnapshotsV11: structuredClone(pricing.assessmentInput.salesSnapshots),
+    workflowStatus: "listing_preparation", comments: [], history: [], processing: { state: "idle", manualHold: false } };
+  const sourceSku = candidate.lifecycleV11.skuPackage;
+  assert.equal(sourceSku.businessPhase, "C2");
+  assert.equal(sourceSku.c1ProductPlan.status, "seo_draft_ready");
+  assert.equal(sourceSku.c1ProductPlan.draftOnlySeo.providerJobRef.jobId, formal.receipt.gatewayJobId);
+  assert.equal(sourceSku.supplierSkuId, TEST_SKU);
   const fireTrain = createTrainCandidate();
-  assert.ok(fireTrain.lifecycleV11.skuPackage, "合成对照候选必须包含完整生命周期");
-  const originalFireTrain = JSON.stringify(fireTrain);
-  const candidate = createGenericCStageCandidate();
+  const originalFireTrain = structuredClone(fireTrain);
+  const binding = { bindingId: "binding:synthetic:generic", configurationVersion: "generic-api-v1", platform: "ozon",
+    storeRef: structuredClone(candidate.storeRef), storeName: "合成测试店铺", warehouseName: "合成测试仓库",
+    warehouseRef: "warehouse:synthetic:generic", warehouseId: "70001", credentialAlias: "credential-alias:synthetic:generic",
+    verification: { evidenceRef: "configuration-evidence:synthetic:generic", checkedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z" } };
+  const model = sourceSku.profitModels.find(item => item.profitModelVersion === sourceSku.activeProfitModelVersion);
+  const conversion = model.priceConversion;
   const directory = await mkdtemp(path.join(tmpdir(), "generic-c-stage-api-"));
-  const dataFile = path.join(directory, "candidates.json");
-  await writeFile(dataFile, JSON.stringify({
-    meta: { version: 2, title: "generic-c-stage-test", updatedAt: "2026-08-17T10:00:00.000Z", automationStarted: false },
-    rules: structuredClone(DEFAULT_RULES),
-    candidates: [structuredClone(fireTrain), candidate],
-    dispatches: []
-  }));
-
-  const child = spawn(process.execPath, [path.join(appDir, "server.mjs"), "--api-only"], {
-    cwd: appDir,
-    env: {
-      ...process.env,
-      SELECTION_REVIEW_DATA_FILE: dataFile,
-      SELECTION_REVIEW_API_PORT: String(port),
-      SELECTION_REVIEW_AUTO_DELIVER: "off",
-      SELECTION_REVIEW_CODEX_DISPATCH: "off"
-    },
-    stdio: ["ignore", "ignore", "pipe"]
-  });
+  const businessDirectory = path.join(directory, "business");
+  await mkdir(businessDirectory);
+  const dataFile = path.join(businessDirectory, "candidates.json");
+  const privateDirectory = path.join(directory, "private");
+  await mkdir(privateDirectory, { mode: 0o700 });
+  const exchangePack = { id: conversion.evidenceRef, kind: "exchange_rate", status: "active",
+    scope: { pair: "RUB/CNY" }, sourceType: "isolated_test", sourceRef: "fixture:generic-frozen-fx",
+    checkedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z", evidenceData: { rubPerCny: conversion.rubPerCny } };
+  // The server uses its actual clock: the synthetic B evidence packs are declared current, not renewed real evidence.
+  const evidencePacks = [exchangePack, ...pricing.evidencePacks.filter(pack => pack.id !== exchangePack.id)
+    .map(pack => ({ ...pack, expiresAt: "2099-01-01T00:00:00.000Z" }))];
+  const rules = { ...structuredClone(DEFAULT_RULES), ozonDandanshu: { ...structuredClone(DEFAULT_RULES.ozonDandanshu), ...structuredClone(pricing.rules.ozonDandanshu) } };
+  await writeFile(dataFile, JSON.stringify({ meta: { version: 2, automationStarted: false }, rules,
+    candidates: [fireTrain, candidate], dispatches: [], evidencePacks, currentCommissionCatalogs: [] }));
   const stderr = [];
-  child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
+  const child = spawn(process.execPath, [path.join(appDir, "server.mjs"), "--api-only"], { cwd: appDir,
+    env: { ...process.env, SELECTION_REVIEW_DATA_FILE: dataFile, SELECTION_REVIEW_API_PORT: String(port),
+      SELECTION_REVIEW_C2_UPLOAD_DIR: path.join(directory, "uploads"), SELECTION_REVIEW_AUTO_DELIVER: "off", SELECTION_REVIEW_CODEX_DISPATCH: "off",
+      SELECTION_REVIEW_IDENTITY_PROVIDER: "local_owner_password", SELECTION_REVIEW_OWNER_IDENTITY_FILE: path.join(privateDirectory, "owner.json"),
+      SELECTION_REVIEW_STORE_BINDINGS_JSON: JSON.stringify([{ targetStore: candidate.targetStore, platform: candidate.targetPlatform, storeRef: candidate.storeRef }]),
+      SELECTION_REVIEW_PRODUCTION_BINDINGS_JSON: JSON.stringify([binding]) }, stdio: ["ignore", "pipe", "pipe"] });
+  child.stderr.on("data", chunk => stderr.push(String(chunk)));
   t.after(() => stopApiProcess(child));
-  await waitForHealth(child, stderr);
-
-  const retired = await post(`/api/candidates/${TEST_ID}/lifecycle/final-assets`, { dataRevision: 1, confirmed: true });
-  assert.equal(retired.response.status, 410);
-  assert.match(retired.body.message, /旧火车专属C阶段入口已隔离/);
-  const legacyAdapter = await post(`/api/legacy/fire-train/candidates/${TEST_ID}/lifecycle/c1-owner-facts`, { dataRevision: 1, confirmed: true });
-  assert.equal(legacyAdapter.response.status, 410);
-  assert.match(legacyAdapter.body.message, /火车专属历史适配器已永久隔离/);
-
-  const c1 = await post(`/api/candidates/${TEST_ID}/lifecycle/c1/complete`, {
-    dataRevision: 1,
-    platformSchemaEvidence: {
-      evidenceId: "schema:ozon:dandanshu:kitchen-organizer:2026-08-17",
-      platform: "ozon",
-      store: "dandanshu",
-      descriptionCategoryId: "kitchen-organizer-category",
-      typeId: "sink-organizer-type",
-      categoryName: "Органайзеры для кухни",
-      schemaRevision: "ozon-schema:kitchen-organizer:2026-08-17",
-      requiredFields: [
-        { fieldKey: "product_type", label: "商品类型", required: true, sourceAttributeKeys: ["product_type"] },
-        { fieldKey: "color", label: "颜色", required: true, sourceAttributeKeys: ["color"] }
-      ],
-      categoryRestrictions: [],
-      platformCompliance: "no_recorded_restriction",
-      collectedAt: "2026-08-17T10:01:00.000Z"
-    },
-    competitorTextSnapshot: {
-      snapshotId: "competitor-text:sink-organizer:2026-08-17",
-      sourceSalesSnapshotId: candidate.lifecycleV11.opportunityPackage.salesSnapshots[0].snapshotId,
-      observedAt: "2026-08-17T10:01:00.000Z",
-      evidenceRef: "sales-snapshot:sink-organizer#competitor-text",
-      texts: [{
-        textId: "competitor-sink-organizer-title",
-        text: "Органайзер для кухонной раковины",
-        sourceRef: "https://www.ozon.ru/product/sink-organizer-test/",
-        role: "buyer_language_reference_only"
-      }]
-    },
-    keywordEvidence: {
-      evidenceId: "seo-evidence:sink-organizer:2026-08-17",
-      status: "ready",
-      targetPlatform: "ozon",
-      targetSkuPackageId: `sku-lifecycle:${TEST_ID}:${TEST_SKU}`,
-      sourcePlatform: "ozon",
-      collectionMode: "current_frozen_facts_no_volume",
-      pointsSpent: 0,
-      reuseEvidenceNote: "仅使用当前冻结商品事实词，不声明搜索量",
-      observedAt: "2026-08-17T10:01:00.000Z",
-      keywords: [
-        {
-          query: "органайзер для раковины",
-          keywordEvidenceRef: "seo-evidence:sink-organizer:core",
-          sourceSku: "ozon-sink-organizer-reference",
-          sourcePlatform: "ozon",
-          group: "core_product_type",
-          factBindingPaths: ["productAttributes.supplierAttributes.0.fact"],
-          relevanceStatus: "retained",
-          reason: "商品类型与冻结事实一致"
-        },
-        {
-          query: "силиконовый органайзер",
-          keywordEvidenceRef: "seo-evidence:sink-organizer:material",
-          sourceSku: "ozon-sink-organizer-reference",
-          sourcePlatform: "ozon",
-          group: "material",
-          factBindingPaths: ["productAttributes.material"],
-          relevanceStatus: "retained",
-          reason: "材质与冻结供应SKU一致"
-        }
-      ]
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => done(new Error("API_START_TIMEOUT")), 10000);
+    let output = "";
+    const onData = chunk => { output += chunk; if (output.includes(base)) done(); };
+    const onExit = (code, signal) => done(new Error(`API_START_FAILED:${code}:${signal}:${stderr.join("").slice(0, 1200)}`));
+    function done(error) {
+      clearTimeout(timer); child.stdout.off("data", onData); child.off("error", done); child.off("exit", onExit);
+      if (error) reject(error); else resolve();
     }
+    child.stdout.on("data", onData); child.once("error", done); child.once("exit", onExit);
   });
-  assert.equal(c1.response.status, 200, c1.body.message);
-  assert.equal(c1.body.candidate.lifecycleV11.skuPackage.businessPhase, "C2");
-  assert.equal(c1.body.candidate.lifecycleV11.skuPackage.c1ProductPlan.status, "seo_draft_ready");
-  assert.equal(c1.body.candidate.lifecycleV11.skuPackage.c2FinalAssets.status, "awaiting_final_uploads");
-  assert.equal(c1.body.candidate.lifecycleV11.skuPackage.supplierSkuId, TEST_SKU);
-  assert.equal(c1.body.candidate.lifecycleV11.platformWrites, 0);
-
-  const revisionAfterC1 = c1.body.candidate.dataRevision;
-  const finalUploadAssets = [
-    {
-      assetId: `final:${TEST_ID}:main`,
-      mediaType: "image",
-      assetRef: "https://example.invalid/final/sink-organizer-main.jpg",
-      fileName: "sink-organizer-main.jpg",
-      sha256: "a".repeat(64),
-      byteSize: 120000,
-      order: 1,
-      role: "main_image",
-      sourceType: "owner_provided_final_upload",
-      addedAt: "2026-08-17T10:02:00.000Z"
-    },
-    {
-      assetId: `final:${TEST_ID}:detail-1`,
-      mediaType: "image",
-      assetRef: "https://example.invalid/final/sink-organizer-detail.jpg",
-      fileName: "sink-organizer-detail.jpg",
-      sha256: "b".repeat(64),
-      byteSize: 110000,
-      order: 2,
-      role: "detail_image",
-      sourceType: "owner_provided_final_upload",
-      addedAt: "2026-08-17T10:02:00.000Z"
-    }
-  ];
-  const c2 = await post(`/api/candidates/${TEST_ID}/lifecycle/c2/final-assets`, {
-    dataRevision: revisionAfterC1,
-    confirmed: true,
-    finalUploadAssets,
-    approvedAssetIds: finalUploadAssets.map((asset) => asset.assetId),
-    confirmationNote: "主人确认当前非火车SKU的两张最终素材及顺序"
-  });
-  assert.equal(c2.response.status, 200, c2.body.message);
-  assert.equal(c2.body.candidate.lifecycleV11.skuPackage.c2FinalAssets.status, "completed");
-  assert.equal(c2.body.candidate.lifecycleV11.skuPackage.productionConfirmationCard.status, "awaiting_owner_business_confirmation");
-  assert.deepEqual(
-    c2.body.candidate.lifecycleV11.skuPackage.productionConfirmationCard.c2Assets.finalUploads.map((asset) => asset.assetId),
-    finalUploadAssets.map((asset) => asset.assetId)
-  );
-
-  const revisionAfterC2 = c2.body.candidate.dataRevision;
-  const cardId = c2.body.candidate.lifecycleV11.skuPackage.productionConfirmationCard.cardId;
-  const missingExactScope = await post(`/api/candidates/${TEST_ID}/lifecycle/production-authorization`, {
-    dataRevision: revisionAfterC2,
-    confirmed: true,
-    cardId
-  });
-  assert.equal(missingExactScope.response.status, 400);
-  assert.match(missingExactScope.body.message, /分别锁定买家目标价、后台写入价和汇率证据/);
-  const authorization = await post(`/api/candidates/${TEST_ID}/lifecycle/production-authorization`, {
-    dataRevision: revisionAfterC2,
-    confirmed: true,
-    cardId,
-    buyerTargetPrice: { amount: 1200, currency: "RUB" },
-    platformWritePrice: { amount: 100, currency: "CNY" },
-    priceConversion: { rubPerCny: 12, evidenceRef: "fx:cbr:2026-08-17:RUB-CNY", checkedAt: "2026-08-17T10:00:00.000Z" },
-    publishScope: "create_draft_only",
-    exclusions: [
-      "no_publish_or_activation",
-      "no_moderation_submission",
-      "no_promotion_change",
-      "no_advertising_change",
-      "no_warehouse_or_logistics_change",
-      "no_other_sku_write"
-    ],
-    allowedWriteFields: ["create_product", "title", "attributes", "price", "stock", "assets.finalUploads", "publish_scope"],
-    note: "非火车SKU隔离测试，只生成授权快照"
-  });
-  assert.equal(authorization.response.status, 200, authorization.body.message);
-  const scope = authorization.body.candidate.lifecycleV11.skuPackage.productionAuthorization.lockedScope;
-  assert.equal(scope.supplierSkuId, TEST_SKU);
-  assert.equal(scope.stock, 100);
-  assert.equal(scope.buyerTargetPrice.amount, 1200);
-  assert.equal(scope.platformWritePrice.amount, 100);
-  assert.deepEqual(scope.finalUploads.map((asset) => asset.assetId), finalUploadAssets.map((asset) => asset.assetId));
-  assert.equal(authorization.body.candidate.lifecycleV11.skuPackage.productionRecord, null);
-  assert.equal(authorization.body.candidate.lifecycleV11.platformWrites, 0);
-
-  const persisted = JSON.parse(await readFile(dataFile, "utf8"));
-  assert.equal(JSON.stringify(persisted.candidates.find((item) => item.id === "CX-20260803-010")), originalFireTrain);
-  const serializedNonTrain = JSON.stringify(persisted.candidates.find((item) => item.id === TEST_ID).lifecycleV11.skuPackage);
-  for (const fireSpecific of ["CX-20260803-010", "4993364145574", "豪华小火车", "Паровоз", "DVP", "282"]) {
-    assert.equal(serializedNonTrain.includes(fireSpecific), false, `非火车生命周期不得包含火车专属值：${fireSpecific}`);
+  let cookie = "";
+  const headers = () => ({ Origin: base, "Sec-Fetch-Site": "same-origin", ...(cookie ? { Cookie: cookie } : {}) });
+  async function post(route, input) {
+    const response = await fetch(`${base}${route}`, { method: "POST", headers: { ...headers(), "Content-Type": "application/json" }, body: JSON.stringify(input) });
+    return { status: response.status, body: await response.json(), setCookie: response.headers.get("set-cookie") };
   }
-  assert.equal(persisted.meta.automationStarted, false);
-  assert.equal(persisted.dispatches.length, 0);
+  async function get(route) {
+    const response = await fetch(`${base}${route}`, { headers: headers() });
+    assert.equal(response.status, 200);
+    return response.json();
+  }
+  async function savedCandidate() { return JSON.parse(await readFile(dataFile, "utf8")).candidates.find(item => item.id === TEST_ID); }
+  const route = `/api/candidates/${TEST_ID}/lifecycle`;
+  const initialBytes = await readFile(dataFile, "utf8");
+  const anonymous = await post(`${route}/c1/complete`, { dataRevision: 1, confirmed: true });
+  assert.equal(anonymous.status, 401);
+  assert.equal(await readFile(dataFile, "utf8"), initialBytes);
+  const setup = await post("/api/owner-access/setup", { password: "synthetic generic flow owner password" });
+  assert.equal(setup.status, 200, setup.body.message);
+  cookie = setup.setCookie.split(";")[0];
+  const ownerId = setup.body.user.userId;
+  assert.equal(await readFile(dataFile, "utf8"), initialBytes, "登录不应改变业务状态");
+  for (const retiredRoute of [`${route}/final-assets`, `/api/legacy/fire-train/candidates/${TEST_ID}/lifecycle/c1-owner-facts`, `${route}/c1/complete`]) {
+    const retired = await post(retiredRoute, { dataRevision: 1, confirmed: true });
+    assert.equal(retired.status, 410, retired.body.message);
+  }
+  assert.equal(await readFile(dataFile, "utf8"), initialBytes, "退役入口不得改变任何候选或C1结果");
+
+  async function upload(draftRevision, fileName, body) {
+    const response = await fetch(`${base}${route}/c2/final-assets/upload?dataRevision=1&draftRevision=${draftRevision}&fileName=${fileName}`, {
+      method: "POST", headers: { ...headers(), "Content-Type": "image/png" }, body });
+    return { status: response.status, body: await response.json() };
+  }
+  const invalidUpload = await upload(0, "not-an-image.png", Buffer.from("not an image"));
+  assert.equal(invalidUpload.status, 415, invalidUpload.body.message);
+  const rejected = await savedCandidate();
+  assert.equal(rejected.dataRevision, 1);
+  assert.deepEqual(rejected.lifecycleV11.skuPackage, sourceSku, "失败上传仅保存明确素材失败记录，不修改冻结业务资料");
+  assert.equal(rejected.lifecycleV11.c2UploadDraft.uploads[0].status, "failed");
+  const main = await upload(rejected.lifecycleV11.c2UploadDraft.revision, "sink-organizer-main.png", PNG);
+  assert.equal(main.status, 201, main.body.message);
+  const detail = await upload(main.body.draft.revision, "sink-organizer-detail.png", DETAIL_PNG);
+  assert.equal(detail.status, 201, detail.body.message);
+  assert.equal(detail.body.platformWrites, 0); assert.equal(detail.body.businessPhaseChanged, false);
+  const afterUpload = await savedCandidate();
+  assert.equal(afterUpload.dataRevision, 1);
+  assert.deepEqual(afterUpload.lifecycleV11.skuPackage, sourceSku);
+  const selection = [{ assetId: main.body.asset.assetId, slotId: "main", order: 1 }, { assetId: detail.body.asset.assetId, slotId: "detail", order: 2 }];
+  const selected = await post(`${route}/c2/upload-draft`, { dataRevision: 1, draftRevision: detail.body.draft.revision, selection });
+  assert.equal(selected.status, 200, selected.body.message);
+  const draftRevision = selected.body.draft.revision;
+  const confirmation = { dataRevision: 1, draftRevision, confirmed: true, finalUploadAssets: selection,
+    approvedAssetIds: selection.map(asset => asset.assetId), approvedMainImageAssetId: main.body.asset.assetId, approvedVideoDisposition: "excludes_video" };
+  const beforeConfirm = await readFile(dataFile, "utf8");
+  const tampered = await post(`${route}/c2/final-assets`, { ...confirmation,
+    finalUploadAssets: [{ ...selection[0], sourceEvidenceRef: "owner-supplied:forged" }, selection[1]] });
+  assert.equal(tampered.status, 409); assert.equal(tampered.body.code, "c2_upload_selection_changed");
+  assert.equal(await readFile(dataFile, "utf8"), beforeConfirm);
+  const c2 = await post(`${route}/c2/final-assets`, confirmation);
+  assert.equal(c2.status, 200, c2.body.message);
+  const finalSku = c2.body.candidate.lifecycleV11.skuPackage;
+  assert.equal(finalSku.c2FinalAssets.status, "completed");
+  assert.equal(finalSku.productionAuthorization, null);
+  assert.equal(finalSku.productionConfirmationCard.status, "awaiting_owner_business_confirmation");
+  assert.deepEqual(finalSku.productionConfirmationCard.c2Assets.finalUploads.map(asset => asset.assetId), selection.map(asset => asset.assetId));
+  const beforeAuthorization = await readFile(dataFile, "utf8");
+  const oldAuthorization = await post(`${route}/production-authorization`, { dataRevision: c2.body.candidate.dataRevision,
+    confirmed: true, cardId: finalSku.productionConfirmationCard.cardId });
+  assert.equal(oldAuthorization.status, 409); assert.equal(oldAuthorization.body.code, "production_authorization_reconfirmation_required");
+  assert.equal(await readFile(dataFile, "utf8"), beforeAuthorization);
+  // Production authorization requires the owner's multi-sample final pricing review; the B reference price stays the selected price.
+  const blockedPreparation = await get(`${route}/production-owner-preparation`);
+  assert.equal(blockedPreparation.ready, false);
+  assert.ok(blockedPreparation.gaps.some(item => item.code === "FINAL_PRICING_REVIEW_REQUIRED"), JSON.stringify(blockedPreparation.gaps));
+  const windowEnd = new Date(), windowStart = new Date(windowEnd.getTime() - 29 * 86400000);
+  const reviews = pricing.assessmentInput.reviews.map(review => ({ ...review, salesWindow: { ...review.salesWindow,
+    startDate: windowStart.toISOString().slice(0, 10), endDate: windowEnd.toISOString().slice(0, 10) } }));
+  const finalPricing = await post(`${route}/final-pricing/review`, { candidateId: TEST_ID, expectedRevision: c2.body.candidate.dataRevision,
+    skuPackageId: sourceSku.skuPackageId, selectedPriceRub: pricing.assessmentInput.selectedPriceRub, reviews,
+    idempotencyKey: "generic:final-pricing:1", auditEventId: "audit:generic:final-pricing:1" });
+  assert.equal(finalPricing.status, 200, JSON.stringify(finalPricing.body));
+  assert.equal(finalPricing.body.transactionStatus, "committed");
+  const reviewed = await savedCandidate();
+  assert.equal(reviewed.lifecycleV11.skuPackage.finalPricingReview.profitModelVersion, sourceSku.activeProfitModelVersion);
+  assert.deepEqual(reviewed.lifecycleV11.skuPackage.profitModels, sourceSku.profitModels, "同价复核不得改写B利润版本");
+  assert.equal(reviewed.lifecycleV11.skuPackage.productionAuthorization, null);
+  const beforeDecision = await readFile(dataFile, "utf8");
+  const preparation = await get(`${route}/production-owner-preparation`);
+  assert.equal(preparation.ready, true, preparation.gaps.map(item => item.code).join(","));
+  const input = { contractVersion: preparation.contractVersion, ...preparation.source,
+    bindingId: binding.bindingId, configurationVersion: binding.configurationVersion, merchantSku: "MERCHANT-SINK-BLUE", confirmExactScope: true };
+  const tamperedPrice = await post(`${route}/production-owner-decision`, { ...input, platformWritePrice: { amount: 1, currency: "CNY" } });
+  assert.equal(tamperedPrice.status, 400); assert.equal(await readFile(dataFile, "utf8"), beforeDecision);
+  const authorization = await post(`${route}/production-owner-decision`, input);
+  assert.equal(authorization.status, 200, authorization.body.message);
+  const saved = await savedCandidate();
+  const authorizedSku = saved.lifecycleV11.skuPackage;
+  const pa = authorizedSku.productionAuthorization;
+  assert.equal(pa.schemaVersion, "production-authorization-v1.2");
+  assert.equal(pa.authorizedByActorId, ownerId); assert.equal(pa.confirmedByActorId, ownerId);
+  assert.equal(pa.lockedScope.supplierSkuId, TEST_SKU); assert.equal(pa.lockedScope.merchantSku, input.merchantSku);
+  assert.equal(pa.lockedScope.stock, 100);
+  assert.deepEqual(pa.executionBinding, { bindingId: binding.bindingId, configurationVersion: binding.configurationVersion, warehouseId: binding.warehouseId });
+  assert.deepEqual(pa.lockedScope.buyerTargetPrice, { amount: model.recommendedSalePriceRub, currency: "RUB" });
+  assert.deepEqual(pa.lockedScope.platformWritePrice, { amount: model.recommendedSalePriceCny, currency: "CNY" });
+  assert.deepEqual(pa.lockedScope.finalUploads.map(asset => asset.assetId), selection.map(asset => asset.assetId));
+  assert.equal(validateProductionAuthorizationRecord(pa, { candidateId: TEST_ID, candidateRevision: saved.dataRevision,
+    skuPackage: authorizedSku, lifecycleState: "persisted" }).valid, true);
+  assert.equal(authorizedSku.productionRecord, null); assert.equal(saved.lifecycleV11.platformWrites, 0);
+  const persisted = JSON.parse(await readFile(dataFile, "utf8"));
+  assert.deepEqual(persisted.candidates.find(item => item.id === fireTrain.id), originalFireTrain);
+  const serialized = JSON.stringify(authorizedSku);
+  for (const unrelated of [fireTrain.id, "4993364145574", "豪华小火车", "Паровоз", "DVP", "282件"]) assert.equal(serialized.includes(unrelated), false, unrelated);
+  assert.equal(persisted.meta.automationStarted, false); assert.deepEqual(persisted.dispatches, []);
+  assert.equal(stderr.join(""), "");
 });

@@ -1,0 +1,1202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ozon-account-read-v2.schema.json",
+  "$defs": {
+    "ref": {
+      "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "sourceRevision",
+        "resultRevision",
+        "sideEffectScope",
+        "authorizationRef",
+        "readMethods",
+        "expiresAt",
+        "inputFingerprint",
+        "scopeRef",
+        "bindingId",
+        "configurationVersion",
+        "platform",
+        "credentialAlias",
+        "clientIdRef",
+        "officialContractRefs",
+        "subject",
+        "targetStore",
+        "storeIdentityStatus",
+        "warehouseMode",
+        "warehouseLimit",
+        "maxRequests"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ozon-account-discovery-scope-v1"
+        },
+        "sourceRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resultRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sideEffectScope": {
+          "const": "ozon_account_read"
+        },
+        "authorizationRef": {
+          "$ref": "#/$defs/ref"
+        },
+        "readMethods": {
+          "const": [
+            "roles",
+            "seller_info",
+            "warehouse_list"
+          ]
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "inputFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "scopeRef": {
+          "$ref": "#/$defs/ref"
+        },
+        "bindingId": {
+          "$ref": "#/$defs/ref"
+        },
+        "configurationVersion": {
+          "$ref": "#/$defs/ref"
+        },
+        "platform": {
+          "const": "ozon"
+        },
+        "credentialAlias": {
+          "$ref": "#/$defs/ref"
+        },
+        "clientIdRef": {
+          "$ref": "#/$defs/ref"
+        },
+        "officialContractRefs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "roles",
+            "seller_info",
+            "warehouse_list"
+          ],
+          "properties": {
+            "roles": {
+              "$ref": "#/$defs/ref"
+            },
+            "seller_info": {
+              "$ref": "#/$defs/ref"
+            },
+            "warehouse_list": {
+              "$ref": "#/$defs/ref"
+            }
+          }
+        },
+        "subject": {
+          "$ref": "#/$defs/subject"
+        },
+        "targetStore": {
+          "enum": [
+            "dandanshu",
+            "miska"
+          ]
+        },
+        "storeIdentityStatus": {
+          "const": "unverified"
+        },
+        "warehouseMode": {
+          "const": "discovery"
+        },
+        "warehouseLimit": {
+          "const": 20
+        },
+        "maxRequests": {
+          "const": 3
+        }
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "authorizationId",
+        "authorizationType",
+        "status",
+        "action",
+        "scopeBinding",
+        "authorizedByUserId",
+        "authorizedAt",
+        "expiresAt",
+        "maxUses",
+        "useCount",
+        "consumedByJobId",
+        "consumedAt"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "software-job-authorization-record-v2"
+        },
+        "authorizationId": {
+          "$ref": "#/$defs/ref"
+        },
+        "authorizationType": {
+          "const": "account_discovery_once"
+        },
+        "status": {
+          "const": "active"
+        },
+        "action": {
+          "const": "ozon_account_read"
+        },
+        "scopeBinding": {
+          "$ref": "#/$defs/scope"
+        },
+        "authorizedByUserId": {
+          "$ref": "#/$defs/ref"
+        },
+        "authorizedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "maxUses": {
+          "const": 1
+        },
+        "useCount": {
+          "enum": [
+            0,
+            1
+          ]
+        },
+        "consumedByJobId": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/ref"
+            }
+          ]
+        },
+        "consumedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      },
+      "if": {
+        "properties": {
+          "useCount": {
+            "const": 0
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "consumedByJobId": {
+            "type": "null"
+          },
+          "consumedAt": {
+            "type": "null"
+          }
+        },
+        "type": "object"
+      },
+      "else": {
+        "properties": {
+          "consumedByJobId": {
+            "$ref": "#/$defs/ref"
+          },
+          "consumedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "credential": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "bindingId",
+        "credentialAlias",
+        "status",
+        "provider",
+        "sideEffectScope",
+        "scopeBinding",
+        "allowedWorkerIds",
+        "redaction",
+        "boundAt",
+        "expiresAt"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "software-job-credential-binding-v2"
+        },
+        "bindingId": {
+          "$ref": "#/$defs/ref"
+        },
+        "credentialAlias": {
+          "$ref": "#/$defs/ref"
+        },
+        "status": {
+          "const": "active"
+        },
+        "provider": {
+          "const": "ozon_seller_api"
+        },
+        "sideEffectScope": {
+          "const": "ozon_account_read"
+        },
+        "scopeBinding": {
+          "$ref": "#/$defs/scope"
+        },
+        "allowedWorkerIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "$ref": "#/$defs/ref"
+          }
+        },
+        "redaction": {
+          "const": "credential_alias_only"
+        },
+        "boundAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "method",
+        "officialContractRef",
+        "observedAt",
+        "status",
+        "facts",
+        "gaps"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ozon-account-read-result-v2"
+        },
+        "method": {
+          "enum": [
+            "roles",
+            "seller_info",
+            "warehouse_list"
+          ]
+        },
+        "officialContractRef": {
+          "$ref": "#/$defs/ref"
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "enum": [
+            "observed",
+            "data_unavailable"
+          ]
+        },
+        "facts": {
+          "type": "object"
+        },
+        "gaps": {
+          "type": "array",
+          "maxItems": 30,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "field",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/ref"
+              },
+              "field": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "message": {
+                "type": "string",
+                "maxLength": 2048
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "roles"
+              }
+            },
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "facts": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "expiresAt",
+                  "roles"
+                ],
+                "properties": {
+                  "expiresAt": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "const": ""
+                      },
+                      {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    ]
+                  },
+                  "roles": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "array",
+                        "maxItems": 1000,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "name",
+                            "methods"
+                          ],
+                          "properties": {
+                            "name": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "maxLength": 512
+                            },
+                            "methods": {
+                              "oneOf": [
+                                {
+                                  "type": "null"
+                                },
+                                {
+                                  "type": "array",
+                                  "maxItems": 10000,
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 512,
+                                    "pattern": "^[^\\u0000-\\u001f]*$"
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "seller_info"
+              }
+            },
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "facts": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "companyCurrency"
+                ],
+                "properties": {
+                  "companyCurrency": {
+                    "enum": [
+                      null,
+                      "RUB",
+                      "EUR",
+                      "USD",
+                      "CNY",
+                      "BYN",
+                      "KZT",
+                      "KGS"
+                    ]
+                  }
+                }
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "warehouse_list"
+              }
+            },
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "facts": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "hasNext",
+                  "warehouses"
+                ],
+                "properties": {
+                  "hasNext": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "warehouses": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "array",
+                        "maxItems": 20,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "warehouseId",
+                            "isRfbs",
+                            "status",
+                            "warehouseType",
+                            "pauseAt",
+                            "pauseAtPresent",
+                            "name"
+                          ],
+                          "properties": {
+                            "warehouseId": {
+                              "oneOf": [
+                                {
+                                  "type": "null"
+                                },
+                                {
+                                  "type": "string",
+                                  "pattern": "^[1-9][0-9]{0,18}$"
+                                }
+                              ]
+                            },
+                            "isRfbs": {
+                              "type": [
+                                "boolean",
+                                "null"
+                              ]
+                            },
+                            "status": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "maxLength": 512
+                            },
+                            "warehouseType": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "maxLength": 512
+                            },
+                            "pauseAt": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "maxLength": 512
+                            },
+                            "pauseAtPresent": {
+                              "type": "boolean"
+                            },
+                            "name": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "maxLength": 512,
+                              "pattern": "^[^\\u0000-\\u001f]*$"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "observed"
+              }
+            },
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "gaps": {
+                "maxItems": 0,
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "else": {
+            "properties": {
+              "gaps": {
+                "minItems": 1,
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "observed"
+              },
+              "method": {
+                "const": "warehouse_list"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "facts": {
+                "type": "object",
+                "properties": {
+                  "hasNext": {
+                    "type": "boolean"
+                  },
+                  "warehouses": {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "$ref": "#/$defs/selectedWarehouse"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "observed"
+              },
+              "method": {
+                "const": "seller_info"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "facts": {
+                "type": "object",
+                "properties": {
+                  "companyCurrency": {
+                    "enum": [
+                      "RUB",
+                      "EUR",
+                      "USD",
+                      "CNY",
+                      "BYN",
+                      "KZT",
+                      "KGS"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "observed"
+              },
+              "method": {
+                "const": "roles"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "facts": {
+                "type": "object",
+                "properties": {
+                  "expiresAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "roles": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "methods": {
+                          "type": "array"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "intentAt",
+        "sentAt",
+        "completedAt",
+        "externalRequestState",
+        "requestTransmission",
+        "result",
+        "errorCode"
+      ],
+      "properties": {
+        "method": {
+          "enum": [
+            "roles",
+            "seller_info",
+            "warehouse_list"
+          ]
+        },
+        "intentAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "sentAt": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "format": "date-time"
+            }
+          ],
+          "description": "Durably saved send-start intent time; not a proof of network transmission. Use requestTransmission for transport evidence."
+        },
+        "completedAt": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "format": "date-time"
+            }
+          ]
+        },
+        "externalRequestState": {
+          "enum": [
+            "not_sent",
+            "in_flight",
+            "failed",
+            "succeeded",
+            "unknown_outcome"
+          ]
+        },
+        "requestTransmission": {
+          "enum": [
+            "not_attempted",
+            "attempted",
+            "response_received",
+            "unknown"
+          ]
+        },
+        "result": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/result"
+            }
+          ]
+        },
+        "errorCode": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/ref"
+            }
+          ]
+        }
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "receiptId",
+        "jobId",
+        "scope",
+        "workerId",
+        "leaseId",
+        "startedAt",
+        "completedAt",
+        "status",
+        "failureClass",
+        "steps"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ozon-account-read-receipt-v2"
+        },
+        "receiptId": {
+          "$ref": "#/$defs/ref"
+        },
+        "jobId": {
+          "$ref": "#/$defs/ref"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "workerId": {
+          "$ref": "#/$defs/ref"
+        },
+        "leaseId": {
+          "$ref": "#/$defs/ref"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "format": "date-time"
+            }
+          ]
+        },
+        "status": {
+          "enum": [
+            "in_flight",
+            "completed",
+            "failed",
+            "unknown_outcome"
+          ]
+        },
+        "failureClass": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/ref"
+            }
+          ]
+        },
+        "steps": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "$ref": "#/$defs/step"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "in_flight"
+              }
+            },
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "completedAt": {
+                "type": "null"
+              },
+              "failureClass": {
+                "type": "null"
+              }
+            },
+            "type": "object"
+          },
+          "else": {
+            "properties": {
+              "completedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "steps": {
+                "items": {
+                  "properties": {
+                    "completedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "completed"
+              }
+            },
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "failureClass": {
+                "type": "null"
+              },
+              "steps": {
+                "minItems": 3,
+                "items": {
+                  "properties": {
+                    "result": {
+                      "allOf": [
+                        {
+                          "$ref": "#/$defs/result"
+                        },
+                        {
+                          "properties": {
+                            "status": {
+                              "const": "observed"
+                            }
+                          },
+                          "type": "object"
+                        }
+                      ]
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "preparationId",
+        "revision"
+      ],
+      "properties": {
+        "kind": {
+          "const": "account_preparation"
+        },
+        "preparationId": {
+          "$ref": "#/$defs/ref"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scopeRef",
+        "bindingId",
+        "configurationVersion",
+        "platform",
+        "targetStore",
+        "storeIdentityStatus",
+        "credentialAlias",
+        "clientIdRef",
+        "officialContractRefs"
+      ],
+      "properties": {
+        "scopeRef": {
+          "$ref": "#/$defs/ref"
+        },
+        "bindingId": {
+          "$ref": "#/$defs/ref"
+        },
+        "configurationVersion": {
+          "$ref": "#/$defs/ref"
+        },
+        "platform": {
+          "const": "ozon"
+        },
+        "targetStore": {
+          "enum": [
+            "dandanshu",
+            "miska"
+          ]
+        },
+        "storeIdentityStatus": {
+          "const": "unverified"
+        },
+        "credentialAlias": {
+          "$ref": "#/$defs/ref"
+        },
+        "clientIdRef": {
+          "$ref": "#/$defs/ref"
+        },
+        "officialContractRefs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "roles",
+            "seller_info",
+            "warehouse_list"
+          ],
+          "properties": {
+            "roles": {
+              "$ref": "#/$defs/ref"
+            },
+            "seller_info": {
+              "$ref": "#/$defs/ref"
+            },
+            "warehouse_list": {
+              "$ref": "#/$defs/ref"
+            }
+          }
+        }
+      }
+    },
+    "selectedWarehouse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "warehouseId",
+        "isRfbs",
+        "status",
+        "warehouseType",
+        "pauseAt",
+        "pauseAtPresent",
+        "name"
+      ],
+      "properties": {
+        "warehouseId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,15}$"
+        },
+        "isRfbs": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^\\u0000-\\u001f]*$"
+        },
+        "warehouseType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^\\u0000-\\u001f]*$"
+        },
+        "pauseAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 512
+        },
+        "pauseAtPresent": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^\\u0000-\\u001f]*$"
+        }
+      }
+    },
+    "warehouseSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selectionId",
+        "revision",
+        "selectedAt",
+        "selectedByUserId",
+        "sourceJobId",
+        "sourceReceiptId",
+        "sourceRevision",
+        "warehouse"
+      ],
+      "properties": {
+        "selectionId": {
+          "$ref": "#/$defs/ref"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "selectedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "selectedByUserId": {
+          "$ref": "#/$defs/ref"
+        },
+        "sourceJobId": {
+          "$ref": "#/$defs/ref"
+        },
+        "sourceReceiptId": {
+          "$ref": "#/$defs/ref"
+        },
+        "sourceRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "warehouse": {
+          "$ref": "#/$defs/selectedWarehouse"
+        }
+      }
+    },
+    "preparation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "preparationId",
+        "revision",
+        "createdByUserId",
+        "createdAt",
+        "updatedAt",
+        "binding",
+        "warehouseSelections"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "ozon-account-preparation-v1"
+        },
+        "preparationId": {
+          "$ref": "#/$defs/ref"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "createdByUserId": {
+          "$ref": "#/$defs/ref"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "warehouseSelections": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/warehouseSelection"
+          }
+        }
+      }
+    }
+  }
+}

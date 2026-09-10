@@ -1,0 +1,1097 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "a-supplier-image-search-v1.schema.json",
+  "title": "Bounded candidate supplier image search contracts",
+  "$defs": {
+    "ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^(?=.{1,256}$)(?!.*[\\r\\n])(?!.*//)(?!(?:[bB][eE][aA][rR][eE][rR]|[bB][aA][sS][iI][cC])(?:[._~@#+-]|$))(?!(?:(?:[aA][._~-]*[uU][._~-]*[tT][._~-]*[hH][._~-]*[oO][._~-]*[rR][._~-]*[iI][._~-]*[zZ][._~-]*[aA][._~-]*[tT][._~-]*[iI][._~-]*[oO][._~-]*[nN]|[bB][._~-]*[eE][._~-]*[aA][._~-]*[rR][._~-]*[eE][._~-]*[rR]|[bB][._~-]*[aA][._~-]*[sS][._~-]*[iI][._~-]*[cC]|[pP][._~-]*[aA][._~-]*[sS][._~-]*[sS][._~-]*[wW][._~-]*[oO][._~-]*[rR][._~-]*[dD]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[sS]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[jJ][._~-]*[aA][._~-]*[rR]|[hH][._~-]*[eE][._~-]*[aA][._~-]*[dD][._~-]*[eE][._~-]*[rR][._~-]*[sS]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[tT][._~-]*[oO][._~-]*[kK][._~-]*[eE][._~-]*[nN]|[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[sS][._~-]*[eE][._~-]*[cC][._~-]*[rR][._~-]*[eE][._~-]*[tT]|[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL][._~-]*[sS]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][sS][._~-]*[aA][tT]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE][._~-]*[aA][tT]|[aA][pP][iI][._~-]*[kK][eE][yY]|[aA][pP][iI][._~-]*[kK][eE][yY][._~-]*[aA][tT]|[sS][._~-]*[iI][._~-]*[gG][._~-]*[nN][._~-]*[aA][._~-]*[tT][._~-]*[uU][._~-]*[rR][._~-]*[eE]|[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[vV][aA][lL][uU][eE]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[tT][oO][kK][eE][nN]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[pP][aA][sS][sS][wW][oO][rR][dD]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT][._~-]*[aA][tT]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[bB][oO][dD][yY]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[hH][tT][mM][lL]|[rR][aA][wW][._~-]*[pP][aA][yY][lL][oO][aA][dD])|[eE][xX][pP][iI][rR][eE][sS]|[eE][xX][pP][iI][rR][eE][sS][._~-]*[aA][tT]|[eE][xX][pP][iI][rR][yY]|[eE][xX][pP][iI][rR][yY][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[xX][._~-]*[aA][mM][zZ][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[aA][wW][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[gG][oO][oO][gG][lL][eE][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[oO][sS][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[vV][eE][rR][sS][iI][oO][nN]|[xX][._~-]*[oO][sS][sS][._~-]*[dD][aA][tT][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[eE][xX][pP][iI][rR][eE][sS]|[xX][._~-]*[oO][sS][sS][._~-]*[aA][dD][dD][iI][tT][iI][oO][nN][aA][lL][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[sS][iI][gG])(?:[:/]|$))(?!.*(?:^|[/:])(?:(?:[aA][._~-]*[uU][._~-]*[tT][._~-]*[hH][._~-]*[oO][._~-]*[rR][._~-]*[iI][._~-]*[zZ][._~-]*[aA][._~-]*[tT][._~-]*[iI][._~-]*[oO][._~-]*[nN]|[bB][._~-]*[eE][._~-]*[aA][._~-]*[rR][._~-]*[eE][._~-]*[rR]|[bB][._~-]*[aA][._~-]*[sS][._~-]*[iI][._~-]*[cC]|[pP][._~-]*[aA][._~-]*[sS][._~-]*[sS][._~-]*[wW][._~-]*[oO][._~-]*[rR][._~-]*[dD]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[sS]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[jJ][._~-]*[aA][._~-]*[rR]|[hH][._~-]*[eE][._~-]*[aA][._~-]*[dD][._~-]*[eE][._~-]*[rR][._~-]*[sS]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[tT][._~-]*[oO][._~-]*[kK][._~-]*[eE][._~-]*[nN]|[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[sS][._~-]*[eE][._~-]*[cC][._~-]*[rR][._~-]*[eE][._~-]*[tT]|[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL][._~-]*[sS]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][sS][._~-]*[aA][tT]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE][._~-]*[aA][tT]|[aA][pP][iI][._~-]*[kK][eE][yY]|[aA][pP][iI][._~-]*[kK][eE][yY][._~-]*[aA][tT]|[sS][._~-]*[iI][._~-]*[gG][._~-]*[nN][._~-]*[aA][._~-]*[tT][._~-]*[uU][._~-]*[rR][._~-]*[eE]|[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[vV][aA][lL][uU][eE]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[tT][oO][kK][eE][nN]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[pP][aA][sS][sS][wW][oO][rR][dD]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT][._~-]*[aA][tT]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[bB][oO][dD][yY]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[hH][tT][mM][lL]|[rR][aA][wW][._~-]*[pP][aA][yY][lL][oO][aA][dD])|[eE][xX][pP][iI][rR][eE][sS]|[eE][xX][pP][iI][rR][eE][sS][._~-]*[aA][tT]|[eE][xX][pP][iI][rR][yY]|[eE][xX][pP][iI][rR][yY][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[xX][._~-]*[aA][mM][zZ][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[aA][wW][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[gG][oO][oO][gG][lL][eE][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[oO][sS][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[vV][eE][rR][sS][iI][oO][nN]|[xX][._~-]*[oO][sS][sS][._~-]*[dD][aA][tT][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[eE][xX][pP][iI][rR][eE][sS]|[xX][._~-]*[oO][sS][sS][._~-]*[aA][dD][dD][iI][tT][iI][oO][nN][aA][lL][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[sS][iI][gG])(?::|/|$))[A-Za-z0-9][A-Za-z0-9._~:/@#+-]*$",
+      "not": {
+        "enum": [
+          "unknown",
+          "null",
+          "undefined"
+        ]
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "a_candidate"
+        },
+        "candidateId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^(?=.{1,256}$)(?!.*[\\r\\n])(?!.*//)(?!(?:[bB][eE][aA][rR][eE][rR]|[bB][aA][sS][iI][cC])(?:[._~@#+-]|$))(?!(?:(?:[aA][._~-]*[uU][._~-]*[tT][._~-]*[hH][._~-]*[oO][._~-]*[rR][._~-]*[iI][._~-]*[zZ][._~-]*[aA][._~-]*[tT][._~-]*[iI][._~-]*[oO][._~-]*[nN]|[bB][._~-]*[eE][._~-]*[aA][._~-]*[rR][._~-]*[eE][._~-]*[rR]|[bB][._~-]*[aA][._~-]*[sS][._~-]*[iI][._~-]*[cC]|[pP][._~-]*[aA][._~-]*[sS][._~-]*[sS][._~-]*[wW][._~-]*[oO][._~-]*[rR][._~-]*[dD]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[sS]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[jJ][._~-]*[aA][._~-]*[rR]|[hH][._~-]*[eE][._~-]*[aA][._~-]*[dD][._~-]*[eE][._~-]*[rR][._~-]*[sS]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[tT][._~-]*[oO][._~-]*[kK][._~-]*[eE][._~-]*[nN]|[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[sS][._~-]*[eE][._~-]*[cC][._~-]*[rR][._~-]*[eE][._~-]*[tT]|[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL][._~-]*[sS]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][sS][._~-]*[aA][tT]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE][._~-]*[aA][tT]|[aA][pP][iI][._~-]*[kK][eE][yY]|[aA][pP][iI][._~-]*[kK][eE][yY][._~-]*[aA][tT]|[sS][._~-]*[iI][._~-]*[gG][._~-]*[nN][._~-]*[aA][._~-]*[tT][._~-]*[uU][._~-]*[rR][._~-]*[eE]|[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[vV][aA][lL][uU][eE]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[tT][oO][kK][eE][nN]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[pP][aA][sS][sS][wW][oO][rR][dD]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT][._~-]*[aA][tT]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[bB][oO][dD][yY]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[hH][tT][mM][lL]|[rR][aA][wW][._~-]*[pP][aA][yY][lL][oO][aA][dD])|[eE][xX][pP][iI][rR][eE][sS]|[eE][xX][pP][iI][rR][eE][sS][._~-]*[aA][tT]|[eE][xX][pP][iI][rR][yY]|[eE][xX][pP][iI][rR][yY][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[xX][._~-]*[aA][mM][zZ][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[aA][wW][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[gG][oO][oO][gG][lL][eE][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[oO][sS][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[vV][eE][rR][sS][iI][oO][nN]|[xX][._~-]*[oO][sS][sS][._~-]*[dD][aA][tT][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[eE][xX][pP][iI][rR][eE][sS]|[xX][._~-]*[oO][sS][sS][._~-]*[aA][dD][dD][iI][tT][iI][oO][nN][aA][lL][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[sS][iI][gG])(?:[:/]|$))(?!.*(?:^|[/:])(?:(?:[aA][._~-]*[uU][._~-]*[tT][._~-]*[hH][._~-]*[oO][._~-]*[rR][._~-]*[iI][._~-]*[zZ][._~-]*[aA][._~-]*[tT][._~-]*[iI][._~-]*[oO][._~-]*[nN]|[bB][._~-]*[eE][._~-]*[aA][._~-]*[rR][._~-]*[eE][._~-]*[rR]|[bB][._~-]*[aA][._~-]*[sS][._~-]*[iI][._~-]*[cC]|[pP][._~-]*[aA][._~-]*[sS][._~-]*[sS][._~-]*[wW][._~-]*[oO][._~-]*[rR][._~-]*[dD]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[sS]|[cC][._~-]*[oO][._~-]*[oO][._~-]*[kK][._~-]*[iI][._~-]*[eE][._~-]*[jJ][._~-]*[aA][._~-]*[rR]|[hH][._~-]*[eE][._~-]*[aA][._~-]*[dD][._~-]*[eE][._~-]*[rR][._~-]*[sS]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[tT][._~-]*[oO][._~-]*[kK][._~-]*[eE][._~-]*[nN]|[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[sS][._~-]*[eE][._~-]*[cC][._~-]*[rR][._~-]*[eE][._~-]*[tT]|[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL]|[cC][._~-]*[rR][._~-]*[eE][._~-]*[dD][._~-]*[eE][._~-]*[nN][._~-]*[tT][._~-]*[iI][._~-]*[aA][._~-]*[lL][._~-]*[sS]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][sS][._~-]*[aA][tT]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN]|[aA][cC][cC][eE][sS][sS][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN]|[rR][eE][fF][rR][eE][sS][hH][._~-]*[tT][oO][kK][eE][nN][._~-]*[aA][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][lL][iI][eE][nN][tT][._~-]*[sS][eE][cC][rR][eE][tT][._~-]*[aA][tT]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE]|[sS][eE][sS][sS][iI][oO][nN][._~-]*[cC][oO][oO][kK][iI][eE][._~-]*[aA][tT]|[aA][pP][iI][._~-]*[kK][eE][yY]|[aA][pP][iI][._~-]*[kK][eE][yY][._~-]*[aA][tT]|[sS][._~-]*[iI][._~-]*[gG][._~-]*[nN][._~-]*[aA][._~-]*[tT][._~-]*[uU][._~-]*[rR][._~-]*[eE]|[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[vV][aA][lL][uU][eE]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[sS][eE][cC][rR][eE][tT]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[tT][oO][kK][eE][nN]|[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL][._~-]*[pP][aA][sS][sS][wW][oO][rR][dD]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE]|[rR][aA][wW][._~-]*[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT]|[rR][aA][wW][._~-]*[rR][eE][qQ][uU][eE][sS][tT][._~-]*[aA][tT]|[rR][eE][qQ][uU][eE][sS][tT][._~-]*[bB][oO][dD][yY]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[rR][eE][sS][pP][oO][nN][sS][eE][._~-]*[hH][eE][aA][dD][eE][rR][sS][._~-]*[aA][tT]|[rR][aA][wW][._~-]*[hH][tT][mM][lL]|[rR][aA][wW][._~-]*[pP][aA][yY][lL][oO][aA][dD])|[eE][xX][pP][iI][rR][eE][sS]|[eE][xX][pP][iI][rR][eE][sS][._~-]*[aA][tT]|[eE][xX][pP][iI][rR][yY]|[eE][xX][pP][iI][rR][yY][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[aA][tT]|[xX][._~-]*[aA][mM][zZ][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[xX][._~-]*[aA][mM][zZ][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[gG][oO][oO][gG][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[aA][wW][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[gG][oO][oO][gG][lL][eE][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[sS][eE][cC][uU][rR][iI][tT][yY][._~-]*[tT][oO][kK][eE][nN]|[oO][sS][sS][._~-]*[aA][cC][cC][eE][sS][sS][._~-]*[kK][eE][yY][._~-]*[iI][dD]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]|[xX][._~-]*[oO][sS][sS][._~-]*[sS][iI][gG][nN][aA][tT][uU][rR][eE][._~-]*[vV][eE][rR][sS][iI][oO][nN]|[xX][._~-]*[oO][sS][sS][._~-]*[dD][aA][tT][eE]|[xX][._~-]*[oO][sS][sS][._~-]*[eE][xX][pP][iI][rR][eE][sS]|[xX][._~-]*[oO][sS][sS][._~-]*[aA][dD][dD][iI][tT][iI][oO][nN][aA][lL][._~-]*[hH][eE][aA][dD][eE][rR][sS]|[sS][iI][gG])(?::|/|$))[A-Za-z0-9][A-Za-z0-9._~:/@#+-]*$",
+          "not": {
+            "enum": [
+              "unknown",
+              "null",
+              "undefined"
+            ]
+          }
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "kind",
+        "candidateId",
+        "revision"
+      ]
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "$ref": "#/$defs/ref"
+        },
+        "method": {
+          "const": "image_search"
+        },
+        "maxSearches": {
+          "const": 1
+        },
+        "maxResults": {
+          "const": 4
+        }
+      },
+      "required": [
+        "requestId",
+        "method",
+        "maxSearches",
+        "maxResults"
+      ]
+    },
+    "imageSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "sales_snapshot"
+            },
+            "snapshotId": {
+              "$ref": "#/$defs/ref"
+            },
+            "imageIndex": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 19
+            },
+            "imageRef": {
+              "$ref": "#/$defs/ref"
+            },
+            "sourceEvidenceRef": {
+              "$ref": "#/$defs/ref"
+            }
+          },
+          "required": [
+            "kind",
+            "snapshotId",
+            "imageIndex",
+            "imageRef",
+            "sourceEvidenceRef"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "seerfar_market_product"
+            },
+            "marketReceiptRef": {
+              "$ref": "#/$defs/ref"
+            },
+            "marketProductId": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,19}$"
+            },
+            "imageIndex": {
+              "const": 0
+            },
+            "imageRef": {
+              "$ref": "#/$defs/ref"
+            }
+          },
+          "required": [
+            "kind",
+            "marketReceiptRef",
+            "marketProductId",
+            "imageIndex",
+            "imageRef"
+          ]
+        }
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "a-supplier-image-search-scope-v1"
+        },
+        "candidateId": {
+          "$ref": "#/$defs/ref"
+        },
+        "sourceRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "resultRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "targetPlatform": {
+          "const": "ozon"
+        },
+        "targetStore": {
+          "enum": [
+            "miska",
+            "dandanshu"
+          ]
+        },
+        "imageSource": {
+          "$ref": "#/$defs/imageSource"
+        },
+        "request": {
+          "$ref": "#/$defs/request"
+        },
+        "bindingId": {
+          "$ref": "#/$defs/ref"
+        },
+        "configurationVersion": {
+          "$ref": "#/$defs/ref"
+        },
+        "credentialAlias": {
+          "$ref": "#/$defs/ref"
+        },
+        "authorizationRef": {
+          "$ref": "#/$defs/ref"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 32
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "candidateId",
+        "sourceRevision",
+        "resultRevision",
+        "targetPlatform",
+        "targetStore",
+        "imageSource",
+        "request",
+        "bindingId",
+        "configurationVersion",
+        "credentialAlias",
+        "authorizationRef",
+        "expiresAt"
+      ]
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "software-job-authorization-record-v3"
+        },
+        "authorizationId": {
+          "$ref": "#/$defs/ref"
+        },
+        "authorizationType": {
+          "const": "a_supplier_image_search_once"
+        },
+        "status": {
+          "const": "active"
+        },
+        "action": {
+          "const": "a_supplier_image_search"
+        },
+        "scopeBinding": {
+          "$ref": "#/$defs/scope"
+        },
+        "authorizedByUserId": {
+          "$ref": "#/$defs/ref"
+        },
+        "authorizedAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 32
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 32
+        },
+        "maxUses": {
+          "const": 1
+        },
+        "useCount": {
+          "enum": [
+            0,
+            1
+          ]
+        },
+        "consumedByJobId": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/ref"
+            }
+          ]
+        },
+        "consumedAt": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "format": "date-time",
+              "maxLength": 32
+            }
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "authorizationId",
+        "authorizationType",
+        "status",
+        "action",
+        "scopeBinding",
+        "authorizedByUserId",
+        "authorizedAt",
+        "expiresAt",
+        "maxUses",
+        "useCount",
+        "consumedByJobId",
+        "consumedAt"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "useCount": {
+                "const": 0
+              }
+            },
+            "required": [
+              "useCount"
+            ],
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "consumedByJobId": {
+                "type": "null"
+              },
+              "consumedAt": {
+                "type": "null"
+              }
+            },
+            "type": "object"
+          },
+          "else": {
+            "properties": {
+              "consumedByJobId": {
+                "$ref": "#/$defs/ref"
+              },
+              "consumedAt": {
+                "type": "string",
+                "format": "date-time",
+                "maxLength": 32
+              }
+            },
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "credential": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "software-job-credential-binding-v3"
+        },
+        "bindingId": {
+          "$ref": "#/$defs/ref"
+        },
+        "credentialAlias": {
+          "$ref": "#/$defs/ref"
+        },
+        "status": {
+          "const": "active"
+        },
+        "provider": {
+          "const": "1688_browser"
+        },
+        "sideEffectScope": {
+          "const": "a_supplier_image_search"
+        },
+        "scopeBinding": {
+          "$ref": "#/$defs/scope"
+        },
+        "allowedWorkerIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ref"
+          },
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "redaction": {
+          "const": "credential_alias_only"
+        },
+        "boundAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 32
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 32
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "bindingId",
+        "credentialAlias",
+        "status",
+        "provider",
+        "sideEffectScope",
+        "scopeBinding",
+        "allowedWorkerIds",
+        "redaction",
+        "boundAt",
+        "expiresAt"
+      ]
+    },
+    "product": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "offerId": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,19}$"
+        },
+        "sourceUrl": {
+          "type": "string",
+          "pattern": "^https://detail\\.1688\\.com/offer/[1-9][0-9]{0,19}\\.html$"
+        },
+        "evidenceRef": {
+          "$ref": "#/$defs/ref"
+        },
+        "sameSku": {
+          "const": "unknown"
+        },
+        "minimumOrderQuantity": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "offerId",
+        "sourceUrl",
+        "evidenceRef",
+        "sameSku",
+        "minimumOrderQuantity"
+      ]
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "a-supplier-image-search-result-v1"
+        },
+        "provider": {
+          "const": "1688_browser"
+        },
+        "requestId": {
+          "$ref": "#/$defs/ref"
+        },
+        "imageRef": {
+          "$ref": "#/$defs/ref"
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 32
+        },
+        "status": {
+          "enum": [
+            "candidates_found",
+            "true_empty"
+          ]
+        },
+        "submissionEvidenceRef": {
+          "$ref": "#/$defs/ref"
+        },
+        "completionEvidenceRef": {
+          "$ref": "#/$defs/ref"
+        },
+        "products": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/product"
+          },
+          "minItems": 0,
+          "maxItems": 4
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "provider",
+        "requestId",
+        "imageRef",
+        "observedAt",
+        "status",
+        "submissionEvidenceRef",
+        "completionEvidenceRef",
+        "products"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "true_empty"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "products": {
+                "maxItems": 0,
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "else": {
+            "properties": {
+              "products": {
+                "minItems": 1,
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "image_search"
+        },
+        "intentAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 32
+        },
+        "sentAt": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "format": "date-time",
+              "maxLength": 32
+            }
+          ]
+        },
+        "completedAt": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "format": "date-time",
+              "maxLength": 32
+            }
+          ]
+        },
+        "externalRequestState": {
+          "enum": [
+            "not_sent",
+            "in_flight",
+            "succeeded",
+            "failed",
+            "unknown_outcome"
+          ]
+        },
+        "requestTransmission": {
+          "enum": [
+            "not_attempted",
+            "attempted",
+            "response_received",
+            "unknown"
+          ]
+        },
+        "result": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/result"
+            }
+          ]
+        },
+        "errorCode": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "enum": [
+                "ALREADY_ATTEMPTED",
+                "CANDIDATE_CHANGED",
+                "SOURCE_INVALID",
+                "AUTHORIZATION_INVALID",
+                "AUTHORIZATION_EXPIRED",
+                "CREDENTIAL_BINDING_INVALID",
+                "LEASE_EXPIRED",
+                "CANCELLED",
+                "PAGE_CONTRACT_UNCONFIGURED",
+                "LOGIN_REQUIRED",
+                "VERIFICATION_REQUIRED",
+                "PLATFORM_PERMISSION_DENIED",
+                "NAVIGATION_REJECTED",
+                "RESPONSE_INVALID",
+                "NETWORK_ERROR",
+                "TIMEOUT",
+                "UNKNOWN_OUTCOME",
+                "UNEXPECTED_SYSTEM_ERROR"
+              ]
+            }
+          ]
+        }
+      },
+      "required": [
+        "method",
+        "intentAt",
+        "sentAt",
+        "completedAt",
+        "externalRequestState",
+        "requestTransmission",
+        "result",
+        "errorCode"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "sentAt": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "sentAt"
+            ],
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "externalRequestState": {
+                "const": "not_sent"
+              },
+              "requestTransmission": {
+                "const": "not_attempted"
+              }
+            },
+            "type": "object"
+          },
+          "else": {
+            "properties": {
+              "externalRequestState": {
+                "not": {
+                  "const": "not_sent"
+                }
+              },
+              "requestTransmission": {
+                "not": {
+                  "const": "not_attempted"
+                }
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "externalRequestState": {
+                "const": "succeeded"
+              }
+            },
+            "required": [
+              "externalRequestState"
+            ],
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "result": {
+                "$ref": "#/$defs/result"
+              },
+              "sentAt": {
+                "type": "string",
+                "format": "date-time",
+                "maxLength": 32
+              },
+              "completedAt": {
+                "type": "string",
+                "format": "date-time",
+                "maxLength": 32
+              },
+              "errorCode": {
+                "type": "null"
+              },
+              "requestTransmission": {
+                "const": "response_received"
+              }
+            },
+            "type": "object"
+          },
+          "else": {
+            "properties": {
+              "result": {
+                "type": "null"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "externalRequestState": {
+                "const": "in_flight"
+              }
+            },
+            "required": [
+              "externalRequestState"
+            ],
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "completedAt": {
+                "type": "null"
+              },
+              "errorCode": {
+                "type": "null"
+              }
+            },
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "a-supplier-image-search-receipt-v1"
+        },
+        "receiptId": {
+          "$ref": "#/$defs/ref"
+        },
+        "jobId": {
+          "$ref": "#/$defs/ref"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "workerId": {
+          "$ref": "#/$defs/ref"
+        },
+        "leaseId": {
+          "$ref": "#/$defs/ref"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 32
+        },
+        "completedAt": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "format": "date-time",
+              "maxLength": 32
+            }
+          ]
+        },
+        "status": {
+          "enum": [
+            "in_flight",
+            "completed",
+            "failed",
+            "unknown_outcome"
+          ]
+        },
+        "failureClass": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "enum": [
+                "ALREADY_ATTEMPTED",
+                "CANDIDATE_CHANGED",
+                "SOURCE_INVALID",
+                "AUTHORIZATION_INVALID",
+                "AUTHORIZATION_EXPIRED",
+                "CREDENTIAL_BINDING_INVALID",
+                "LEASE_EXPIRED",
+                "CANCELLED",
+                "PAGE_CONTRACT_UNCONFIGURED",
+                "LOGIN_REQUIRED",
+                "VERIFICATION_REQUIRED",
+                "PLATFORM_PERMISSION_DENIED",
+                "NAVIGATION_REJECTED",
+                "RESPONSE_INVALID",
+                "NETWORK_ERROR",
+                "TIMEOUT",
+                "UNKNOWN_OUTCOME",
+                "UNEXPECTED_SYSTEM_ERROR"
+              ]
+            }
+          ]
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/step"
+          },
+          "minItems": 0,
+          "maxItems": 1
+        },
+        "lateResult": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "recordedAt": {
+              "type": "string",
+              "format": "date-time",
+              "maxLength": 32
+            },
+            "result": {
+              "$ref": "#/$defs/result"
+            }
+          },
+          "required": [
+            "recordedAt",
+            "result"
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "receiptId",
+        "jobId",
+        "scope",
+        "workerId",
+        "leaseId",
+        "startedAt",
+        "completedAt",
+        "status",
+        "failureClass",
+        "steps"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "in_flight"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "completedAt": {
+                "type": "null"
+              },
+              "failureClass": {
+                "type": "null"
+              }
+            },
+            "type": "object"
+          },
+          "else": {
+            "properties": {
+              "completedAt": {
+                "type": "string",
+                "format": "date-time",
+                "maxLength": 32
+              },
+              "steps": {
+                "items": {
+                  "properties": {
+                    "completedAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "maxLength": 32
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "completed"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "failureClass": {
+                "type": "null"
+              },
+              "steps": {
+                "minItems": 1,
+                "items": {
+                  "properties": {
+                    "externalRequestState": {
+                      "const": "succeeded"
+                    },
+                    "result": {
+                      "$ref": "#/$defs/result"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "failed",
+                  "unknown_outcome"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "failureClass": {
+                "enum": [
+                  "ALREADY_ATTEMPTED",
+                  "CANDIDATE_CHANGED",
+                  "SOURCE_INVALID",
+                  "AUTHORIZATION_INVALID",
+                  "AUTHORIZATION_EXPIRED",
+                  "CREDENTIAL_BINDING_INVALID",
+                  "LEASE_EXPIRED",
+                  "CANCELLED",
+                  "PAGE_CONTRACT_UNCONFIGURED",
+                  "LOGIN_REQUIRED",
+                  "VERIFICATION_REQUIRED",
+                  "PLATFORM_PERMISSION_DENIED",
+                  "NAVIGATION_REJECTED",
+                  "RESPONSE_INVALID",
+                  "NETWORK_ERROR",
+                  "TIMEOUT",
+                  "UNKNOWN_OUTCOME",
+                  "UNEXPECTED_SYSTEM_ERROR"
+                ]
+              },
+              "steps": {
+                "items": {
+                  "properties": {
+                    "result": {
+                      "type": "null"
+                    },
+                    "errorCode": {
+                      "enum": [
+                        "ALREADY_ATTEMPTED",
+                        "CANDIDATE_CHANGED",
+                        "SOURCE_INVALID",
+                        "AUTHORIZATION_INVALID",
+                        "AUTHORIZATION_EXPIRED",
+                        "CREDENTIAL_BINDING_INVALID",
+                        "LEASE_EXPIRED",
+                        "CANCELLED",
+                        "PAGE_CONTRACT_UNCONFIGURED",
+                        "LOGIN_REQUIRED",
+                        "VERIFICATION_REQUIRED",
+                        "PLATFORM_PERMISSION_DENIED",
+                        "NAVIGATION_REJECTED",
+                        "RESPONSE_INVALID",
+                        "NETWORK_ERROR",
+                        "TIMEOUT",
+                        "UNKNOWN_OUTCOME",
+                        "UNEXPECTED_SYSTEM_ERROR"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "unknown_outcome"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "steps": {
+                "minItems": 1,
+                "items": {
+                  "properties": {
+                    "externalRequestState": {
+                      "const": "unknown_outcome"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "lateResult"
+            ],
+            "type": "object",
+            "properties": {
+              "lateResult": {}
+            }
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "const": "unknown_outcome"
+              },
+              "steps": {
+                "minItems": 1,
+                "items": {
+                  "properties": {
+                    "sentAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "maxLength": 32
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "failed"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          "then": {
+            "properties": {
+              "steps": {
+                "items": {
+                  "properties": {
+                    "externalRequestState": {
+                      "not": {
+                        "enum": [
+                          "in_flight",
+                          "unknown_outcome"
+                        ]
+                      }
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -53,3 +53,7 @@ id_ed25519
 /selection-review-app/scripts/normalize-*.mjs
 /selection-review-app/scripts/pause-*.mjs
 /selection-review-app/scripts/update-*.mjs
+
+# Nested browser artifacts are local only
+**/.playwright-cli/
+**/output/

@@ -8,7 +8,8 @@ import { spawn } from "node:child_process";
 import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const firstPort = 51000 + (process.pid % 7000);
+const firstPort = Number(process.env.SELECTION_REVIEW_TEST_PORT || 51000 + (process.pid % 7000));
+const secondPort = Number(process.env.SELECTION_REVIEW_TEST_SECOND_PORT || firstPort + 1);
 
 function baseCandidate(id) {
   return {
@@ -88,6 +89,7 @@ async function startServer(t, dataFile, port) {
       ...process.env,
       SELECTION_REVIEW_DATA_FILE: dataFile,
       SELECTION_REVIEW_API_PORT: String(port),
+      SELECTION_REVIEW_ALLOWED_EXTENSION_ORIGINS: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       SELECTION_REVIEW_AUTO_DELIVER: "off",
       SELECTION_REVIEW_CODEX_DISPATCH: "off"
     },
@@ -100,7 +102,7 @@ async function startServer(t, dataFile, port) {
   return { child, baseUrl };
 }
 
-test("服务重启只收口遗留A采集作业且正常启动零写入", async (t) => {
+test("正常启动、状态读取、心跳和再次重启均不改历史或领取旧作业", async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), "source-capture-restart-"));
   const residualFile = path.join(directory, "residual.json");
   const queued = orphanCandidate("A-QUEUED", "queued");
@@ -108,41 +110,23 @@ test("服务重启只收口遗留A采集作业且正常启动零写入", async (
   const untouched = baseCandidate("OTHER-UNTOUCHED");
   await writeFile(residualFile, JSON.stringify(document([queued, claimed, untouched]), null, 2));
 
-  const { baseUrl } = await startServer(t, residualFile, firstPort);
-  const persisted = JSON.parse(await readFile(residualFile, "utf8"));
-  const queuedAfter = persisted.candidates.find((item) => item.id === queued.id);
-  const claimedAfter = persisted.candidates.find((item) => item.id === claimed.id);
-  const untouchedAfter = persisted.candidates.find((item) => item.id === untouched.id);
-
-  assert.equal(queuedAfter.sourceCapture.status, "failed");
-  assert.equal(queuedAfter.sourceCapture.jobStatus, "failed");
-  assert.equal(queuedAfter.sourceCapture.technicalStatus, "system_error");
-  assert.equal(queuedAfter.sourceCapture.failureCode, "service_restarted_before_claim");
-  assert.equal(queuedAfter.sourceCapture.attempt, 0);
-  assert.equal(queuedAfter.dataRevision, queued.dataRevision + 1);
-  assert.equal(queuedAfter.workflowStatus, queued.workflowStatus);
-  assert.equal(queuedAfter.lifecycleV11.status, queued.lifecycleV11.status);
-  assert.equal(queuedAfter.sourceCapture.token, undefined);
-  assert.equal(queuedAfter.sourceCapture.extensionRequest, undefined);
-  assert.equal(queuedAfter.sourceCapture.requiresOwnerNewAuthorization, true);
-  assert.equal(queuedAfter.history.at(-1).action, "aSupplierCaptureStoppedAfterRestart");
-
-  assert.equal(claimedAfter.sourceCapture.status, "failed");
-  assert.equal(claimedAfter.sourceCapture.jobStatus, "unknown_outcome");
-  assert.equal(claimedAfter.sourceCapture.technicalStatus, "unknown_outcome");
-  assert.equal(claimedAfter.sourceCapture.failureCode, "unknown_outcome");
-  assert.equal(claimedAfter.sourceCapture.attempt, 1);
-  assert.equal(claimedAfter.dataRevision, claimed.dataRevision + 1);
-  assert.equal(claimedAfter.workflowStatus, claimed.workflowStatus);
-  assert.equal(claimedAfter.lifecycleV11.status, claimed.lifecycleV11.status);
-  assert.equal(claimedAfter.sourceCapture.token, undefined);
-  assert.equal(claimedAfter.sourceCapture.extensionRequest, undefined);
-  assert.equal(claimedAfter.history.at(-1).action, "aSupplierCaptureUnknownAfterRestart");
-
-  assert.deepEqual(untouchedAfter, untouched);
-  assert.equal(persisted.meta.automationStarted, false);
-  assert.equal(persisted.dispatches.length, 0);
-
+  const before = await readFile(residualFile, "utf8");
+  const { baseUrl, child } = await startServer(t, residualFile, firstPort);
+  assert.equal(await readFile(residualFile, "utf8"), before);
+  const state = await (await fetch(`${baseUrl}/api/state`)).json();
+  assert.equal(state.captureControl.status, "idle");
+  assert.equal(state.candidates.find(item => item.id === queued.id).sourceCapture.token, undefined);
+  assert.equal(state.candidates.find(item => item.id === claimed.id).sourceCapture.extensionRequest, undefined);
+  const runtime = await (await fetch(`${baseUrl}/api/integrations/seerfar/runtime-status`)).json();
+  assert.equal(runtime.credentialStatus, "not_checked");
+  assert.equal(runtime.configured, null);
+  assert.equal(await readFile(residualFile, "utf8"), before);
+  const claim = await fetch(`${baseUrl}/api/extension/capture-jobs/SCJ-A-QUEUED/claim`, {
+    method: "POST", headers: { "Content-Type": "application/json", Origin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    body: JSON.stringify({ version: "1.2.7" })
+  });
+  assert.equal(claim.status, 409);
+  assert.equal((await claim.json()).code, "capture_job_not_current");
   const heartbeat = await fetch(`${baseUrl}/api/extension/heartbeat`, {
     method: "POST",
     headers: {
@@ -154,10 +138,8 @@ test("服务重启只收口遗留A采集作业且正常启动零写入", async (
   assert.equal(heartbeat.status, 200);
   assert.equal((await heartbeat.json()).captureJob, null, "重启后不得重建、恢复或重新领取旧作业");
 
-  const cleanFile = path.join(directory, "clean.json");
-  await writeFile(cleanFile, JSON.stringify(document([baseCandidate("CLEAN-1")]), null, 2));
-  const cleanBefore = await readFile(cleanFile);
-  await startServer(t, cleanFile, firstPort + 1);
-  const cleanAfter = await readFile(cleanFile);
-  assert.deepEqual(cleanAfter, cleanBefore, "没有遗留作业时启动不得改写共享文件任何字节");
+  assert.equal(await readFile(residualFile, "utf8"), before);
+  await stopApiProcess(child);
+  await startServer(t, residualFile, secondPort);
+  assert.equal(await readFile(residualFile, "utf8"), before, "服务再次重启也不得改历史字节");
 });

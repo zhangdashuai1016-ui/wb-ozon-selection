@@ -63,7 +63,7 @@ async function waitForHealth(child, stderr) {
 async function post(url, body) {
   return fetch(`${baseUrl}${url}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Origin: baseUrl, "Sec-Fetch-Site": "same-origin" },
     body: JSON.stringify(body)
   });
 }
@@ -101,12 +101,17 @@ test("2A模拟接口零持久化，旧C入口明确拒绝且awaiting_user_start�
       message: "旧C阶段错误派发"
     }]
   }));
+  await writeFile(path.join(directory, "workflow-map.json"), JSON.stringify({ nodes: [], edges: [] }));
   const before = await readFile(dataFile);
 
   const child = spawn(process.execPath, [path.join(appDir, "server.mjs"), "--api-only"], {
     cwd: appDir,
     env: {
-      ...process.env,
+      PATH: "/usr/bin:/bin",
+      SELECTION_REVIEW_PUBLIC_ORIGIN: baseUrl,
+      SELECTION_REVIEW_ALLOWED_ORIGINS: baseUrl,
+      SELECTION_REVIEW_IDENTITY_PROVIDER: "development_default",
+      SELECTION_REVIEW_WORKFLOW_MAP_FILE: path.join(directory, "workflow-map.json"),
       SELECTION_REVIEW_DATA_FILE: dataFile,
       SELECTION_REVIEW_API_PORT: String(port),
       SELECTION_REVIEW_AUTO_DELIVER: "off",
@@ -143,6 +148,12 @@ test("2A模拟接口零持久化，旧C入口明确拒绝且awaiting_user_start�
   assert.equal(legacyAwaiting.listingHandoff.state, "awaiting_user_start");
   assert.equal(legacyAwaiting.activeDispatch, null);
   assert.equal(legacyAwaiting.latestDispatch.status, "legacy_disabled");
+
+  const missingOrigin = await fetch(`${baseUrl}/api/candidates/LEGACY-AWAITING/start-listing-preparation`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dataRevision: 1 })
+  });
+  assert.equal(missingOrigin.status, 403);
+  assert.equal((await missingOrigin.json()).code, "api_origin_required");
 
   for (const id of ["LEGACY-AWAITING", "LIFECYCLE-NEW"]) {
     const response = await post(`/api/candidates/${id}/start-listing-preparation`, { dataRevision: 1 });

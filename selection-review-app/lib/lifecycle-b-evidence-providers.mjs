@@ -1,5 +1,6 @@
+import { normalizeEvidenceScope, normalizeRelatedSchemaScope, evidenceScopeMatches } from "./lifecycle-evidence-scope.mjs";
 import { createHash } from "node:crypto";
-import { validateLifecycleEvidenceData } from "./lifecycle-b-input-bundle.mjs";
+import { validateLifecycleEvidenceData, isCommissionEstimateAuthorizationForScope, isLifecycleEvidenceTraceValid } from "./lifecycle-b-input-bundle.mjs";
 
 export const LIFECYCLE_B_EVIDENCE_PROVIDER_VERSION = "lifecycle-b-evidence-provider-v1.1";
 
@@ -22,10 +23,6 @@ function isoDateTime(value) {
   return nonEmptyString(value) && !Number.isNaN(Date.parse(value));
 }
 
-function normalizedText(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
 function deepFreeze(value) {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
   Object.freeze(value);
@@ -35,14 +32,6 @@ function deepFreeze(value) {
 
 function providerError(code, message) {
   return Object.assign(new Error(`${code}: ${message}`), { code });
-}
-
-function expectedScopeKeys(kind) {
-  if (kind === "commission") return ["platform", "store", "category", "salesScheme"];
-  if (kind === "logistics_tariff") return ["route", "ruleVersion"];
-  if (kind === "exchange_rate") return ["pair"];
-  if (kind === "schema") return ["platform", "store", "category", "ruleVersion"];
-  return [];
 }
 
 function validateRequest(request, kind) {
@@ -61,16 +50,14 @@ function validateRequest(request, kind) {
     throw providerError("B_EVIDENCE_PROVIDER_TIME_INVALID", "请求时间无效");
   }
   if (!isObject(request.scope)) throw providerError("B_EVIDENCE_PROVIDER_SCOPE_INVALID", "适用范围缺失");
-  const missing = expectedScopeKeys(kind).filter((key) => !nonEmptyString(request.scope[key]));
-  if (missing.length) {
-    throw providerError("B_EVIDENCE_PROVIDER_SCOPE_INVALID", `适用范围缺少${missing.join("、")}`);
+  try {
+    normalizeEvidenceScope(kind, request.scope);
+    if (kind === "commission" && request.relatedSchemaScope != null) normalizeRelatedSchemaScope(request.scope, request.relatedSchemaScope);
   }
-}
-
-function exactScope(actual, expected, kind) {
-  return isObject(actual) && expectedScopeKeys(kind).every(
-    (key) => normalizedText(actual[key]) === normalizedText(expected[key])
-  );
+  catch (error) {
+    if (error.code !== "EVIDENCE_SCOPE_INVALID") throw error;
+    throw providerError("B_EVIDENCE_PROVIDER_SCOPE_INVALID", "适用范围缺少准确店铺身份或必填键");
+  }
 }
 
 function assertSafeTrace(trace) {
@@ -78,14 +65,12 @@ function assertSafeTrace(trace) {
   if (!nonEmptyString(trace.sourceType) || !nonEmptyString(trace.sourceRef)) {
     throw providerError("B_EVIDENCE_PROVIDER_TRACE_MISSING", "读取结果缺少可追溯来源");
   }
-  if (/token|cookie|password|secret|authorization/i.test(`${trace.sourceType} ${trace.sourceRef}`)) {
+  if (/token|cookie|password|secret|authorization/i.test(JSON.stringify({sourceType:trace.sourceType,sourceRef:trace.sourceRef,
+    ...(Object.hasOwn(trace,'commissionCatalogRef') ? {commissionCatalogRef:trace.commissionCatalogRef} : {})}))) {
     throw providerError("B_EVIDENCE_PROVIDER_SECRET_REJECTED", "来源引用不得包含凭证或秘密字段");
   }
-  if (!isoDateTime(trace.checkedAt) || !isoDateTime(trace.expiresAt)) {
+  if (!isLifecycleEvidenceTraceValid(trace)) {
     throw providerError("B_EVIDENCE_PROVIDER_VALIDITY_INVALID", "读取结果缺少有效取得时间或失效时间");
-  }
-  if (Date.parse(trace.expiresAt) <= Date.parse(trace.checkedAt)) {
-    throw providerError("B_EVIDENCE_PROVIDER_VALIDITY_INVALID", "失效时间必须晚于取得时间");
   }
 }
 
@@ -102,10 +87,16 @@ function normalizeReaderResult(result, request, kind) {
   if (result.current !== true) {
     throw providerError("B_EVIDENCE_PROVIDER_NOT_CURRENT", "只读来源没有证明这是当前有效证据");
   }
-  if (!exactScope(result.scope, request.scope, kind)) {
+  if (!evidenceScopeMatches(kind, result.scope, request.scope)) {
     throw providerError("B_EVIDENCE_PROVIDER_SCOPE_MISMATCH", "返回证据不适用于当前平台、店铺、类目、模式、线路或版本");
   }
-  assertSafeTrace(result);
+  const id = packId(kind, request.scope, result);
+  assertSafeTrace({ ...result, id, kind });
+  if (kind === "commission" && result.evidenceData?.commissionEvidenceMode === "estimated" &&
+      !isCommissionEstimateAuthorizationForScope(result.evidenceData.commissionEstimateAuthorization, {
+        candidateId: request.candidateId, candidateRevision: request.candidateRevision,
+        commissionRate: result.evidenceData.commissionRate
+      })) throw providerError("B_EVIDENCE_PROVIDER_ESTIMATE_SCOPE_MISMATCH", "估算授权不属于本轮候选与修订");
   const validation = validateLifecycleEvidenceData(kind, result.evidenceData);
   if (!validation.valid) {
     throw providerError(
@@ -114,14 +105,15 @@ function normalizeReaderResult(result, request, kind) {
     );
   }
   return deepFreeze({
-    id: packId(kind, request.scope, result),
+    id,
     kind,
     status: "active",
-    scope: structuredClone(request.scope),
+    scope: normalizeEvidenceScope(kind, result.scope),
     sourceType: result.sourceType.trim(),
     sourceRef: result.sourceRef.trim(),
     checkedAt: new Date(result.checkedAt).toISOString(),
-    expiresAt: new Date(result.expiresAt).toISOString(),
+    expiresAt: result.expiresAt === null ? null : new Date(result.expiresAt).toISOString(),
+    ...(Object.hasOwn(result, 'commissionCatalogRef') ? { commissionCatalogRef: structuredClone(result.commissionCatalogRef) } : {}),
     evidenceData: structuredClone(result.evidenceData),
     providerVersion: LIFECYCLE_B_EVIDENCE_PROVIDER_VERSION
   });
@@ -138,6 +130,7 @@ export function createLifecycleBEvidenceProvider({ kind, read }) {
         providerVersion: LIFECYCLE_B_EVIDENCE_PROVIDER_VERSION,
         kind,
         scope: structuredClone(request.scope),
+        relatedSchemaScope: request.relatedSchemaScope ? structuredClone(request.relatedSchemaScope) : null,
         candidateId: request.candidateId,
         candidateRevision: request.candidateRevision,
         requestedAt: request.requestedAt,

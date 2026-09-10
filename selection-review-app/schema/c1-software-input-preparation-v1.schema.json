@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "c1-software-input-preparation-v1",
+  "title": "C1软件AI输入准备结果 v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "status", "preparedAt", "identity", "sourceFingerprints", "gaps", "inputs", "executionEvidence", "downstream"],
+  "properties": {
+    "schemaVersion": { "const": "c1-software-input-preparation-v1" },
+    "status": { "enum": ["ready", "not_ready"] },
+    "preparedAt": { "type": "string", "format": "date-time" },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["c1PlanId", "skuPackageId", "supplierSkuId", "targetPlatform", "targetStore"],
+      "properties": {
+        "c1PlanId": { "type": "string", "minLength": 1 },
+        "skuPackageId": { "type": "string", "minLength": 1 },
+        "supplierSkuId": { "type": "string", "minLength": 1 },
+        "targetPlatform": { "type": "string", "minLength": 1 },
+        "targetStore": { "type": "string", "minLength": 1 }
+      }
+    },
+    "sourceFingerprints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["c1Facts", "salesSnapshot"],
+      "properties": {
+        "c1Facts": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "salesSnapshot": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "field", "message"],
+        "properties": {
+          "code": { "type": "string", "minLength": 1 },
+          "field": { "type": "string", "minLength": 1 },
+          "message": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["competitorTextSnapshot", "seoRules", "taskClassification", "keywordEvidence"],
+      "properties": {
+        "competitorTextSnapshot": { "type": "object" },
+        "seoRules": { "type": "object" },
+        "taskClassification": { "type": "object" },
+        "keywordEvidence": { "type": ["object", "null"] }
+      }
+    },
+    "executionEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["externalAccesses", "seerfarCalls", "gatewayCalls", "codexDispatches", "platformWrites"],
+      "properties": {
+        "externalAccesses": { "type": "array", "maxItems": 0 },
+        "seerfarCalls": { "const": 0 },
+        "gatewayCalls": { "const": 0 },
+        "codexDispatches": { "const": 0 },
+        "platformWrites": { "const": 0 }
+      }
+    },
+    "downstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["c2Started", "productionStarted", "eReadbackStarted"],
+      "properties": {
+        "c2Started": { "const": false },
+        "productionStarted": { "const": false },
+        "eReadbackStarted": { "const": false }
+      }
+    }
+  }
+}

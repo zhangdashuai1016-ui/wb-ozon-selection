@@ -1,4 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { optionalNumber } from "../formState.js";
+import { useSubmit } from "./FormRevisionNotice.jsx";
+import { useDialogFocus } from "./useDialogFocus.js";
 import { CloseIcon } from "./Icons";
 
 const emptyForm = {
@@ -22,19 +25,42 @@ const emptyForm = {
   notes: ""
 };
 
-function optionalNumber(value) {
-  return value === "" ? null : Number(value);
+export function candidateCreateInput(form) {
+  return {
+    targetStore: form.targetStore,
+    productUrl: form.productUrl,
+    productName: form.productName,
+    sourceUrl: form.sourceUrl,
+    competitorUrl: form.competitorUrl,
+    imageUrl: form.imageUrl,
+    materialsAndAge: form.materialsAndAge,
+    notes: form.notes,
+    purchasePriceRmb: optionalNumber(form.purchasePriceRmb),
+    domesticShippingRmb: null,
+    moq: optionalNumber(form.moq),
+    netWeightKg: optionalNumber(form.netWeightKg),
+    packedWeightKg: optionalNumber(form.packedWeightKg),
+    expectedPriceRub: optionalNumber(form.expectedPriceRub),
+    acceptedTestRisk: form.acceptedTestRisk,
+    powered: form.powered === "false" ? false : form.powered === "true" ? true : form.powered,
+    dimensionsCm: {
+      length: optionalNumber(form.length),
+      width: optionalNumber(form.width),
+      height: optionalNumber(form.height)
+    }
+  };
 }
 
 export default function AddCandidateModal({ open, onClose, onSave }) {
   const [form, setForm] = useState(emptyForm);
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
+  const { saving, error, run } = useSubmit();
+  const dialogRef = useRef(null);
+  const close = useCallback(() => { if (!saving) onClose(); }, [saving, onClose]);
+  useDialogFocus(dialogRef, open, close);
 
   useEffect(() => {
     if (open) {
       setForm(emptyForm);
-      setError("");
     }
   }, [open]);
 
@@ -46,42 +72,16 @@ export default function AddCandidateModal({ open, onClose, onSave }) {
 
   async function submit(event) {
     event.preventDefault();
-    setError("");
-    setSaving(true);
-    try {
-      await onSave({
-        ...form,
-        purchasePriceRmb: optionalNumber(form.purchasePriceRmb),
-        domesticShippingRmb: null,
-        packagingCostRmb: 1.5,
-        complianceStatus: "clear",
-        authorizationStatus: "clear",
-        moq: optionalNumber(form.moq),
-        netWeightKg: optionalNumber(form.netWeightKg),
-        packedWeightKg: optionalNumber(form.packedWeightKg),
-        expectedPriceRub: optionalNumber(form.expectedPriceRub),
-        acceptedTestRisk: form.acceptedTestRisk,
-        powered: form.powered === "false" ? false : form.powered === "true" ? true : "unknown",
-        dimensionsCm: {
-          length: optionalNumber(form.length),
-          width: optionalNumber(form.width),
-          height: optionalNumber(form.height)
-        }
-      });
-    } catch (saveError) {
-      if (saveError.body?.duplicateId) {
-        setError(`${saveError.message}，正在跳转已有候选…`);
-      } else {
-        setError(saveError.message);
-      }
-    } finally {
-      setSaving(false);
-    }
+    return run(async () => {
+      await onSave(candidateCreateInput(form));
+    });
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+    <div className="modal-backdrop" role="presentation" onMouseDown={close}>
       <section
+        ref={dialogRef}
+        tabIndex={-1}
         className="modal"
         role="dialog"
         aria-modal="true"
@@ -93,7 +93,7 @@ export default function AddCandidateModal({ open, onClose, onSave }) {
             <h2 id="add-title">添加我找到的商品</h2>
             <p>只需填写目标店铺和商品链接；不知道的字段可以留空。</p>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="关闭">
+          <button type="button" className="icon-button" onClick={close} aria-label="关闭">
             <CloseIcon />
           </button>
         </header>
@@ -122,7 +122,7 @@ export default function AddCandidateModal({ open, onClose, onSave }) {
 
           <details>
             <summary>可选资料</summary>
-            <p className="form-defaults">已默认：合规清楚、授权清楚、包材 ¥1.5，无需填写。</p>
+            <p className="form-defaults">合规、授权和包材成本须由正式证据与配置确认；普通资料提交不会清空风险。</p>
             <div className="form-grid">
               <label>
                 商品名称
@@ -178,7 +178,7 @@ export default function AddCandidateModal({ open, onClose, onSave }) {
                   <option value="false">否，完全非电</option>
                   <option value="true">是，需要核验平台和线路</option>
                 </select>
-                <small>带电不直接淘汰，由Codex核验平台与GUOO/CEL线路</small>
+                <small>带电不直接淘汰，由软件按正式证据核验平台与线路</small>
               </label>
               <label>
                 预期俄区售价（RUB）
@@ -199,11 +199,11 @@ export default function AddCandidateModal({ open, onClose, onSave }) {
             </div>
           </details>
 
-          {error && <div className="form-error">{error}</div>}
+          {error && <div className="form-error" role="alert">{error}</div>}
           <footer className="modal-actions">
-            <button type="button" className="button secondary" onClick={onClose}>取消</button>
+            <button type="button" className="button secondary" onClick={close}>取消</button>
             <button type="submit" className="button primary" disabled={saving}>
-              {saving ? "保存中…" : "保存并交给Codex"}
+              {saving ? "保存中…" : "保存商品资料"}
             </button>
           </footer>
         </form>

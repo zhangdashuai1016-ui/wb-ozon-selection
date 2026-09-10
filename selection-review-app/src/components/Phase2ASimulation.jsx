@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
+import { useSubmit } from "./FormRevisionNotice.jsx";
 
 const SELLER_LABELS = {
   cross_border_cn: "中国跨境卖家",
@@ -16,7 +17,7 @@ const OWNER_LABELS = {
 };
 
 function percent(value) {
-  return `${(Number(value || 0) * 100).toFixed(2)}%`;
+  return Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : "未取得";
 }
 
 function Field({ label, children, className = "" }) {
@@ -29,7 +30,7 @@ export default function Phase2ASimulation({ onClose }) {
   const [result, setResult] = useState(null);
   const [profitSummary, setProfitSummary] = useState(null);
   const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
+  const { saving, error: submitError, run } = useSubmit();
 
   useEffect(() => {
     let active = true;
@@ -56,23 +57,18 @@ export default function Phase2ASimulation({ onClose }) {
 
   async function submit(decision) {
     if (!form) return;
-    setSaving(true);
-    setError("");
-    try {
+    return run(async () => {
+      setError("");
       const response = await api.confirmPhase2ASimulation({
         decision,
         supplierConfirmation: form
       });
       setResult(response.result);
       setProfitSummary(response.profitSummary);
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setSaving(false);
-    }
+    });
   }
 
-  if (!card || !form) return <main className="phase2a-page"><p>正在准备第2A模拟卡…</p></main>;
+  if (!card || !form) return <main className="phase2a-page">{error ? <p role="alert">{error}</p> : <p>正在准备第2A模拟卡…</p>}<button type="button" onClick={onClose}>返回今日选品评审</button></main>;
   const missing = result?.missing || [];
   const handoff = result?.c1Handoff || null;
 
@@ -84,7 +80,7 @@ export default function Phase2ASimulation({ onClose }) {
           <h2>{card.productName}</h2>
           <p>模拟SKU，不在真实52条候选中；不派发任务、不访问平台、不写店。</p>
         </div>
-        <button className="button secondary" onClick={onClose}>返回真实评审台</button>
+        <button type="button" className="button secondary" onClick={onClose}>返回今日选品评审</button>
       </header>
 
       <section className="phase2a-proof-banner">
@@ -124,11 +120,11 @@ export default function Phase2ASimulation({ onClose }) {
         </div>
 
         {missing.length ? <div className="phase2a-missing" role="alert">缺少或不一致：{missing.map((item) => item.label).join("、")}。B尚未启动。</div> : null}
-        {error ? <div className="phase2a-missing" role="alert">{error}</div> : null}
+        {error || submitError ? <div className="phase2a-missing" role="alert">{error || submitError}</div> : null}
 
         <div className="phase2a-actions">
-          <button className="button secondary" disabled={saving} onClick={() => submit("reject")}>淘汰商品</button>
-          <button className="button primary" data-testid="phase2a-confirm" disabled={saving} onClick={() => submit("confirm")}>
+          <button type="button" className="button secondary" disabled={saving} onClick={() => submit("reject")}>淘汰商品</button>
+          <button type="button" className="button primary" data-testid="phase2a-confirm" disabled={saving} onClick={() => submit("confirm")}>
             {saving ? "正在模拟…" : card.actionLabel}
           </button>
         </div>
@@ -163,7 +159,7 @@ export default function Phase2ASimulation({ onClose }) {
             <div className="phase2a-handoff">
               <b>B通过，已自动进入C1</b>
               <span>交接编号：{handoff.handoffId}</span>
-              <span>负责人：选品任务 → 上架任务；选品任务已停止当前SKU</span>
+              <span>运行责任：A/B软件 → C1软件；Codex选品/上架任务均未被正常流程唤醒</span>
               <span>继承：{handoff.parentOpportunityId} / {handoff.skuPackageId} / 修订 {handoff.inheritedOpportunityRevision}:{handoff.inheritedSkuRevision}</span>
               <span>同一交接重复调用只返回原记录；真实任务派发 {result.realTaskDispatches} 次。</span>
             </div>

@@ -32,6 +32,7 @@ function supplierOption({
 }) {
   const evidence = sanitize1688Evidence({
     offerId,
+    sourceUrl: `https://detail.1688.com/offer/${offerId}.html`,
     observedAt: "2026-08-12T12:00:00.000Z",
     title: `木质机械火车-${offerId}`,
     supplierSalesEvidence: { salesVolume, stabilityScore },
@@ -227,6 +228,8 @@ test("simulated owner confirmation creates one independent SKU package without r
     confirmedAt: "2026-08-12T12:31:00.000Z"
   });
   const skuPackage = createSkuLifecycleFromConfirmedSupply({
+    candidateId: candidate.id,
+    storeRef: candidate.storeRef,
     opportunityPackage: confirmed.opportunityPackage,
     ownerSupplyConfirmation: confirmed.confirmation,
     skuPackageId: "sku-lifecycle:CX-20260803-010:700000000031:320",
@@ -237,6 +240,8 @@ test("simulated owner confirmation creates one independent SKU package without r
   assert.deepEqual(validateOwnerSupplyConfirmation(confirmed.confirmation), { valid: true, errors: [] });
   assert.equal(confirmed.opportunityPackage.confirmedSupplierOptionId, option.supplierOptionId);
   assert.equal(skuPackage.entityType, "SkuLifecyclePackage");
+  assert.equal(skuPackage.g1Identity.candidateId, candidate.id);
+  assert.deepEqual(skuPackage.g1Identity.storeRef, candidate.storeRef);
   assert.equal(skuPackage.parentOpportunityId, TEST_PRODUCT_ID);
   assert.equal(skuPackage.supplierOptionId, option.supplierOptionId);
   assert.equal(skuPackage.supplierSkuId, selectedSku.supplierSkuId);

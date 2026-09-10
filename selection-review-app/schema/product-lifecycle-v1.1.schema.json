@@ -7,6 +7,244 @@
     { "$ref": "#/$defs/SkuLifecyclePackage" }
   ],
   "$defs": {
+    "g1Identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "candidateId", "skuPackageId", "platform", "storeRef", "supplierSkuId",
+        "merchantSku", "warehouseRef", "credentialAlias", "platformProductId"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "g1-identity-v1" },
+        "candidateId": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined", "not_applicable"] } },
+        "skuPackageId": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined", "not_applicable"] } },
+        "platform": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined", "not_applicable"] } },
+        "storeRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stableStoreId", "platformStoreId", "mappingVersion"],
+          "properties": {
+            "stableStoreId": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined", "not_applicable"] } },
+            "platformStoreId": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined", "not_applicable"] } },
+            "mappingVersion": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined", "not_applicable"] } }
+          }
+        },
+        "supplierSkuId": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined", "not_applicable"] } },
+        "merchantSku": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined"] } },
+        "warehouseRef": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined"] } },
+        "credentialAlias": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined"] } },
+        "platformProductId": { "type": "string", "minLength": 1, "not": { "enum": ["unknown", "null", "undefined"] } }
+      }
+    },
+    "c2DHandoff": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/historicalC2DHandoff"
+        },
+        {
+          "$ref": "#/$defs/queuedC2DHandoff"
+        }
+      ]
+    },
+    "c2DHandoffBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "handoffId",
+        "status",
+        "candidateId",
+        "skuPackageId",
+        "identity",
+        "variantKey",
+        "productionAuthorizationId",
+        "ownerDecisionId",
+        "sourcePreparationFingerprint",
+        "sourceFinalCardInputFingerprint",
+        "sourceCandidateRevision",
+        "resultCandidateRevision",
+        "sourceSkuRevision",
+        "resultSkuRevision",
+        "createdAt",
+        "uniqueOwner",
+        "productionPlanCreated",
+        "executionIntentCreated",
+        "softwareJobCreated",
+        "dWritePermissionGranted",
+        "externalRequests",
+        "platformWrites"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "string"
+        },
+        "handoffId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string"
+        },
+        "candidateId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "skuPackageId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identity": {
+          "$ref": "#/$defs/g1Identity"
+        },
+        "variantKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "productionAuthorizationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ownerDecisionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourcePreparationFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sourceFinalCardInputFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sourceCandidateRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resultCandidateRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sourceSkuRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resultSkuRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "uniqueOwner": {
+          "const": "d_software"
+        },
+        "productionPlanCreated": {
+          "const": false
+        },
+        "executionIntentCreated": {
+          "const": false
+        },
+        "softwareJobCreated": {
+          "type": "boolean"
+        },
+        "dWritePermissionGranted": {
+          "const": false
+        },
+        "externalRequests": {
+          "const": 0
+        },
+        "platformWrites": {
+          "const": 0
+        },
+        "softwareJobRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "jobId",
+            "jobType",
+            "candidateId",
+            "skuPackageId",
+            "sourceRevision",
+            "resultRevision",
+            "inputFingerprint"
+          ],
+          "properties": {
+            "jobId": {
+              "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+            },
+            "jobType": {
+              "const": "d_production_execution"
+            },
+            "candidateId": {
+              "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+            },
+            "skuPackageId": {
+              "$ref": "software-job-v1.schema.json#/$defs/strictRef"
+            },
+            "sourceRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "resultRevision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "inputFingerprint": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        }
+      }
+    },
+    "historicalC2DHandoff": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/c2DHandoffBase"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "softwareJobRef": false,
+            "schemaVersion": {
+              "const": "c2-d-handoff-v1"
+            },
+            "status": {
+              "const": "awaiting_explicit_d_start"
+            },
+            "softwareJobCreated": {
+              "const": false
+            }
+          }
+        }
+      ]
+    },
+    "queuedC2DHandoff": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/c2DHandoffBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "softwareJobRef"
+          ],
+          "properties": {
+            "softwareJobRef": { "$ref": "#/$defs/c2DHandoffBase/properties/softwareJobRef" },
+            "schemaVersion": {
+              "const": "c2-d-handoff-v2"
+            },
+            "status": {
+              "const": "software_job_queued"
+            },
+            "softwareJobCreated": {
+              "const": true
+            }
+          }
+        }
+      ]
+    },
     "businessResult": {
       "enum": ["pending", "passed", "rejected", "manual_review", "unknown"]
     },
@@ -54,16 +292,166 @@
     },
     "profitModel": {
       "type": "object",
-      "required": ["profitModelVersion", "calculatedAt", "inputSnapshotRefs", "recommendedSalePriceCny", "unitProfitRmb", "profitMargin", "result"],
+      "required": [
+        "profitModelVersion",
+        "calculatedAt",
+        "inputSnapshotRefs",
+        "recommendedSalePriceCny",
+        "unitProfitRmb",
+        "profitMargin",
+        "result"
+      ],
       "properties": {
-        "profitModelVersion": { "type": "string", "pattern": "^profit-v[1-9][0-9]*$" },
-        "calculatedAt": { "type": "string", "format": "date-time" },
-        "inputSnapshotRefs": { "type": "array", "items": { "type": "string" } },
-        "recommendedSalePriceCny": { "type": "number" },
-        "unitProfitRmb": { "type": "number" },
-        "profitMargin": { "type": "number" },
-        "result": { "$ref": "#/$defs/businessResult" }
+        "profitModelVersion": {
+          "type": "string",
+          "pattern": "^profit-v[1-9][0-9]*$"
+        },
+        "calculatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "inputSnapshotRefs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "calculation": {
+          "type": "object",
+          "required": [
+            "version",
+            "recommendedSalePriceCny",
+            "unitProfitRmb"
+          ],
+          "properties": {
+            "version": {
+              "enum": [
+                "profit-calculation-v1-unrounded",
+                "profit-calculation-v2-formal-commission",
+                "profit-calculation-v3-cost-policy-snapshot"
+              ]
+            },
+            "recommendedSalePriceCny": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "unitProfitRmb": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "recommendedSalePriceCny": {
+          "type": "number"
+        },
+        "commissionMode": {
+          "enum": [
+            "exact",
+            "estimated"
+          ]
+        },
+        "calculationType": {
+          "enum": [
+            "formal",
+            "conditional"
+          ]
+        },
+        "exactCommissionRequiredForFormalB": {
+          "type": "boolean"
+        },
+        "unitProfitRmb": {
+          "type": "number"
+        },
+        "profitMargin": {
+          "type": "number"
+        },
+        "result": {
+          "$ref": "#/$defs/businessResult"
+        }
       },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "calculation"
+            ],
+            "properties": {
+              "calculation": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "const": "profit-calculation-v2-formal-commission"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "commissionMode",
+              "calculationType",
+              "exactCommissionRequiredForFormalB"
+            ],
+            "oneOf": [
+              {
+                "properties": {
+                  "commissionMode": {
+                    "const": "exact"
+                  },
+                  "calculationType": {
+                    "const": "formal"
+                  },
+                  "exactCommissionRequiredForFormalB": {
+                    "const": false
+                  },
+                  "result": {
+                    "enum": [
+                      "passed",
+                      "rejected"
+                    ]
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "commissionMode": {
+                    "const": "estimated"
+                  },
+                  "calculationType": {
+                    "const": "conditional"
+                  },
+                  "exactCommissionRequiredForFormalB": {
+                    "const": true
+                  },
+                  "result": {
+                    "const": "manual_review"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "calculation"
+            ],
+            "properties": {
+              "calculation": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "const": "profit-calculation-v3-cost-policy-snapshot"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "$ref": "profit-model-v1.1.schema.json"
+          }
+        }
+      ],
       "additionalProperties": true
     },
     "readbackPolicy": {
@@ -118,7 +506,7 @@
     },
     "SkuLifecyclePackage": {
       "type": "object",
-      "required": ["schemaVersion", "entityType", "skuPackageId", "parentOpportunityId", "supplierOptionId", "supplierSkuId", "variantKey", "targetPlatform", "targetStore", "dataRevision", "businessPhase", "businessResult", "technicalStatus", "ownerAction", "inheritedSalesSnapshotRefs", "selectedSupplySnapshot", "skuFacts", "profitModels", "activeProfitModelVersion", "c1ProductPlan", "c2FinalAssets", "productionAuthorization", "productionRecord", "externalListingRecord", "eVerificationRecord", "readbackPolicy", "readbackHistory", "audit"],
+      "required": ["schemaVersion", "entityType", "skuPackageId", "parentOpportunityId", "supplierOptionId", "supplierSkuId", "variantKey", "targetPlatform", "targetStore", "g1Identity", "dataRevision", "businessPhase", "businessResult", "technicalStatus", "ownerAction", "inheritedSalesSnapshotRefs", "selectedSupplySnapshot", "skuFacts", "profitModels", "activeProfitModelVersion", "c1ProductPlan", "c2FinalAssets", "productionAuthorization", "productionRecord", "externalListingRecord", "eVerificationRecord", "readbackPolicy", "readbackHistory", "audit"],
       "properties": {
         "schemaVersion": { "const": "product-lifecycle-v1.1" },
         "entityType": { "const": "SkuLifecyclePackage" },
@@ -129,6 +517,7 @@
         "variantKey": { "type": "string", "minLength": 1 },
         "targetPlatform": { "type": "string", "minLength": 1 },
         "targetStore": { "type": "string", "minLength": 1 },
+        "g1Identity": { "$ref": "#/$defs/g1Identity" },
         "dataRevision": { "type": "integer", "minimum": 0 },
         "businessPhase": { "enum": ["B", "C1", "C2", "D", "E", "closed", "unknown"] },
         "businessResult": { "$ref": "#/$defs/businessResult" },
@@ -140,6 +529,7 @@
         "profitModels": { "type": "array", "items": { "$ref": "#/$defs/profitModel" } },
         "activeProfitModelVersion": { "type": ["string", "null"], "pattern": "^profit-v[1-9][0-9]*$" },
         "c1ProductPlan": { "type": ["object", "null"] },
+        "c1RightsReviewRecord": { "$ref": "c1-sku-rights-review-record-v1" },
         "c2FinalAssets": {
           "oneOf": [
             { "type": "null" },
@@ -169,27 +559,52 @@
         "productionAuthorization": {
           "oneOf": [
             { "type": "null" },
-            {
-              "type": "object",
-              "required": ["schemaVersion", "status", "confirmedBy", "authorizedDataRevision", "lockedScope", "scopeExpansionAllowed", "fieldMutationAllowed", "skuReplacementAllowed", "assetReplacementAllowed", "readPolicy", "productionExecuted", "platformWrites"],
-              "properties": {
-                "schemaVersion": { "const": "production-authorization-v1.1" },
-                "status": { "const": "confirmed" },
-                "confirmedBy": { "const": "owner" },
-                "authorizedDataRevision": { "type": "integer", "minimum": 0 },
-                "lockedScope": { "type": "object" },
-                "scopeExpansionAllowed": { "const": false },
-                "fieldMutationAllowed": { "const": false },
-                "skuReplacementAllowed": { "const": false },
-                "assetReplacementAllowed": { "const": false },
-                "readPolicy": { "const": "authorization_snapshot_only" },
-                "productionExecuted": { "const": false },
-                "platformWrites": { "const": 0 }
-              }
-            }
+            { "oneOf": [{ "$ref": "production-authorization-v1.1" }, { "$ref": "production-authorization-v1.2" }] }
+          ]
+        },
+        "dHandoff": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/c2DHandoff" }
           ]
         },
         "productionConfirmationCard": { "type": ["object", "null"] },
+        "finalPricingReview": { "type": "object" },
+        "dSoftwareExecution": { "oneOf": [{ "type": "null" }, { "$ref": "d-software-execution-state-v1" }, { "$ref": "d-software-execution-state-v2" }] },
+        "dAssetTransport": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["schemaVersion", "status", "intent", "assetTransport", "automaticRetry", "platformWrites"],
+              "properties": {
+                "schemaVersion": { "const": "aliyun-oss-d-asset-state-v1" },
+                "status": { "enum": ["in_flight", "verified", "unknown_outcome", "failed"] },
+                "intent": { "type": "object" },
+                "assetTransport": { "type": ["object", "null"] },
+                "executionRevision": { "type": "integer", "enum": [1, 2] },
+                "softwareJobRef": { "$ref": "d-software-execution-state-v1#/properties/softwareJobRef" },
+                "continuationBlocked": { "type": "boolean" },
+                "blockReason": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
+                "settledAt": { "type": "string", "format": "date-time" },
+                "automaticRetry": { "const": false },
+                "platformWrites": { "const": 0 }
+              },
+              "allOf": [{
+                "if": { "properties": { "status": { "const": "failed" } }, "required": ["status"] },
+                "then": { "properties": {
+                  "assetTransport": { "type": "null" },
+                  "intent": { "type": "object", "required": ["status", "ossWrites", "externalRequestState", "failureLayer", "failureCode"],
+                    "properties": { "status": { "const": "failed" }, "ossWrites": { "const": 0 },
+                      "externalRequestState": { "const": "not_attempted" }, "failureLayer": { "enum": ["production_configuration", "sku_rights_review", "production_authorization", "production_admission", "asset_preparation"] },
+                      "failureCode": { "type": "string", "minLength": 1 } }
+                  }
+                } }
+              }],
+              "additionalProperties": false
+            }
+          ]
+        },
         "productionRecord": { "type": ["object", "null"] },
         "externalListingRecord": { "type": ["object", "null"] },
         "eVerificationRecord": { "type": ["object", "null"] },
@@ -197,6 +612,16 @@
         "readbackHistory": { "type": "array" },
         "audit": { "$ref": "#/$defs/audit" }
       },
+      "allOf": [
+        {
+          "if": { "properties": { "productionAuthorization": { "type": "object" } }, "required": ["productionAuthorization"] },
+          "then": { "required": ["dHandoff"], "properties": { "dHandoff": { "$ref": "#/$defs/c2DHandoff" } } }
+        },
+        {
+          "if": { "properties": { "dHandoff": { "type": "object" } }, "required": ["dHandoff"] },
+          "then": { "properties": { "productionAuthorization": { "oneOf": [{ "$ref": "production-authorization-v1.1" }, { "$ref": "production-authorization-v1.2" }] } } }
+        }
+      ],
       "additionalProperties": false
     }
   }

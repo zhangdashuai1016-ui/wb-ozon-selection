@@ -1,58 +1,88 @@
 export async function collect1688Page(expectedOfferId) {
-  const limitText = (value, limit = 800) => String(value ?? "").trim().slice(0, limit);
+  const limitText = (value, limit = 800) => (typeof value === "string" || (typeof value === "number" && Number.isSafeInteger(value))) ? String(value).trim().slice(0, limit) : "";
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const numberFrom = (value) => {
+  const numberFrom = (value, kind = "money") => {
     if (value === null || value === undefined || value === "") return null;
-    if (typeof value === "number") return Number.isFinite(value) ? value : null;
-    if (typeof value === "object") {
-      for (const key of ["value", "amount", "price", "count", "stock"]) {
-        const nested = numberFrom(value[key]);
-        if (nested !== null) return nested;
-      }
-      return null;
-    }
-    const match = String(value).replace(/\s+/g, "").replace(",", ".").match(/-?\d+(?:\.\d+)?/);
-    if (!match) return null;
-    const parsed = Number(match[0]);
-    return Number.isFinite(parsed) ? parsed : null;
+    if (typeof value === "number") return Number.isFinite(value) && value >= 0 && value <= Number.MAX_SAFE_INTEGER && (kind !== "count" || Number.isInteger(value)) ? value : null;
+    if (typeof value !== "string") return null;
+    // Parse the complete scalar, never the first number of a range, tier or SKU label.
+    let scalar = kind === "count"
+      ? value.trim().replace(/^库存\s*/, "").replace(/\s*件$/, "")
+      : value.trim().replace(/^(?:[¥￥]|CNY)\s*/i, "").replace(/\s*(?:元|CNY)$/i, "");
+    if (/^\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?$/.test(scalar)) scalar = scalar.replace(/,/g, "");
+    else if (/^\d{1,3}(?:[ \u00a0\u202f]\d{3})+(?:[.,]\d{1,2})?$/.test(scalar)) scalar = scalar.replace(/[ \u00a0\u202f]/g, "").replace(",", ".");
+    else if (/^\d+,\d{1,2}$/.test(scalar)) scalar = scalar.replace(",", ".");
+    if (!/^\d+(?:\.\d{1,2})?$/.test(scalar)) return null;
+    const parsed = Number(scalar);
+    return Number.isFinite(parsed) && parsed <= Number.MAX_SAFE_INTEGER && (kind !== "count" || Number.isInteger(parsed)) ? parsed : null;
   };
-  const first = (...values) => values.find((value) => value !== null && value !== undefined && String(value).trim() !== "");
-  const pageOfferId = window.location.pathname.match(/^\/offer\/(\d+)\.html$/)?.[1] || "";
-  if (pageOfferId && pageOfferId !== String(expectedOfferId)) {
+  const imageUrlFrom = (value) => {
+    if (typeof value !== "string") return null;
+    try {
+      const url = new URL(value);
+      if (url.protocol !== "https:" || url.username || url.password || url.port || !/(^|\.)alicdn\.com$/.test(url.hostname)) return null;
+      return `${url.origin}${url.pathname}`;
+    } catch { return null; }
+  };
+  const first = (...values) => values.find((value) => limitText(value) !== "");
+  const firstObject = (...values) => values.find((value) => value !== null && typeof value === "object");
+  let pageOfferId = "";
+  try {
+    const url = new URL(window.location.href);
+    if (url.protocol === "https:" && url.hostname === "detail.1688.com" && !url.username && !url.password && !url.port) pageOfferId = url.pathname.match(/^\/offer\/(\d+)\.html$/)?.[1] || "";
+  } catch { /* Invalid page identity fails below, without returning its URL. */ }
+  if (!pageOfferId || pageOfferId !== String(expectedOfferId)) {
     return { status: "failed", failureCode: "wrong_offer", message: "页面offerId与当前候选不一致", offerId: pageOfferId };
   }
-  const bodyText = () => limitText(document.body?.innerText || "", 12000);
-  const modelRoot = () => window.context?.result?.global?.globalData?.model || window.__INIT_DATA?.globalData || null;
+  // ISOLATED protects built-ins, not the website-controlled DOM. JSON is evidence,
+  // not trusted authority; never execute scripts or read MAIN-world globals.
+  const pageBlocker = () => {
+    if (document.querySelector?.('[id="nc_1_wrapper"], [id="captcha"], [data-widget="captcha"], iframe[src*="captcha"]')) return "site_verification_required";
+    if (document.querySelector?.('form[action*="login"] input[type="password"], [data-widget="loginForm"]')) return "site_login_required";
+    return null;
+  };
+  const readPageData = () => {
+    const models = [];
+    for (const script of Array.from(document.querySelectorAll?.('script[type="application/json"]') || []).slice(0, 20)) {
+      const content = script.textContent;
+      if (typeof content !== "string" || content.length > 1_000_000) continue;
+      let parsed;
+      try { parsed = JSON.parse(content); } catch { continue; } // Non-JSON scripts are not a supported source.
+      const model = parsed?.result?.global?.globalData?.model || parsed?.globalData;
+      if (model && typeof model === "object" && !Array.isArray(model)) models.push({ model, data: parsed?.result?.data, init: parsed });
+    }
+    return models.length === 1 ? models[0] : null;
+  };
   const skuRowsPresent = () => document.querySelectorAll?.("#skuSelection .ant-table-tbody tr[data-row-key]")?.length > 0;
 
   const deadline = Date.now() + 12000;
-  while (Date.now() < deadline && !modelRoot() && !skuRowsPresent()) await sleep(250);
+  while (Date.now() < deadline && !pageBlocker() && !readPageData() && !skuRowsPresent()) await sleep(250);
 
-  const root = modelRoot();
+  const blocker = pageBlocker();
+  if (blocker) return { status: "failed", failureCode: blocker, offerId: pageOfferId };
+  const pageData = readPageData();
+  const root = pageData?.model;
   const offerBaseInfo = root?.offerBaseInfo || null;
   const tradeModel = root?.tradeModel || null;
   const skuModel = root?.skuModel || null;
-  const structuredOfferId = limitText(first(offerBaseInfo?.offerId, window.context?.result?.data?.offerId), 40);
+  const declaredOfferIds = [offerBaseInfo?.offerId, pageData?.data?.offerId].filter((value) => value !== undefined && value !== null);
+  if (root && (!declaredOfferIds.length || declaredOfferIds.some((value) => limitText(value, 40) !== String(expectedOfferId)))) {
+    return { status: "failed", failureCode: "wrong_offer", offerId: pageOfferId };
+  }
+  const structuredOfferId = limitText(first(offerBaseInfo?.offerId, pageData?.data?.offerId), 40);
   const actualOfferId = structuredOfferId || pageOfferId;
   if (!actualOfferId || actualOfferId !== String(expectedOfferId) || (pageOfferId && pageOfferId !== String(expectedOfferId))) {
     return { status: "failed", failureCode: "wrong_offer", message: "页面offerId与当前候选不一致", offerId: actualOfferId || pageOfferId };
   }
 
   if (!root && !skuRowsPresent()) {
-    const pageText = bodyText();
-    if (/安全验证|人机验证|验证码|滑块|security check|verify/i.test(pageText)) {
-      return { status: "failed", failureCode: "site_verification_required", message: "1688要求完成安全验证", offerId: actualOfferId };
-    }
-    if (/欢迎登录|密码登录|短信登录|请登录|login/i.test(pageText)) {
-      return { status: "failed", failureCode: "site_login_required", message: "1688要求先登录", offerId: actualOfferId };
-    }
     return { status: "failed", failureCode: "structured_data_unavailable", message: "页面没有可核验的SKU结构化数据", offerId: actualOfferId };
   }
 
   const supplierAttributes = {};
   const attributeLists = [
     root?.offerAttributeModel?.offerAttrs,
-    window.context?.result?.data?.productAttributes?.fields?.attributes
+    pageData?.data?.productAttributes?.fields?.attributes
   ];
   for (const list of attributeLists) {
     if (!Array.isArray(list)) continue;
@@ -79,7 +109,7 @@ export async function collect1688Page(expectedOfferId) {
 
   const attributesForSku = (rawSku) => {
     const attributes = {};
-    const direct = first(rawSku?.specAttrs, rawSku?.specAttr, rawSku?.attributes);
+    const direct = firstObject(rawSku?.specAttrs, rawSku?.specAttr, rawSku?.attributes) || first(rawSku?.specAttrs, rawSku?.specAttr, rawSku?.attributes);
     if (direct && typeof direct === "object" && !Array.isArray(direct)) {
       for (const [key, value] of Object.entries(direct)) {
         const cleaned = limitText(value, 300);
@@ -102,28 +132,28 @@ export async function collect1688Page(expectedOfferId) {
     return { attributes, propPath: propPath || null };
   };
 
-  const directField = (object, fields, positiveOnly = false) => {
+  const directField = (object, fields, positiveOnly = false, kind = "money") => {
     for (const field of fields) {
       if (!Object.prototype.hasOwnProperty.call(object || {}, field)) continue;
-      const parsed = numberFrom(object[field]);
-      if (parsed !== null && (!positiveOnly || parsed > 0)) return { value: parsed, source: field };
+      const parsed = numberFrom(object[field], kind);
+      return parsed !== null && (!positiveOnly || parsed > 0) ? { value: parsed, source: field } : { value: null, source: null };
     }
     return { value: null, source: null };
   };
 
   const explicitScalarField = (entries, positiveOnly = false) => {
     for (const [source, value] of entries) {
-      if (value === null || value === undefined || value === "" || typeof value === "object") continue;
+      if (value === null || value === undefined || value === "") continue;
       const parsed = numberFrom(value);
-      if (parsed !== null && (!positiveOnly || parsed > 0)) return { value: parsed, source };
+      return parsed !== null && (!positiveOnly || parsed > 0) ? { value: parsed, source } : { value: null, source: null };
     }
     return { value: null, source: null };
   };
 
   const rawSkuEntries = [];
   const addEntries = (value, source) => {
-    if (Array.isArray(value)) value.forEach((item, index) => rawSkuEntries.push({ item, fallbackId: "", source: `${source}[${index}]` }));
-    else if (value && typeof value === "object") Object.entries(value).forEach(([key, item]) => rawSkuEntries.push({ item, fallbackId: key, source: `${source}.${key}` }));
+    if (Array.isArray(value)) value.forEach((item, index) => rawSkuEntries.push({ item, source: `${source}[${index}]` }));
+    else if (value && typeof value === "object") Object.entries(value).forEach(([key, item]) => rawSkuEntries.push({ item, source: `${source}.${key}` }));
   };
   addEntries(tradeModel?.skuMap, "tradeModel.skuMap");
   addEntries(tradeModel?.skuInfoMap, "tradeModel.skuInfoMap");
@@ -142,20 +172,21 @@ export async function collect1688Page(expectedOfferId) {
   addEntries(root?.skuList, "root.skuList");
   addEntries(root?.offerSkuModel?.skuInfoMap, "root.offerSkuModel.skuInfoMap");
   addEntries(root?.offerSkuModel?.skuMap, "root.offerSkuModel.skuMap");
-  addEntries(window.__INIT_DATA?.skuModel?.skuInfoMap, "__INIT_DATA.skuModel.skuInfoMap");
-  addEntries(window.__INIT_DATA?.skuModel?.skuMap, "__INIT_DATA.skuModel.skuMap");
-  addEntries(window.__INIT_DATA?.skuModel?.skuInfos, "__INIT_DATA.skuModel.skuInfos");
-  addEntries(window.__INIT_DATA?.skuModel?.skuList, "__INIT_DATA.skuModel.skuList");
+  addEntries(pageData?.init?.skuModel?.skuInfoMap, "json.skuModel.skuInfoMap");
+  addEntries(pageData?.init?.skuModel?.skuMap, "json.skuModel.skuMap");
+  addEntries(pageData?.init?.skuModel?.skuInfos, "json.skuModel.skuInfos");
+  addEntries(pageData?.init?.skuModel?.skuList, "json.skuModel.skuList");
 
   const skus = [];
   const skuById = new Map();
   for (const entry of rawSkuEntries) {
     const rawSku = entry.item;
     if (!rawSku || typeof rawSku !== "object") continue;
-    const sourceSkuId = limitText(first(rawSku?.skuId, rawSku?.id, rawSku?.specId, entry.fallbackId), 160);
+    // specId and map keys may be property combinations, not a supplier SKU ID.
+    const sourceSkuId = limitText(first(rawSku?.skuId, rawSku?.id), 160);
     if (!sourceSkuId) continue;
     const price = directField(rawSku, ["price", "discountPrice", "currentPrice", "priceDisplay", "unitPrice"], true);
-    const stock = directField(rawSku, ["canBookCount", "canBookedAmount", "amountOnSale", "stock", "quantity"], false);
+    const stock = directField(rawSku, ["canBookCount", "canBookedAmount", "amountOnSale", "stock", "quantity"], false, "count");
     const details = attributesForSku(rawSku);
     const imageUrl = limitText(first(rawSku?.imageUrl, rawSku?.imgUrl, rawSku?.image), 2000);
     const incoming = {
@@ -167,13 +198,18 @@ export async function collect1688Page(expectedOfferId) {
       stock: stock.value !== null && stock.value >= 0 ? stock.value : null,
       stockSource: stock.value !== null && stock.value >= 0 ? `${entry.source}.${stock.source}` : null,
       inStock: typeof rawSku.inStock === "boolean" ? rawSku.inStock : stock.value === null ? null : stock.value > 0,
-      imageUrl: /^https:\/\//i.test(imageUrl) ? imageUrl : null
+      imageUrl: imageUrlFrom(imageUrl)
     };
     const existing = skuById.get(sourceSkuId);
     if (!existing) {
       skuById.set(sourceSkuId, incoming);
       skus.push(incoming);
       continue;
+    }
+    if ((existing.priceCny !== null && incoming.priceCny !== null && existing.priceCny !== incoming.priceCny) ||
+        (existing.stock !== null && incoming.stock !== null && existing.stock !== incoming.stock) ||
+        Object.entries(incoming.attributes).some(([key, value]) => existing.attributes[key] !== undefined && existing.attributes[key] !== value)) {
+      return { status: "failed", failureCode: "structured_data_unavailable", offerId: actualOfferId };
     }
     existing.propPath ||= incoming.propPath;
     existing.attributes = { ...existing.attributes, ...incoming.attributes };
@@ -203,7 +239,7 @@ export async function collect1688Page(expectedOfferId) {
       });
       const priceNodes = row.querySelectorAll?.(".gyp-pro-table-price span") || [];
       const priceValue = numberFrom(priceNodes[0]?.textContent);
-      const stockValue = numberFrom(priceNodes[1]?.textContent);
+      const stockValue = numberFrom(priceNodes[1]?.textContent, "count");
       const domSku = {
         sourceSkuId,
         propPath: limitText(row.querySelector?.(".gyp-pro-table-title p")?.textContent, 600) || null,
@@ -220,6 +256,11 @@ export async function collect1688Page(expectedOfferId) {
         skus.push(domSku);
         skuById.set(sourceSkuId, domSku);
         continue;
+      }
+      if ((existing.priceCny !== null && domSku.priceCny !== null && existing.priceCny !== domSku.priceCny) ||
+          (existing.stock !== null && domSku.stock !== null && existing.stock !== domSku.stock) ||
+          Object.entries(domSku.attributes).some(([key, value]) => existing.attributes[key] !== undefined && existing.attributes[key] !== value)) {
+        return { status: "failed", failureCode: "structured_data_unavailable", offerId: actualOfferId };
       }
       existing.propPath ||= domSku.propPath;
       existing.attributes = { ...existing.attributes, ...domSku.attributes };
@@ -246,12 +287,12 @@ export async function collect1688Page(expectedOfferId) {
     tradeModel?.skuId,
     tradeModel?.currentSku?.skuId,
     offerBaseInfo?.skuId,
-    window.context?.result?.data?.skuId
+    pageData?.data?.skuId
   ), 160);
   if (!skus.length && pageSelectedSkuId) {
-    const rawSku = first(skuModel?.selectedSku, skuModel?.currentSku, tradeModel?.currentSku, {});
+    const rawSku = firstObject(skuModel?.selectedSku, skuModel?.currentSku, tradeModel?.currentSku) || {};
     const price = directField(rawSku, ["price", "discountPrice", "currentPrice", "priceDisplay", "unitPrice"], true);
-    const stock = directField(rawSku, ["canBookCount", "canBookedAmount", "amountOnSale", "stock", "quantity"], false);
+    const stock = directField(rawSku, ["canBookCount", "canBookedAmount", "amountOnSale", "stock", "quantity"], false, "count");
     const details = attributesForSku(rawSku);
     skus.push({
       sourceSkuId: pageSelectedSkuId,
@@ -262,9 +303,7 @@ export async function collect1688Page(expectedOfferId) {
       stock: stock.value !== null && stock.value >= 0 ? stock.value : null,
       stockSource: stock.value !== null && stock.value >= 0 ? `singleSku.${stock.source}` : null,
       inStock: typeof rawSku.inStock === "boolean" ? rawSku.inStock : stock.value === null ? null : stock.value > 0,
-      imageUrl: /^https:\/\//i.test(limitText(first(rawSku?.imageUrl, rawSku?.imgUrl, rawSku?.image), 2000))
-        ? limitText(first(rawSku?.imageUrl, rawSku?.imgUrl, rawSku?.image), 2000)
-        : null
+      imageUrl: imageUrlFrom(first(rawSku?.imageUrl, rawSku?.imgUrl, rawSku?.image))
     });
   }
 
@@ -280,7 +319,7 @@ export async function collect1688Page(expectedOfferId) {
     if (!Array.isArray(list)) continue;
     for (const item of list) {
       const priceCny = numberFrom(first(item?.price, item?.value, item?.unitPrice, item));
-      const minimumQuantity = numberFrom(first(item?.beginAmount, item?.startQuantity, item?.minQuantity, item?.amount));
+      const minimumQuantity = numberFrom(first(item?.beginAmount, item?.startQuantity, item?.minQuantity, item?.amount), "count");
       if (priceCny !== null && priceCny > 0) priceRanges.push({ minimumQuantity, priceCny, source: field });
     }
   }
@@ -316,6 +355,7 @@ export async function collect1688Page(expectedOfferId) {
     status: "captured",
     evidence: {
       offerId: actualOfferId,
+      sourceUrl: `https://detail.1688.com/offer/${actualOfferId}.html`,
       title: titleChoice[0],
       offerStatus: limitText(first(offerBaseInfo?.status, offerBaseInfo?.offerStatus, tradeModel?.status), 120) || null,
       observedAt: new Date().toISOString(),

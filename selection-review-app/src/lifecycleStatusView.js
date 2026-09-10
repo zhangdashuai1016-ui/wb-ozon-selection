@@ -42,6 +42,7 @@ export function mapLifecycleStatus(candidate) {
 
   const sourceEntityType = skuPackage ? "SkuLifecyclePackage" : "OpportunityPackage";
   const sourcePackageId = skuPackage?.skuPackageId || opportunityPackage?.parentOpportunityId;
+  const sourceConflict = candidate.eReadbackRuntimeView?.status === "source_conflict";
 
   return Object.freeze({
     available: true,
@@ -54,11 +55,12 @@ export function mapLifecycleStatus(candidate) {
     sourceProfitModel: skuPackage?.activeProfitModelVersion || null,
     businessPhase: lifecycle.businessPhase,
     businessResult: lifecycle.businessResult,
-    technicalStatus: lifecycle.technicalStatus,
+    technicalStatus: sourceConflict ? "system_error" : lifecycle.technicalStatus,
     ownerAction: lifecycle.ownerAction,
     productFailed: false,
-    failureLayer: null,
-    explanation: skuPackage?.eVerificationRecord?.outcome === "externally_verified"
+    failureLayer: sourceConflict ? "e_readback_source_conflict" : null,
+    explanation: sourceConflict ? "历史E回读证据已保留，但商品来源已变化，当前验证结果待核对；不会自动重复读取或写入。"
+      : skuPackage?.eVerificationRecord?.outcome === "externally_verified"
       ? "平台商品由外部发现并完成E阶段独立验证；没有伪造ProductionRecord。"
       : skuPackage?.eVerificationRecord?.outcome === "listed_verified"
         ? "系统创建商品已基于ProductionRecord完成E阶段独立验证。"

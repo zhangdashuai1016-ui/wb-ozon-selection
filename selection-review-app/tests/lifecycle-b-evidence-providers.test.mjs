@@ -1,3 +1,4 @@
+import { SYNTHETIC_STORE_REF } from "./fixtures/store-binding-fixture.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -10,16 +11,30 @@ const requestedAt = "2026-08-18T08:00:00.000Z";
 const checkedAt = "2026-08-18T07:59:00.000Z";
 const expiresAt = "2026-08-19T08:00:00.000Z";
 
+test("店铺回执缺失或错绑时不能用请求scope回填为有效证据", async () => {
+  for (const kind of ["commission", "schema"]) {
+    for (const field of ["missing", "platformStoreId", "mappingVersion"]) {
+      const response = result(kind);
+      if (field === "missing") delete response.scope.storeRef;
+      else response.scope.storeRef[field] = "different";
+      let calls = 0;
+      const provider = createLifecycleBEvidenceProvider({ kind, read: async () => { calls += 1; return response; } });
+      await assert.rejects(() => provider(request(kind)), /B_EVIDENCE_PROVIDER_SCOPE_MISMATCH/);
+      assert.equal(calls, 1);
+    }
+  }
+});
+
 const scopes = {
-  commission: { platform: "ozon", store: "dandanshu", category: "music-box", salesScheme: "rfbs" },
+  commission: { platform: "ozon", store: "dandanshu", storeRef: structuredClone(SYNTHETIC_STORE_REF), category: "music-box", salesScheme: "rfbs" },
   logistics_tariff: { route: "guoo-economy-small", ruleVersion: "guoo-2026-07-20" },
   exchange_rate: { pair: "RUB/CNY" },
-  schema: { platform: "ozon", store: "dandanshu", category: "music-box", ruleVersion: "schema-2026-08-18" }
+  schema: { platform: "ozon", store: "dandanshu", storeRef: structuredClone(SYNTHETIC_STORE_REF), category: "music-box", ruleVersion: "schema-2026-08-18" }
 };
 
 const evidenceData = {
   commission: {
-    commissionRate: 0.14,
+    commissionRate: 0.14, commissionEvidenceMode: "exact",
     otherCosts: {
       packagingRmb: 1.5,
       labelRmb: 1.5,
@@ -167,10 +182,10 @@ test("四类适配器可直接接入准备执行器并形成全有或全无的�
   const candidate = {
     id: "PROVIDER-SKU-1",
     dataRevision: 7,
-    targetStore: "dandanshu",
+    targetStore: "dandanshu", storeRef: structuredClone(SYNTHETIC_STORE_REF),
     lifecycleEvidenceContextV11: {
       platform: "ozon",
-      store: "dandanshu",
+      store: "dandanshu", storeRef: structuredClone(SYNTHETIC_STORE_REF),
       category: "music-box",
       salesScheme: "rfbs",
       route: "guoo-economy-small",
@@ -191,4 +206,45 @@ test("四类适配器可直接接入准备执行器并形成全有或全无的�
   assert.equal(prepared.finalReadiness.ready, true);
   assert.equal(prepared.platformWrites, 0);
   assert.equal(prepared.automaticRetryAttempted, false);
+});
+
+test("估算provider严格保留本轮授权，拒绝旧包、错候选、错修订和额外字段", async () => {
+  const req = request("commission");
+  const raw = result("commission");
+  raw.evidenceData.commissionEvidenceMode = "estimated";
+  const binding = { schemaVersion: "commission-estimate-authorization-v1", candidateId: req.candidateId,
+    candidateRevision: req.candidateRevision, authorizationRef: "owner-estimate:synthetic", commissionRate: raw.evidenceData.commissionRate };
+  raw.evidenceData.commissionEstimateAuthorization = binding;
+  const saved = await createLifecycleBEvidenceProvider({ kind: "commission", read: async () => raw })(req);
+  assert.deepEqual(saved.evidenceData.commissionEstimateAuthorization, binding);
+  for (const invalid of [undefined, { ...binding, candidateId: "wrong" }, { ...binding, candidateRevision: req.candidateRevision + 1 },
+    { ...binding, commissionRate: 0.9 }, { ...binding, extra: true }]) {
+    const response = structuredClone(raw);
+    if (invalid === undefined) delete response.evidenceData.commissionEstimateAuthorization;
+    else response.evidenceData.commissionEstimateAuthorization = invalid;
+    await assert.rejects(() => createLifecycleBEvidenceProvider({ kind: "commission", read: async () => response })(req), /B_EVIDENCE_PROVIDER_ESTIMATE_SCOPE_MISMATCH/);
+  }
+});
+
+// Synthetic formal metadata tests the contract only; the real WB reader stays NOT_FORMAL.
+test('versioned WB commission preserves its reference and unknown expiry without weakening other traces', async () => {
+  const input = request('commission'), response = result('commission');
+  Object.assign(input.scope, {platform:'wb',store:'wb',category:'wb:subject:5267',salesScheme:'fbs'});
+  input.scope.storeRef.stableStoreId = 'wb';
+  response.scope = structuredClone(input.scope);
+  response.sourceType = 'wb_official_commission_reference'; response.expiresAt = null;
+  response.commissionCatalogRef = {catalogId:'synthetic-catalog',catalogVersion:'v1',sellerRegion:'CN',subjectId:5267,
+    sourceField:'kgvpChina',sourceReceiptRef:'synthetic-receipt',effectiveFrom:null};
+  const normalized = await createLifecycleBEvidenceProvider({kind:'commission',read:async()=>response})(input);
+  assert.equal(normalized.expiresAt,null); assert.deepEqual(normalized.commissionCatalogRef,response.commissionCatalogRef);
+  assert.notEqual(normalized.commissionCatalogRef,response.commissionCatalogRef);
+  for (const mutate of [r=>{delete r.commissionCatalogRef;},r=>{r.evidenceData.commissionEvidenceMode='estimated';},
+    r=>{r.commissionCatalogRef.sourceReceiptRef='token=private';},r=>{r.evidenceData.otherCosts={};}]) {
+    const invalid=structuredClone(response); mutate(invalid);
+    await assert.rejects(createLifecycleBEvidenceProvider({kind:'commission',read:async()=>invalid})(input),/B_EVIDENCE_PROVIDER_/);
+  }
+  for (const kind of ['commission','logistics_tariff','exchange_rate','schema']) {
+    const invalid=result(kind); invalid.expiresAt=null;
+    await assert.rejects(createLifecycleBEvidenceProvider({kind,read:async()=>invalid})(request(kind)),/B_EVIDENCE_PROVIDER_VALIDITY_INVALID/);
+  }
 });

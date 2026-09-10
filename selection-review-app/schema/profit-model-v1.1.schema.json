@@ -28,104 +28,523 @@
     "formula"
   ],
   "properties": {
-    "schemaVersion": { "const": "profit-model-v1.1" },
-    "profitModelVersion": { "type": "string", "pattern": "^profit-v[1-9][0-9]*$" },
-    "calculatedAt": { "type": "string", "format": "date-time" },
-    "inputSnapshotRefs": { "type": "array", "minItems": 5, "maxItems": 5, "items": { "type": "string", "minLength": 1 } },
-    "marketAssessmentRef": { "type": "string", "minLength": 1 },
-    "marketSampleRefs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
-    "pricingPolicyVersion": { "const": "ozon-wb-global-pricing-2026-08-21-v3-project-or-threshold-v1" },
-    "pricingMode": { "const": "source-market-fit" },
+    "schemaVersion": {
+      "const": "profit-model-v1.1"
+    },
+    "profitModelVersion": {
+      "type": "string",
+      "pattern": "^profit-v[1-9][0-9]*$"
+    },
+    "calculatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "inputSnapshotRefs": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "marketAssessmentRef": {
+      "type": "string",
+      "minLength": 1
+    },
+    "marketSampleRefs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "pricingPolicyVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pricingMode": {
+      "const": "source-market-fit"
+    },
     "priceFloors": {
       "type": "object",
-      "required": ["breakEvenPriceCny", "marginFloorCny", "minimumProfitFloorCny", "qualifyingFloorCny", "qualifyingLogic", "priceIncrementCny"],
+      "required": [
+        "breakEvenPriceCny",
+        "marginFloorCny",
+        "minimumProfitFloorCny",
+        "qualifyingFloorCny",
+        "qualifyingLogic",
+        "priceIncrementCny"
+      ],
       "properties": {
-        "breakEvenPriceCny": { "type": "number", "minimum": 0 },
-        "marginFloorCny": { "type": "number", "minimum": 0 },
-        "minimumProfitFloorCny": { "type": "number", "minimum": 0 },
-        "qualifyingFloorCny": { "type": "number", "minimum": 0 },
-        "qualifyingLogic": { "const": "any" },
-        "priceIncrementCny": { "type": "number", "exclusiveMinimum": 0 }
+        "breakEvenPriceCny": {
+          "type": "number",
+          "minimum": 0
+        },
+        "marginFloorCny": {
+          "type": "number",
+          "minimum": 0
+        },
+        "minimumProfitFloorCny": {
+          "type": "number",
+          "minimum": 0
+        },
+        "qualifyingFloorCny": {
+          "type": "number",
+          "minimum": 0
+        },
+        "qualifyingLogic": {
+          "const": "any"
+        },
+        "priceIncrementCny": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
       },
       "additionalProperties": false
     },
     "marketFit": {
       "type": "object",
-      "required": ["status", "marketReferencePriceCny", "qualifyingFloorCny", "headroomCny", "marketSampleCount", "preferredComparableCount", "comparableCountIsHardGate"],
+      "required": [
+        "status",
+        "marketReferencePriceCny",
+        "qualifyingFloorCny",
+        "headroomCny",
+        "marketSampleCount",
+        "preferredComparableCount",
+        "comparableCountIsHardGate"
+      ],
       "properties": {
-        "status": { "enum": ["fits_market", "above_market_needs_review", "market_conflict", "severe_market_conflict"] },
-        "marketReferencePriceCny": { "type": "number", "exclusiveMinimum": 0 },
-        "qualifyingFloorCny": { "type": "number", "minimum": 0 },
-        "headroomCny": { "type": "number" },
-        "floorPremiumRate": { "type": "number" },
-        "marketSampleCount": { "type": "integer", "minimum": 0 },
-        "preferredComparableCount": { "const": 5 },
-        "comparableCountIsHardGate": { "const": false }
+        "status": {
+          "enum": [
+            "fits_market",
+            "above_market_needs_review",
+            "market_conflict",
+            "severe_market_conflict"
+          ]
+        },
+        "marketReferencePriceCny": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "qualifyingFloorCny": {
+          "type": "number",
+          "minimum": 0
+        },
+        "headroomCny": {
+          "type": "number"
+        },
+        "floorPremiumRate": {
+          "type": "number"
+        },
+        "marketSampleCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "preferredComparableCount": {
+          "const": 5
+        },
+        "comparableCountIsHardGate": {
+          "const": false
+        }
       },
       "additionalProperties": false
     },
-    "costScope": { "type": "object" },
-    "recommendedSalePriceRub": { "type": "number", "exclusiveMinimum": 0 },
-    "recommendedSalePriceCny": { "type": "number", "exclusiveMinimum": 0 },
+    "costScope": {
+      "type": "object"
+    },
+    "recommendedSalePriceRub": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "calculation": {
+      "type": "object",
+      "required": [
+        "version",
+        "recommendedSalePriceCny",
+        "unitProfitRmb"
+      ],
+      "properties": {
+        "version": {
+          "enum": [
+            "profit-calculation-v1-unrounded",
+            "profit-calculation-v2-formal-commission",
+            "profit-calculation-v3-cost-policy-snapshot"
+          ]
+        },
+        "recommendedSalePriceCny": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "unitProfitRmb": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "recommendedSalePriceCny": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
     "priceConversion": {
       "type": "object",
-      "required": ["rubPerCny", "evidenceRef", "checkedAt"],
+      "required": [
+        "rubPerCny",
+        "evidenceRef",
+        "checkedAt"
+      ],
       "properties": {
-        "rubPerCny": { "type": "number", "exclusiveMinimum": 0 },
-        "evidenceRef": { "type": "string", "minLength": 1 },
-        "checkedAt": { "type": "string", "format": "date-time" }
+        "rubPerCny": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "evidenceRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "checkedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
       "additionalProperties": false
     },
-    "sellerSettlementRevenue": { "$ref": "#/$defs/money" },
-    "commissionRate": { "type": "number", "minimum": 0, "exclusiveMaximum": 1 },
-    "internationalFreight": { "$ref": "#/$defs/money" },
-    "actualPurchaseCost": { "$ref": "#/$defs/money" },
-    "otherCosts": { "$ref": "#/$defs/money" },
-    "unitProfitRmb": { "type": "number" },
-    "profitMargin": { "type": "number" },
-    "thresholdVersion": { "enum": ["profit-threshold-v1.1-25pct-20cny", "profit-threshold-v1.2-15pct-or-20cny"] },
+    "sellerSettlementRevenue": {
+      "$ref": "#/$defs/money"
+    },
+    "commissionRate": {
+      "type": "number",
+      "minimum": 0,
+      "exclusiveMaximum": 1
+    },
+    "commissionMode": {
+      "enum": [
+        "exact",
+        "estimated"
+      ]
+    },
+    "internationalFreight": {
+      "$ref": "#/$defs/money"
+    },
+    "actualPurchaseCost": {
+      "$ref": "#/$defs/money"
+    },
+    "otherCosts": {
+      "$ref": "#/$defs/money"
+    },
+    "unitProfitRmb": {
+      "type": "number"
+    },
+    "profitMargin": {
+      "type": "number"
+    },
+    "thresholdVersion": {
+      "enum": [
+        "profit-threshold-v1.1-25pct-20cny",
+        "profit-threshold-v1.2-15pct-or-20cny"
+      ]
+    },
     "thresholds": {
       "type": "object",
-      "required": ["minimumProfitMargin", "minimumUnitProfitRmb", "logic"],
+      "required": [
+        "minimumProfitMargin",
+        "minimumUnitProfitRmb",
+        "logic"
+      ],
       "properties": {
-        "minimumProfitMargin": { "enum": [0.15, 0.25] },
-        "minimumUnitProfitRmb": { "const": 20 },
-        "logic": { "enum": ["any", "all"] }
+        "minimumProfitMargin": {
+          "enum": [
+            0.15,
+            0.25
+          ]
+        },
+        "minimumUnitProfitRmb": {
+          "const": 20
+        },
+        "logic": {
+          "enum": [
+            "any",
+            "all"
+          ]
+        }
       },
       "additionalProperties": false
     },
-    "result": { "enum": ["passed", "rejected"] },
-    "executionMode": { "const": "five_upstream_evidence_sources_only" },
-    "externalAccesses": { "type": "array", "maxItems": 0 },
-    "requestedExistingFields": { "type": "array", "maxItems": 0 },
-    "formula": { "type": "string", "minLength": 1 }
+    "result": {
+      "enum": [
+        "passed",
+        "rejected",
+        "manual_review"
+      ]
+    },
+    "calculationType": {
+      "enum": [
+        "formal",
+        "conditional"
+      ]
+    },
+    "exactCommissionRequiredForFormalB": {
+      "type": "boolean"
+    },
+    "executionMode": {
+      "const": "five_upstream_evidence_sources_only"
+    },
+    "externalAccesses": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "requestedExistingFields": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "formula": {
+      "type": "string",
+      "minLength": 1
+    }
   },
   "allOf": [
     {
-      "if": { "properties": { "thresholdVersion": { "const": "profit-threshold-v1.1-25pct-20cny" } } },
+      "if": {
+        "required": [
+          "calculation"
+        ],
+        "properties": {
+          "calculation": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "enum": [
+                  "profit-calculation-v2-formal-commission",
+                  "profit-calculation-v3-cost-policy-snapshot"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "commissionMode",
+          "calculationType",
+          "exactCommissionRequiredForFormalB"
+        ],
+        "oneOf": [
+          {
+            "properties": {
+              "commissionMode": {
+                "const": "exact"
+              },
+              "calculationType": {
+                "const": "formal"
+              },
+              "exactCommissionRequiredForFormalB": {
+                "const": false
+              },
+              "result": {
+                "enum": [
+                  "passed",
+                  "rejected"
+                ]
+              }
+            }
+          },
+          {
+            "properties": {
+              "commissionMode": {
+                "const": "estimated"
+              },
+              "calculationType": {
+                "const": "conditional"
+              },
+              "exactCommissionRequiredForFormalB": {
+                "const": true
+              },
+              "result": {
+                "const": "manual_review"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "thresholdVersion": {
+            "const": "profit-threshold-v1.1-25pct-20cny"
+          }
+        }
+      },
       "then": {
         "properties": {
           "thresholds": {
+            "type": "object",
             "properties": {
-              "minimumProfitMargin": { "const": 0.25 },
-              "minimumUnitProfitRmb": { "const": 20 },
-              "logic": { "const": "all" }
+              "minimumProfitMargin": {
+                "const": 0.25
+              },
+              "minimumUnitProfitRmb": {
+                "const": 20
+              },
+              "logic": {
+                "const": "all"
+              }
             }
           }
         }
       }
     },
     {
-      "if": { "properties": { "thresholdVersion": { "const": "profit-threshold-v1.2-15pct-or-20cny" } } },
+      "if": {
+        "properties": {
+          "thresholdVersion": {
+            "const": "profit-threshold-v1.2-15pct-or-20cny"
+          }
+        }
+      },
       "then": {
         "properties": {
           "thresholds": {
+            "type": "object",
             "properties": {
-              "minimumProfitMargin": { "const": 0.15 },
-              "minimumUnitProfitRmb": { "const": 20 },
-              "logic": { "const": "any" }
+              "minimumProfitMargin": {
+                "const": 0.15
+              },
+              "minimumUnitProfitRmb": {
+                "const": 20
+              },
+              "logic": {
+                "const": "any"
+              }
             }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "calculation"
+        ],
+        "properties": {
+          "calculation": {
+            "properties": {
+              "version": {
+                "const": "profit-calculation-v3-cost-policy-snapshot"
+              }
+            },
+            "type": "object"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "pricingPolicyVersion",
+          "costScope",
+          "priceFloors",
+          "priceConversion"
+        ],
+        "properties": {
+          "otherCosts": {
+            "required": [
+              "components",
+              "costPolicySnapshot",
+              "costPolicyContext"
+            ],
+            "properties": {
+              "components": {
+                "type": "object",
+                "required": [
+                  "packagingRmb",
+                  "labelRmb",
+                  "fixedOtherRmb",
+                  "advertisingRate",
+                  "returnReserveRate",
+                  "damageReserveRate",
+                  "withdrawalFeeRate",
+                  "acquiringRate",
+                  "taxRate",
+                  "otherRate"
+                ],
+                "properties": {
+                  "packagingRmb": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "labelRmb": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "fixedOtherRmb": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "advertisingRate": {
+                    "type": "number",
+                    "minimum": 0,
+                    "exclusiveMaximum": 1
+                  },
+                  "returnReserveRate": {
+                    "type": "number",
+                    "minimum": 0,
+                    "exclusiveMaximum": 1
+                  },
+                  "damageReserveRate": {
+                    "type": "number",
+                    "minimum": 0,
+                    "exclusiveMaximum": 1
+                  },
+                  "withdrawalFeeRate": {
+                    "type": "number",
+                    "minimum": 0,
+                    "exclusiveMaximum": 1
+                  },
+                  "acquiringRate": {
+                    "type": "number",
+                    "minimum": 0,
+                    "exclusiveMaximum": 1
+                  },
+                  "taxRate": {
+                    "type": "number",
+                    "minimum": 0,
+                    "exclusiveMaximum": 1
+                  },
+                  "otherRate": {
+                    "type": "number",
+                    "minimum": 0,
+                    "exclusiveMaximum": 1
+                  }
+                },
+                "additionalProperties": false
+              },
+              "costPolicySnapshot": {
+                "$ref": "#/$defs/costPolicySnapshot"
+              },
+              "costPolicyContext": {
+                "$ref": "#/$defs/costPolicyContext"
+              }
+            },
+            "type": "object"
+          },
+          "pricingPolicyVersion": {
+            "$ref": "#/properties/pricingPolicyVersion"
+          },
+          "costScope": {
+            "$ref": "#/properties/costScope"
+          },
+          "priceFloors": {
+            "$ref": "#/properties/priceFloors"
+          },
+          "priceConversion": {
+            "$ref": "#/properties/priceConversion"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "pricingPolicyVersion": {
+            "const": "ozon-wb-global-pricing-2026-08-21-v3-project-or-threshold-v1"
           }
         }
       }
@@ -134,13 +553,772 @@
   "$defs": {
     "money": {
       "type": "object",
-      "required": ["amount", "currency", "evidenceRef"],
+      "required": [
+        "amount",
+        "currency",
+        "evidenceRef"
+      ],
       "properties": {
-        "amount": { "type": "number", "minimum": 0 },
-        "currency": { "type": "string", "minLength": 1 },
-        "evidenceRef": { "type": "string", "minLength": 1 }
+        "amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidenceRef": {
+          "type": "string",
+          "minLength": 1
+        }
       },
       "additionalProperties": true
+    },
+    "costPolicyContext": {
+      "type": "object",
+      "required": [
+        "platform",
+        "store",
+        "storeRef",
+        "salesScheme"
+      ],
+      "properties": {
+        "platform": {
+          "enum": [
+            "ozon",
+            "wb"
+          ]
+        },
+        "store": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "storeRef": {
+          "type": "object",
+          "required": [
+            "stableStoreId",
+            "platformStoreId",
+            "mappingVersion"
+          ],
+          "properties": {
+            "stableStoreId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "platformStoreId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "mappingVersion": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "additionalProperties": false
+        },
+        "salesScheme": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      },
+      "additionalProperties": false
+    },
+    "costPolicySnapshot": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "policyId",
+        "policyVersion",
+        "scope",
+        "effectiveFrom",
+        "effectiveTo",
+        "policyEvidenceRef",
+        "items"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "b-cost-policy-snapshot-v1"
+        },
+        "policyId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "policyVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "scope": {
+          "type": "object",
+          "required": [
+            "platform",
+            "store",
+            "storeRef",
+            "salesScheme"
+          ],
+          "properties": {
+            "platform": {
+              "enum": [
+                "ozon",
+                "wb"
+              ]
+            },
+            "store": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "storeRef": {
+              "type": "object",
+              "required": [
+                "stableStoreId",
+                "platformStoreId",
+                "mappingVersion"
+              ],
+              "properties": {
+                "stableStoreId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "platformStoreId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "mappingVersion": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                }
+              },
+              "additionalProperties": false
+            },
+            "salesScheme": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "additionalProperties": false
+        },
+        "effectiveFrom": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "effectiveTo": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "policyEvidenceRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "items": {
+          "type": "object",
+          "required": [
+            "labelRmb",
+            "fixedOtherRmb",
+            "advertisingRate",
+            "returnReserveRate",
+            "damageReserveRate",
+            "withdrawalFeeRate",
+            "acquiringRate",
+            "taxRate",
+            "otherRate"
+          ],
+          "properties": {
+            "labelRmb": {
+              "type": "object",
+              "required": [
+                "status",
+                "value",
+                "basis",
+                "evidenceRef",
+                "includedIn"
+              ],
+              "properties": {
+                "status": {
+                  "enum": [
+                    "applicable",
+                    "not_applicable"
+                  ]
+                },
+                "value": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "basis": {
+                  "const": "per_order_cny"
+                },
+                "evidenceRef": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "includedIn": {
+                  "type": "null"
+                }
+              },
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "const": "applicable"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "fixedOtherRmb": {
+              "type": "object",
+              "required": [
+                "status",
+                "value",
+                "basis",
+                "evidenceRef",
+                "includedIn"
+              ],
+              "properties": {
+                "status": {
+                  "enum": [
+                    "applicable",
+                    "not_applicable"
+                  ]
+                },
+                "value": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "basis": {
+                  "const": "per_unit_cny"
+                },
+                "evidenceRef": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "includedIn": {
+                  "type": "null"
+                }
+              },
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "const": "applicable"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "advertisingRate": {
+              "type": "object",
+              "required": [
+                "status",
+                "value",
+                "basis",
+                "evidenceRef",
+                "includedIn"
+              ],
+              "properties": {
+                "status": {
+                  "enum": [
+                    "applicable",
+                    "not_applicable"
+                  ]
+                },
+                "value": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "exclusiveMaximum": 1
+                },
+                "basis": {
+                  "const": "target_price_cny_rate"
+                },
+                "evidenceRef": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "includedIn": {
+                  "type": "null"
+                }
+              },
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "const": "applicable"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "returnReserveRate": {
+              "type": "object",
+              "required": [
+                "status",
+                "value",
+                "basis",
+                "evidenceRef",
+                "includedIn"
+              ],
+              "properties": {
+                "status": {
+                  "enum": [
+                    "applicable",
+                    "not_applicable"
+                  ]
+                },
+                "value": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "exclusiveMaximum": 1
+                },
+                "basis": {
+                  "const": "target_price_cny_rate"
+                },
+                "evidenceRef": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "includedIn": {
+                  "type": "null"
+                }
+              },
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "const": "applicable"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "damageReserveRate": {
+              "type": "object",
+              "required": [
+                "status",
+                "value",
+                "basis",
+                "evidenceRef",
+                "includedIn"
+              ],
+              "properties": {
+                "status": {
+                  "enum": [
+                    "applicable",
+                    "not_applicable"
+                  ]
+                },
+                "value": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "exclusiveMaximum": 1
+                },
+                "basis": {
+                  "const": "target_price_cny_rate"
+                },
+                "evidenceRef": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "includedIn": {
+                  "type": "null"
+                }
+              },
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "const": "applicable"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "withdrawalFeeRate": {
+              "type": "object",
+              "required": [
+                "status",
+                "value",
+                "basis",
+                "evidenceRef",
+                "includedIn"
+              ],
+              "properties": {
+                "status": {
+                  "enum": [
+                    "applicable",
+                    "not_applicable"
+                  ]
+                },
+                "value": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "exclusiveMaximum": 1
+                },
+                "basis": {
+                  "const": "target_price_cny_rate"
+                },
+                "evidenceRef": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "includedIn": {
+                  "type": "null"
+                }
+              },
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "const": "applicable"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "acquiringRate": {
+              "type": "object",
+              "required": [
+                "status",
+                "value",
+                "basis",
+                "evidenceRef",
+                "includedIn"
+              ],
+              "properties": {
+                "status": {
+                  "enum": [
+                    "applicable",
+                    "not_applicable"
+                  ]
+                },
+                "value": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "exclusiveMaximum": 1
+                },
+                "basis": {
+                  "const": "target_price_cny_rate"
+                },
+                "evidenceRef": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "includedIn": {
+                  "type": "null"
+                }
+              },
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "const": "applicable"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "taxRate": {
+              "type": "object",
+              "required": [
+                "status",
+                "value",
+                "basis",
+                "evidenceRef",
+                "includedIn"
+              ],
+              "properties": {
+                "status": {
+                  "enum": [
+                    "applicable",
+                    "not_applicable"
+                  ]
+                },
+                "value": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "exclusiveMaximum": 1
+                },
+                "basis": {
+                  "const": "target_price_cny_rate"
+                },
+                "evidenceRef": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "includedIn": {
+                  "type": "null"
+                }
+              },
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "const": "applicable"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "otherRate": {
+              "type": "object",
+              "required": [
+                "status",
+                "value",
+                "basis",
+                "evidenceRef",
+                "includedIn"
+              ],
+              "properties": {
+                "status": {
+                  "enum": [
+                    "applicable",
+                    "not_applicable"
+                  ]
+                },
+                "value": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "exclusiveMaximum": 1
+                },
+                "basis": {
+                  "const": "target_price_cny_rate"
+                },
+                "evidenceRef": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "includedIn": {
+                  "type": "null"
+                }
+              },
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "const": "applicable"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": true

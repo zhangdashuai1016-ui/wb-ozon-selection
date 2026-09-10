@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   candidateActiveNode,
+  activeDispatchForCandidate,
   collaborationSummary,
   dispatchDeliveryGroups,
   dispatchOwnerForNode,
@@ -10,6 +11,8 @@ import {
   validateNodeExecution,
   workflowMapView
 } from "../lib/workflow-map.mjs";
+import { createSoftwareExecutionRuntime, openExceptionCase, authorizeExceptionMaintenance, recordExceptionMaintenanceStarted } from "../lib/software-execution-state.mjs";
+import { currentProcessingStatusSummary } from "../lib/workflow.mjs";
 
 const nodes = [
   { id: "M04", title: "B阶段资料准备", executionOwner: "selection_task" },
@@ -35,7 +38,7 @@ function processingCandidate(overrides = {}) {
   };
 }
 
-test("twelve selection items stay split into running, authorized, and stopped truthfully", () => {
+test("old queued records stay historical while stopped records remain stopped", () => {
   const candidates = [
     processingCandidate(),
     ...Array.from({ length: 11 }, (_, index) => processingCandidate({
@@ -45,12 +48,13 @@ test("twelve selection items stay split into running, authorized, and stopped tr
   ];
   const summary = collaborationSummary({ candidates, dispatches: [] }, {});
   assert.equal(summary.actualRunning, 0);
-  assert.equal(summary.authorized, 1);
+  assert.equal(summary.authorized, 0);
+  assert.equal(summary.historicalPending, 1);
   assert.equal(summary.dispatched, 0);
   assert.equal(summary.stopped, 11);
 });
 
-test("an explicit dispatch removes an item from authorized but does not wake stopped SKUs", () => {
+test("a persisted dispatch alone is not a current delivery or a new authorization", () => {
   const candidates = [
     processingCandidate(),
     processingCandidate({ id: "STOP-1", processing: { state: "blocked", manualHold: true } })
@@ -60,8 +64,66 @@ test("an explicit dispatch removes an item from authorized but does not wake sto
     dispatches: [{ id: "D-1", candidateId: "SKU-1", status: "queued" }]
   }, {});
   assert.equal(summary.authorized, 0);
-  assert.equal(summary.dispatched, 1);
+  assert.equal(summary.dispatched, 0);
+  assert.equal(summary.historicalPending, 1);
   assert.equal(summary.stopped, 1);
+});
+
+test("only this process's exact maintenance dispatch can represent current execution", () => {
+  const at = "2026-09-07T00:00:00.000Z";
+  const base = createSoftwareExecutionRuntime({ candidateId: "SKU-1", dataRevision: 2, at });
+  const exception = openExceptionCase(base, { exceptionId: "exc-1", reasonCode: "system_failure", failureLayer: "local", evidenceRefs: ["test:local"], at });
+  const authorized = authorizeExceptionMaintenance(exception, { exceptionId: "exc-1", maintenanceAuthorizationId: "maintenance-1", at });
+  const candidate = processingCandidate({
+    processing: { state: "running", runId: "turn-1", claimRevision: 2, currentStep: "maintenance started", startedAt: at, lastProgressAt: at },
+    executionRuntime: recordExceptionMaintenanceStarted(authorized, { exceptionId: "exc-1", turnId: "turn-1", at })
+  });
+  const dispatch = { id: "D-1", candidateId: candidate.id, dataRevision: 2, workflowStatusAtDispatch: candidate.workflowStatus,
+    status: "running", runId: "turn-1", turnId: "turn-1", lastEventAt: at };
+  const data = { candidates: [candidate], dispatches: [dispatch] };
+  const current = { activeDispatchIds: new Set([dispatch.id]), at: new Date(at) };
+  assert.equal(activeDispatchForCandidate(data, candidate.id), null, "restart cannot adopt a persisted running record");
+  assert.equal(activeDispatchForCandidate(data, candidate.id, current), dispatch);
+  assert.equal(collaborationSummary(data, {}, current).actualRunning, 1);
+  for (const change of [
+    value => { value.candidates[0].dataRevision += 1; },
+    value => { value.candidates[0].workflowStatus = "needs_user_data"; },
+    value => { value.candidates[0].processing.manualHold = true; },
+    value => { value.candidates[0].executionRuntime.exceptionCase.turnId = "other-turn"; },
+    value => { value.candidates[0].executionRuntime.exceptionCase.maintenanceAuthorizationId = null; },
+    value => { value.candidates[0].processing.lastProgressAt = "2026-09-06T00:00:00.000Z"; },
+    value => { value.candidates[0].processing.claimRevision = 1; },
+    value => { value.candidates[0].processing.runId = "other"; },
+    value => { value.candidates = []; },
+    value => { value.dispatches.push({ ...dispatch, id: "D-2", status: "completed" }); }
+  ]) {
+    const invalid = structuredClone(data);
+    change(invalid);
+    assert.equal(activeDispatchForCandidate(invalid, candidate.id, current), null);
+    assert.equal(collaborationSummary(invalid, {}, current).actualRunning, 0);
+  }
+  const before = structuredClone(data);
+  collaborationSummary(data, {}, current);
+  assert.deepEqual(data, before);
+  const staleMessage = structuredClone(data);
+  staleMessage.dispatches[0].lastEventAt = at;
+  staleMessage.candidates[0].processing.startedAt = "2026-09-06T00:00:00.000Z";
+  staleMessage.candidates[0].processing.lastProgressAt = "2026-09-06T00:00:00.000Z";
+  assert.equal(activeDispatchForCandidate(staleMessage, candidate.id, current), null, "ordinary messages cannot renew real progress");
+  const realProgress = structuredClone(data);
+  realProgress.dispatches[0].lastEventAt = "2026-09-06T00:00:00.000Z";
+  assert.notEqual(activeDispatchForCandidate(realProgress, candidate.id, current), null, "validated progress does not require a message event");
+  const listing = structuredClone(data);
+  listing.candidates[0].workflowStatus = "listing_preparation";
+  listing.candidates[0].listingHandoff = listing.candidates[0].processing;
+  listing.candidates[0].processing = { state: "running", runId: "old-run", claimRevision: 1 };
+  listing.dispatches[0].workflowStatusAtDispatch = "listing_preparation";
+  const listingActive = activeDispatchForCandidate(listing, candidate.id, current);
+  assert.equal(listingActive, listing.dispatches[0]);
+  assert.equal(currentProcessingStatusSummary(listing.candidates[0], { activeDispatch: listingActive, at }).actualRunning, true);
+  delete listing.candidates[0].listingHandoff.lastProgressAt;
+  assert.equal(activeDispatchForCandidate(listing, candidate.id, current), null, "a fresh dispatch event cannot fill in absent listing progress");
+  assert.equal(currentProcessingStatusSummary(listing.candidates[0], { activeDispatch: listingActive, at }).actualRunning, false);
 });
 
 test("a failed or unverified reply stays stopped instead of returning to authorized", () => {

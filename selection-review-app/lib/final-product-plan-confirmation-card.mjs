@@ -1,9 +1,7 @@
-import {
-  assertValidLifecyclePackage,
-  validateLifecycleTransition
-} from "./product-lifecycle-schema.mjs";
-import { assertValidC1ProductPlan } from "./c1-product-plan.mjs";
-import { assertValidC2AssetLifecycle } from "./c2-asset-lifecycle.mjs";
+import { collectC1UnknownManifest, C1_UNKNOWN_CLASSIFICATION_VERSION } from './c1-product-plan.mjs';
+import { assertValidLifecyclePackage } from "./product-lifecycle-schema.mjs";
+import { assertValidC2AssetLifecycle, selectConfirmedFinalUploadsForProduction } from "./c2-asset-lifecycle.mjs";
+import { assertCurrentC1SkuRightsReview } from "./c1-sku-rights-review.mjs";
 
 export const FINAL_PRODUCT_PLAN_CONFIRMATION_CARD_VERSION = "final-product-plan-confirmation-card-v1.1";
 
@@ -16,7 +14,8 @@ function nonEmptyString(value) {
 }
 
 function isoDateTime(value) {
-  return nonEmptyString(value) && !Number.isNaN(Date.parse(value));
+  if (!nonEmptyString(value) || !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(value) || !Number.isFinite(Date.parse(value))) return false;
+  return new Date(`${value.slice(0, 10)}T00:00:00.000Z`).toISOString().slice(0, 10) === value.slice(0, 10);
 }
 
 function deepFreeze(value) {
@@ -84,6 +83,7 @@ export function validateFinalProductPlanConfirmationCard(card) {
   if (!isObject(card)) return { valid: false, errors: [{ path: "$", message: "必须是对象" }] };
   if (card.schemaVersion !== FINAL_PRODUCT_PLAN_CONFIRMATION_CARD_VERSION) push(errors, "schemaVersion", `必须是${FINAL_PRODUCT_PLAN_CONFIRMATION_CARD_VERSION}`);
   if (!nonEmptyString(card.cardId)) push(errors, "cardId", "必须是非空字符串");
+  if (!Number.isInteger(card.cardRevision) || card.cardRevision < 1) push(errors, "cardRevision", "必须是正整数");
   if (!["awaiting_owner_business_confirmation", "owner_business_approved"].includes(card.status)) {
     push(errors, "status", "必须是等待确认或主人已通过");
   }
@@ -95,8 +95,12 @@ export function validateFinalProductPlanConfirmationCard(card) {
     const decision = card.ownerDecision;
     if (!isObject(decision) ||
         decision.selectedOption !== "approve_for_production_authorization" ||
-        decision.confirmedBy !== "owner" ||
-        !isoDateTime(decision.confirmedAt)) {
+        !["production-owner-confirmation-v1", "production-owner-confirmation-v2"].includes(decision.ownerConfirmation?.schemaVersion) ||
+        decision.ownerConfirmation?.actorType !== "human" || decision.ownerConfirmation?.role !== "owner" ||
+        !nonEmptyString(decision.ownerConfirmation?.actorId) || !isoDateTime(decision.ownerConfirmation?.confirmedAt) ||
+        decision.sourceConfirmationCardId !== card.cardId ||
+        decision.decisionId !== decision.ownerConfirmation?.decisionId ||
+        decision.ownerDecisionFingerprint !== decision.ownerConfirmation?.ownerDecisionFingerprint) {
       push(errors, "ownerDecision", "通过状态必须保存主人的准确决定和时间");
     }
   }
@@ -123,6 +127,14 @@ export function validateFinalProductPlanConfirmationCard(card) {
   if (isObject(card.riskAndUnknowns) && !Array.isArray(card.riskAndUnknowns.unknownFields)) {
     push(errors, "riskAndUnknowns.unknownFields", "必须是数组");
   }
+  if (isObject(card.riskAndUnknowns) && Object.hasOwn(card.riskAndUnknowns, 'classificationVersion')) {
+    const risk = card.riskAndUnknowns;
+    if (risk.classificationVersion !== C1_UNKNOWN_CLASSIFICATION_VERSION || !Array.isArray(risk.unknownFields) ||
+        risk.unknownFields.some(field => !isObject(field) || !['informational','required_field','compliance','media_slot'].includes(field.blockingScope) ||
+          field.blocksProductionAuthorization !== (field.blockingScope !== 'informational')) ||
+        risk.blockingUnknownCount !== risk.unknownFields.filter(field => field.blocksProductionAuthorization).length)
+      push(errors, 'riskAndUnknowns', '未知字段分类必须完整且计数一致');
+  }
   if (isObject(card.productionBoundary)) {
     if (card.productionBoundary.productionAuthorized !== false) push(errors, "productionBoundary.productionAuthorized", "确认卡自身不得执行生产");
     if (card.productionBoundary.dStarted !== false) push(errors, "productionBoundary.dStarted", "确认卡不得进入D");
@@ -143,7 +155,6 @@ export function assertValidFinalProductPlanConfirmationCard(card) {
  */
 export function createFinalProductPlanConfirmationCard({ skuPackage, createdAt }) {
   assertValidLifecyclePackage(skuPackage);
-  assertValidC1ProductPlan(skuPackage.c1ProductPlan);
   assertValidC2AssetLifecycle(skuPackage.c2FinalAssets);
   if (skuPackage.businessPhase !== "C2" || skuPackage.c2FinalAssets.status !== "completed") {
     throw new Error("FINAL_PLAN_CARD_GATE_REJECTED: C2最终素材尚未由主人确认");
@@ -156,8 +167,11 @@ export function createFinalProductPlanConfirmationCard({ skuPackage, createdAt }
     throw new Error("FINAL_PLAN_CARD_GATE_REJECTED: 确认卡已经存在");
   }
 
-  const c1 = skuPackage.c1ProductPlan;
-  const profit = skuPackage.profitModels.find((model) => model.profitModelVersion === skuPackage.activeProfitModelVersion);
+  const selection = selectConfirmedFinalUploadsForProduction(skuPackage);
+  const frozen = selection.productionAuthorizationPreparation.finalCardInputSnapshot;
+  const c1 = frozen.c1Snapshot;
+  assertCurrentC1SkuRightsReview({ plan: c1, sourceIdentity: frozen.identity, observedAt: createdAt });
+  const profit = frozen.activeProfitModel;
   if (!profit || profit.result !== "passed") throw new Error("FINAL_PLAN_CARD_INPUT_GAP: 缺少当前通过的B利润结果");
   const sales = c1.inputSnapshots.salesSnapshot;
   const supply = c1.inputSnapshots.confirmedSupplierSkuSnapshot;
@@ -169,6 +183,14 @@ export function createFinalProductPlanConfirmationCard({ skuPackage, createdAt }
     categoryRestrictions: c1.categoryRestrictions,
     platformCompliance: c1.platformCompliance
   });
+  const classification = new Map(collectC1UnknownManifest(c1).map(entry => [entry.fieldPath, entry]));
+  for (const field of unknownFields) {
+    const entry = classification.get(field.path);
+    if (!entry) throw new Error('FINAL_PLAN_CARD_UNKNOWN_CLASSIFICATION_MISSING');
+    field.blockingScope = entry.blockingScope;
+    field.blocksProductionAuthorization = entry.blocksC2Handoff;
+  }
+  const blockingUnknownCount = unknownFields.filter(field => field.blocksProductionAuthorization).length;
   const materialRisks = [
     profit.commissionMode === "estimated" ? "exact_commission_required_before_production" : null,
     c1.batteryAssessment?.assessment?.value === "unknown" ? "battery_status_unknown" : null,
@@ -181,6 +203,7 @@ export function createFinalProductPlanConfirmationCard({ skuPackage, createdAt }
   const card = {
     schemaVersion: FINAL_PRODUCT_PLAN_CONFIRMATION_CARD_VERSION,
     cardId: `final-plan-card:${skuPackage.skuPackageId}:${skuPackage.dataRevision}`,
+    cardRevision: skuPackage.finalPricingReview ? skuPackage.finalPricingReview.assessment.target.sourceRevision + 1 : 1,
     status: "awaiting_owner_business_confirmation",
     createdAt,
     ownerDecision: null,
@@ -188,26 +211,31 @@ export function createFinalProductPlanConfirmationCard({ skuPackage, createdAt }
     productInformation: {
       productName: sourceValue(sales.title, [c1.inputRefs.salesSnapshotId, `${c1.inputRefs.salesSnapshotId}#/title`]),
       sku: sourceValue({
-        skuPackageId: skuPackage.skuPackageId,
-        supplierSkuId: skuPackage.supplierSkuId,
-        variantKey: skuPackage.variantKey
+        skuPackageId: frozen.identity.skuPackageId,
+        supplierSkuId: frozen.identity.supplierSkuId,
+        variantKey: frozen.variantKey
       }, [c1.inputRefs.selectedSupplySnapshotId, `${c1.inputRefs.selectedSupplySnapshotId}#/supplierSku`]),
       supplierOption: sourceValue({
-        supplierOptionId: skuPackage.supplierOptionId,
+        supplierOptionId: c1.identity.supplierOptionId,
         sourcePlatform: supplyIdentity.sourcePlatform,
         offerId: supplyIdentity.offerId,
         productUrl: supplyIdentity.productUrl,
         ownerConfirmedAt: supply.ownerSupplyConfirmation.confirmedAt
       }, [c1.inputRefs.selectedSupplySnapshotId, `${c1.inputRefs.selectedSupplySnapshotId}#/ownerSupplyConfirmation`]),
-      targetPlatform: sourceValue({ platform: skuPackage.targetPlatform, store: skuPackage.targetStore }, [c1.inputRefs.platformSchemaEvidenceId])
+      targetPlatform: sourceValue({ platform: frozen.identity.platform, store: frozen.identity.storeRef.stableStoreId, storeRef: structuredClone(frozen.identity.storeRef) }, [c1.inputRefs.platformSchemaEvidenceId])
     },
     profitResult: {
+      finalPricingReview: skuPackage.finalPricingReview ? sourceValue({ assessmentId: skuPackage.finalPricingReview.assessment.assessmentId,
+        coreSampleIds: skuPackage.finalPricingReview.assessment.coreSampleIds,
+        supplementarySampleIds: skuPackage.finalPricingReview.assessment.supplementarySampleIds,
+        insufficientSamples: skuPackage.finalPricingReview.assessment.insufficientSamples,
+        priceBand: skuPackage.finalPricingReview.assessment.priceBand }, [skuPackage.finalPricingReview.assessment.assessmentId]) : null,
       profitModelVersion: profit.profitModelVersion,
-      recommendedSalePrice: sourceValue({ rub: profit.recommendedSalePriceRub, cny: profit.recommendedSalePriceCny }, [profit.profitModelVersion]),
+      recommendedSalePrice: sourceValue({ rub: profit.recommendedSalePriceRub ?? null, cny: profit.recommendedSalePriceCny ?? null }, [profit.profitModelVersion]),
       unitProfitRmb: sourceValue(profit.unitProfitRmb, [profit.profitModelVersion]),
       profitMargin: sourceValue(profit.profitMargin, [profit.profitModelVersion]),
       result: sourceValue(profit.result, [profit.profitModelVersion]),
-      commissionMode: sourceValue(profit.commissionMode || "exact", [profit.profitModelVersion])
+      commissionMode: sourceValue(profit.commissionMode ?? "unknown", [profit.profitModelVersion])
     },
     c1Facts: {
       exactSku: structuredClone(c1.exactSkuVerification),
@@ -227,11 +255,14 @@ export function createFinalProductPlanConfirmationCard({ skuPackage, createdAt }
     },
     c2Assets: {
       sourceArea: "assets.finalUploads",
-      finalUploads: structuredClone(skuPackage.c2FinalAssets.assets.finalUploads),
-      ownerFinalUploadConfirmation: structuredClone(skuPackage.c2FinalAssets.ownerFinalUploadConfirmation)
+      finalUploads: structuredClone(selection.assets),
+      ownerFinalUploadConfirmation: structuredClone(selection.ownerConfirmation)
     },
     riskAndUnknowns: {
-      status: materialRisks.length === 0 && unknownFields.length === 0 ? "no_recorded_gaps" : "owner_review_required",
+      classificationVersion: C1_UNKNOWN_CLASSIFICATION_VERSION,
+      status: materialRisks.length > 0 || blockingUnknownCount > 0 ? 'owner_review_required' :
+        unknownFields.length > 0 ? 'informational_unknowns' : 'no_recorded_gaps',
+      blockingUnknownCount,
       materialRisks,
       unknownFields,
       unknownCount: unknownFields.length,
@@ -252,23 +283,8 @@ export function createFinalProductPlanConfirmationCard({ skuPackage, createdAt }
   const protectedProfit = structuredClone(skuPackage.profitModels);
   const next = structuredClone(skuPackage);
   next.productionConfirmationCard = card;
-  next.dataRevision += 1;
-  next.businessPhase = "C2";
-  next.businessResult = "pending";
-  next.technicalStatus = "completed";
-  next.ownerAction = "confirm_c1_plan";
-  next.audit.updatedAt = createdAt;
-  next.audit.history.push({
-    event: "final_product_plan_confirmation_card_created",
-    at: createdAt,
-    cardId: card.cardId,
-    ownerDecision: null,
-    productionAuthorized: false,
-    dStarted: false,
-    platformWrites: 0
-  });
-  const transition = validateLifecycleTransition(skuPackage, next);
-  if (!transition.valid) throw new Error(`最终商品方案确认卡生命周期转换失败：${transition.errors.map((item) => `${item.path}: ${item.message}`).join("；")}`);
+  // The card is a view of the frozen C2 preparation, not a new SKU transition.
+  assertValidLifecyclePackage(next);
   if (!sameJson(protectedC1, next.c1ProductPlan) || !sameJson(protectedC2, next.c2FinalAssets) || !sameJson(protectedProfit, next.profitModels)) {
     throw new Error("FINAL_PLAN_CARD_PROTECTED_DATA_CHANGED: B、C1或C2数据被改写");
   }

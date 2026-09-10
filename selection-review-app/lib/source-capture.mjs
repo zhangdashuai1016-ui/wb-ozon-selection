@@ -1,14 +1,14 @@
+import { captureNumber, captureText, cleanCaptureAttributes, canonicalSupplierImageUrl } from "./capture-evidence-sanitization.mjs";
+
 const MAX_SKUS = 200;
 const MAX_ATTRIBUTES = 120;
 
 function text(value, limit = 500) {
-  return String(value ?? "").trim().slice(0, limit);
+  return captureText(value, limit);
 }
 
 function finite(value) {
-  if (value === null || value === undefined || value === "") return null;
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
+  return captureNumber(value);
 }
 
 function nonNegative(value) {
@@ -22,13 +22,7 @@ function positive(value) {
 }
 
 function cleanObject(value, limit = MAX_ATTRIBUTES) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  return Object.fromEntries(
-    Object.entries(value)
-      .slice(0, limit)
-      .map(([key, item]) => [text(key, 120), text(item, 500)])
-      .filter(([key, item]) => key && item)
-  );
+  return cleanCaptureAttributes(value, limit);
 }
 
 export function extract1688OfferId(value) {
@@ -36,10 +30,13 @@ export function extract1688OfferId(value) {
   if (!raw) return "";
   try {
     const url = new URL(raw);
-    if (url.hostname !== "detail.1688.com") return "";
+    // Recognize mobile identity for the caller's capture-required gate, but never
+    // authorize mobile-page evidence (normalize1688CaptureSource remains narrower).
+    if (url.protocol !== "https:" || url.username || url.password || url.port ||
+        !["detail.1688.com", "m.1688.com"].includes(url.hostname)) return "";
     return url.pathname.match(/^\/offer\/(\d+)\.html$/)?.[1] || "";
   } catch {
-    return raw.match(/(?:^|\/)offer\/(\d+)\.html(?:$|[?#])/i)?.[1] || "";
+    return "";
   }
 }
 
@@ -63,7 +60,9 @@ export function normalize1688CaptureSource(value) {
         ? { type: "short", sourceUrl: `https://qr.1688.com/s/${token}`, offerId: "" }
         : { type: "invalid", sourceUrl: "", offerId: "" };
     }
-  } catch {}
+  } catch {
+    return { type: "invalid", sourceUrl: "", offerId: "" };
+  }
   return { type: "invalid", sourceUrl: "", offerId: "" };
 }
 
@@ -114,7 +113,8 @@ const FAILURE_CODES = new Set([
   "timeout",
   "revision_conflict",
   "server_rejected",
-  "invalid_capture"
+  "invalid_capture",
+  "system_error"
 ]);
 
 export function sanitizeSourceCaptureFailureDiagnostics(input) {
@@ -223,16 +223,19 @@ export function sourceCaptureFailureMessage(code, detail = "") {
     timeout: "等待1688页面加载超时",
     revision_conflict: "商品资料已变化，本次采集结果已拒绝",
     server_rejected: "评审台拒绝了本次采集结果",
-    invalid_capture: "采集结果格式无效"
+    invalid_capture: "采集结果格式无效",
+    system_error: "采集器发生系统错误，已停止"
   };
   const base = messages[code] || "1688采集已停止";
   return detail ? `${base}：${text(detail, 800)}` : base;
 }
 
 export function sanitize1688Evidence(input, expectedOfferId) {
-  if (!input || typeof input !== "object") throw new Error("invalid_capture");
-  const offerId = text(input.offerId, 40);
-  if (!offerId || offerId !== String(expectedOfferId)) throw new Error("wrong_offer");
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("invalid_capture");
+  const offerId = input.offerId;
+  if (typeof offerId !== "string" || !/^\d{1,40}$/.test(offerId) || offerId !== String(expectedOfferId)) throw new Error("wrong_offer");
+  const source = normalize1688CaptureSource(input.sourceUrl);
+  if (source.type !== "detail" || source.offerId !== offerId) throw new Error("wrong_offer");
   const observedAt = text(input.observedAt, 80);
   if (!observedAt || !Number.isFinite(new Date(observedAt).getTime())) throw new Error("invalid_capture");
   const rawSkus = Array.isArray(input.skus) ? input.skus : [];
@@ -245,7 +248,8 @@ export function sanitize1688Evidence(input, expectedOfferId) {
     if (!sourceSkuId || seen.has(sourceSkuId)) throw new Error("invalid_capture");
     seen.add(sourceSkuId);
     const priceCny = positive(item?.priceCny);
-    const stock = nonNegative(item?.stock);
+    const stockValue = nonNegative(item?.stock);
+    const stock = Number.isSafeInteger(stockValue) ? stockValue : null;
     const priceSource = text(item?.priceSource, 180);
     const stockSource = text(item?.stockSource, 180);
     if (priceCny !== null && !priceSource) throw new Error("invalid_capture");
@@ -259,7 +263,7 @@ export function sanitize1688Evidence(input, expectedOfferId) {
       stock,
       stockSource: stock === null ? null : stockSource,
       inStock: typeof item?.inStock === "boolean" ? item.inStock : stock === null ? null : stock > 0,
-      imageUrl: /^https:\/\//i.test(text(item?.imageUrl, 2000)) ? text(item.imageUrl, 2000) : null
+      imageUrl: canonicalSupplierImageUrl(item?.imageUrl)
     };
   });
 
@@ -284,7 +288,7 @@ export function sanitize1688Evidence(input, expectedOfferId) {
 
   return {
     offerId,
-    sourceUrl: `https://detail.1688.com/offer/${offerId}.html`,
+    sourceUrl: source.sourceUrl,
     title: text(input.title, 800),
     offerStatus: text(input.offerStatus, 120) || null,
     observedAt: new Date(observedAt).toISOString(),
@@ -304,31 +308,34 @@ export function sanitize1688Evidence(input, expectedOfferId) {
   };
 }
 
-function normalizeMatchText(value) {
-  return text(value, 3000).toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+function ambiguousQuantity(value) {
+  const input = text(value, 3000);
+  return /\d/u.test(input) && /[-,，~～〜−–—+<>≤≥≈±×*/]|(?:至|到|以上|以下|约)|\d[eE][+-]?\d/u.test(input);
 }
 
-function desiredSkuTerms(candidate) {
+function quantityTerms(value) {
+  // Parse a whole quantity and its unit, never a substring of another quantity.
+  // No unit conversion is inferred: 5cm, 15cm and 5mm remain different facts.
+  const input = text(value, 3000);
+  if (ambiguousQuantity(input)) return [];
+  const units = /(?<![\d.a-z])\d+(?:\.\d+)?\s*(?:千克|公斤|厘米|毫米|毫升|kg|cm|mm|ml|片|件|个|只|套|支|枚|克|升|g|l)(?![a-z])/giu;
+  return [...input.matchAll(units)].map(([term]) => term.toLowerCase().replace(/\s+/g, ""));
+}
+
+function desiredSkuQuantities(candidate) {
   const values = [
     candidate?.codexReview?.sourceSku?.variant,
     candidate?.codexReview?.sourceSku?.sku,
     candidate?.listingPreparation?.expectedSourceSku,
     candidate?.productName
   ].map((value) => text(value, 1000)).filter(Boolean);
-  const units = /\d+(?:\.\d+)?\s*(?:片|件|个|只|套|支|枚|cm|mm|厘米|毫米|克|千克|公斤|g|kg|毫升|升|ml|l)/giu;
-  const terms = [];
-  for (const value of values) {
-    for (const match of value.matchAll(units)) terms.push(normalizeMatchText(match[0]));
-  }
-  return [...new Set(terms.filter(Boolean))];
+  return { terms: [...new Set(values.flatMap(quantityTerms))], ambiguous: values.some(ambiguousQuantity) };
 }
 
-function skuSearchText(sku) {
-  return normalizeMatchText([
-    sku.sourceSkuId,
-    sku.propPath,
-    ...Object.entries(sku.attributes || {}).flat()
-  ].join(" "));
+function skuQuantityTerms(sku) {
+  // IDs and machine prop paths are not a source of human specification facts.
+  const values = Object.values(sku.attributes || {});
+  return values.some(ambiguousQuantity) ? null : new Set(values.flatMap(quantityTerms));
 }
 
 export function resolveCapturedSku(candidate, evidence, requestedSkuId = "") {
@@ -340,9 +347,13 @@ export function resolveCapturedSku(candidate, evidence, requestedSkuId = "") {
     return { status: "matched", selected, matchTerms: [], choices: evidence.skus };
   }
 
-  const terms = desiredSkuTerms(candidate);
-  const matches = terms.length
-    ? evidence.skus.filter((sku) => terms.every((term) => skuSearchText(sku).includes(term)))
+  const { terms, ambiguous } = desiredSkuQuantities(candidate);
+  const skuQuantities = evidence.skus.map(skuQuantityTerms);
+  // An ambiguous alternative is unresolved, not a proven non-match. Removing it
+  // must never turn another SKU into an apparently unique automatic selection.
+  const canAutoMatch = terms.length > 0 && !ambiguous && skuQuantities.every((quantities) => quantities !== null);
+  const matches = canAutoMatch
+    ? evidence.skus.filter((_sku, index) => terms.every((term) => skuQuantities[index].has(term)))
     : [];
   if (matches.length !== 1) {
     return { status: "needs_selection", choices: evidence.skus, matches, matchTerms: terms };

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "c1-fact-keyword-pipeline-v1.schema.json",
+  "title": "C1 Fact and Keyword Pipeline",
+  "type": "object",
+  "required": [
+    "schemaVersion", "status", "candidateId", "sourceCandidateRevision", "skuPackage",
+    "factVerification", "bindingEvidence", "keywordPreparation", "gaps", "execution", "downstream"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "c1-fact-keyword-pipeline-v1" },
+    "status": { "enum": ["not_ready", "ready_for_atomic_persist"] },
+    "candidateId": { "type": "string", "minLength": 1 },
+    "sourceCandidateRevision": { "type": "integer", "minimum": 0 },
+    "skuPackage": { "type": "object" },
+    "bindingEvidence": { "type": ["object", "null"] },
+    "keywordPreparation": { "type": ["object", "null"] },
+    "factVerification": { "enum": ["created", "reused", "not_performed"] },
+    "gaps": { "type": "array" },
+    "execution": {
+      "type": "object",
+      "required": ["metricProviderCalls", "aiGatewayCalls", "codexDispatches", "platformAccessesByPipeline", "platformWrites", "automaticRetries"],
+      "properties": {
+        "metricProviderCalls": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "aiGatewayCalls": { "const": 0 },
+        "codexDispatches": { "const": 0 },
+        "platformAccessesByPipeline": { "const": 0 },
+        "platformWrites": { "const": 0 },
+        "automaticRetries": { "const": 0 }
+      },
+      "additionalProperties": false
+    },
+    "downstream": {
+      "const": { "c2Started": false, "productionStarted": false, "eReadbackStarted": false }
+    }
+  },
+  "additionalProperties": true,
+  "allOf": [{
+    "if": { "properties": { "factVerification": { "const": "not_performed" } }, "required": ["factVerification"] },
+    "then": {
+      "properties": {
+        "status": { "const": "not_ready" },
+        "bindingEvidence": { "type": "null" },
+        "keywordPreparation": { "type": "null" },
+        "gaps": { "type": "array", "minItems": 1 },
+        "execution": { "type": "object", "properties": { "metricProviderCalls": { "const": 0 } } }
+      }
+    }
+  }]
+}

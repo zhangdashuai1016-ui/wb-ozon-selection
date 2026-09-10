@@ -1,83 +1,63 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { authorizedProductionFixture } from "./helpers/c2-software-fixture.mjs";
+import { currentProductionBindingFixture, historicalPlanFixture } from "./helpers/d-software-fixture.mjs";
+import { createProductionPlan, projectProductionPlanInputs } from "../lib/production-plan.mjs";
 import {
   PLATFORM_WRITE_PREFLIGHT_VERSION,
+  assertCurrentProductionExecutionBinding,
   runPlatformWritePreflight,
+  assertCurrentPlatformWritePreflight,
   validatePlatformWritePreflight
 } from "../lib/platform-write-preflight.mjs";
+import { platformWritePreflightTechnicalStatus } from "../lib/platform-write-preflight-contract.mjs";
+
+test("production execution requires the exact current verified configuration frozen by the owner", () => {
+  const productionAuthorization = authorizedProductionFixture().productionAuthorization;
+  const currentProductionBinding = currentProductionBindingFixture(productionAuthorization);
+  const input = { productionAuthorization, currentProductionBinding, checkedAt: "2026-08-22T07:15:00.000Z" };
+  const before = structuredClone(input);
+  assert.deepEqual(assertCurrentProductionExecutionBinding(input), currentProductionBinding);
+  for (const patch of [{ bindingId: "binding:another" }, { configurationVersion: "config-v2" }, { warehouseId: "70002" },
+    { warehouseRef: "warehouse:another" }, { credentialAlias: "credential-alias:another" }, { platform: "wb" },
+    { storeRef: { ...currentProductionBinding.storeRef, platformStoreId: "another-store" } },
+    { storeRef: { ...currentProductionBinding.storeRef, mappingVersion: "stores-v2" } },
+    { warehouseId: "070001" }, { undeclared: true },
+    { verification: { ...currentProductionBinding.verification, checkedAt: "2026-08-22T08:00:00.000Z" } },
+    { verification: { ...currentProductionBinding.verification, expiresAt: input.checkedAt } },
+    { verification: { ...currentProductionBinding.verification, expiresAt: "2026-02-30T00:00:00.000Z" } }]) {
+    assert.throws(() => assertCurrentProductionExecutionBinding({ ...input, currentProductionBinding: { ...currentProductionBinding, ...patch } }),
+      /PRODUCTION_(?:EXECUTION_BINDING_|BINDINGS_INVALID)/);
+  }
+  assert.throws(() => assertCurrentProductionExecutionBinding({ ...input, currentProductionBinding: null }), /BINDING_REQUIRED/);
+  assert.throws(() => assertCurrentProductionExecutionBinding({ ...input, checkedAt: "2026-02-30T00:00:00.000Z" }), /BINDING_TIME_INVALID/);
+  assert.throws(() => assertCurrentProductionExecutionBinding({ ...input, checkedAt: "2026-08-21T00:00:00.000Z" }), /BINDING_TIME_INVALID/);
+  assert.throws(() => assertCurrentProductionExecutionBinding({ ...input, productionAuthorization: historicalPlanFixture().authorization }), /RECONFIRMATION_REQUIRED/);
+  assert.deepEqual(input, before);
+});
 
 function productionPlanFixture() {
-  return {
-    schemaVersion: "production-plan-v1.1",
-    planId: "production-plan:production-auth:CX-20260803-010:7b944e001234",
-    mode: "simulation",
-    status: "prepared",
-    createdAt: "2026-08-12T14:00:00.000Z",
-    sourceAuthorizationId: "production-auth:CX-20260803-010:23",
-    sourceAuthorizationRevision: 23,
-    sourceAuthorizationFingerprint: "a".repeat(64),
-    platform: "ozon",
-    store: "dandanshu",
-    skuPackageId: "sku-lifecycle:CX-20260803-010:4993364145574",
-    sku: { supplierSkuId: "4993364145574", variantKey: "豪华小火车" },
-    titleVersion: "c1-seo-draft-v1.1:2026-08-12T13:00:00.000Z",
-    title: "Механический деревянный 3D-пазл «Паровоз», 320 деталей",
-    attributeVersion: "c1-fact-verification-v1.1:2026-08-12T12:30:00.000Z",
-    attributes: { brand: { value: "unknown", status: "unknown" } },
-    platformCategory: {
-      descriptionCategoryId: { value: "17028665", verificationStatus: "confirmed" },
-      typeId: { value: "92935", verificationStatus: "confirmed" }
-    },
-    buyerTargetPrice: { amount: 1831, currency: "RUB" },
-    platformWritePrice: { amount: 151.78, currency: "CNY" },
-    priceConversion: { rubPerCny: 12.0637, evidenceRef: "fx:cbr:2026-08-07:RUB-CNY", checkedAt: "2026-08-07T00:00:00.000Z" },
-    stock: 100,
-    assetsFinalUploadsVersion: "c2-assets:CX-20260803-010:2026-08-12T13:12:00.000Z",
-    finalUploads: [{ assetId: "final:CX-20260803-010:main", ownerConfirmed: true, productionEligible: true }],
-    executionStrategy: {
-      schemaVersion: "ozon-production-strategy-v1.0",
-      primaryPath: "seller_api",
-      browserRole: "local_media_handoff_only",
-      automatedFields: ["create_product", "title", "platform_write_price_cny", "independent_readback"],
-      mediaMode: "single_manual_local_file_selection",
-      manualActionsRequired: 1,
-      manualActionLabel: "一次选择已确认的本地最终素材",
-      forbiddenBrowserActions: ["fill_title", "choose_category", "fill_attributes", "fill_price", "fill_dimensions", "fill_weight"],
-      priceFieldRule: "platform_write_price_cny_only",
-      stopOnFailure: true,
-      automaticRetry: false,
-      nextSkuAutomaticStart: false
-    },
-    publishScope: "create_draft_only",
-    exclusions: ["do_not_submit", "do_not_publish"],
-    allowedWriteFields: ["create_product", "title", "attributes", "price", "stock", "assets.finalUploads", "publish_scope"],
-    sourceReadPolicy: "authorization_snapshot_only",
-    sourceDataAccess: "production_authorization_only",
-    productResearchPerformed: false,
-    platformWrites: 0,
-    productCreated: false,
-    assetsUploaded: 0,
-    readbackPerformed: false
-  };
+  return createProductionPlan(authorizedProductionFixture());
 }
 
 function successfulInspection(overrides = {}) {
   return {
     observedStore: "dandanshu",
+    observedStoreRef: { stableStoreId: "dandanshu", platformStoreId: "seller-dandanshu-001", mappingVersion: "stores-v1" },
     storeIdentityStatus: "matched",
-    storeIdentityEvidenceRef: "seller-api:client-info:2026-08-12T14:10:00Z",
+    storeIdentityEvidenceRef: "seller-api:client-info:2026-08-22T07:10:00Z",
     permissionStatus: "verified",
-    permissionEvidenceRef: "seller-api:read-only-permission-check:2026-08-12T14:10:00Z",
+    permissionEvidenceRef: "seller-api:read-only-permission-check:2026-08-22T07:10:00Z",
     connections: {
-      api: { status: "connected", checkedVia: "seller_api_read_only", evidenceRef: "seller-api:health:2026-08-12T14:10:00Z" },
-      sellerBackend: { status: "connected", checkedVia: "seller_backend_read_only", evidenceRef: "seller-backend:session:2026-08-12T14:10:00Z" }
+      api: { status: "connected", checkedVia: "seller_api_read_only", evidenceRef: "seller-api:health:2026-08-22T07:10:00Z" },
+      sellerBackend: { status: "connected", checkedVia: "seller_backend_read_only", evidenceRef: "seller-backend:session:2026-08-22T07:10:00Z" }
     },
     platformWritableFields: ["create_product", "title", "attributes", "price", "stock", "assets.finalUploads", "publish_scope", "advertising"],
     imagePermissionStatus: "verified",
-    imagePermissionEvidenceRef: "seller-api:image-scope:2026-08-12T14:10:00Z",
+    imagePermissionEvidenceRef: "seller-api:image-scope:2026-08-22T07:10:00Z",
     priceFieldCurrency: "CNY",
-    priceCurrencyEvidenceRef: "seller-api:store-currency:CNY:2026-08-12T14:10:00Z",
+    priceCurrencyEvidenceRef: "seller-api:store-currency:CNY:2026-08-22T07:10:00Z",
     risks: [],
     ...overrides
   };
@@ -88,7 +68,7 @@ test("13B-1 generates a complete read-only PlatformWritePreflight from Productio
   let request;
   const result = await runPlatformWritePreflight({
     productionPlan: plan,
-    checkedAt: "2026-08-12T14:10:00.000Z",
+    checkedAt: "2026-08-22T07:10:00.000Z",
     inspectPlatform: async (value) => {
       request = value;
       return successfulInspection();
@@ -99,8 +79,9 @@ test("13B-1 generates a complete read-only PlatformWritePreflight from Productio
   assert.deepEqual(result.storeIdentity, {
     expectedStore: "dandanshu",
     observedStore: "dandanshu",
+    expectedStoreRef: projectProductionPlanInputs(plan).storeRef, observedStoreRef: projectProductionPlanInputs(plan).storeRef,
     status: "matched",
-    evidenceRef: "seller-api:client-info:2026-08-12T14:10:00Z"
+    evidenceRef: "seller-api:client-info:2026-08-22T07:10:00Z"
   });
   assert.equal(result.permission.status, "verified");
   assert.equal(result.connectionStatus.api.status, "connected");
@@ -110,7 +91,7 @@ test("13B-1 generates a complete read-only PlatformWritePreflight from Productio
   assert.equal(result.businessStateEffect, "none");
   assert.deepEqual(validatePlatformWritePreflight(result), { valid: true, errors: [] });
   assert.deepEqual(Object.keys(request).sort(), [
-    "expectedPlatformWriteCurrency", "expectedStore", "imageUploadRequested", "inventoryWriteRequested", "mode",
+    "expectedPlatformWriteCurrency", "expectedStore", "expectedStoreRef", "imageUploadRequested", "inventoryWriteRequested", "mode",
     "platformWriteRequested", "productCreationRequested", "requestedWriteFields", "targetPlatform"
   ]);
   assert.equal(request.mode, "read_only_preflight");
@@ -123,7 +104,7 @@ test("13B-1 generates a complete read-only PlatformWritePreflight from Productio
 test("13B-1 intersects platform capabilities with the authorized field scope", async () => {
   const result = await runPlatformWritePreflight({
     productionPlan: productionPlanFixture(),
-    checkedAt: "2026-08-12T14:10:00.000Z",
+    checkedAt: "2026-08-22T07:10:00.000Z",
     inspectPlatform: async () => successfulInspection({
       platformWritableFields: ["title", "attributes", "advertising"]
     })
@@ -139,16 +120,16 @@ test("13B-1 records connection failure only as technicalStatus without a busines
   const before = structuredClone(plan);
   const result = await runPlatformWritePreflight({
     productionPlan: plan,
-    checkedAt: "2026-08-12T14:10:00.000Z",
+    checkedAt: "2026-08-22T07:10:00.000Z",
     inspectPlatform: async () => successfulInspection({
       connections: {
-        api: { status: "unavailable", checkedVia: "seller_api_read_only", evidenceRef: "seller-api:timeout:2026-08-12T14:10:00Z" },
-        sellerBackend: { status: "system_error", checkedVia: "seller_backend_read_only", evidenceRef: "seller-backend:connection-error:2026-08-12T14:10:00Z" }
+        api: { status: "unavailable", checkedVia: "seller_api_read_only", evidenceRef: "seller-api:timeout:2026-08-22T07:10:00Z" },
+        sellerBackend: { status: "system_error", checkedVia: "seller_backend_read_only", evidenceRef: "seller-backend:connection-error:2026-08-22T07:10:00Z" }
       },
       permissionStatus: "unknown",
-      permissionEvidenceRef: "permission:not-observed:2026-08-12T14:10:00Z",
+      permissionEvidenceRef: "permission:not-observed:2026-08-22T07:10:00Z",
       imagePermissionStatus: "unknown",
-      imagePermissionEvidenceRef: "image-permission:not-observed:2026-08-12T14:10:00Z"
+      imagePermissionEvidenceRef: "image-permission:not-observed:2026-08-22T07:10:00Z"
     })
   });
   assert.equal(result.technicalStatus, "system_error");
@@ -160,12 +141,12 @@ test("13B-1 records connection failure only as technicalStatus without a busines
 test("13B-1 records missing permission without creating or modifying anything", async () => {
   const result = await runPlatformWritePreflight({
     productionPlan: productionPlanFixture(),
-    checkedAt: "2026-08-12T14:10:00.000Z",
+    checkedAt: "2026-08-22T07:10:00.000Z",
     inspectPlatform: async () => successfulInspection({
       permissionStatus: "permission_required",
-      permissionEvidenceRef: "seller-api:permission-required:2026-08-12T14:10:00Z",
+      permissionEvidenceRef: "seller-api:permission-required:2026-08-22T07:10:00Z",
       imagePermissionStatus: "permission_required",
-      imagePermissionEvidenceRef: "seller-api:image-permission-required:2026-08-12T14:10:00Z"
+      imagePermissionEvidenceRef: "seller-api:image-permission-required:2026-08-22T07:10:00Z"
     })
   });
   assert.equal(result.technicalStatus, "permission_required");
@@ -181,13 +162,13 @@ test("13B-1 rejects an inspector that attempts to mutate the frozen ProductionPl
   const plan = productionPlanFixture();
   await assert.rejects(() => runPlatformWritePreflight({
     productionPlan: plan,
-    checkedAt: "2026-08-12T14:10:00.000Z",
+    checkedAt: "2026-08-22T07:10:00.000Z",
     inspectPlatform: async (request) => {
       request.requestedWriteFields.push("advertising");
       return successfulInspection();
     }
   }), TypeError);
-  assert.equal(plan.allowedWriteFields.includes("advertising"), false);
+  assert.equal(projectProductionPlanInputs(plan).allowedWriteFields.includes("advertising"), false);
 });
 
 test("published PlatformWritePreflight schema freezes the no-write boundary", async () => {
@@ -205,4 +186,54 @@ test("published PlatformWritePreflight schema freezes the no-write boundary", as
   assert.equal(schema.properties.storeDataModified.const, false);
   assert.equal(schema.properties.productionRecordCreated.const, false);
   assert.equal(schema.properties.platformWrites.const, 0);
+});
+
+test("前检不信任同名匹配声明，旧平台ID或映射必须阻断", async () => {
+  const plan = productionPlanFixture();
+  for (const field of ["platformStoreId", "mappingVersion"]) {
+    const inspection = successfulInspection(); inspection.observedStoreRef[field] = "another";
+    const result = await runPlatformWritePreflight({ productionPlan: plan, checkedAt: "2026-08-22T08:00:00.000Z", inspectPlatform: async () => inspection });
+    assert.equal(result.storeIdentity.status, "mismatched");
+    assert.equal(result.platformWrites, 0);
+    const forged = structuredClone(result); forged.storeIdentity.status = "matched";
+    assert.equal(validatePlatformWritePreflight(forged).valid, false);
+  }
+  const missing = successfulInspection(); delete missing.observedStoreRef;
+  await assert.rejects(() => runPlatformWritePreflight({ productionPlan: plan, checkedAt: "2026-08-22T08:00:00.000Z", inspectPlatform: async () => missing }), /INSPECTION_INVALID/);
+});
+
+test('v1.2 API route retains unobserved backend without making it a required connection', async () => {
+  const inspection = successfulInspection();
+  inspection.connections.sellerBackend = { status: 'unknown', checkedVia: 'not_checked', evidenceRef: 'evidence:backend-unobserved' };
+  inspection.connectionRequirements = { requiredConnections: [] };
+  const result = await runPlatformWritePreflight({ productionPlan: productionPlanFixture(), checkedAt: '2026-08-22T07:10:00.000Z', inspectPlatform: async () => inspection });
+  assert.equal(result.schemaVersion, 'platform-write-preflight-v1.2');
+  assert.deepEqual(result.connectionRequirements, { contractVersion: 'ozon-connection-requirements-v1', route: 'seller_api', requiredConnections: ['api'] });
+  assert.equal(result.technicalStatus, 'completed');
+  assert.deepEqual(result.connectionStatus.sellerBackend, inspection.connections.sellerBackend);
+  assert.equal(assertCurrentPlatformWritePreflight(result), result);
+  for (const value of [[], ['sellerBackend'], ['api', 'api']]) {
+    const bad = structuredClone(result); bad.connectionRequirements.requiredConnections = value;
+    assert.equal(validatePlatformWritePreflight(bad).valid, false);
+  }
+  const bad = structuredClone(result); bad.connectionStatus.api.status = 'unknown';
+  assert.equal(validatePlatformWritePreflight(bad).valid, false, 'an unobserved required API cannot claim completed');
+  assert.equal(platformWritePreflightTechnicalStatus(inspection, ['api', 'sellerBackend']), 'data_unavailable', 'legacy dual-connection interpretation remains explicit');
+});
+
+test('v1.1 historical results remain readable without being promoted to current execution', async () => {
+  const current = await runPlatformWritePreflight({ productionPlan: productionPlanFixture(), checkedAt: '2026-08-22T07:10:00.000Z', inspectPlatform: async () => successfulInspection() });
+  const old = structuredClone(current); old.schemaVersion = 'platform-write-preflight-v1.1'; delete old.connectionRequirements;
+  old.preflightId = 'platform-preflight:historical-identity';
+  const before = structuredClone(old);
+  assert.equal(validatePlatformWritePreflight(old).valid, true);
+  assert.throws(() => assertCurrentPlatformWritePreflight(old), /VERSION_OUTDATED/);
+  assert.deepEqual(old, before);
+  const mixed = { ...old, connectionRequirements: current.connectionRequirements };
+  assert.equal(validatePlatformWritePreflight(mixed).valid, false);
+  const schema = JSON.parse(await readFile(new URL('../schema/platform-write-preflight-v1.2.schema.json', import.meta.url), 'utf8'));
+  assert.ok(schema.required.includes('connectionRequirements'));
+  assert.equal(schema.properties.connectionRequirements.additionalProperties, false);
+  assert.deepEqual(schema.properties.connectionRequirements.properties.requiredConnections.const, ['api']);
+  assert.equal(schema.properties.schemaVersion.const, current.schemaVersion);
 });
