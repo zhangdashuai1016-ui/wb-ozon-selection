@@ -69,7 +69,7 @@
 - **部署 r9**（主人："等 r9 一起上"）：冷备 `cold-backups/20260910-224419/`；安装 `20260910-translation-estimate-r9`；plist 只改程序路径/工作目录；重启后 `running`、health ok、首页 200、新包 `index-CYTMcLV-.js`、`/api/product-discovery/translate` 未登录 403、五个 A 发现变量在、r7 进程无残留、stderr 无新增。线上现在有：图、中文类目、一行数字、翻译标题按钮（走 4318 玲珑网关）、默认许可截止时间、按指定商品导入、旧派发通道 409。
 - **主人定稿**："可以就按这个来吧" —— 选品台四页样稿（选品台 / 进行中看板 / 商品页六段进度只展开当前步 / 需要你处理 / 维护）作为新界面方案，工程页整体退到"维护"。样稿：https://claude.ai/code/artifact/c96ac8e2-16d0-45c0-a9c0-551bd7d6969c
 - **主人其他决定**：候选选择等新页面上线后在新页面里定；施工优先 Opus 子代理，卡死可换 Sonnet 5 等其他模型；Miska Seller API 凭据"本地有，你去找"。
-- **凭据查找结果（只看条目名，未读值）**：钥匙串 service `egg-ozon-operations-center` 下有 account `ozon-store-a-seller-api`（蛋蛋鼠 3847026）与 `ozon-store-b-seller-api`（Miska 3852479），由 Ozon 只读证据服务使用。评审台 D 阶段凭据绑定形状为 `{credentialAlias, clientId, keychainService, keychainAccount}`，可直接指向这两条；**该 API Key 是否带商品创建等写权限尚未核实**，需主人在 Ozon 卖家后台确认或另建带写权限的 Key。
+- **凭据查找结果（只看条目名，未读值）**：钥匙串 service `egg-ozon-operations-center` 下有 account `ozon-store-a-seller-api`（蛋蛋鼠 3847026）与 `ozon-store-b-seller-api`（Miska 3852479），由 Ozon 只读证据服务使用。评审台 D 阶段凭据绑定形状为 `{credentialAlias, clientId, keychainService, keychainAccount}`，可直接指向这两条；该 API Key 的写权限：主人 2026-09-10 晚回复"确认可以"，即允许 D 阶段直接使用该条目；接线时先用 Seller API `/v1/roles` 只读核对权限范围，确认含商品创建后才发任何写请求。
 - **接下来的施工顺序**：① 反算接入列表和候选卡（隐藏负利润"选这个"、替换"Codex 反算中"）＋ B 阶段接入官方佣金表；② AI 选品第一阶段；③ 新界面（选品台/看板/商品页/收件箱）；④ D 真实上架接口与 E 独立回读。
 
 ### 下一步（需主人）
