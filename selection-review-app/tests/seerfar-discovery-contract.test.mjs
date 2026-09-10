@@ -225,3 +225,25 @@ test('v2 published schema accepts every closed DTO and rejects extra fields',asy
   const enrichedLegacy = structuredClone(legacy); enrichedLegacy.products[0].reviewCount = 0;
   assert.equal(validate(enrichedLegacy), false);
 });
+
+test('market result v3 carries the provider package facts and stays closed; v2 stays readable without them', async () => {
+  const f = fixture(), result = f.receipt.steps[1].result;
+  result.schemaVersion = 'seerfar-discovery-market-result-v3';
+  result.dateRange = { startDate: '2026-08-10', endDate: '2026-09-09' };
+  Object.assign(result.products[0], { reviewCount: 41, reviewRating: 4.8, rawSellerType: 1, weightGrams: 850, volumeLitres: 12.4, dimensionMm: '600x450x150' });
+  assertADiscoveryReceipt(f.receipt, f.job);
+  const read = readADiscoveryMarketResult(f.receipt);
+  assert.equal(read.products[0].weightGrams, 850); assert.equal(read.products[0].dimensionMm, '600x450x150');
+  const nulls = structuredClone(f.receipt); Object.assign(nulls.steps[1].result.products[0], { weightGrams: null, volumeLitres: null, dimensionMm: null });
+  assertADiscoveryReceipt(nulls, f.job);
+  for (const mutate of [r => r.products[0].dimensionMm = '60x45', r => r.products[0].dimensionMm = '600x450x150mm', r => r.products[0].weightGrams = -1,
+    r => r.products[0].volumeLitres = '12', r => delete r.products[0].weightGrams, r => r.products[0].extra = 1]) {
+    const copy = structuredClone(f.receipt); mutate(copy.steps[1].result);
+    assert.throws(() => assertADiscoveryReceipt(copy, f.job));
+  }
+  const v2 = structuredClone(f.receipt); v2.steps[1].result.schemaVersion = 'seerfar-discovery-market-result-v2';
+  for (const key of ['weightGrams', 'volumeLitres', 'dimensionMm']) delete v2.steps[1].result.products[0][key];
+  assertADiscoveryReceipt(v2, f.job);
+  const v2WithDims = structuredClone(f.receipt); v2WithDims.steps[1].result.schemaVersion = 'seerfar-discovery-market-result-v2';
+  assert.throws(() => assertADiscoveryReceipt(v2WithDims, f.job));
+});

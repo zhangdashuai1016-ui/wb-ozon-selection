@@ -30,7 +30,7 @@ export function defaultPermitExpiryLocal(now = Date.now()) {
   return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
 }
 
-function BatchCard({ entry, onAuthorize, onContinue, onSelect, onOpenCandidate }) {
+function BatchCard({ entry, onAuthorize, onContinue, onSelect, onTranslate, onOpenCandidate }) {
   const {batch,jobs,canAuthorize,candidateImport} = entry;
   const imported = new Map((entry.importedCandidates ?? []).map(value=>[value.marketProductId,value.candidateId]));
   const selections = new Map((entry.selections ?? []).map(value=>[value.marketProductId,value]));
@@ -39,6 +39,7 @@ function BatchCard({ entry, onAuthorize, onContinue, onSelect, onOpenCandidate }
   const [key,setKey] = useState(newKey);
   const [saving,setSaving] = useState(false);
   const [error,setError] = useState(null);
+  const [translation,setTranslation] = useState(null);
   async function run(action,input) {
     if(saving)return;
     setSaving(true);setError(null);
@@ -49,6 +50,18 @@ function BatchCard({ entry, onAuthorize, onContinue, onSelect, onOpenCandidate }
   const expiry = Date.parse(expiresAt);
   const seerfar = batch.plan.provider === 'seerfar';
   const marketResult = receipt => seerfar ? receipt?.steps.find(step => step.method === 'category_detail')?.result : receipt?.steps[0]?.result;
+  const translated = product => typeof product.titleZh === 'string' && product.titleZh.trim() !== '';
+  // Only market products carry a Russian marketplace title; 1688 supplier rows are excluded here and on the server.
+  const pendingTranslations = new Set(jobs.filter(({job})=>job.scopeBinding?.request?.method!=='supplier_search')
+    .flatMap(({receipt})=>marketResult(receipt)?.products ?? [])
+    .filter(product=>typeof product.productId==='string'&&!translated(product)).map(product=>product.productId)).size;
+  async function translate() {
+    if(saving||typeof onTranslate!=='function')return;
+    setSaving(true);setError(null);
+    try {const result=await onTranslate({batchId:batch.batchId,expectedRevision:batch.revision});setTranslation(result?.operationResult ?? null);}
+    catch(cause){setError(errorMessage(cause));}
+    finally{setSaving(false);}
+  }
   return <article className="inspector-section">
     <h3>{batch.plan.direction} · {STORE_LABELS[batch.targetStore]}</h3>
     <p>最多查询 {batch.plan.budget.maxRequests} 次，批准上限 {batch.plan.budget.maxCredits} {seerfar ? 'Seerfar 点数' : 'LinkFox 积分'}；最多保存 {batch.plan.selection.maxCandidates} 件待核验商品。</p>
@@ -71,7 +84,7 @@ function BatchCard({ entry, onAuthorize, onContinue, onSelect, onOpenCandidate }
       {receipt?.failureClass?<p role="alert">停止原因：{receipt.failureClass}。本次请求不会自动重发。</p>:null}
       {marketResult(receipt)?.status==='true_empty'?<p>本次查询明确返回零结果。</p>:null}
       {marketResult(receipt)?.products?.length?<details open={job.status==='completed'}><summary>查看本次发现材料</summary>
-        {seerfar ? <p>{marketResult(receipt).schemaVersion === 'seerfar-discovery-market-result-v2'
+        {seerfar ? <p>{['seerfar-discovery-market-result-v2','seerfar-discovery-market-result-v3'].includes(marketResult(receipt).schemaVersion)
           ? `服务返回日期窗：${marketResult(receipt).dateRange.startDate ?? '起始日期未知'} 至 ${marketResult(receipt).dateRange.endDate ?? '结束日期未知'}`
           : '旧版回执未保存日期窗及评价字段。'}；类目材料尚未核实同款，不代表核心市场样本。</p> : null}
         <ul className="discovery-product-list">{marketResult(receipt).products.map(product=><li key={product.productId} className="discovery-product">
@@ -100,6 +113,12 @@ function BatchCard({ entry, onAuthorize, onContinue, onSelect, onOpenCandidate }
       {canContinue?<button type="button" className="button secondary" disabled={saving}
         onClick={()=>run(onContinue,{batchId:batch.batchId,expectedRevision:batch.revision,jobId:job.jobId})}>执行已批准且尚未发送的查询</button>:null}
     </div>)}
+    <div className="discovery-translation">
+      <button type="button" className="button secondary" disabled={saving||pendingTranslations===0} onClick={translate}>翻译标题（{pendingTranslations} 条待翻）</button>
+      <p>中文标题只用于本页浏览，不写入商品资料，也不改变原始标题。</p>
+      {translation?<p>已翻译 {translation.translated} 条 · 本次用 {translation.usage?.totalTokens ?? 0} tokens
+        {translation.cached?`（已缓存 ${translation.cached} 条，未重复翻译）`:''}{translation.remaining?`（还有 ${translation.remaining} 条待翻）`:''}</p>:null}
+    </div>
     {candidateImport?.status==='imported'?<button type="button" className="button primary" onClick={()=>onOpenCandidate(candidateImport.candidateId)}>查看待核验商品</button>:null}
     {candidateImport?.status==='all_duplicates'?<p>本轮结果已存在于记录中，未重复建卡或恢复已淘汰商品。</p>:null}
     {['blocked','failed'].includes(candidateImport?.status)?<p role="alert">查询结果已保留，保存候选未完成：{candidateImport.failureClass}</p>:null}
@@ -107,7 +126,7 @@ function BatchCard({ entry, onAuthorize, onContinue, onSelect, onOpenCandidate }
   </article>;
 }
 
-export default function ProductDiscoveryCard({view,onCreate,onAuthorize,onContinue,onSelect,onOpenCandidate}) {
+export default function ProductDiscoveryCard({view,onCreate,onAuthorize,onContinue,onSelect,onTranslate,onOpenCandidate}) {
   const [planKey,setPlanKey] = useState('');
   const [targetStore,setTargetStore] = useState('');
   const [key,setKey] = useState(newKey);
@@ -142,7 +161,7 @@ export default function ProductDiscoveryCard({view,onCreate,onAuthorize,onContin
     {view.runtimeStatus==='failed'?<p role="alert">发现服务因技术异常停止，请保留当前批次核对。</p>:null}
     {view.lastAdmissionRejection?<p role="alert">已批准作业未执行：{view.lastAdmissionRejection.code}</p>:null}
     {view.batches.map(entry=><BatchCard key={`${entry.batch.batchId}:${entry.batch.revision}`} entry={entry} onAuthorize={onAuthorize}
-      onContinue={onContinue} onSelect={onSelect} onOpenCandidate={onOpenCandidate}/>) }
+      onContinue={onContinue} onSelect={onSelect} onTranslate={onTranslate} onOpenCandidate={onOpenCandidate}/>) }
     {view.hasMore?<p>当前显示最近 100 个批次，更早记录仍被保留。</p>:null}
   </section>;
 }

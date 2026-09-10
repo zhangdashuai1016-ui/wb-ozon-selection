@@ -1,7 +1,8 @@
 import { isDeepStrictEqual } from 'node:util';
 import { ADiscoveryError, A_DISCOVERY_FAILURE_CLASSES, assertADiscoveryScope, assertADiscoveryReceipt,
   isSeerfarADiscoveryScope } from './a-discovery-contract.mjs';
-import { assertSeerfarDiscoveryBinding, resolveSeerfarDiscoveryEvidence, SeerfarDiscoveryContractError, SEERFAR_DISCOVERY_EVIDENCE_FAILURE_CLASSES } from './seerfar-discovery-contract.mjs';
+import { assertSeerfarDiscoveryBinding, resolveSeerfarDiscoveryEvidence, SeerfarDiscoveryContractError,
+  SEERFAR_DISCOVERY_EVIDENCE_FAILURE_CLASSES, SEERFAR_MARKET_RESULT_SCHEMA_VERSION } from './seerfar-discovery-contract.mjs';
 import { ADiscoveryExecutionBlockedError } from './software-job-repository.mjs';
 import { createSeerfarRuntimeTransport } from './seerfar-runtime-connector.mjs';
 import { SeerfarTransportError } from './seerfar-open-api-transport.mjs';
@@ -30,7 +31,7 @@ function stepResult(observation, scope) {
     return {schemaVersion:'seerfar-discovery-quota-result-v1',...base,remainingPoints:observation.remainingPoints};
   }
   requireValue(Array.isArray(observation.marketProducts), 'RESPONSE_INVALID');
-  return {schemaVersion:'seerfar-discovery-market-result-v2',...base,requestId:scope.request.requestId,
+  return {schemaVersion:SEERFAR_MARKET_RESULT_SCHEMA_VERSION,...base,requestId:scope.request.requestId,
     contractVersion:scope.contractVersion,platform:scope.request.platform,categoryId:scope.request.categoryId,
     fulfillment:scope.request.fulfillment,status:observation.marketProducts.length ? 'candidates_found' : 'true_empty',
     products:clone(observation.marketProducts),dateRange:clone(observation.dateRange),collection:clone(observation.collection)};

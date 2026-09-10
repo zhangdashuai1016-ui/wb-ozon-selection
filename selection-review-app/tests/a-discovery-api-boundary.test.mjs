@@ -43,6 +43,9 @@ test('real default-off discovery API enforces owner, source and closed input wit
   for(const route of ['authorize','continue','select'])assert.equal((await api.post(`/api/product-discovery/${route}`,{verified:true})).status,400);
   assert.equal((await api.post('/api/product-discovery/select',{batchId:'a-discovery-batch:none',expectedRevision:0,marketProductId:'1'},{authenticated:false})).status,401);
   assert.equal((await api.post('/api/product-discovery/select',{batchId:'a-discovery-batch:none',expectedRevision:0,marketProductId:'1'})).status,409);
+  assert.equal((await api.post('/api/product-discovery/translate',{batchId:'a-discovery-batch:none',expectedRevision:0},{authenticated:false})).status,(await api.post('/api/product-discovery/create',{},{authenticated:false})).status);
+  assert.equal((await api.post('/api/product-discovery/translate',{batchId:'a-discovery-batch:none',expectedRevision:0,verified:true})).status,400);
+  assert.equal((await api.post('/api/product-discovery/translate',{batchId:'a-discovery-batch:none',expectedRevision:0})).status,409);
   assert.deepEqual(await api.readBytes(),bytes);await api.assertClean();
   await api.restart();await api.authenticate('login');
   assert.equal((await api.get('/api/product-discovery')).body.runtimeStatus,'not_configured');

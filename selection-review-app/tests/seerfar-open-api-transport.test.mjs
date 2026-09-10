@@ -295,3 +295,17 @@ test('category response identity must match even for empty results on either pla
     }
   }
 });
+
+test('category rows keep the provider weight, volume and dimension text as v3 package facts and reject malformed ones', async () => {
+  const data = categoryData('ozon', 2);
+  Object.assign(data.productList[0], { weight: 850, volume: 12.4, dimension: '600x450x150' });
+  Object.assign(data.productList[1], { weight: null, dimension: null });
+  const result = await categoryTransport(data)(categoryRequest());
+  assert.equal(result.marketProducts[0].weightGrams, 850); assert.equal(result.marketProducts[0].volumeLitres, 12.4);
+  assert.equal(result.marketProducts[0].dimensionMm, '600x450x150');
+  assert.equal(result.marketProducts[1].weightGrams, null); assert.equal(result.marketProducts[1].volumeLitres, null); assert.equal(result.marketProducts[1].dimensionMm, null);
+  for (const bad of [{ dimension: 600 }, { dimension: '60x45' }, { weight: -5 }, { volume: '12' }]) {
+    const broken = categoryData('ozon', 1); Object.assign(broken.productList[0], bad);
+    await assert.rejects(categoryTransport(broken)(categoryRequest()), error => error.code === 'schema_error');
+  }
+});

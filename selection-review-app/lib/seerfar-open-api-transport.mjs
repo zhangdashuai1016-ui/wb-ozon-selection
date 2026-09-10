@@ -73,6 +73,14 @@ function marketMetric(row, field, integer = false) {
   marketSchema(Number.isFinite(row[field]) && row[field] >= 0 && (!integer || Number.isSafeInteger(row[field])));
   return row[field];
 }
+const MARKET_DIMENSION_MM = /^\d+(?:\.\d+)?x\d+(?:\.\d+)?x\d+(?:\.\d+)?$/;
+// The provider writes the three sides as one millimetre string ("600x450x150"). It is kept literal:
+// no unit conversion, no reordering and no guess about which side is length.
+function marketDimension(row) {
+  if (!Object.hasOwn(row, 'dimension') || row.dimension === null) return null;
+  marketSchema(typeof row.dimension === 'string' && row.dimension.length <= 64 && MARKET_DIMENSION_MM.test(row.dimension.trim()));
+  return row.dimension.trim();
+}
 function marketDate(value) {
   if (value === undefined || value === null) return null;
   marketSchema(typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
@@ -110,6 +118,8 @@ function categoryMarketResult(body, platform, payload, evidenceRef) {
       categoryPath: marketCategory(row.categoryInfo), sellerIdentity: 'unknown',
       reviewCount: marketMetric(row, 'reviewCount', true), reviewRating: marketMetric(row, 'reviewRating'),
       rawSellerType: marketMetric(row, 'sellerType', true),
+      // The provider declares weight in grams and volume in litres; both stay in the provider's own unit here.
+      weightGrams: marketMetric(row, 'weight'), volumeLitres: marketMetric(row, 'volume'), dimensionMm: marketDimension(row),
       providerRecordRef: `${evidenceRef}#product-${index}` };
   });
   marketSchema(new Set(marketProducts.map(row => row.productId)).size === marketProducts.length);

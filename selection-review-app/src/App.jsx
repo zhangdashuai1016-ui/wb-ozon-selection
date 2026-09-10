@@ -766,6 +766,7 @@ export default function App() {
               onAuthorize={payload=>runProductDiscovery(api.authorizeProductDiscovery,payload)}
               onContinue={payload=>runProductDiscovery(api.continueProductDiscovery,payload)}
               onSelect={payload=>runProductDiscovery(api.selectProductDiscovery,payload)}
+              onTranslate={payload=>runProductDiscovery(api.translateProductDiscovery,payload)}
               onOpenCandidate={openDiscoveredCandidate}/>:<p role="status">正在读取当前发现计划和保存的批次…</p>}
         </>}
       </div>:view==='accounts'?<div className="page-panel">

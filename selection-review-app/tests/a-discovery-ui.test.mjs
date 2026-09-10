@@ -24,7 +24,7 @@ const f=createADiscoveryContractFixture();
 const view=()=>({schemaVersion:'a-discovery-view-v1',plans:[f.batch.plan],bindings:[{bindingId:f.batch.bindingId,configurationVersion:f.batch.configurationVersion}],
   canPrepare:true,configurationBlockers:[],targetStores:['miska','dandanshu'],batches:[],hasMore:false,runtimeStatus:'stopped',activeExecution:null,lastAdmissionRejection:null,platformWrites:0});
 const forbidden=()=>{throw new Error('RENDER_MUST_NOT_START_WORK');};
-const props=v=>({view:v,onCreate:forbidden,onAuthorize:forbidden,onContinue:forbidden,onSelect:forbidden,onOpenCandidate:forbidden});
+const props=v=>({view:v,onCreate:forbidden,onAuthorize:forbidden,onContinue:forbidden,onSelect:forbidden,onTranslate:forbidden,onOpenCandidate:forbidden});
 
 test('discovery UI offers a local preparation and never preselects a paid plan or checkbox',async()=>{
   const html=await render(props(view()));
@@ -146,4 +146,16 @@ test('completed results offer one minimal owner pick per product and mark produc
   html=await render(props(v)); assert.match(html,/未重复建卡/); assert.doesNotMatch(html,/选这个/);
   v.batches[0]={...v.batches[0],selections:[],jobs:[{job:{...f.job,status:'failed'},receipt,canContinue:false}]};
   html=await render(props(v)); assert.doesNotMatch(html,/选这个/); assert.doesNotMatch(html,/<details open/);
+});
+
+test('completed results offer one translation button for the untranslated titles and show cached Chinese titles',async()=>{
+  const v=view(),receipt=createADiscoveryContractReceipt(f);
+  v.batches=[{batch:f.batch,canAuthorize:false,jobs:[{job:{...f.job,status:'completed'},receipt,canContinue:false}],candidateImport:null,selections:[],importedCandidates:[]}];
+  let html=await render(props(v));
+  const total=receipt.steps[0].result.products.length;
+  assert.match(html,new RegExp(`翻译标题（${total} 条待翻）`)); assert.match(html,/中文标题：待翻译/);
+  receipt.steps[0].result.products[0].titleZh='合成收纳盒';
+  html=await render(props(v));
+  assert.match(html,/中文标题：合成收纳盒/); assert.match(html,new RegExp(`翻译标题（${total-1} 条待翻）`));
+  if(total===1)assert.match(html,/<button[^>]*disabled=""[^>]*>翻译标题/);
 });

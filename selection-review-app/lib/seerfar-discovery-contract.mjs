@@ -3,6 +3,16 @@ import { assertSafeRuntimeRecord } from './runtime-identity.mjs';
 
 export const SEERFAR_DISCOVERY_CONTRACT_VERSION = 'seerfar-category-discovery-v1';
 export const SEERFAR_DISCOVERY_CAPABILITY = 'seerfar-category-discovery-api';
+/** New market results are written at this version; older saved results stay readable at their own version. */
+export const SEERFAR_MARKET_RESULT_SCHEMA_VERSION = 'seerfar-discovery-market-result-v3';
+const MARKET_RESULT_SCHEMA_VERSIONS = Object.freeze(['seerfar-discovery-market-result-v1',
+  'seerfar-discovery-market-result-v2', SEERFAR_MARKET_RESULT_SCHEMA_VERSION]);
+// v2 added the provider's review facts and the response date window; v3 adds the provider's declared
+// weight, volume and dimension text. Each version keeps its own closed key set: a field the older
+// response never carried stays absent on read and is never filled in with a guessed value.
+const MARKET_REVIEW_FACT_VERSIONS = Object.freeze(['seerfar-discovery-market-result-v2', SEERFAR_MARKET_RESULT_SCHEMA_VERSION]);
+const MARKET_PACKAGE_FACT_VERSIONS = Object.freeze([SEERFAR_MARKET_RESULT_SCHEMA_VERSION]);
+const MARKET_DIMENSION_MM = /^\d+(?:\.\d+)?x\d+(?:\.\d+)?x\d+(?:\.\d+)?$/;
 export const SEERFAR_DISCOVERY_STEPS = Object.freeze(['quota_before', 'category_detail', 'quota_after']);
 export const SEERFAR_DISCOVERY_EVIDENCE_FAILURE_CLASSES = Object.freeze(['EVIDENCE_UNAVAILABLE', 'EVIDENCE_UNVERIFIED',
   'EVIDENCE_REVOKED', 'EVIDENCE_SUPERSEDED', 'EVIDENCE_NOT_EFFECTIVE', 'EVIDENCE_EXPIRED', 'EVIDENCE_AMBIGUOUS', 'EVIDENCE_INVALID']);
@@ -15,6 +25,9 @@ const requireValue = (value, code) => { if (!value) throw new SeerfarDiscoveryCo
 const ref = value => isCanonicalFrozenRef(value) && !['unknown', 'null', 'undefined'].includes(value);
 const text = (value, max = 256) => typeof value === 'string' && value.trim().length > 0 && value.length <= max && !/[\u0000-\u001f\u007f]/u.test(value);
 const points = value => Number.isFinite(value) && value >= 0;
+const measure = value => value === null || points(value);
+// The provider writes the three sides as one millimetre string; it is kept literal, never split into numbers here.
+const dimensionMm = value => value === null || typeof value === 'string' && value.length <= 64 && MARKET_DIMENSION_MM.test(value.trim());
 const time = value => typeof value === 'string' && value.length <= 32 && Number.isFinite(Date.parse(value));
 const clone = value => { assertSafeRuntimeRecord(value); return structuredClone(value); };
 
@@ -118,17 +131,23 @@ function safeUrl(value) {
   return url;
 }
 function assertMarketProduct(product, index, result) {
+  const reviewFacts = MARKET_REVIEW_FACT_VERSIONS.includes(result.schemaVersion);
+  const packageFacts = MARKET_PACKAGE_FACT_VERSIONS.includes(result.schemaVersion);
   requireValue(closed(product, ['productId', 'platform', 'productUrl', 'title', 'imageUrl', 'price', 'currency',
     'salesCount', 'revenue', 'categoryPath', 'sellerIdentity', 'providerRecordRef',
-    ...(result.schemaVersion === 'seerfar-discovery-market-result-v2' ? ['reviewCount', 'reviewRating', 'rawSellerType'] : [])]) &&
+    ...(reviewFacts ? ['reviewCount', 'reviewRating', 'rawSellerType'] : []),
+    ...(packageFacts ? ['weightGrams', 'volumeLitres', 'dimensionMm'] : [])]) &&
     typeof product.productId === 'string' && /^[1-9]\d*$/.test(product.productId) && product.platform === 'ozon' &&
     text(product.title, 2000) && Number.isFinite(product.price) && product.price > 0 && product.currency === null &&
     (product.salesCount === null || Number.isSafeInteger(product.salesCount) && product.salesCount >= 0) &&
     (product.revenue === null || points(product.revenue)) && product.sellerIdentity === 'unknown' &&
     product.providerRecordRef === `${result.evidenceRef}#product-${index}`, 'RESPONSE_INVALID');
-  if (result.schemaVersion === 'seerfar-discovery-market-result-v2') {
+  if (reviewFacts) {
     requireValue(['reviewCount', 'rawSellerType'].every(key => product[key] === null || Number.isSafeInteger(product[key]) && product[key] >= 0) &&
       (product.reviewRating === null || points(product.reviewRating)), 'RESPONSE_INVALID');
+  }
+  if (packageFacts) {
+    requireValue(measure(product.weightGrams) && measure(product.volumeLitres) && dimensionMm(product.dimensionMm), 'RESPONSE_INVALID');
   }
   const url = safeUrl(product.productUrl); safeUrl(product.imageUrl);
   requireValue(url.hostname === 'www.ozon.ru' && url.pathname === `/product/${product.productId}`, 'RESPONSE_INVALID');
@@ -149,8 +168,8 @@ export function assertSeerfarDiscoveryMarketResult(result, request) {
   assertSeerfarDiscoveryRequest(request);
   requireValue(closed(result, ['schemaVersion', 'provider', 'contractVersion', 'requestId', 'platform', 'categoryId', 'fulfillment',
     'observedAt', 'evidenceRef', 'status', 'products', 'collection',
-    ...(result?.schemaVersion === 'seerfar-discovery-market-result-v2' ? ['dateRange'] : [])]) &&
-    ['seerfar-discovery-market-result-v1', 'seerfar-discovery-market-result-v2'].includes(result.schemaVersion) &&
+    ...(MARKET_REVIEW_FACT_VERSIONS.includes(result?.schemaVersion) ? ['dateRange'] : [])]) &&
+    MARKET_RESULT_SCHEMA_VERSIONS.includes(result.schemaVersion) &&
     result.provider === 'seerfar' && result.contractVersion === SEERFAR_DISCOVERY_CONTRACT_VERSION &&
     ['requestId', 'platform', 'categoryId', 'fulfillment'].every(key => result[key] === request[key]) &&
     time(result.observedAt) && ref(result.evidenceRef) && Array.isArray(result.products) && result.products.length <= 20 &&
@@ -158,7 +177,7 @@ export function assertSeerfarDiscoveryMarketResult(result, request) {
     closed(result.collection, ['pageNumber', 'pageSize', 'hasNextPage']) && result.collection.pageNumber === 1 &&
     result.collection.pageSize === 20 && typeof result.collection.hasNextPage === 'boolean' &&
     (result.products.length > 0 || result.collection.hasNextPage === false), 'RESPONSE_INVALID');
-  if (result.schemaVersion === 'seerfar-discovery-market-result-v2') {
+  if (MARKET_REVIEW_FACT_VERSIONS.includes(result.schemaVersion)) {
     const dates = result.dateRange;
     requireValue(closed(dates, ['startDate', 'endDate']) && ['startDate', 'endDate'].every(key => {
       const value = dates[key];

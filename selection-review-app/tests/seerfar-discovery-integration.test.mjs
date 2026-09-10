@@ -287,14 +287,15 @@ for (const boundary of ['lease', 'authorization']) {
 
  test('response review facts survive formal transport, receipt, import and byte-stable cold read', async t => {
   const f = await createSeerfarDiscoveryRuntimeFixture(t);
-  const product = { ...syntheticMarketProduct(), reviewCount: 142, reviewRating: 4.8, sellerType: 1 };
+  const product = { ...syntheticMarketProduct(), reviewCount: 142, reviewRating: 4.8, sellerType: 1, weight: 850, volume: 12.4, dimension: '600x450x150' };
   const { service } = f.create({ respond: (call, response) => call.step === 'category_detail'
     ? response(call, { body: { code: 200, data: { id: '100_200', productList: [product], hasNextPage: false, startDate: '2026-07-01', endDate: '2026-07-27' } } }) : response(call) });
   const result = await f.authorize(service, await f.prepare(service));
   assert.equal(result.status, 'completed'); assert.equal(result.candidateImport.status, 'imported');
   const saved = await f.repository.readSnapshot(), market = receiptFor(saved).steps[1].result;
-  assert.equal(market.schemaVersion, 'seerfar-discovery-market-result-v2');
+  assert.equal(market.schemaVersion, 'seerfar-discovery-market-result-v3');
   assert.deepEqual(market.dateRange, { startDate: '2026-07-01', endDate: '2026-07-27' });
+  assert.deepEqual([market.products[0].weightGrams, market.products[0].volumeLitres, market.products[0].dimensionMm], [850, 12.4, '600x450x150']);
   assert.deepEqual([market.products[0].reviewCount, market.products[0].reviewRating, market.products[0].rawSellerType, market.products[0].sellerIdentity], [142, 4.8, 1, 'unknown']);
   assert.equal(saved.candidates[0].aDiscoveryEvidenceV2.marketReceiptRef, receiptFor(saved).receiptId);
   assertUnverified(saved.candidates[0]);

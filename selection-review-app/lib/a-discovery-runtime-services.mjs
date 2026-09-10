@@ -10,6 +10,7 @@ import { A_DISCOVERY_JOB_TYPE, getADiscoveryProviderCapability, readADiscoveryMa
 import { createADiscoveryJobForScope, ADiscoveryExecutionBlockedError } from './software-job-repository.mjs';
 import { runADiscoverySoftwareJob } from './a-discovery-software-runner.mjs';
 import { assertADiscoveryCandidateImportRecord, assertADiscoveryCandidateSelectionRecord } from './a-discovery-candidate-import.mjs';
+import { readDiscoveryTitleTranslations, attachDiscoveryTitleTranslations } from './discovery-title-translation-store.mjs';
 
 const clone=value=>structuredClone(value);
 const closed=(value,fields)=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===fields.length&&fields.every(key=>Object.hasOwn(value,key));
@@ -156,6 +157,8 @@ export function createADiscoveryRuntimeServices({repository,softwareJobStore,run
       const batches=Object.values(readCollection(document,'aDiscoveryBatches')).map(assertADiscoveryBatch).filter(batch=>batch.ownerUserId===actor.userId);
       const jobs=readCollection(document,'softwareJobs',true),receipts=readCollection(document,'aDiscoveryReceipts'),imports=readCollection(document,'aDiscoveryCandidateImports'),selections=readCollection(document,'aDiscoveryCandidateSelections');
       const candidates=Array.isArray(document.candidates)?document.candidates:[];
+      // Display-only Chinese titles ride along on the view's receipt clones; the saved receipts keep the provider's own title.
+      const titleTranslations=readDiscoveryTitleTranslations(document);
       const configurationBlockers=[];
       if(savedPlans.length===0)configurationBlockers.push('PLAN_NOT_CONFIGURED');
       if(connectors.length===0)configurationBlockers.push('CONNECTOR_NOT_CONFIGURED');
@@ -176,7 +179,7 @@ export function createADiscoveryRuntimeServices({repository,softwareJobStore,run
             .map(candidate=>({candidateId:candidate.id,marketProductId:(candidate.aDiscoveryEvidenceV2??candidate.aDiscoveryEvidenceV1).marketProductId}));
           return {batch:clone(batch),candidateImport:Object.hasOwn(imports,key)?assertADiscoveryCandidateImportRecord(imports[key],{batchId:batch.batchId,revision:batch.revision}):null,
             selections:batchSelections,importedCandidates,
-            jobs:current.map(job=>({job:clone(job),receipt:Object.hasOwn(receipts,job.jobId)?assertADiscoveryReceipt(receipts[job.jobId],job):null,
+            jobs:current.map(job=>({job:clone(job),receipt:Object.hasOwn(receipts,job.jobId)?attachDiscoveryTitleTranslations(assertADiscoveryReceipt(receipts[job.jobId],job),titleTranslations):null,
               canContinue:job.status==='queued'&&job.attempt===0&&job.externalRequestState==='not_sent'&&job.revision===batch.revision&&routeAvailable&&batchConfigurationBlocker(batch)===null&&Date.parse(serverClock())<Date.parse(job.scopeBinding.expiresAt)})),
             canAuthorize:current.length===0&&batchConfigurationBlocker(batch)===null,
             configurationBlocker:current.length===0||current.some(job=>job.status==='queued'&&job.attempt===0&&job.externalRequestState==='not_sent')?batchConfigurationBlocker(batch):null};

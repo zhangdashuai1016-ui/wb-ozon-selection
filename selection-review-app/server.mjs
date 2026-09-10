@@ -5,6 +5,8 @@ import { supplierImageSearchAvailability, readSupplierImageSearchPreparation, re
 import { ADiscoveryError } from './lib/a-discovery-contract.mjs';
 import { createLinkfoxDiscoverySecretReader, createSeerfarDiscoverySecretReader } from './lib/linkfox-discovery-credentials.mjs';
 import { createADiscoveryCandidateImportUseCase } from './lib/a-discovery-candidate-import.mjs';
+import { createDiscoveryTitleTranslator, DiscoveryTitleTranslationError } from './lib/discovery-title-translation.mjs';
+import { createADiscoveryTitleTranslationUseCase } from './lib/discovery-title-translation-store.mjs';
 import { createAProductDetailRuntimeServices } from './lib/a-product-detail-runtime-services.mjs';
 import { createAProductDetailApplicationUseCase } from './lib/a-product-detail-application.mjs';
 import { AProductDetailError } from './lib/a-product-detail-contract.mjs';
@@ -287,6 +289,16 @@ const aDiscoveryRuntime = createADiscoveryRuntimeServices({repository:businessSt
   fetchImpl:fetch,onBatchReady:input=>aDiscoveryCandidateImport.importBatch(input),onSelectProduct:input=>aDiscoveryCandidateImport.importSelectedProduct(input),
   onError:()=>{console.error('A_DISCOVERY_RUNTIME_STOPPED: 商品发现服务因异常停止，请核对已保存的批次和作业。');}
 });
+/** Display-only Chinese titles for discovered products; the gateway holds its own credentials, so none are passed here. */
+const aDiscoveryTitleTranslationUseCase = (() => {
+  const gatewayUrl = typeof runtimeConfiguration.aiGatewayUrl === 'string' ? runtimeConfiguration.aiGatewayUrl.trim() : '';
+  if (gatewayUrl === '') return null;
+  try {
+    return createADiscoveryTitleTranslationUseCase({repository:businessStateRepository,serverClock:now,
+      translator:createDiscoveryTitleTranslator({gatewayUrl,fetchImpl:fetch,now,
+        gatewayDeploymentMode:runtimeConfiguration.deploymentMode})});
+  } catch { return null; }
+})();
 const aProductDetailApplication = createAProductDetailApplicationUseCase({repository:businessStateRepository,serverClock:now});
 const aProductDetailRuntime = createAProductDetailRuntimeServices({repository:businessStateRepository,softwareJobStore,
   runtimeMode:runtimeConfiguration.deploymentMode,serverClock:now,workerRegistry,
@@ -2949,6 +2961,30 @@ async function handleApi(req, res, pathname) {
       const status = error.code === 'SERVICE_NOT_CONFIGURED' ? 503 :
         ['INPUT_INVALID','PLAN_INVALID','IMPORT_INPUT_INVALID'].includes(error.code) ? 400 : 409;
       return json(res,status,{code:error.code,message:'商品发现未继续，请核对当前计划、批次版本及已保存的执行结果。'});
+    }
+  }
+
+  // Display-only: translated titles are shown beside the provider's own title and never overwrite a saved field.
+  if (req.method === 'POST' && pathname === '/api/product-discovery/translate') {
+    const actor = runtimeIdentityProvider.resolveActor({request:req});
+    if (actor.source !== 'authenticated_identity_provider' || actor.actorType !== 'human' || !actor.roles.includes('owner')) {
+      throw httpError(403, '请先登录主人身份后查看商品发现计划。');
+    }
+    try {
+      const input = await readJsonRequestBody(req, {maxBytes:8192,requireJsonContentType:true});
+      if (aDiscoveryTitleTranslationUseCase === null) {
+        return json(res,503,{code:'AI_GATEWAY_NOT_CONFIGURED',message:'本机AI网关尚未接入；本次没有翻译，也没有保存任何结果。'});
+      }
+      const operationResult = await aDiscoveryTitleTranslationUseCase.translateBatch({actor,input});
+      const document = await readData();
+      return json(res,200,{...aDiscoveryRuntime.view({document,actor}),operationResult});
+    } catch (error) {
+      if (error instanceof DiscoveryTitleTranslationError) {
+        return json(res,502,{code:error.code,message:'标题翻译未完成并已停止；没有保存部分结果，商品原始标题未改动。'});
+      }
+      if (!(error instanceof ADiscoveryError)) throw error;
+      const status = error.code === 'SERVICE_NOT_CONFIGURED' ? 503 : error.code === 'INPUT_INVALID' ? 400 : 409;
+      return json(res,status,{code:error.code,message:'标题翻译未继续，请核对当前批次版本及已保存的查询结果。'});
     }
   }
 
