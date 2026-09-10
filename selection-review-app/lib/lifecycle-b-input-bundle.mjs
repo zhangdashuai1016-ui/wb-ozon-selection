@@ -95,6 +95,19 @@ export function isCommissionEstimateAuthorizationForScope(value, { candidateId, 
     finite(value.commissionRate) && value.commissionRate >= 0 && value.commissionRate < 1 && value.commissionRate === commissionRate;
 }
 
+/**
+ * 官方费表费率按本SKU已冻结成交价所在价格档取得，价格档不属于可复用的证据范围，
+ * 所以命中行必须绑定取数时的候选、修订和成交价，别的SKU或改价后的修订都不能复用。
+ */
+export function isOfficialCommissionBindingForCandidate(value, { candidateId, candidateRevision }) {
+  const keys = ["schemaVersion", "candidateId", "candidateRevision", "priceRub"];
+  return isObject(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key)) &&
+    value.schemaVersion === "ozon-official-commission-binding-v1" &&
+    nonEmptyString(value.candidateId) && value.candidateId === candidateId &&
+    Number.isSafeInteger(value.candidateRevision) && value.candidateRevision >= 1 && value.candidateRevision === candidateRevision &&
+    finite(value.priceRub) && value.priceRub > 0;
+}
+
 /** Complete per-SKU costs supplied at freeze time, independently of reusable commission evidence. */
 export function validateLifecycleBOtherCosts(otherCosts) {
   const errors = [];
@@ -115,11 +128,24 @@ export function validateLifecycleEvidenceData(kind, evidenceData) {
     return { valid: false, errors: [error("evidenceData", "必须是结构化对象")] };
   }
   if (kind === "commission") {
-    if (!["exact", "estimated"].includes(evidenceData.commissionEvidenceMode)) {
-      errors.push(error("commissionEvidenceMode", "必须明确为exact或estimated"));
+    if (!COMMISSION_EVIDENCE_MODES.includes(evidenceData.commissionEvidenceMode)) {
+      errors.push(error("commissionEvidenceMode", "必须明确为exact、estimated或official_reference"));
     }
     if (!finite(evidenceData.commissionRate) || evidenceData.commissionRate < 0 || evidenceData.commissionRate >= 1) {
       errors.push(error("commissionRate", "必须是0到1之间的数字"));
+    }
+    // 官方费表命中的是一条已存版本的费率行：必须是正数费率，绑定本SKU，且不得同时冒充主人授权估算。
+    if (evidenceData.commissionEvidenceMode === "official_reference") {
+      if (!finite(evidenceData.commissionRate) || evidenceData.commissionRate <= 0 || evidenceData.commissionRate >= 1 ||
+          evidenceData.estimateAuthorized === true || Object.hasOwn(evidenceData, "commissionEstimateAuthorization")) {
+        errors.push(error("commissionEvidenceMode", "官方费表佣金必须是0到1之间的正数且不得携带估算授权"));
+      }
+      if (!isOfficialCommissionBindingForCandidate(evidenceData.officialCommissionBinding, {
+        candidateId: evidenceData.officialCommissionBinding?.candidateId,
+        candidateRevision: evidenceData.officialCommissionBinding?.candidateRevision
+      })) errors.push(error("officialCommissionBinding", "官方费表费率必须绑定取数时的候选、修订与成交价"));
+    } else if (Object.hasOwn(evidenceData, "officialCommissionBinding")) {
+      errors.push(error("officialCommissionBinding", "只有官方费表证据才能携带费表绑定"));
     }
     if (Object.hasOwn(evidenceData, "commissionEstimateAuthorization") &&
         (evidenceData.commissionEvidenceMode !== "estimated" || !isCommissionEstimateAuthorizationForScope(evidenceData.commissionEstimateAuthorization, {
@@ -248,6 +274,9 @@ function candidateContext(candidate) {
 }
 
 const WB_COMMISSION_SOURCE = "wb_official_commission_reference";
+const OZON_OFFICIAL_COMMISSION_SOURCE = "ozon_official_commission_table";
+export const COMMISSION_EVIDENCE_MODES = Object.freeze(["exact", "estimated", "official_reference"]);
+const OZON_COMMISSION_PRICE_TIERS = Object.freeze(["le1500", "1500_5000", "gt5000"]);
 const catalogText = value => nonEmptyString(value) && value === value.trim() && value.length <= 256 && !/[\u0000-\u001f\u007f]/u.test(value);
 const closedCatalog = (value, keys) => isObject(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
 
@@ -276,10 +305,26 @@ function validCommissionCatalogRef(pack) {
     pack.scope.category === `wb:subject:${ref.subjectId}`;
 }
 
+/** Ozon官方佣金表命中行的版本引用：内容哈希、生效日期、来源地址、价格档和已匹配的类型名称缺一不可。 */
+function validOzonCommissionCatalogRef(pack) {
+  const ref = pack.commissionCatalogRef;
+  return closedCatalog(ref, ["effectiveFrom", "fileSha256", "sourceUrl", "priceTier", "matchedRow"]) &&
+    catalogText(ref.sourceUrl) && typeof ref.fileSha256 === "string" && /^[0-9a-f]{64}$/i.test(ref.fileSha256) &&
+    typeof ref.effectiveFrom === "string" && /^\d{4}-\d{2}-\d{2}$/.test(ref.effectiveFrom) &&
+    isoDateTime(`${ref.effectiveFrom}T00:00:00.000Z`) && OZON_COMMISSION_PRICE_TIERS.includes(ref.priceTier) &&
+    closedCatalog(ref.matchedRow, ["typeRu", "typeZh", "mpCategoryZh"]) &&
+    ["typeRu", "typeZh", "mpCategoryZh"].every(key => catalogText(ref.matchedRow[key])) &&
+    pack.scope?.platform === "ozon";
+}
+
 export function isLifecycleEvidenceTraceValid(pack) {
   const base = nonEmptyString(pack?.id) && nonEmptyString(pack?.sourceType) && nonEmptyString(pack?.sourceRef) && isoDateTime(pack?.checkedAt);
   if (!base) return false;
-  if (Object.hasOwn(pack, "commissionCatalogRef") && pack.sourceType !== WB_COMMISSION_SOURCE) return false;
+  if (Object.hasOwn(pack, "commissionCatalogRef") && ![WB_COMMISSION_SOURCE, OZON_OFFICIAL_COMMISSION_SOURCE].includes(pack.sourceType)) return false;
+  if (pack.sourceType === OZON_OFFICIAL_COMMISSION_SOURCE &&
+      (pack.kind !== "commission" || !Object.hasOwn(pack, "commissionCatalogRef") || !validOzonCommissionCatalogRef(pack) ||
+       pack.evidenceData?.commissionEvidenceMode !== "official_reference" ||
+       !validateLifecycleEvidenceData("commission", pack.evidenceData).valid)) return false;
   if (pack.sourceType === WB_COMMISSION_SOURCE) {
     if (pack.kind !== "commission" || !validCommissionCatalogRef(pack) || pack.evidenceData?.commissionEvidenceMode !== "exact" ||
         !validateLifecycleEvidenceData("commission", pack.evidenceData).valid) return false;
@@ -317,6 +362,11 @@ function eligiblePack(pack, kind, context, asOfMs, candidate, currentCommissionC
   // These historical readers inferred billing defaults. Preserve their records,
   // but never reuse them as verified inputs for a new formal calculation.
   if (kind === "logistics_tariff" && pack.sourceType === "guoo_current_tariff_xlsx") return false;
+  // 官方费表按本SKU成交价档取值，价格档不属于可复用的证据范围：只有绑定本候选本修订的命中行可用。
+  if (kind === "commission" && pack.evidenceData?.commissionEvidenceMode === "official_reference" &&
+      !isOfficialCommissionBindingForCandidate(pack.evidenceData.officialCommissionBinding, {
+        candidateId: candidate.id, candidateRevision: candidate.dataRevision
+      })) return false;
   if (!validateLifecycleEvidenceData(kind, pack.evidenceData).valid) return false;
   if (kind === "commission" && pack.evidenceData.commissionEvidenceMode === "estimated" &&
       !isCommissionEstimateAuthorizationForScope(pack.evidenceData.commissionEstimateAuthorization, {
@@ -516,6 +566,9 @@ export function createLifecycleBInputBundle({ candidate, evidencePacks = [], nor
       ...(packs.commission.evidenceData.commissionEvidenceMode === "estimated" ? {
         commissionEstimateAuthorization: structuredClone(packs.commission.evidenceData.commissionEstimateAuthorization)
       } : {}),
+      ...(packs.commission.evidenceData.commissionEvidenceMode === "official_reference" ? {
+        officialCommissionBinding: structuredClone(packs.commission.evidenceData.officialCommissionBinding)
+      } : {}),
       commissionEvidenceMode: packs.commission.evidenceData.commissionEvidenceMode,
       estimateAuthorized: packs.commission.evidenceData.estimateAuthorized === true,
       exactCommissionRequiredAtC: packs.commission.evidenceData.exactCommissionRequiredAtC === true,
@@ -590,9 +643,13 @@ export function validateLifecycleBInputBundle(bundle, { candidate, normalizedSub
       errors.push(error("platformFeeEvidence.costPolicySnapshot", caught.code));
     }
   }
-  if (isObject(bundle.platformFeeEvidence) && Object.hasOwn(bundle.platformFeeEvidence, "commissionCatalogRef") &&
-      (!validCommissionCatalogRef({ scope: bundle.context, commissionCatalogRef: bundle.platformFeeEvidence.commissionCatalogRef }) ||
-       bundle.platformFeeEvidence.commissionEvidenceMode !== "exact")) errors.push(error("platformFeeEvidence.commissionCatalogRef", "冻结佣金目录引用无效"));
+  if (isObject(bundle.platformFeeEvidence) && Object.hasOwn(bundle.platformFeeEvidence, "commissionCatalogRef")) {
+    const frozenRef = { scope: bundle.context, commissionCatalogRef: bundle.platformFeeEvidence.commissionCatalogRef };
+    const frozenRefValid = bundle.platformFeeEvidence.commissionEvidenceMode === "official_reference"
+      ? validOzonCommissionCatalogRef(frozenRef)
+      : validCommissionCatalogRef(frozenRef) && bundle.platformFeeEvidence.commissionEvidenceMode === "exact";
+    if (!frozenRefValid) errors.push(error("platformFeeEvidence.commissionCatalogRef", "冻结佣金目录引用无效"));
+  }
   const dimensions = bundle.packagingSnapshot?.dimensionsCm;
   if (!finite(bundle.packagingSnapshot?.weightKg) || bundle.packagingSnapshot.weightKg <= 0 || !isObject(dimensions) ||
       [dimensions?.length, dimensions?.width, dimensions?.height].some(value => !finite(value) || value <= 0)) errors.push(error("packagingSnapshot", "必须保存正数包装重量尺寸"));
@@ -602,6 +659,10 @@ export function validateLifecycleBInputBundle(bundle, { candidate, normalizedSub
   }
   const evidenceIds = [bundle.platformFeeEvidence, bundle.logisticsEvidence, bundle.exchangeRateEvidence, bundle.platformSchemaEvidence].map(item => item?.evidenceId);
   if (evidenceIds.some(id => !nonEmptyString(id) || !bundle.sourcePackIds?.includes(id)) || new Set(evidenceIds).size !== 4) errors.push(error("sourcePackIds", "冻结证据必须逐一对应四个来源包"));
+  if (bundle.platformFeeEvidence?.commissionEvidenceMode === "official_reference" && !isOfficialCommissionBindingForCandidate(
+    bundle.platformFeeEvidence.officialCommissionBinding, {
+      candidateId: bundle.sourceCandidateId, candidateRevision: bundle.sourceCandidateRevision
+    })) errors.push(error("platformFeeEvidence.officialCommissionBinding", "官方费表绑定与冻结候选不一致"));
   if (bundle.platformFeeEvidence?.commissionEstimateAuthorization && !isCommissionEstimateAuthorizationForScope(
     bundle.platformFeeEvidence.commissionEstimateAuthorization, {
       candidateId: bundle.sourceCandidateId, candidateRevision: bundle.sourceCandidateRevision,

@@ -36,6 +36,21 @@ function deepFreeze(value) {
   return value;
 }
 
+/**
+ * 官方佣金表按“成交价档 + 类型名称”取值，这两项都不属于可复用的证据范围，只能随本轮请求传入。
+ * 价格只取A阶段已冻结的建议成交价（RUB），类型名称只取同一份已冻结销售快照的类目路径末段；
+ * 任何一项还没冻结就留空，reader会记成缺口并回到主人授权估算路径，绝不用市场行情行临时推算。
+ */
+function commissionReferenceScope(candidate) {
+  const opportunity = candidate?.lifecycleV11?.opportunityPackage;
+  const price = opportunity?.marketAssessment?.recommendedSalePrice;
+  const priceRub = isObject(price) && price.currency === "RUB" && Number.isFinite(price.amount) && price.amount > 0 ? price.amount : null;
+  const categoryPath = opportunity?.salesSnapshots?.[0]?.categoryPath;
+  const leaf = nonEmptyString(categoryPath) ? String(categoryPath).split(/\s*(?:>|\/|→)\s*/u).filter(Boolean).at(-1)?.trim() ?? "" : "";
+  const typeName = leaf.length > 0 && leaf.length <= 200 ? leaf : null;
+  return priceRub === null && typeName === null ? null : { priceRub, typeName };
+}
+
 function validatePreparedPack(pack, kind, context, preparedAt, currentCommissionCatalogs) {
   const problems = [];
   if (!isObject(pack)) return ["提供器没有返回结构化证据包"];
@@ -190,6 +205,7 @@ export async function runLifecycleBEvidencePreparation({
       kind: action.kind,
       scope: structuredClone(action.expectedScope),
       relatedSchemaScope: action.kind === "commission" ? buildExpectedEvidenceScope("schema", plan.context.values) : null,
+      commissionReferenceScope: action.kind === "commission" ? commissionReferenceScope(candidate) : null,
       maximumAttempts: 1,
       readOnly: true,
       platformWritesAllowed: false,

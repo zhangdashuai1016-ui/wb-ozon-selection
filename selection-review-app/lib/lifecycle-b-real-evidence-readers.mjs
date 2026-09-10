@@ -1,4 +1,5 @@
 import { readWbCommissionReference } from './wb-commission-reference-reader.mjs';
+import { readOzonCommissionReference } from './ozon-commission-reference-reader.mjs';
 import { normalizeEvidenceScope, normalizeRelatedSchemaScope, evidenceScopeMatches, evidenceScopeKey } from "./lifecycle-evidence-scope.mjs";
 import { readCurrentGuooTariff } from "./guoo-tariff-reader.mjs";
 import { createLifecycleBEvidenceProviderRegistry } from "./lifecycle-b-evidence-providers.mjs";
@@ -54,6 +55,44 @@ function assertExactCommissionUnavailable(result, request, currentTime) {
   }
 }
 
+export const OZON_OFFICIAL_COMMISSION_SOURCE = "ozon_official_commission_table";
+const OFFICIAL_REFERENCE_TTL_MS = 24 * 60 * 60 * 1000;
+
+function normalizeOzonCommissionReferenceOption(value) {
+  if (value === undefined || value === null) return null;
+  if (!isObject(value) || typeof value.catalogPath !== "string" || !value.catalogPath.trim() || value.sellerRegion !== "CN") {
+    throw new Error("B_EVIDENCE_OZON_COMMISSION_REFERENCE_INVALID: 官方佣金表配置必须提供本地目录路径和CN卖家范围");
+  }
+  return value;
+}
+
+/**
+ * 官方费表只按“A阶段已冻结的成交价 + Ozon类型名称”查询：两项来自本轮请求，
+ * 任一缺失都记成缺口回到主人授权估算路径，绝不按类目选择器或市场行情猜测。
+ */
+function officialReferenceQuery(request, scope, reference) {
+  const gaps = [];
+  const inputs = isObject(request.commissionReferenceScope) ? request.commissionReferenceScope : {};
+  const priceRub = inputs.priceRub;
+  if (!Number.isFinite(priceRub) || priceRub <= 0) gaps.push("OFFICIAL_TABLE_PRICE_MISSING");
+  const typeName = typeof inputs.typeName === "string" ? inputs.typeName.trim() : "";
+  const field = !typeName ? null
+    : /\p{Script=Han}/u.test(typeName) ? "typeZh"
+    : /\p{Script=Cyrillic}/u.test(typeName) ? "typeRu" : "typeEn";
+  if (!field) gaps.push("OFFICIAL_TABLE_TYPE_IDENTITY_MISSING");
+  if (!["rfbs", "fbp"].includes(scope.salesScheme)) gaps.push("OFFICIAL_TABLE_SALES_SCHEME_UNSUPPORTED");
+  if (!isObject(reference.versionState)) gaps.push("OFFICIAL_TABLE_VERSION_STATE_MISSING");
+  if (gaps.length) return { gaps, query: null };
+  return {
+    gaps,
+    query: {
+      catalogPath: reference.catalogPath,
+      versionState: structuredClone(reference.versionState),
+      scope: { platform: "ozon", sellerRegion: reference.sellerRegion, salesScheme: scope.salesScheme, priceRub, typeIdentity: { [field]: typeName } },
+    },
+  };
+}
+
 function assertLocalOzonService(value) {
   const url = new URL(value);
   if (url.username || url.password || url.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(url.hostname)) {
@@ -96,6 +135,8 @@ export function createLifecycleBRealEvidenceReaders({
   cbrSourceUrl,
   commissionEstimate,
   wbCommissionReference,
+  ozonCommissionReference,
+  readOzonCommissionReferenceImpl = readOzonCommissionReference,
   now = () => new Date(),
   ...remainingOptions
 } = {}) {
@@ -103,6 +144,7 @@ export function createLifecycleBRealEvidenceReaders({
     throw new Error("B_EVIDENCE_COST_POLICY_MISPLACED: 商品成本必须在当前SKU输入包中冻结，不能传入可复用佣金reader");
   }
   const authorizedEstimate = normalizeCommissionEstimate(commissionEstimate);
+  const officialReference = normalizeOzonCommissionReferenceOption(ozonCommissionReference);
   if (!ozonServiceUrl) throw new Error("B_EVIDENCE_OZON_SERVICE_URL_REQUIRED: Ozon证据连接器地址必须由运行配置提供");
   const schemaCache = new Map();
   const readSchema = async (request) => {
@@ -113,6 +155,71 @@ export function createLifecycleBRealEvidenceReaders({
       schemaCache.set(key, postOzonEvidence({ request: { scope }, kind: "schema", fetchImpl, ozonServiceUrl }));
     }
     return schemaCache.get(key);
+  };
+  /**
+   * 店铺自身没有同类目在售商品时，改读主人保存的官方佣金表版本；
+   * 只要有一个阻断缺口就返回缺口清单，由调用处退回原有主人授权估算路径。
+   */
+  const readOfficialCommission = async (request, scope) => {
+    const { gaps, query } = officialReferenceQuery(request, scope, officialReference);
+    if (!query) return { pack: null, gaps };
+    let read;
+    try {
+      read = await readOzonCommissionReferenceImpl({ ...query, asOf: now().toISOString() });
+    } catch (error) {
+      const code = typeof error?.code === "string" && /^[A-Z0-9_]{1,80}$/.test(error.code) ? error.code : "UNREADABLE";
+      return { pack: null, gaps: [`OFFICIAL_TABLE_${code}`] };
+    }
+    const blocking = (Array.isArray(read?.gaps) ? read.gaps : [])
+      .filter((gap) => gap?.blocking !== false)
+      .map((gap) => (typeof gap?.code === "string" && gap.code.trim() ? gap.code.trim() : "OFFICIAL_TABLE_GAP"));
+    const rate = read?.commissionRate;
+    if (blocking.length || !Number.isFinite(rate) || rate <= 0 || rate >= 1) {
+      return { pack: null, gaps: blocking.length ? blocking : ["OFFICIAL_TABLE_RATE_UNUSABLE"] };
+    }
+    const source = isObject(read.source) ? read.source : {};
+    const row = Array.isArray(read.matchedRows) ? read.matchedRows[0] : null;
+    const text = (value) => typeof value === "string" && value.trim().length > 0;
+    if (!isObject(row) || !["typeRu", "typeZh", "mpCategoryZh"].every((key) => text(row[key])) ||
+        ![source.effectiveFrom, source.fileSha256, source.sourceUrl, read.priceTier].every(text)) {
+      return { pack: null, gaps: ["OFFICIAL_TABLE_SOURCE_INCOMPLETE"] };
+    }
+    const schema = await readSchema(request);
+    normalizeRelatedSchemaScope(request.scope, schema.scope);
+    const checkedAt = now();
+    const expiry = [checkedAt.getTime() + OFFICIAL_REFERENCE_TTL_MS, Date.parse(read.expiresAt ?? "")].filter(Number.isFinite);
+    return {
+      gaps: [],
+      pack: {
+        current: true,
+        scope: structuredClone(request.scope),
+        sourceType: OZON_OFFICIAL_COMMISSION_SOURCE,
+        sourceRef: `ozon-official-commission:${source.effectiveFrom}:sha256:${source.fileSha256}:${read.priceTier}`,
+        checkedAt: checkedAt.toISOString(),
+        expiresAt: new Date(Math.min(...expiry)).toISOString(),
+        commissionCatalogRef: {
+          effectiveFrom: source.effectiveFrom,
+          fileSha256: source.fileSha256,
+          sourceUrl: source.sourceUrl,
+          priceTier: read.priceTier,
+          matchedRow: { typeRu: row.typeRu, typeZh: row.typeZh, mpCategoryZh: row.mpCategoryZh },
+        },
+        evidenceData: {
+          commissionRate: rate,
+          commissionEvidenceMode: "official_reference",
+          officialCommissionBinding: {
+            schemaVersion: "ozon-official-commission-binding-v1",
+            candidateId: request.candidateId,
+            candidateRevision: request.candidateRevision,
+            priceRub: query.scope.priceRub,
+          },
+          estimateAuthorized: false,
+          exactCommissionRequiredAtC: true,
+          descriptionCategoryId: schema.evidenceData.descriptionCategoryId,
+          typeId: schema.evidenceData.typeId,
+        },
+      },
+    };
   };
   return {
     commission: async (request) => {
@@ -136,7 +243,18 @@ export function createLifecycleBRealEvidenceReaders({
       const result = await postOzonEvidence({ request, kind: "commission", fetchImpl, ozonServiceUrl });
       if (result.status === "data_unavailable") {
         assertExactCommissionUnavailable(result, request, now().getTime());
-        assertEstimateScopeAndValidity(authorizedEstimate, request, now().getTime());
+        let officialGaps = null;
+        if (officialReference) {
+          const attempt = await readOfficialCommission(request, scope);
+          if (attempt.pack) return attempt.pack;
+          officialGaps = attempt.gaps;
+        }
+        try {
+          assertEstimateScopeAndValidity(authorizedEstimate, request, now().getTime());
+        } catch (error) {
+          if (!officialGaps?.length) throw error;
+          throw new Error(`${error.message}；官方佣金表未能成交：${officialGaps.join("、")}`);
+        }
         const schema = await readSchema(request);
         const estimateTime = now();
         assertEstimateScopeAndValidity(authorizedEstimate, request, estimateTime.getTime());

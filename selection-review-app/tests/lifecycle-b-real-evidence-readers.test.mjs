@@ -375,3 +375,159 @@ test('current exact source cannot smuggle SKU costs into a reusable commission p
   await assert.rejects(registry.commission(request('commission', scope)), /B_EVIDENCE_COMMISSION_COSTS_UNEXPECTED/);
   assert.equal(calls, 1);
 });
+
+const OFFICIAL_SCOPE = { platform: 'ozon', store: 'dandanshu', storeRef: SYNTHETIC_STORE_REF, category: 'ozon:17030000:90000', salesScheme: 'rfbs' };
+const OFFICIAL_SHA = 'a'.repeat(64);
+
+function officialCommissionScope() {
+  return { ...structuredClone(OFFICIAL_SCOPE), storeRef: structuredClone(SYNTHETIC_STORE_REF) };
+}
+
+function officialReferenceConfiguration() {
+  return { catalogPath: '/owner/ozon-official-commission.json', sellerRegion: 'CN',
+    versionState: { fileSha256: OFFICIAL_SHA, effectiveFrom: '2026-08-01', status: 'active' } };
+}
+
+function officialReferenceRead(overrides = {}) {
+  return {
+    schemaVersion: 'ozon-commission-reference-read-v1', platform: 'ozon', sellerRegion: 'CN', salesScheme: 'rfbs',
+    priceRub: 2490, priceTier: '1500_5000', commissionRate: 0.155,
+    matchedRows: [{ row: 4210, typeRu: 'Лежанки для животных', typeZh: '宠物躺床', typeEn: 'Pet beds',
+      category3Zh: '猫咪用品', mpCategoryZh: '宠物用品', brand: 'All' }],
+    source: { sourceUrl: 'https://docs.ozon.ru/common/pravila-raboty/komissii/', sourcePage: 'Full ChinaHK',
+      effectiveFrom: '2026-08-01', fileSha256: OFFICIAL_SHA, fileLastModified: '2026-07-30T10:00:00.000Z',
+      downloadedAt: '2026-08-02T09:00:00.000Z', catalogSchemaVersion: 'ozon-official-commission-reference-v1' },
+    versionState: { fileSha256: OFFICIAL_SHA, effectiveFrom: '2026-08-01', status: 'active' },
+    checkedAt: fixedNow().toISOString(), gaps: [], ...overrides
+  };
+}
+
+function officialEvidenceService(scope, calls) {
+  return async (_url, options) => {
+    const body = JSON.parse(options.body);
+    calls.push(body.kind);
+    if (body.kind === 'commission') {
+      return httpJson({ ok: true, evidence: { status: 'data_unavailable', current: false, reasonCode: 'exact_commission_unavailable',
+        scope, sourceType: 'ozon_seller_api_current_products', sourceRef: 'ozon-seller-api:/v3/product/info/list:no-listed-product',
+        checkedAt: fixedNow().toISOString(), evidenceData: {} } });
+    }
+    return httpJson({ ok: true, evidence: { current: true,
+      scope: { platform: 'ozon', store: 'dandanshu', storeRef: structuredClone(SYNTHETIC_STORE_REF), category: scope.category, ruleVersion: 'ozon-current' },
+      sourceType: 'ozon_seller_api_current_schema', sourceRef: 'ozon-seller-api:/v1/description-category/attribute:17030000:90000',
+      checkedAt: fixedNow().toISOString(), expiresAt: '2026-08-19T08:00:00.000Z',
+      evidenceData: { schemaRevision: 'ozon-schema-test', requiredFields: [], descriptionCategoryId: 17030000, typeId: 90000 } } });
+  };
+}
+
+function officialCommissionRequest(scope, commissionReferenceScope) {
+  return { ...request('commission', scope), commissionReferenceScope };
+}
+
+test('店铺没有同类目在售商品时，按已保存的官方佣金表版本成交并留下版本引用', async () => {
+  const scope = officialCommissionScope();
+  const calls = [];
+  const observed = [];
+  const registry = createLifecycleBRealEvidenceProviderRegistry({
+    ozonServiceUrl: 'http://127.0.0.1:4173', now: fixedNow,
+    ozonCommissionReference: officialReferenceConfiguration(),
+    readOzonCommissionReferenceImpl: async (input) => { observed.push(structuredClone(input)); return officialReferenceRead(); },
+    fetchImpl: officialEvidenceService(scope, calls)
+  });
+  const pack = await registry.commission(officialCommissionRequest(scope, { priceRub: 2490, typeName: '宠物躺床' }));
+  assert.deepEqual(calls, ['commission', 'schema']);
+  assert.equal(observed.length, 1);
+  assert.equal(observed[0].catalogPath, '/owner/ozon-official-commission.json');
+  assert.equal(observed[0].asOf, '2026-08-18T08:00:00.000Z');
+  assert.deepEqual(observed[0].versionState, { fileSha256: OFFICIAL_SHA, effectiveFrom: '2026-08-01', status: 'active' });
+  assert.deepEqual(observed[0].scope, { platform: 'ozon', sellerRegion: 'CN', salesScheme: 'rfbs', priceRub: 2490, typeIdentity: { typeZh: '宠物躺床' } });
+  assert.equal(pack.sourceType, 'ozon_official_commission_table');
+  assert.equal(pack.sourceRef, `ozon-official-commission:2026-08-01:sha256:${OFFICIAL_SHA}:1500_5000`);
+  assert.equal(pack.checkedAt, '2026-08-18T08:00:00.000Z');
+  assert.equal(pack.expiresAt, '2026-08-19T08:00:00.000Z');
+  assert.deepEqual(pack.commissionCatalogRef, { effectiveFrom: '2026-08-01', fileSha256: OFFICIAL_SHA,
+    sourceUrl: 'https://docs.ozon.ru/common/pravila-raboty/komissii/', priceTier: '1500_5000',
+    matchedRow: { typeRu: 'Лежанки для животных', typeZh: '宠物躺床', mpCategoryZh: '宠物用品' } });
+  assert.deepEqual(pack.evidenceData, { commissionRate: 0.155, commissionEvidenceMode: 'official_reference',
+    officialCommissionBinding: { schemaVersion: 'ozon-official-commission-binding-v1', candidateId: 'TEST-001', candidateRevision: 1, priceRub: 2490 },
+    estimateAuthorized: false, exactCommissionRequiredAtC: true, descriptionCategoryId: 17030000, typeId: 90000 });
+});
+
+test('官方费表按俄语类型名称和成交价档查询，缺少价格或类型名称时只记缺口不猜测', async () => {
+  const scope = officialCommissionScope();
+  const cases = [
+    { inputs: { priceRub: 990, typeName: 'Лежанки для животных' }, expected: { priceRub: 990, typeIdentity: { typeRu: 'Лежанки для животных' } } },
+    { inputs: { priceRub: 6100, typeName: 'Pet beds' }, expected: { priceRub: 6100, typeIdentity: { typeEn: 'Pet beds' } } }
+  ];
+  for (const item of cases) {
+    const observed = [];
+    const registry = createLifecycleBRealEvidenceProviderRegistry({
+      ozonServiceUrl: 'http://127.0.0.1:4173', now: fixedNow,
+      ozonCommissionReference: officialReferenceConfiguration(),
+      readOzonCommissionReferenceImpl: async (input) => { observed.push(structuredClone(input)); return officialReferenceRead(); },
+      fetchImpl: officialEvidenceService(scope, [])
+    });
+    await registry.commission(officialCommissionRequest(scope, item.inputs));
+    assert.equal(observed[0].scope.priceRub, item.expected.priceRub);
+    assert.deepEqual(observed[0].scope.typeIdentity, item.expected.typeIdentity);
+  }
+  for (const inputs of [null, { priceRub: 2490, typeName: '  ' }, { priceRub: 0, typeName: '宠物躺床' }, { typeName: '宠物躺床' }]) {
+    let called = 0;
+    const registry = createLifecycleBRealEvidenceProviderRegistry({
+      ozonServiceUrl: 'http://127.0.0.1:4173', now: fixedNow,
+      ozonCommissionReference: officialReferenceConfiguration(),
+      readOzonCommissionReferenceImpl: async () => { called += 1; return officialReferenceRead(); },
+      fetchImpl: officialEvidenceService(scope, [])
+    });
+    await assert.rejects(registry.commission(officialCommissionRequest(scope, inputs)),
+      /OFFICIAL_TABLE_PRICE_MISSING|OFFICIAL_TABLE_TYPE_IDENTITY_MISSING/);
+    assert.equal(called, 0, '缺少每SKU输入时不读本地费表');
+  }
+});
+
+test('官方费表有阻断缺口或读取失败时，原样回到主人授权估算路径并说明缺口', async () => {
+  const scope = officialCommissionScope();
+  const estimate = { authorized: true, confirmedBy: 'owner', commissionRate: 0.2, authorizationRef: 'estimate:synthetic',
+    candidateId: 'TEST-001', candidateRevision: 1, scope: officialCommissionScope() };
+  const readers = [
+    async () => officialReferenceRead({ commissionRate: null, matchedRows: [], gaps: [{ code: 'TYPE_NOT_FOUND', field: 'scope.typeIdentity', blocking: true }] }),
+    async () => officialReferenceRead({ commissionRate: null, gaps: [{ code: 'CATALOG_VERSION_MISMATCH', field: 'versionState', blocking: true }] }),
+    async () => { throw Object.assign(new Error('OZON_COMMISSION_REFERENCE_CATALOG_UNREADABLE'), { code: 'CATALOG_UNREADABLE' }); }
+  ];
+  const withoutReference = await createLifecycleBRealEvidenceProviderRegistry({ ozonServiceUrl: 'http://127.0.0.1:4173', now: fixedNow,
+    commissionEstimate: estimate, fetchImpl: officialEvidenceService(scope, []) })
+    .commission(officialCommissionRequest(scope, { priceRub: 2490, typeName: '宠物躺床' }));
+  for (const readOzonCommissionReferenceImpl of readers) {
+    const fallback = await createLifecycleBRealEvidenceProviderRegistry({ ozonServiceUrl: 'http://127.0.0.1:4173', now: fixedNow,
+      ozonCommissionReference: officialReferenceConfiguration(), readOzonCommissionReferenceImpl, commissionEstimate: estimate,
+      fetchImpl: officialEvidenceService(scope, []) })
+      .commission(officialCommissionRequest(scope, { priceRub: 2490, typeName: '宠物躺床' }));
+    assert.deepEqual(fallback, withoutReference, '有缺口时估算证据必须与未配置费表时完全一致');
+    assert.equal(fallback.evidenceData.commissionEvidenceMode, 'estimated');
+  }
+  for (const [readOzonCommissionReferenceImpl, expected] of [[readers[0], /TYPE_NOT_FOUND/], [readers[2], /OFFICIAL_TABLE_CATALOG_UNREADABLE/]]) {
+    await assert.rejects(createLifecycleBRealEvidenceProviderRegistry({ ozonServiceUrl: 'http://127.0.0.1:4173', now: fixedNow,
+      ozonCommissionReference: officialReferenceConfiguration(), readOzonCommissionReferenceImpl,
+      fetchImpl: officialEvidenceService(scope, []) })
+      .commission(officialCommissionRequest(scope, { priceRub: 2490, typeName: '宠物躺床' })), expected);
+  }
+});
+
+test('未配置官方费表时佣金路径完全不变，也不读本地费表', async () => {
+  const scope = officialCommissionScope();
+  let called = 0;
+  const calls = [];
+  const estimate = { authorized: true, confirmedBy: 'owner', commissionRate: 0.2, authorizationRef: 'estimate:synthetic',
+    candidateId: 'TEST-001', candidateRevision: 1, scope: officialCommissionScope() };
+  const pack = await createLifecycleBRealEvidenceProviderRegistry({ ozonServiceUrl: 'http://127.0.0.1:4173', now: fixedNow,
+    commissionEstimate: estimate, readOzonCommissionReferenceImpl: async () => { called += 1; return officialReferenceRead(); },
+    fetchImpl: officialEvidenceService(scope, calls) })
+    .commission(officialCommissionRequest(scope, { priceRub: 2490, typeName: '宠物躺床' }));
+  assert.equal(called, 0);
+  assert.deepEqual(calls, ['commission', 'schema']);
+  assert.equal(pack.sourceType, 'owner_authorized_commission_estimate');
+  assert.equal(pack.evidenceData.commissionEvidenceMode, 'estimated');
+  assert.equal(Object.hasOwn(pack, 'commissionCatalogRef'), false);
+  assert.throws(() => createLifecycleBRealEvidenceProviderRegistry({ ozonServiceUrl: 'http://127.0.0.1:4173',
+    ozonCommissionReference: { catalogPath: '/owner/ozon.json', sellerRegion: 'RU' } }),
+    /B_EVIDENCE_OZON_COMMISSION_REFERENCE_INVALID/);
+});

@@ -299,3 +299,47 @@ test('WB prepared references survive success but invalidation before final readi
     else{assert.equal(result.evidencePacksToCommit[0].expiresAt,null);assert.deepEqual(result.evidencePacksToCommit[0].commissionCatalogRef,f.commission.commissionCatalogRef);}
   }
 });
+
+function frozenAOpportunity(price, categoryPath) {
+  return {
+    lifecycleV11: {
+      opportunityPackage: {
+        marketAssessment: price === null ? null : { recommendedSalePrice: { amount: price, currency: "RUB", method: "median_of_comparable_primary_samples" } },
+        salesSnapshots: categoryPath === null ? [] : [{ snapshotId: "SNAP-1", categoryPath }]
+      }
+    }
+  };
+}
+
+test("官方费表所需的成交价与类型名称只取A已冻结结果，未冻结时留空不猜测", async () => {
+  const cases = [
+    { frozen: frozenAOpportunity(2490, "Товары для животных > Лежанки для животных"),
+      expected: { priceRub: 2490, typeName: "Лежанки для животных" } },
+    { frozen: frozenAOpportunity(2490, "宠物用品/猫咪用品/宠物躺床"), expected: { priceRub: 2490, typeName: "宠物躺床" } },
+    { frozen: frozenAOpportunity(null, "Товары для животных > Лежанки"), expected: { priceRub: null, typeName: "Лежанки" } },
+    { frozen: frozenAOpportunity(2490, null), expected: { priceRub: 2490, typeName: null } },
+    { frozen: {}, expected: null },
+    { frozen: frozenAOpportunity(0, ""), expected: null },
+    { frozen: { lifecycleV11: { opportunityPackage: { marketAssessment: { recommendedSalePrice: { amount: 2490, currency: "CNY" } }, salesSnapshots: [] } } },
+      expected: null }
+  ];
+  for (const item of cases) {
+    const observed = [];
+    const providers = Object.fromEntries(allPacks().map((entry) => [
+      entry.kind,
+      async (request) => { observed.push({ kind: entry.kind, commissionReferenceScope: request.commissionReferenceScope }); return pack(entry.kind); }
+    ]));
+    const result = await runLifecycleBEvidencePreparation({
+      candidate: { ...candidate(), ...item.frozen },
+      evidencePacks: [],
+      providers,
+      plannedAt,
+      preparedAt
+    });
+    assert.equal(result.status, "completed");
+    assert.deepEqual(observed.find((entry) => entry.kind === "commission").commissionReferenceScope, item.expected);
+    for (const entry of observed.filter((value) => value.kind !== "commission")) {
+      assert.equal(entry.commissionReferenceScope, null, "只有佣金请求携带官方费表查询输入");
+    }
+  }
+});

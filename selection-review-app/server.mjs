@@ -7,6 +7,10 @@ import { createLinkfoxDiscoverySecretReader, createSeerfarDiscoverySecretReader 
 import { createADiscoveryCandidateImportUseCase } from './lib/a-discovery-candidate-import.mjs';
 import { createDiscoveryTitleTranslator, DiscoveryTitleTranslationError } from './lib/discovery-title-translation.mjs';
 import { createADiscoveryTitleTranslationUseCase } from './lib/discovery-title-translation-store.mjs';
+import { createADiscoveryEstimateUseCase } from './lib/a-discovery-estimate-store.mjs';
+import { readOzonCommissionReference } from './lib/ozon-commission-reference-reader.mjs';
+import { readGuooTariffCatalog } from './lib/guoo-tariff-reader.mjs';
+import { readCurrentCbrExchangeRate } from './lib/official-fx-reader.mjs';
 import { createAProductDetailRuntimeServices } from './lib/a-product-detail-runtime-services.mjs';
 import { createAProductDetailApplicationUseCase } from './lib/a-product-detail-application.mjs';
 import { AProductDetailError } from './lib/a-product-detail-contract.mjs';
@@ -299,6 +303,30 @@ const aDiscoveryTitleTranslationUseCase = (() => {
         gatewayDeploymentMode:runtimeConfiguration.deploymentMode})});
   } catch { return null; }
 })();
+/**
+ * A-stage purchase-ceiling estimate for discovered products. Commission, FX and freight all come from the same official
+ * readers the B stage uses; an input that is not configured becomes a recorded gap instead of a guessed number.
+ * Packaging is the one declared assumption: 3 RMB per parcel until the real packaging cost is measured in B
+ * (override with SELECTION_REVIEW_A_ESTIMATE_PACKAGING_RMB). It is stamped into every saved estimate record.
+ */
+const A_ESTIMATE_PACKAGING_RMB = (() => {
+  const raw = String(process.env.SELECTION_REVIEW_A_ESTIMATE_PACKAGING_RMB ?? "").trim();
+  return raw !== "" && Number.isFinite(Number(raw)) && Number(raw) >= 0 ? Number(raw) : 3;
+})();
+const aDiscoveryEstimateUseCase = createADiscoveryEstimateUseCase({
+  repository:businessStateRepository,serverClock:now,rules:DEFAULT_RULES,
+  readers:{
+    commission:input=>readOzonCommissionReference(input),
+    fx:input=>readCurrentCbrExchangeRate({...input,fetchImpl:fetch,
+      ...(process.env.SELECTION_REVIEW_CBR_FX_URL?{sourceUrl:process.env.SELECTION_REVIEW_CBR_FX_URL}:{})}),
+    tariff:input=>readGuooTariffCatalog(input)
+  },
+  configuration:{
+    ozonCommissionReference:runtimeConfiguration.ozonCommissionReference,
+    guooTariffFile:runtimeConfiguration.guooTariffFile,
+    packagingRmbDefault:A_ESTIMATE_PACKAGING_RMB
+  }
+});
 const aProductDetailApplication = createAProductDetailApplicationUseCase({repository:businessStateRepository,serverClock:now});
 const aProductDetailRuntime = createAProductDetailRuntimeServices({repository:businessStateRepository,softwareJobStore,
   runtimeMode:runtimeConfiguration.deploymentMode,serverClock:now,workerRegistry,
@@ -2988,6 +3016,24 @@ async function handleApi(req, res, pathname) {
     }
   }
 
+  // Reference only: an A-stage purchase ceiling from official inputs. It never replaces the formal B profit conclusion.
+  if (req.method === 'POST' && pathname === '/api/product-discovery/estimate') {
+    const actor = runtimeIdentityProvider.resolveActor({request:req});
+    if (actor.source !== 'authenticated_identity_provider' || actor.actorType !== 'human' || !actor.roles.includes('owner')) {
+      throw httpError(403, '请先登录主人身份后查看商品发现计划。');
+    }
+    try {
+      const input = await readJsonRequestBody(req, {maxBytes:8192,requireJsonContentType:true});
+      const operationResult = await aDiscoveryEstimateUseCase.estimateBatch({actor,input});
+      const document = await readData();
+      return json(res,200,{...aDiscoveryRuntime.view({document,actor}),operationResult});
+    } catch (error) {
+      if (!(error instanceof ADiscoveryError)) throw error;
+      const status = error.code === 'SERVICE_NOT_CONFIGURED' ? 503 : error.code === 'INPUT_INVALID' ? 400 : 409;
+      return json(res,status,{code:error.code,message:'利润区间未估算，请核对当前批次版本及已保存的查询结果。'});
+    }
+  }
+
   const imageSearchRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/supplier-image-search(?:\/(authorize))?$/);
   if (imageSearchRoute && (req.method === 'GET' && !imageSearchRoute[2] || req.method === 'POST' && imageSearchRoute[2])) {
     const actor = runtimeIdentityProvider.resolveActor({ request: req });
@@ -3104,6 +3150,7 @@ async function handleApi(req, res, pathname) {
       ozonServiceUrl: runtimeConfiguration.ozonEvidenceServiceUrl,
       guooFilePath: runtimeConfiguration.guooTariffFile,
       cbrSourceUrl: process.env.SELECTION_REVIEW_CBR_FX_URL,
+      ozonCommissionReference: runtimeConfiguration.ozonCommissionReference,
     });
     const run = await runLifecycleBEvidencePreparation({
       candidate,
@@ -3958,6 +4005,7 @@ async function handleApi(req, res, pathname) {
         ozonServiceUrl: runtimeConfiguration.ozonEvidenceServiceUrl,
         guooFilePath: runtimeConfiguration.guooTariffFile,
         cbrSourceUrl: process.env.SELECTION_REVIEW_CBR_FX_URL,
+        ozonCommissionReference: runtimeConfiguration.ozonCommissionReference,
         commissionEstimate
       });
     }

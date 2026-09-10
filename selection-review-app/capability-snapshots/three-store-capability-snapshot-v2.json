@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-10T14:26:22.243Z",
+  "frozenAt": "2026-09-10T15:26:13.486Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 629,
-      "sha256": "13bcd087017a68f92e05b7b4a8072974e50f26b7565db1f9ddad844e72c44a3c",
+      "artifactCount": 631,
+      "sha256": "ad9a81dbc1916bae4ad36a0a69f77e0c58a1e03fe7efcd70240d0099e98dd352",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -79,12 +79,16 @@
         "sha256": "df96645819440c328f5303b7c14e5e26566a6b45b05a9746d8b8901e86f3f4cc"
       },
       {
+        "path": "lib/a-discovery-estimate-store.mjs",
+        "sha256": "d5fa73b5aca6cd66df60f692444e6ac68019d960879cefbd875fa1ae7e9d0448"
+      },
+      {
         "path": "lib/a-discovery-estimate.mjs",
         "sha256": "1df765524971719349f374aa647488813d390fd9b12b332e5dd5c954830fc8a0"
       },
       {
         "path": "lib/a-discovery-runtime-services.mjs",
-        "sha256": "b701cef6cd7a0dd27a941bf7a755063dbf4178b34155c3c8e0d7dc71ab7d6739"
+        "sha256": "8927e9cce9f8674e2667faf8616a9a94d4e5940b6e9053530d98d21a6d2c816d"
       },
       {
         "path": "lib/a-discovery-software-runner.mjs",
@@ -324,7 +328,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "8963ac262b8b5f7fe673f024fb6b0a47f68e0f6ab9db7f8bbf0967724ca0805d"
+        "sha256": "3c63183a8b51123d0dc06efa60b0bbc868095c4f863dee875a0894ea274d3ba8"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -404,7 +408,7 @@
       },
       {
         "path": "lib/discovery-title-translation-store.mjs",
-        "sha256": "7e22d4085cde3996892ab0c31fcea88c902d30ba5b133608e45b3200db771ef5"
+        "sha256": "57936929ed7f700ef6d1f8178be5b7d6f622e260bd7b1692de13a905d23f5d5f"
       },
       {
         "path": "lib/discovery-title-translation.mjs",
@@ -500,11 +504,11 @@
       },
       {
         "path": "lib/lifecycle-b-evidence-preparation.mjs",
-        "sha256": "a062f04724b39165e4a80ed860a269a341cdf501d6baa5917445067b439a4b76"
+        "sha256": "587ca7ac24a2afee4eee38419afb594239cbd3e676fe4a90f601a9946644a862"
       },
       {
         "path": "lib/lifecycle-b-evidence-providers.mjs",
-        "sha256": "584141040ab6603ce72eb160133023d1c26b708ec70bb5df6778125f480016e9"
+        "sha256": "cd0486768b6303fb25fb5ad7d725c554fc1484e65c2efe85868eb7eb2da6ecf6"
       },
       {
         "path": "lib/lifecycle-b-evidence-runtime.mjs",
@@ -512,11 +516,11 @@
       },
       {
         "path": "lib/lifecycle-b-input-bundle.mjs",
-        "sha256": "acd3b77e6dc8ee6e59ea2a772c9d2f84817415385ddde58acea0d431a4bc3fed"
+        "sha256": "bb1f9023bc33297d895822d70eca83e91d0f23d7b4cf8cb02f30ca8d1f2cf205"
       },
       {
         "path": "lib/lifecycle-b-real-evidence-readers.mjs",
-        "sha256": "8d620a369a7f9e52c0f53fc3e4710a6d3464eb32ec4c01bf5adb83b261efb0aa"
+        "sha256": "b7e52aa782808baf9f4a806cfe5f0b860e1581fa99884c18cd8bee74534f4bb6"
       },
       {
         "path": "lib/lifecycle-c-stage.mjs",
@@ -736,7 +740,7 @@
       },
       {
         "path": "lib/profit-model.mjs",
-        "sha256": "638093c757c0606795f5d39c366de98b9963b68798560b421973e970d75196d8"
+        "sha256": "7df67fa53212a5ea47b7ba07f470d39449e16c7735e30374707fd4dd1ca99b42"
       },
       {
         "path": "lib/profit-threshold-policy.mjs",
@@ -764,7 +768,7 @@
       },
       {
         "path": "lib/runtime-configuration.mjs",
-        "sha256": "ac98ebc4f3e78a644329f3df44ede9cd9fc15fd6e6b9c0956e88ccd59fbb6371"
+        "sha256": "24a214191c369f168dadc23e550c89405a8f771cb7f3e5cb816059ec30ecafa1"
       },
       {
         "path": "lib/runtime-identity-provider.mjs",
@@ -1164,11 +1168,11 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "e333b2477465526d61d3d68ed9c07af5c2e1240e8c692238f963b01121b2f635"
+        "sha256": "263beafbf9f1365e1749b3cc23731af849dbcdce3615f2028b16490be339864f"
       },
       {
         "path": "src/App.jsx",
-        "sha256": "91883d909bfbcbf3edf1bd3bc8917845b46f6338c02c55d68a130cc5c0e7d9e5"
+        "sha256": "c9a3bf8a8fa421614b8603d3bb5a37f7342d50b7af3e2559d2192ee033b6b7a0"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1180,7 +1184,7 @@
       },
       {
         "path": "src/api.js",
-        "sha256": "97c5aafce4cb9e192bd83bfdc26916e275034259cbc789ef2578b29a741f252f"
+        "sha256": "d3bb836bd22f880388465073862de8df12f5a573853ae8b037e7482f9502b18e"
       },
       {
         "path": "src/bExactCommissionInput.js",
@@ -1296,7 +1300,7 @@
       },
       {
         "path": "src/components/ProductDiscoveryCard.jsx",
-        "sha256": "7cbfaee5efd845b93462099d0bf0f0d4e6773f03c71ccac6a23a8e74346e402b"
+        "sha256": "2eb0bd680b2086f3fbeebf1aff435c8e93846a99bec508e9dc1ec1b9c1135ac4"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1388,7 +1392,7 @@
       },
       {
         "path": "src/styles.css",
-        "sha256": "d6fa4dd6b58053526c3f64f00b96a78f0f1cee76a0279017dbe958ea7b273b4c"
+        "sha256": "6803e74d915468928a88aab17a126ec4466eb0a72728940fdeab1b4706954e1b"
       },
       {
         "path": "src/wbPresentation.js",
@@ -1396,7 +1400,7 @@
       },
       {
         "path": "tests/a-discovery-api-boundary.test.mjs",
-        "sha256": "e8159df83bbd34ff99421bfdf973056135f9154c25a57fda4e5307c57ee86ffa"
+        "sha256": "a1a5ed610db639eb47d5d67b8f1c71c78c2ef7a5967bedb089b1cf5c23bd84a5"
       },
       {
         "path": "tests/a-discovery-candidate-import.test.mjs",
@@ -1405,6 +1409,10 @@
       {
         "path": "tests/a-discovery-contract.test.mjs",
         "sha256": "c18f2a075512a6d171b2485307379e5c348484046184efbca39948b60d3210c6"
+      },
+      {
+        "path": "tests/a-discovery-estimate-store.test.mjs",
+        "sha256": "89f799321560d1f6207f5dd92a3e6c9126510a964787d68c3f408cfc75e706d2"
       },
       {
         "path": "tests/a-discovery-estimate.test.mjs",
@@ -1428,7 +1436,7 @@
       },
       {
         "path": "tests/a-discovery-ui.test.mjs",
-        "sha256": "e78309a87e7f7ae742fb64ad630b6a629f4a632c57c9be9c7de7ffab58baee80"
+        "sha256": "a6ddb58f8024918c181a0c427a59199fd4db4391f1e15e7f579555d40aa6ab9a"
       },
       {
         "path": "tests/a-product-detail-api-boundary.test.mjs",
@@ -2144,11 +2152,11 @@
       },
       {
         "path": "tests/lifecycle-b-evidence-preparation.test.mjs",
-        "sha256": "a808d388a502e79746625287f92ae65d88bcf894a6dabdc4a8798193b7c39a8f"
+        "sha256": "66d8d18cb02ec054826f04b33f7a72ed4f9ffc0cc52a69264716a190d7024eca"
       },
       {
         "path": "tests/lifecycle-b-evidence-providers.test.mjs",
-        "sha256": "e41646614e6df3ef54efe76c6eb6143ab22449405ee56334ec80ee9f62fb3ff4"
+        "sha256": "ade3166d4e635129cff871236fac54584ab5fd513e51fc232636081a0375cd2a"
       },
       {
         "path": "tests/lifecycle-b-evidence-runtime.test.mjs",
@@ -2156,11 +2164,11 @@
       },
       {
         "path": "tests/lifecycle-b-input-bundle.test.mjs",
-        "sha256": "376b6b51db88210a29d5ded2c4db0273af9c50f148a02a2ef97452f920a07b49"
+        "sha256": "b0a3d1d19c005e0df233e8071823eac145890aef09d55a9ba58ab28c00ffaa22"
       },
       {
         "path": "tests/lifecycle-b-real-evidence-readers.test.mjs",
-        "sha256": "d5bd043e41e1a060ae552480e70bd4201493b782d5606d7d39e492478ca0fe2f"
+        "sha256": "cea8c3b458bc2600ff403633fdcd5ca5c8aa8dd4dd09c495f2d85f21c4f09970"
       },
       {
         "path": "tests/lifecycle-c-stage-generic-api.test.mjs",
@@ -2416,7 +2424,7 @@
       },
       {
         "path": "tests/runtime-configuration.test.mjs",
-        "sha256": "569c8882d4f7adedbefb154b3bf5292c60d0edbb4ab38b92b1747812cc16154e"
+        "sha256": "268ed13ec7bcfdfb936372b005e5587be622fb7c750013e9d8d5e2cd8895c750"
       },
       {
         "path": "tests/runtime-identity-provider.test.mjs",
@@ -4599,6 +4607,7 @@
         "lib/seerfar-discovery-contract.mjs",
         "lib/seerfar-web-discovery-contract.mjs",
         "lib/a-discovery-estimate.mjs",
+        "lib/a-discovery-estimate-store.mjs",
         "lib/discovery-title-translation.mjs",
         "lib/discovery-title-translation-store.mjs",
         "lib/seerfar-discovery-software-runner.mjs",
@@ -4622,6 +4631,7 @@
         "tests/seerfar-discovery-contract.test.mjs",
         "tests/seerfar-web-discovery-contract.test.mjs",
         "tests/a-discovery-estimate.test.mjs",
+        "tests/a-discovery-estimate-store.test.mjs",
         "tests/discovery-title-translation.test.mjs",
         "tests/seerfar-discovery-integration.test.mjs",
         "tests/a-discovery-runtime-configuration.test.mjs",
