@@ -17,9 +17,17 @@
 | 隔离端口干跑（源码 `server.mjs --api-only`，临时数据，本地密码身份）：视图 `running`/`canPrepare=true`/无阻塞；创建批次 200 且幂等；`canAuthorize=true` | 0 作业、0 许可、0 外部请求、stderr 空 |
 | 运行包 `~/.local/share/wb-ozon-engineering/runtime-packages/20260910-seerfar-first-sku-r6`（本分支源码 + 新 dist）`prepareRuntimePackage` 生成；隔离端口启动 `/api/health` ok、首页 200 | 通过；未安装、未激活 |
 
+### 部署记录（2026-09-10 13:02，主人回复"批准部署"后执行）
+
+- 冷备：`~/.local/share/wb-ozon-engineering/cold-backups/20260910-130035/`（data 目录 4.4 MB + 原 plist；candidates.json 校验和一致）。
+- 冒烟：新运行包先用真实数据副本在隔离端口 47313 启动（plist 同款环境 + 六个新变量）：health ok、未登录 401、临时身份登录后视图 `running`/`canPrepare=true`/计划可见、52 个候选读取正常、stderr 空。
+- 安装：`~/Library/Application Support/今日选品评审台-versions/20260910-seerfar-first-sku-r6/`；plist `com.shuaizhang.selection-review-app` 的程序路径/工作目录改指新版本，并写入五个 A 发现变量与店铺绑定变量（其余不动）；`launchctl bootout` + `bootstrap` 重启。
+- 结果：4317 `state=running`（新版本进程，环境变量已带六个配置），`/api/health` ok，首页 200，`/api/product-discovery` 未登录 401；旧 v6 进程无残留；stderr 日志自昨日 22:17 后无新增。回退方法见本地配置 README。
+- 仍未做：未授权任何查询、未扣点、未读取密钥值。主人下一步在界面创建批次并批准（首次读钥匙串可能弹"允许访问"）。
+
 ### 下一步（需主人）
 
-1. 批准部署：冷备数据与 plist → 安装运行包到版本目录 → plist 指向新版本并写入六个环境变量 → 重启 4317 → 核对健康与登录。
+1. ~~批准部署~~（已完成）：冷备数据与 plist → 安装运行包到版本目录 → plist 指向新版本并写入六个环境变量 → 重启 4317 → 核对健康与登录。
 2. 主人在商品发现卡：创建批次 → 填许可截止时间、勾选同意 → 批准并开始（首次读钥匙串可能弹"允许访问"）。
 3. 作业完成即导入 1 个 Miska 待核验候选；之后进入 B（成本/利润，店铺成本政策已就绪）。
 
