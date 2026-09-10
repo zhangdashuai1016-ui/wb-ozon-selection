@@ -52,8 +52,11 @@ export function attachDiscoveryTitleTranslations(receipt, translations) {
   return receipt;
 }
 
-/** Market products of a completed batch, in provider order; supplier searches carry no Russian marketplace title. */
-export function readADiscoveryBatchMarketProducts({ document, batch }) {
+/**
+ * Market products of a completed batch, in provider order; supplier searches carry no Russian marketplace title.
+ * `full` adds the price, category and package facts an estimate needs; a provider that never returned one keeps null.
+ */
+export function readADiscoveryBatchMarketProducts({ document, batch, full = false }) {
   const jobs = Array.isArray(document?.runtime?.softwareJobs) ? document.runtime.softwareJobs : [];
   const receipts = isObject(document?.runtime?.aDiscoveryReceipts) ? document.runtime.aDiscoveryReceipts : {};
   const products = [], seen = new Set();
@@ -68,7 +71,10 @@ export function readADiscoveryBatchMarketProducts({ document, batch }) {
       if (typeof product?.productId !== 'string' || !/^[1-9][0-9]*$/.test(product.productId) || seen.has(product.productId)) continue;
       if (!plainText(product.title, 500)) continue;
       seen.add(product.productId);
-      products.push({ productId: product.productId, title: product.title });
+      products.push(full
+        ? { productId: product.productId, title: product.title, price: product.price, categoryPath: product.categoryPath ?? null,
+          weightGrams: product.weightGrams ?? null, volumeLitres: product.volumeLitres ?? null, dimensionMm: product.dimensionMm ?? null }
+        : { productId: product.productId, title: product.title });
     }
   }
   return products;

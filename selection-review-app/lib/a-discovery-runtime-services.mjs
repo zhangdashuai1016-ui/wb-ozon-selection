@@ -11,6 +11,7 @@ import { createADiscoveryJobForScope, ADiscoveryExecutionBlockedError } from './
 import { runADiscoverySoftwareJob } from './a-discovery-software-runner.mjs';
 import { assertADiscoveryCandidateImportRecord, assertADiscoveryCandidateSelectionRecord } from './a-discovery-candidate-import.mjs';
 import { readDiscoveryTitleTranslations, attachDiscoveryTitleTranslations } from './discovery-title-translation-store.mjs';
+import { readADiscoveryEstimates, attachADiscoveryEstimates, readADiscoveryEstimateOutcome } from './a-discovery-estimate-store.mjs';
 
 const clone=value=>structuredClone(value);
 const closed=(value,fields)=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===fields.length&&fields.every(key=>Object.hasOwn(value,key));
@@ -159,6 +160,8 @@ export function createADiscoveryRuntimeServices({repository,softwareJobStore,run
       const candidates=Array.isArray(document.candidates)?document.candidates:[];
       // Display-only Chinese titles ride along on the view's receipt clones; the saved receipts keep the provider's own title.
       const titleTranslations=readDiscoveryTitleTranslations(document);
+      // Saved estimates ride along the same way: display-only numbers on the view's receipt clone, never on the saved receipt.
+      const estimates=readADiscoveryEstimates(document);
       const configurationBlockers=[];
       if(savedPlans.length===0)configurationBlockers.push('PLAN_NOT_CONFIGURED');
       if(connectors.length===0)configurationBlockers.push('CONNECTOR_NOT_CONFIGURED');
@@ -179,7 +182,8 @@ export function createADiscoveryRuntimeServices({repository,softwareJobStore,run
             .map(candidate=>({candidateId:candidate.id,marketProductId:(candidate.aDiscoveryEvidenceV2??candidate.aDiscoveryEvidenceV1).marketProductId}));
           return {batch:clone(batch),candidateImport:Object.hasOwn(imports,key)?assertADiscoveryCandidateImportRecord(imports[key],{batchId:batch.batchId,revision:batch.revision}):null,
             selections:batchSelections,importedCandidates,
-            jobs:current.map(job=>({job:clone(job),receipt:Object.hasOwn(receipts,job.jobId)?attachDiscoveryTitleTranslations(assertADiscoveryReceipt(receipts[job.jobId],job),titleTranslations):null,
+            jobs:current.map(job=>({job:clone(job),receipt:Object.hasOwn(receipts,job.jobId)?attachADiscoveryEstimates(
+              attachDiscoveryTitleTranslations(assertADiscoveryReceipt(receipts[job.jobId],job),titleTranslations),estimates,{batchId:batch.batchId,revision:batch.revision}):null,
               canContinue:job.status==='queued'&&job.attempt===0&&job.externalRequestState==='not_sent'&&job.revision===batch.revision&&routeAvailable&&batchConfigurationBlocker(batch)===null&&Date.parse(serverClock())<Date.parse(job.scopeBinding.expiresAt)})),
             canAuthorize:current.length===0&&batchConfigurationBlocker(batch)===null,
             configurationBlocker:current.length===0||current.some(job=>job.status==='queued'&&job.attempt===0&&job.externalRequestState==='not_sent')?batchConfigurationBlocker(batch):null};
@@ -241,6 +245,8 @@ export function createADiscoveryRuntimeServices({repository,softwareJobStore,run
       requireValue(onSelectProduct!==null,'SERVICE_NOT_CONFIGURED');
       const document=await repository.readSnapshot(),batch=batchFor(document,input.batchId,actor);
       requireValue(batch.revision===input.expectedRevision,'BATCH_CHANGED');
+      // Owner rule 2026-09-10: an estimated negative purchase ceiling leaves the product out of the selectable pool.
+      requireValue(readADiscoveryEstimateOutcome(document,{batchId:batch.batchId,revision:batch.revision,productId:input.marketProductId})!=='excluded_negative','ESTIMATE_EXCLUDED');
       return onSelectProduct({batchId:batch.batchId,revision:batch.revision,marketProductId:input.marketProductId,selectedByUserId:actor.userId});
     },
     continueSavedCurrent({actor,input}){

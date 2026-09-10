@@ -1010,5 +1010,9 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 .discovery-product-title { font-size: 13px; font-weight: 650; }
 .discovery-product-title a { overflow-wrap: anywhere; }
 .discovery-product-facts, .discovery-product-category, .discovery-product-translation, .discovery-product-source { color: var(--muted); font-size: 11px; }
+.discovery-product-estimate { font-size: 11px; }
+.discovery-chip { display: inline-block; margin-left: 6px; border-radius: 6px; padding: 2px 6px; font-size: 10px; font-weight: 700; }
+.discovery-chip-bad { background: var(--red-soft); color: #7b3e39; }
+.discovery-chip-warn { background: var(--amber-soft); color: #5e4b26; }
 .discovery-product-action { margin-top: 6px; }
 .discovery-product-action br { display: none; }

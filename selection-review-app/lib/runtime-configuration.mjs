@@ -268,13 +268,25 @@ function aDiscoveryConfiguration(env) {
 export function normalizeOzonCommissionReferenceConfiguration(config) {
   const invalid = () => new Error("OZON_COMMISSION_REFERENCE_CONFIGURATION_INVALID: Ozon官方佣金参考表配置必须提供绝对路径和CN卖家范围");
   if (config === null || config === undefined) return null;
-  if (!exactConfigurationKeys(config, ["catalogPath", "sellerRegion"]) ||
+  const withVersion = exactConfigurationKeys(config, ["catalogPath", "sellerRegion", "versionState"]);
+  if (!(withVersion || exactConfigurationKeys(config, ["catalogPath", "sellerRegion"])) ||
       typeof config.catalogPath !== "string" || config.catalogPath !== config.catalogPath.trim() ||
       config.catalogPath === "" || config.catalogPath.includes("\0") || !path.isAbsolute(config.catalogPath) ||
       config.sellerRegion !== "CN") {
     throw invalid();
   }
-  return Object.freeze({ catalogPath: path.resolve(config.catalogPath), sellerRegion: config.sellerRegion });
+  // The saved official version the reader must bind to (owner policy 2026-09-09: saved official commission version).
+  let versionState = null;
+  if (withVersion) {
+    const state = config.versionState;
+    if (!exactConfigurationKeys(state, ["fileSha256", "effectiveFrom", "status"]) || !/^[0-9a-f]{64}$/.test(String(state.fileSha256)) ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(String(state.effectiveFrom)) || !Number.isFinite(Date.parse(`${state.effectiveFrom}T00:00:00Z`)) ||
+        state.status !== "active") {
+      throw invalid();
+    }
+    versionState = Object.freeze({ fileSha256: state.fileSha256, effectiveFrom: state.effectiveFrom, status: "active" });
+  }
+  return Object.freeze({ catalogPath: path.resolve(config.catalogPath), sellerRegion: config.sellerRegion, versionState });
 }
 
 export const RUNTIME_MODES = Object.freeze(["local_development", "central_test", "central_production"]);

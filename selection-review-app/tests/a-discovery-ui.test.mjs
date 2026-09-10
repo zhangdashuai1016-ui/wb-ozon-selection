@@ -159,3 +159,29 @@ test('completed results offer one translation button for the untranslated titles
   assert.match(html,/中文标题：合成收纳盒/); assert.match(html,new RegExp(`翻译标题（${total-1} 条待翻）`));
   if(total===1)assert.match(html,/<button[^>]*disabled=""[^>]*>翻译标题/);
 });
+
+test('estimated rows show the summary, the flags and no owner pick for a negative ceiling',async()=>{
+  const v=view(),receipt=createADiscoveryContractReceipt(f),market=receipt.steps[0].result;
+  market.products.push({...market.products[0],productId:'2107989736',productUrl:'https://www.ozon.ru/product/2107989736/',title:'Лежанка для собак'});
+  market.products.push({...market.products[0],productId:'2107989737',productUrl:'https://www.ozon.ru/product/2107989737/',title:'Коробка без размеров'});
+  const estimate=(outcome,summary,freight,extra={})=>({status:outcome==='selectable'?'ok':outcome==='excluded_negative'?'negative':'incomplete',
+    outcome,summary,maximumAllInPurchaseRmb:null,freight,commissionRate:0.14,...extra});
+  market.products[0].estimate=estimate('selectable','预估采购上限 ¥120.50 · GUOO Economy Small 0.7kg 运费 ¥37.64（超抛） · 佣金 14%',
+    {route:'GUOO Economy Small',chargeableKg:0.7,freightRmb:37.64,oversize:true},{maximumAllInPurchaseRmb:120.5});
+  market.products[1].estimate=estimate('excluded_negative','预估负利润，已排除 · GUOO Economy Big 9.5kg 运费 ¥221.89 · 佣金 14%',
+    {route:'GUOO Economy Big',chargeableKg:9.5,freightRmb:221.89,oversize:false},{maximumAllInPurchaseRmb:-3.2});
+  market.products[2].estimate=estimate('needs_data','无法估算：缺包装尺寸重量 · 佣金 14%',{route:null,chargeableKg:null,freightRmb:null,oversize:false});
+  v.batches=[{batch:f.batch,canAuthorize:false,jobs:[{job:{...f.job,status:'completed'},receipt,canContinue:false}],candidateImport:null,selections:[],importedCandidates:[]}];
+  let html=await render(props(v));
+  assert.match(html,/算利润区间/);
+  assert.match(html,/不猜数字/);
+  assert.match(html,/预估采购上限 ¥120\.50/); assert.match(html,/超抛/);
+  assert.match(html,/无法估算：缺包装尺寸重量/); assert.match(html,/待补尺寸/);
+  assert.match(html,/负利润已排除/); assert.match(html,/预估负利润，已排除/);
+  // The excluded product offers no owner pick; the other two still do.
+  assert.equal(html.match(/选这个/gu).length,2);
+  for(const product of market.products)product.estimate=market.products[1].estimate;
+  html=await render(props(v));
+  assert.equal(html.match(/选这个/gu),null);
+  assert.equal(html.match(/预估负利润，已排除/gu).length,6);
+});

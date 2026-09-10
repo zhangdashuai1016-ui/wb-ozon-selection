@@ -215,7 +215,7 @@ test("Ozon官方佣金参考表配置默认未启用，显式配置要求绝对�
 
   const catalogPath = "/private/tmp/ozon-commission-reference-test/ozon-china-2026-09-10.json";
   const config = create({ SELECTION_REVIEW_OZON_COMMISSION_REFERENCE_JSON: JSON.stringify({ catalogPath, sellerRegion: "CN" }) });
-  assert.deepEqual(config.ozonCommissionReference, { catalogPath, sellerRegion: "CN" });
+  assert.deepEqual(config.ozonCommissionReference, { catalogPath, sellerRegion: "CN", versionState: null });
   assert.ok(Object.isFrozen(config.ozonCommissionReference));
 
   // Explicit JSON null mirrors the OSS runtime configuration convention: still "not configured", not an error.
@@ -244,4 +244,15 @@ test("normalizeOzonCommissionReferenceConfiguration resolves a clean absolute pa
   assert.equal(normalized.catalogPath, "/tmp/a/ozon.json");
   assert.throws(() => normalizeOzonCommissionReferenceConfiguration({ catalogPath: "ozon.json", sellerRegion: "CN" }),
     /OZON_COMMISSION_REFERENCE_CONFIGURATION_INVALID/);
+});
+
+test("Ozon commission reference configuration binds an optional saved official version state", () => {
+  const base = { catalogPath: "/tmp/synthetic/ozon-official-commission.json", sellerRegion: "CN" };
+  assert.equal(normalizeOzonCommissionReferenceConfiguration(base).versionState, null);
+  const state = { fileSha256: "a".repeat(64), effectiveFrom: "2025-12-01", status: "active" };
+  const bound = normalizeOzonCommissionReferenceConfiguration({ ...base, versionState: state });
+  assert.deepEqual(bound.versionState, state); assert.ok(Object.isFrozen(bound.versionState));
+  for (const bad of [{ ...state, status: "revoked" }, { ...state, fileSha256: "xyz" }, { ...state, effectiveFrom: "2025-13-01" }, { ...state, extra: 1 }, "active"]) {
+    assert.throws(() => normalizeOzonCommissionReferenceConfiguration({ ...base, versionState: bad }), /OZON_COMMISSION_REFERENCE_CONFIGURATION_INVALID/);
+  }
 });
