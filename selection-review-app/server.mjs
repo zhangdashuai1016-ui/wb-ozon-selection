@@ -189,7 +189,8 @@ import {
   EXCEPTION_MAINTENANCE_PATH,
   NORMAL_PRODUCTION_PATH,
   assertRuntimeCodexDependencyAllowed,
-  codexOfflineModeFromEnvironment
+  codexOfflineModeFromEnvironment,
+  dispatchDeliveryEnabledFromEnvironment
 } from "./lib/codex-independence.mjs";
 import { buildThreeStoreMapView } from "./lib/three-store-map.mjs";
 import { buildDESoftwareIntegrationView } from "./lib/d-e-software-integration.mjs";
@@ -230,9 +231,8 @@ const automationConcurrencyLimit = Math.min(
   Math.max(1, Number(process.env.SELECTION_REVIEW_CONCURRENCY_LIMIT || DEFAULT_AUTOMATION_CONCURRENCY_LIMIT))
 );
 const codexOfflineEnabled = codexOfflineModeFromEnvironment(process.env);
-const explicitDispatchDeliveryEnabled = !codexOfflineEnabled && ["on", "true"].includes(
-  String(process.env.SELECTION_REVIEW_AUTO_DELIVER || "").trim().toLowerCase()
-);
+const explicitDispatchDeliveryEnabled = dispatchDeliveryEnabledFromEnvironment(process.env);
+const LEGACY_DISPATCH_CHANNEL_DISABLED = "旧派发通道已停用：当前不派发 Codex 任务，历史派发只读。";
 const aiGatewayUrl = runtimeConfiguration.aiGatewayUrl;
 const aiGatewayDeploymentMode = runtimeConfiguration.deploymentMode;
 const allowedReviewOrigins = new Set(runtimeConfiguration.allowedOrigins);
@@ -5028,6 +5028,7 @@ async function handleApi(req, res, pathname) {
   const dispatchClaimRoute = pathname.match(/^\/api\/dispatches\/([^/]+)\/claim$/);
   if (req.method === "POST" && dispatchClaimRoute) {
     const input = await requestBody(req);
+    if (!explicitDispatchDeliveryEnabled) throw httpError(409, LEGACY_DISPATCH_CHANNEL_DISABLED);
     if (!input.runId?.trim() || !input.currentStep?.trim()) {
       throw httpError(400, "领取一次性派发必须提供runId和当前真实步骤");
     }
@@ -5097,6 +5098,7 @@ async function handleApi(req, res, pathname) {
   const desktopTurnRoute = pathname.match(/^\/api\/dispatches\/([^/]+)\/desktop-turn$/);
   if (req.method === "POST" && desktopTurnRoute) {
     const input = await requestBody(req);
+    if (!explicitDispatchDeliveryEnabled) throw httpError(409, LEGACY_DISPATCH_CHANNEL_DISABLED);
     if (!input.turnId?.trim() || !Number.isInteger(input.dataRevision)) {
       throw httpError(400, "接管Codex桌面端运行必须提供真实运行编号和当前修订号");
     }
@@ -5192,6 +5194,7 @@ async function handleApi(req, res, pathname) {
   const dispatchApprovalRoute = pathname.match(/^\/api\/dispatches\/([^/]+)\/approval$/);
   if (req.method === "POST" && dispatchApprovalRoute) {
     const input = await requestBody(req);
+    if (!explicitDispatchDeliveryEnabled) throw httpError(409, LEGACY_DISPATCH_CHANNEL_DISABLED);
     if (!input.requestId || !["accept", "decline", "cancel"].includes(input.decision)) {
       throw httpError(400, "权限决定必须是允许、拒绝或取消本次");
     }

@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-10T06:05:46.949Z",
+  "frozenAt": "2026-09-10T07:41:05.267Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 622,
-      "sha256": "8eb18c7ead09a770e3cf74d4670cb6870a390a9703f209fd5b00a090d474b5da",
+      "artifactCount": 624,
+      "sha256": "56232bc9ccecff156c48de96ca9b7874b01d1571548a425d6a7bb7959cea6def",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -320,7 +320,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "dcec4cb1656f7f99d40ece49f85288aed526cc98dca0664bff9364faa01f155d"
+        "sha256": "e3413863239bba1fe84a903f3e4f37f7cffe09d65b001b61c540cf3bf40b10d7"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -332,7 +332,7 @@
       },
       {
         "path": "lib/codex-independence.mjs",
-        "sha256": "acd61ea90cd59969684545c5d8f4f0fc8144babf4079b575deee4c112e8a3703"
+        "sha256": "2e360ebb32af32ac184c8bf032eb076b8b0b348373a7213a3f12933da1dbcd2a"
       },
       {
         "path": "lib/d-asset-transport-software-use-case.mjs",
@@ -595,6 +595,10 @@
         "sha256": "cb905eef845188a012915bb72177f08fd87e7c06f60f8258573bb923fb85f322"
       },
       {
+        "path": "lib/ozon-commission-reference-reader.mjs",
+        "sha256": "2836db9d9fcd506ff0c09347a5272b58dff6fc4645af53c008e836e3052bc977"
+      },
+      {
         "path": "lib/ozon-de-http-configuration.mjs",
         "sha256": "a1e4181afe7ecf324078762f804102ea7a1976625ba9765d4bafe74fa15ca66d"
       },
@@ -748,7 +752,7 @@
       },
       {
         "path": "lib/runtime-configuration.mjs",
-        "sha256": "618d7bbeb89ad16169d9bffffcf28b99259ef419e31a2fd000a93a0ae1ec1a84"
+        "sha256": "ac98ebc4f3e78a644329f3df44ede9cd9fc15fd6e6b9c0956e88ccd59fbb6371"
       },
       {
         "path": "lib/runtime-identity-provider.mjs",
@@ -1148,7 +1152,7 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "a2a31559be1333cfc76a4f763c477f577f1173e384941014a3cc6f32f479af96"
+        "sha256": "be2e2b6644cdc8d515943e7c70db2b8817512b0c529a91c1ba757cddf01ca2b5"
       },
       {
         "path": "src/App.jsx",
@@ -1280,7 +1284,7 @@
       },
       {
         "path": "src/components/ProductDiscoveryCard.jsx",
-        "sha256": "843fe4519b9527b5968f5fb0e26afb4a33178c83f7b60846a8d3654d03f5ebfa"
+        "sha256": "e29cb24c5e1248d3bcac075e8e375da3fd134bb8da3416600596421d05f28ad2"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1344,7 +1348,7 @@
       },
       {
         "path": "src/formState.js",
-        "sha256": "fb35d48968a3d0437008c460f211a702902bdb26c7775fe4fa856a295408497e"
+        "sha256": "b3b5e120b842c1717517f95547edb74b02d7c1996edaec6ee35cc54932cce9cf"
       },
       {
         "path": "src/keywordSoftwareRuntimeView.js",
@@ -1372,7 +1376,7 @@
       },
       {
         "path": "src/styles.css",
-        "sha256": "9504e3592cc49b5b94c566ffe53fca1e624b3147fd6b8e9c29460002e6b9f967"
+        "sha256": "d6fa4dd6b58053526c3f64f00b96a78f0f1cee76a0279017dbe958ea7b273b4c"
       },
       {
         "path": "src/wbPresentation.js",
@@ -1408,7 +1412,7 @@
       },
       {
         "path": "tests/a-discovery-ui.test.mjs",
-        "sha256": "09612352a313788ab1c435d98a260bd6fa89d1d1fb6f0f80391cc257e4a8f466"
+        "sha256": "faa4bed934d68dff55be0e19f3473777c90285b15ff5978694f6bc5f5b42e054"
       },
       {
         "path": "tests/a-product-detail-api-boundary.test.mjs",
@@ -1720,7 +1724,7 @@
       },
       {
         "path": "tests/codex-independence.test.mjs",
-        "sha256": "5b3747188156a72f373ce4bc4c88c08f80d4840e71ffc07a7d350d52748da0af"
+        "sha256": "f57e89cb2bf9f0c309aab0ec7e655b25295be36e925dfff591cecf688743b46a"
       },
       {
         "path": "tests/collaboration-api.test.mjs",
@@ -1820,7 +1824,7 @@
       },
       {
         "path": "tests/dispatch-api.test.mjs",
-        "sha256": "68ac6f4425462e622ea9db24444a1eddcf0308a10eaf0a86580d54d0d5dc4aca"
+        "sha256": "2149c2c68c2d8543d7c5140c7cfc76a5e5fdc7b35b2677c9dca4446932a442b4"
       },
       {
         "path": "tests/dispatch-delivery-integration.test.mjs",
@@ -2000,7 +2004,7 @@
       },
       {
         "path": "tests/frontend-review-behavior.test.mjs",
-        "sha256": "4da0871c1d80bb55d25e5b3987f04f00f7a2177739e44d5c19c48b21d77431d1"
+        "sha256": "671e9e60113d1af6c7ed25c2cbea181a21b5cf0e71fbec119cb9a32531d14bef"
       },
       {
         "path": "tests/global-pricing-policy.test.mjs",
@@ -2231,6 +2235,10 @@
         "sha256": "de84b6ba9d8ca9321971092b4e8e7c02b50597b67f26f7f2f4b9391f755005c3"
       },
       {
+        "path": "tests/ozon-commission-reference-reader.test.mjs",
+        "sha256": "6c345e0e003ae6483d969c863423d6ae95d82444b6e53f43ff4a2771f925c55a"
+      },
+      {
         "path": "tests/ozon-de-http-transport.test.mjs",
         "sha256": "9cc7172399b0b86c4cf795d5d284c0b506b96e4d19259ceafcb93e7b888f8d81"
       },
@@ -2388,7 +2396,7 @@
       },
       {
         "path": "tests/runtime-configuration.test.mjs",
-        "sha256": "c3ee02806336603ed6bdcca1a7c9f5970fe12daadc095da12cc2cbe10861105b"
+        "sha256": "569c8882d4f7adedbefb154b3bf5292c60d0edbb4ab38b92b1747812cc16154e"
       },
       {
         "path": "tests/runtime-identity-provider.test.mjs",
@@ -3003,11 +3011,19 @@
           "status": "present_in_integration_source"
         },
         {
+          "path": "lib/ozon-commission-reference-reader.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
           "path": "lib/wb-commission-reference-reader.mjs",
           "status": "present_in_integration_source"
         },
         {
           "path": "tests/lifecycle-b-real-evidence-readers.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/ozon-commission-reference-reader.test.mjs",
           "status": "present_in_integration_source"
         },
         {
