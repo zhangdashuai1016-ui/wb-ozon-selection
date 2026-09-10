@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { STORE_LABELS } from '../constants.js';
-import { errorMessage, safeWebUrl } from '../formState.js';
+import { errorMessage, safeImageUrl, safeWebUrl } from '../formState.js';
 
 const statusLabels = {queued:'等待软件执行',claimed:'正在读取',waiting_platform:'等待查询结果',completed:'已保存查询结果',
   failed:'本次查询失败，已停止',unknown_outcome:'请求结果未知，需核对'};
@@ -20,6 +20,8 @@ const configurationLabels = {
   PLAN_NOT_SUPPORTED:'已配置服务不能执行计划中的全部查询：维护人员需核对计划与服务能力。'
 };
 const newKey = () => `product-discovery:${crypto.randomUUID()}`;
+/** Provider routes report a missing count as null or as the literal 'unknown'; the owner reads one Chinese word for both. */
+const productFact = value => value === null || value === undefined || value === 'unknown' ? '未知' : value;
 const DEFAULT_PERMIT_WINDOW_MS = 2 * 60 * 60 * 1000;
 /** Prefilled permit expiry for the datetime-local input: two hours ahead in the viewer's local time, still editable. */
 export function defaultPermitExpiryLocal(now = Date.now()) {
@@ -68,23 +70,32 @@ function BatchCard({ entry, onAuthorize, onContinue, onSelect, onOpenCandidate }
       <p>{methodLabels[job.scopeBinding.request.method]}：{statusLabels[job.status]}</p>
       {receipt?.failureClass?<p role="alert">停止原因：{receipt.failureClass}。本次请求不会自动重发。</p>:null}
       {marketResult(receipt)?.status==='true_empty'?<p>本次查询明确返回零结果。</p>:null}
-      {marketResult(receipt)?.products?.length?<details><summary>查看本次发现材料</summary>
+      {marketResult(receipt)?.products?.length?<details open={job.status==='completed'}><summary>查看本次发现材料</summary>
         {seerfar ? <p>{marketResult(receipt).schemaVersion === 'seerfar-discovery-market-result-v2'
           ? `服务返回日期窗：${marketResult(receipt).dateRange.startDate ?? '起始日期未知'} 至 ${marketResult(receipt).dateRange.endDate ?? '结束日期未知'}`
           : '旧版回执未保存日期窗及评价字段。'}；类目材料尚未核实同款，不代表核心市场样本。</p> : null}
-        <ul>{marketResult(receipt).products.map(product=><li key={product.productId}>
-          <a href={safeWebUrl(product.productUrl)} target="_blank" rel="noreferrer">{product.title}</a> · {product.price} {product.currency ?? '币种待核实'}
-          {seerfar ? <><br/>服务返回销量（估算）：{product.salesCount ?? '未知'}；评价数：{product.reviewCount ?? '未知'}；评分：{product.reviewRating ?? '未知'}
-            <br/>卖家身份未核实
-            <details><summary>查看来源证据</summary>
-              <p>服务返回卖家原码：{product.rawSellerType ?? '未知'}；未映射为卖家身份。</p>
-              <p>来源：{product.providerRecordRef}</p>
-            </details></> : null}
-          {imported.has(product.productId)?<><br/><span>已在评审台。</span><button type="button" className="button secondary" onClick={()=>onOpenCandidate(imported.get(product.productId))}>查看</button></>
-            :selections.get(product.productId)?.status==='all_duplicates'?<><br/><span>该商品已存在于记录（含已淘汰），未重复建卡。</span></>
-            :['blocked','failed'].includes(selections.get(product.productId)?.status)?<><br/><span role="alert">保存失败：{selections.get(product.productId).failureClass}</span></>
-            :job.status==='completed'&&typeof onSelect==='function'?<><br/><button type="button" className="button secondary" disabled={saving}
-              onClick={()=>run(onSelect,{batchId:batch.batchId,expectedRevision:batch.revision,marketProductId:product.productId})}>选这个</button></>:null}
+        <ul className="discovery-product-list">{marketResult(receipt).products.map(product=><li key={product.productId} className="discovery-product">
+          {safeImageUrl(product.imageUrl)
+            ? <img className="discovery-product-thumb" src={safeImageUrl(product.imageUrl)} alt="" width="72" height="72" loading="lazy" referrerPolicy="no-referrer"/>
+            : <span className="discovery-product-thumb discovery-product-no-image">无图</span>}
+          <div className="discovery-product-body">
+            <p className="discovery-product-title"><a href={safeWebUrl(product.productUrl)} target="_blank" rel="noreferrer">{product.title}</a></p>
+            <p className="discovery-product-facts">售价 {product.price} 卢布 · 销量 {productFact(product.salesCount)} · 营收 {productFact(product.revenue)} · 评价 {productFact(product.reviewCount)} · 评分 {productFact(product.reviewRating)}</p>
+            <p className="discovery-product-category">类目：{product.categoryPath?.cnTitlePath ?? '未知'}</p>
+            <p className="discovery-product-translation">中文标题：{typeof product.titleZh==='string'&&product.titleZh.trim()!==''?product.titleZh:'待翻译'}</p>
+            {seerfar ? <><p className="discovery-product-source">卖家身份未核实</p>
+              <details><summary>查看来源证据</summary>
+                <p>服务返回卖家原码：{product.rawSellerType ?? '未知'}；未映射为卖家身份。</p>
+                <p>来源：{product.providerRecordRef}</p>
+              </details></> : null}
+            <div className="discovery-product-action">
+              {imported.has(product.productId)?<><br/><span>已在评审台。</span><button type="button" className="button secondary" onClick={()=>onOpenCandidate(imported.get(product.productId))}>查看</button></>
+                :selections.get(product.productId)?.status==='all_duplicates'?<><br/><span>该商品已存在于记录（含已淘汰），未重复建卡。</span></>
+                :['blocked','failed'].includes(selections.get(product.productId)?.status)?<><br/><span role="alert">保存失败：{selections.get(product.productId).failureClass}</span></>
+                :job.status==='completed'&&typeof onSelect==='function'?<><br/><button type="button" className="button secondary" disabled={saving}
+                  onClick={()=>run(onSelect,{batchId:batch.batchId,expectedRevision:batch.revision,marketProductId:product.productId})}>选这个</button></>:null}
+            </div>
+          </div>
         </li>)}</ul></details>:null}
       {canContinue?<button type="button" className="button secondary" disabled={saving}
         onClick={()=>run(onContinue,{batchId:batch.batchId,expectedRevision:batch.revision,jobId:job.jobId})}>执行已批准且尚未发送的查询</button>:null}

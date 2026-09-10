@@ -999,3 +999,16 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 .local-owner-access input { width: min(220px, 100%); }
 .local-owner-access [role="alert"] { color: var(--red); }
 @media (max-width: 600px) { .local-owner-access { margin: 0 12px 12px; } .local-owner-access form, .local-owner-access label, .local-owner-access input { width: 100%; } }
+
+/* discovery product rows */
+.discovery-product-list { margin: 6px 0 0; padding: 0; list-style: none; }
+.discovery-product { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.discovery-product-thumb { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); background: #f6f8f7; }
+.discovery-product-no-image { display: grid; place-items: center; color: var(--muted); font-size: 11px; }
+.discovery-product-body { min-width: 0; display: grid; gap: 3px; align-content: start; }
+.discovery-product-body > p { margin: 0; overflow-wrap: anywhere; line-height: 1.55; }
+.discovery-product-title { font-size: 13px; font-weight: 650; }
+.discovery-product-title a { overflow-wrap: anywhere; }
+.discovery-product-facts, .discovery-product-category, .discovery-product-translation, .discovery-product-source { color: var(--muted); font-size: 11px; }
+.discovery-product-action { margin-top: 6px; }
+.discovery-product-action br { display: none; }

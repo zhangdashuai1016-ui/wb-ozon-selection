@@ -102,12 +102,14 @@ test('Seerfar plan renders its category and three-request points budget without 
   Object.assign(market, { dateRange: { startDate: '2026-07-01', endDate: '2026-07-27' } });
   Object.assign(market.products[0], { reviewCount: 142, reviewRating: 4.8, rawSellerType: 1 });
   let html = await render(props(snapshot));
-  assert.match(html, /2026-07-01 至 2026-07-27/); assert.match(html, /评价数：142；评分：4.8/);
+  assert.match(html, /2026-07-01 至 2026-07-27/);
+  // The review facts live only in the product stats line now; the old duplicate Seerfar sentence is gone.
+  assert.match(html, /评价 142 · 评分 4\.8/); assert.doesNotMatch(html, /服务返回销量（估算）/);
   assert.match(html, /卖家身份未核实/); assert.match(html, /<details><summary>查看来源证据<\/summary><p>服务返回卖家原码：1；未映射为卖家身份/); assert.doesNotMatch(html, /中国跨境|近30天销量|正式利润通过/);
   market.schemaVersion = 'seerfar-discovery-market-result-v1'; delete market.dateRange;
   for (const key of ['reviewCount','reviewRating','rawSellerType']) delete market.products[0][key];
   const bytes = JSON.stringify(snapshot); html = await render(props(snapshot));
-  assert.match(html, /评价数：未知；评分：未知/); assert.match(html, /卖家原码：未知/);
+  assert.match(html, /评价 未知 · 评分 未知/); assert.match(html, /卖家原码：未知/);
   assert.equal(JSON.stringify(snapshot), bytes); assert.equal(f.calls.length, 3);
 });
 
@@ -122,13 +124,26 @@ test('changed saved batch configuration explains why new authorization is unavai
 });
 
 test('completed results offer one minimal owner pick per product and mark products already in the review board',async()=>{
-  const v=view(),receipt=createADiscoveryContractReceipt(f),productId=receipt.steps[0].result.products[0].productId;
+  const v=view(),receipt=createADiscoveryContractReceipt(f),market=receipt.steps[0].result;
+  // The fixture product carries no image and no category, so one imaged product covers the other thumbnail state.
+  // Real provider images arrive on the Ozon CDN route, which safeImageUrl passes through to the browser unchanged.
+  market.products.push({...market.products[0],productId:'2107989736',productUrl:'https://www.ozon.ru/product/2107989736/',
+    title:'Органайзер настольный с фото',imageUrl:'https://ir.ozone.ru/s3/multimedia-1-v/wc300/13913276143.jpg',
+    categoryPath:{fullCategoryId:['100_200'],titlePath:'Дом > Хранение',cnTitlePath:'家居 > 收纳',enTitlePath:'Home > Storage'}});
+  const ids=market.products.map(product=>product.productId);
   v.batches=[{batch:f.batch,canAuthorize:false,jobs:[{job:{...f.job,status:'completed'},receipt,canContinue:false}],candidateImport:null,selections:[],importedCandidates:[]}];
   let html=await render(props(v)); assert.match(html,/选这个/); assert.doesNotMatch(html,/已在评审台/);
-  v.batches[0].importedCandidates=[{marketProductId:productId,candidateId:'candidate:one'}];
+  // The owner must be able to choose without opening anything: expanded list, thumbnail or placeholder, Chinese category, translation slot.
+  assert.match(html,/<details open=""><summary>查看本次发现材料<\/summary>/);
+  assert.match(html,/<img[^>]*src="https:\/\/ir\.ozone\.ru\/s3\/multimedia-1-v\/wc300\/13913276143\.jpg"[^>]*loading="lazy"/);
+  assert.match(html,/无图/);
+  assert.match(html,/类目：家居 &gt; 收纳/); assert.match(html,/类目：未知/);
+  assert.match(html,/中文标题：待翻译/);
+  assert.match(html,/售价 297 卢布 · 销量 未知 · 营收 未知 · 评价 未知 · 评分 未知/);
+  v.batches[0].importedCandidates=ids.map((marketProductId,index)=>({marketProductId,candidateId:`candidate:${index}`}));
   html=await render(props(v)); assert.match(html,/已在评审台/); assert.doesNotMatch(html,/选这个/);
-  v.batches[0].importedCandidates=[]; v.batches[0].selections=[{marketProductId:productId,status:'all_duplicates',candidateId:null,failureClass:null}];
+  v.batches[0].importedCandidates=[]; v.batches[0].selections=ids.map(marketProductId=>({marketProductId,status:'all_duplicates',candidateId:null,failureClass:null}));
   html=await render(props(v)); assert.match(html,/未重复建卡/); assert.doesNotMatch(html,/选这个/);
   v.batches[0]={...v.batches[0],selections:[],jobs:[{job:{...f.job,status:'failed'},receipt,canContinue:false}]};
-  html=await render(props(v)); assert.doesNotMatch(html,/选这个/);
+  html=await render(props(v)); assert.doesNotMatch(html,/选这个/); assert.doesNotMatch(html,/<details open/);
 });

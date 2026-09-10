@@ -16,9 +16,16 @@ export function safeWebUrl(value) {
   } catch { return ""; }
 }
 
+// Provider thumbnails load straight from the Ozon image CDN; only this exact origin over https is accepted.
+const OZON_IMAGE_ORIGIN = "https://ir.ozone.ru/";
+const UNSAFE_IMAGE_CHARACTER = /[\\?#%@\s\x00-\x20\x7f-\x9f]/;
+const plainPathSegments = path => path.split("/").every(part => part && part !== "." && part !== "..");
+
 export function safeImageUrl(value) {
   if (typeof value === "string" && value.startsWith("/product-images/") &&
       !/[\\?#%\x00-\x20\x7f]/.test(value) && value.split("/").slice(2).every(part => part && part !== "." && part !== "..")) return value;
+  if (typeof value === "string" && value.length <= 1024 && value.startsWith(OZON_IMAGE_ORIGIN) &&
+      !UNSAFE_IMAGE_CHARACTER.test(value) && plainPathSegments(value.slice(OZON_IMAGE_ORIGIN.length))) return value;
   return "";
 }
 

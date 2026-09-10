@@ -285,6 +285,11 @@ test("D7数值、URL和平台店铺无静默兜底", () => {
   for(const value of ["javascript:alert(1)","data:image/png;base64,xx","file:///tmp/x","https://u:p@example.com/a","//evil.test/a"]) assert.equal(safeWebUrl(value),"");
   assert.equal(safeImageUrl("/product-images/candidate/photo.png"),"/product-images/candidate/photo.png");
   for(const value of ["/product-images/../secret","/product-images/%2e%2e/secret","/product-images/a\\b","/product-images//a","/product-images/\t../other"]) assert.equal(safeImageUrl(value),"");
+  // Real provider thumbnails come from the Ozon image CDN: that exact https origin passes unchanged, every look-alike is dropped.
+  assert.equal(safeImageUrl("https://ir.ozone.ru/s3/multimedia-1-v/wc300/13913276143.jpg"),"https://ir.ozone.ru/s3/multimedia-1-v/wc300/13913276143.jpg");
+  for(const value of ["http://ir.ozone.ru/x.jpg","https://ir.ozone.ru/x.jpg?token=1","https://ir.ozone.ru/x.jpg#f","https://ir.ozone.ru/a%20b.jpg",
+    "https://evil.test/ir.ozone.ru/x.jpg","https://ir.ozone.ru@evil.test/x.jpg","https://ir.ozone.ru/../x.jpg","https://ir.ozone.ru//x.jpg",
+    "https://cdn1.ozone.ru/x.jpg","https://ir.ozone.ru/"]) assert.equal(safeImageUrl(value),"");
   assert.equal(candidatePlatform({targetStore:"wb"}),"wb");
   assert.throws(()=>candidatePlatform({targetStore:"other"}),/不一致/);
   assert.throws(()=>candidatePlatform({targetStore:"wb",lifecycleV11:{skuPackage:{g1Identity:{platform:"ozon"}}}}),/不一致/);
