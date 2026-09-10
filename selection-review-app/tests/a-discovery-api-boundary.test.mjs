@@ -40,7 +40,9 @@ test('real default-off discovery API enforces owner, source and closed input wit
   assert.equal((await api.post('/api/product-discovery/create',input,{headers:{'Content-Type':'text/plain'}})).status,415);
   assert.equal((await api.post('/api/product-discovery/create',input,{headers:{Origin:'https://untrusted.invalid','Sec-Fetch-Site':'cross-site'}})).status,403);
   assert.equal((await api.post('/api/product-discovery/create',{payload:'x'.repeat(9000)})).status,413);
-  for(const route of ['authorize','continue'])assert.equal((await api.post(`/api/product-discovery/${route}`,{verified:true})).status,400);
+  for(const route of ['authorize','continue','select'])assert.equal((await api.post(`/api/product-discovery/${route}`,{verified:true})).status,400);
+  assert.equal((await api.post('/api/product-discovery/select',{batchId:'a-discovery-batch:none',expectedRevision:0,marketProductId:'1'},{authenticated:false})).status,401);
+  assert.equal((await api.post('/api/product-discovery/select',{batchId:'a-discovery-batch:none',expectedRevision:0,marketProductId:'1'})).status,409);
   assert.deepEqual(await api.readBytes(),bytes);await api.assertClean();
   await api.restart();await api.authenticate('login');
   assert.equal((await api.get('/api/product-discovery')).body.runtimeStatus,'not_configured');

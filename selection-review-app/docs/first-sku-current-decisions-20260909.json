@@ -628,5 +628,53 @@
     "runtimePolicyCreated": true,
     "realProfitApproved": false,
     "releasePrepared": "r5_not_activated"
+  },
+  "ownerDecisions20260910Afternoon": {
+    "order": [
+      "ozon_first_sku_a_to_e",
+      "ai_selection_stage_1",
+      "wb_cross_listing"
+    ],
+    "aiSelectionLayer": {
+      "approved": true,
+      "gateway": "http://127.0.0.1:4318 (linlongs, gpt-5.6-terra)",
+      "tokenCapPerBatch": 30000,
+      "directionSource": "each store's own best-selling / high-click products (Seller API analytics, read-only, one-time authorization) plus the 2026-08-04 rules; the owner does not dictate directions",
+      "boundary": "numbers computed by code (fx, commission, volumetric freight, purchase ceiling, oversize flags); model does judgment; structured JSON with evidence refs"
+    },
+    "oversizePolicy": "informational flags only; no automatic elimination (owner: 超抛不一票否决)",
+    "wbCrossListingRule": {
+      "recorded": true,
+      "scheduled": "after ai_selection_stage_1",
+      "rule": "any Ozon store listing that fits WB logistics rules is also listed on WB"
+    },
+    "ownerSelectedImport": {
+      "approved": true,
+      "scope": "server-side per-product import (needed by the AI layer) plus a minimal UI button"
+    },
+    "titleTranslation": {
+      "approved": true,
+      "scope": "display-only, cached per SKU, max 20 per call, token usage shown; gateway binding in next deploy"
+    },
+    "ozonOfficialCommissionReference": {
+      "pageReadApproved": true,
+      "downloadApproved": true,
+      "path": "/Users/shuaizhang/Documents/wb & ozon 选品/commission-reference-20260909/ozon-official-20260910/",
+      "effectiveFrom": "2025-12-01",
+      "fileSha256": "be7832ff9dbd09ee7021aaefe9018a02287332bc22e4c6b470d6cfe0b3649cf0",
+      "fileLastModified": "2026-08-12T09:53:49Z",
+      "petBedRfbs": {
+        "le1500": 0.12,
+        "1500_5000": 0.14,
+        "gt5000": 0.15
+      },
+      "readerImplemented": false,
+      "versioning": "rates live in the versioned local reference, not in code; official updates are re-downloaded and registered as a new version"
+    },
+    "negativeEstimatePolicy": "products whose A-stage purchase ceiling is already negative (before purchase cost) are excluded from the owner's selectable pool and from AI recommendations; oversize remains an informational flag",
+    "codexReplacementAudit": {
+      "requested": true,
+      "status": "in_progress"
+    }
   }
 }

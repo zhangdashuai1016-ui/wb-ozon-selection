@@ -9,7 +9,7 @@ import { A_DISCOVERY_JOB_TYPE, getADiscoveryProviderCapability, readADiscoveryMa
   assertADiscoveryScope, assertADiscoveryAuthorization, assertADiscoveryCredential, assertADiscoveryReceipt } from './a-discovery-contract.mjs';
 import { createADiscoveryJobForScope, ADiscoveryExecutionBlockedError } from './software-job-repository.mjs';
 import { runADiscoverySoftwareJob } from './a-discovery-software-runner.mjs';
-import { assertADiscoveryCandidateImportRecord } from './a-discovery-candidate-import.mjs';
+import { assertADiscoveryCandidateImportRecord, assertADiscoveryCandidateSelectionRecord } from './a-discovery-candidate-import.mjs';
 
 const clone=value=>structuredClone(value);
 const closed=(value,fields)=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===fields.length&&fields.every(key=>Object.hasOwn(value,key));
@@ -36,7 +36,7 @@ function readCollection(document,key,array=false){
 
 /** Saved plans and one-use jobs share the existing repository and worker queue. */
 export function createADiscoveryRuntimeServices({repository,softwareJobStore,runtimeMode,serverClock,workerRegistry,
-  serviceBindings=[],connectorBindings=[],plans=[],getEvidenceRecords=()=>[],readSecret,fetchImpl,onError,onBatchReady,sleep}={}){
+  serviceBindings=[],connectorBindings=[],plans=[],getEvidenceRecords=()=>[],readSecret,fetchImpl,onError,onBatchReady,onSelectProduct=null,sleep}={}){
   if(runtimeMode==='local_development')assertBusinessStateRepositoryBoundary(repository);
   else if(['central_test','central_production'].includes(runtimeMode))assertCentralPersistenceBoundary(repository);
   else throw new TypeError('A_DISCOVERY_RUNTIME_MODE_INVALID');
@@ -44,6 +44,7 @@ export function createADiscoveryRuntimeServices({repository,softwareJobStore,run
     ['register','heartbeat'].some(key=>typeof workerRegistry?.[key]!=='function')||
     ['get','claim','listAssignableWithDiagnostics','enqueueADiscoveryInDocument','assertADiscoveryExecutionInDocument','settleADiscoveryInDocument'].some(key=>typeof softwareJobStore?.[key]!=='function'))throw new TypeError('A_DISCOVERY_SERVICE_DEPENDENCY_INVALID');
   requireValue(typeof getEvidenceRecords==='function','RUNNER_DEPENDENCY_INVALID');
+  if(onSelectProduct!==null&&typeof onSelectProduct!=='function')throw new TypeError('A_DISCOVERY_SERVICE_DEPENDENCY_INVALID');
   const connectors=connectorBindings.map(assertADiscoveryConnectorBinding),bindings=normalizeADiscoveryServiceBindings(serviceBindings,connectors);
   requireValue(Array.isArray(plans)&&plans.length<=10,'PLAN_INVALID');
   const savedPlans=plans.map(assertADiscoveryPlan);
@@ -153,7 +154,8 @@ export function createADiscoveryRuntimeServices({repository,softwareJobStore,run
     view({document,actor}){
       owner(actor);
       const batches=Object.values(readCollection(document,'aDiscoveryBatches')).map(assertADiscoveryBatch).filter(batch=>batch.ownerUserId===actor.userId);
-      const jobs=readCollection(document,'softwareJobs',true),receipts=readCollection(document,'aDiscoveryReceipts'),imports=readCollection(document,'aDiscoveryCandidateImports');
+      const jobs=readCollection(document,'softwareJobs',true),receipts=readCollection(document,'aDiscoveryReceipts'),imports=readCollection(document,'aDiscoveryCandidateImports'),selections=readCollection(document,'aDiscoveryCandidateSelections');
+      const candidates=Array.isArray(document.candidates)?document.candidates:[];
       const configurationBlockers=[];
       if(savedPlans.length===0)configurationBlockers.push('PLAN_NOT_CONFIGURED');
       if(connectors.length===0)configurationBlockers.push('CONNECTOR_NOT_CONFIGURED');
@@ -168,7 +170,12 @@ export function createADiscoveryRuntimeServices({repository,softwareJobStore,run
           const current=jobs.filter(job=>job.jobType===A_DISCOVERY_JOB_TYPE&&job.subject.batchId===batch.batchId);
           const routeAvailable=services.some(value=>value.connector.bindingId===batch.bindingId&&value.connector.configurationVersion===batch.configurationVersion);
           const key=`${batch.batchId}:${batch.revision}`;
+          const prefix=`${key}:`;
+          const batchSelections=Object.entries(selections).filter(([id])=>id.startsWith(prefix)).map(([id,record])=>assertADiscoveryCandidateSelectionRecord(record,{batchId:batch.batchId,revision:batch.revision,marketProductId:id.slice(prefix.length)}));
+          const importedCandidates=candidates.filter(candidate=>[candidate.aDiscoveryEvidenceV1,candidate.aDiscoveryEvidenceV2].some(evidence=>evidence?.batchId===batch.batchId))
+            .map(candidate=>({candidateId:candidate.id,marketProductId:(candidate.aDiscoveryEvidenceV2??candidate.aDiscoveryEvidenceV1).marketProductId}));
           return {batch:clone(batch),candidateImport:Object.hasOwn(imports,key)?assertADiscoveryCandidateImportRecord(imports[key],{batchId:batch.batchId,revision:batch.revision}):null,
+            selections:batchSelections,importedCandidates,
             jobs:current.map(job=>({job:clone(job),receipt:Object.hasOwn(receipts,job.jobId)?assertADiscoveryReceipt(receipts[job.jobId],job):null,
               canContinue:job.status==='queued'&&job.attempt===0&&job.externalRequestState==='not_sent'&&job.revision===batch.revision&&routeAvailable&&batchConfigurationBlocker(batch)===null&&Date.parse(serverClock())<Date.parse(job.scopeBinding.expiresAt)})),
             canAuthorize:current.length===0&&batchConfigurationBlocker(batch)===null,
@@ -224,6 +231,14 @@ export function createADiscoveryRuntimeServices({repository,softwareJobStore,run
       });
       if(active&&activeExecution?.jobId!==authorized.job.jobId)return {status:'queued',jobId:authorized.job.jobId,externalRequests:0};
       return singleflight(()=>runSelected(services.find(value=>value.binding.serviceId===authorized.serviceBindingId),authorized.job));
+    },
+    async importSelected({actor,input}){
+      owner(actor);requireValue(closed(input,['batchId','expectedRevision','marketProductId'])&&isCanonicalFrozenRef(input.batchId)&&
+        Number.isSafeInteger(input.expectedRevision)&&input.expectedRevision>=0&&typeof input.marketProductId==='string'&&/^[1-9][0-9]*$/.test(input.marketProductId),'INPUT_INVALID');
+      requireValue(onSelectProduct!==null,'SERVICE_NOT_CONFIGURED');
+      const document=await repository.readSnapshot(),batch=batchFor(document,input.batchId,actor);
+      requireValue(batch.revision===input.expectedRevision,'BATCH_CHANGED');
+      return onSelectProduct({batchId:batch.batchId,revision:batch.revision,marketProductId:input.marketProductId,selectedByUserId:actor.userId});
     },
     continueSavedCurrent({actor,input}){
       owner(actor);requireValue(closed(input,['batchId','expectedRevision','jobId'])&&isCanonicalFrozenRef(input.batchId)&&isCanonicalFrozenRef(input.jobId)&&Number.isSafeInteger(input.expectedRevision)&&input.expectedRevision>=0,'INPUT_INVALID');

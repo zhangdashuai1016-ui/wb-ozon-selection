@@ -28,8 +28,10 @@ export function defaultPermitExpiryLocal(now = Date.now()) {
   return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
 }
 
-function BatchCard({ entry, onAuthorize, onContinue, onOpenCandidate }) {
+function BatchCard({ entry, onAuthorize, onContinue, onSelect, onOpenCandidate }) {
   const {batch,jobs,canAuthorize,candidateImport} = entry;
+  const imported = new Map((entry.importedCandidates ?? []).map(value=>[value.marketProductId,value.candidateId]));
+  const selections = new Map((entry.selections ?? []).map(value=>[value.marketProductId,value]));
   const [expiresAt,setExpiresAt] = useState(defaultPermitExpiryLocal);
   const [confirmed,setConfirmed] = useState(false);
   const [key,setKey] = useState(newKey);
@@ -78,6 +80,11 @@ function BatchCard({ entry, onAuthorize, onContinue, onOpenCandidate }) {
               <p>服务返回卖家原码：{product.rawSellerType ?? '未知'}；未映射为卖家身份。</p>
               <p>来源：{product.providerRecordRef}</p>
             </details></> : null}
+          {imported.has(product.productId)?<><br/><span>已在评审台。</span><button type="button" className="button secondary" onClick={()=>onOpenCandidate(imported.get(product.productId))}>查看</button></>
+            :selections.get(product.productId)?.status==='all_duplicates'?<><br/><span>该商品已存在于记录（含已淘汰），未重复建卡。</span></>
+            :['blocked','failed'].includes(selections.get(product.productId)?.status)?<><br/><span role="alert">保存失败：{selections.get(product.productId).failureClass}</span></>
+            :job.status==='completed'&&typeof onSelect==='function'?<><br/><button type="button" className="button secondary" disabled={saving}
+              onClick={()=>run(onSelect,{batchId:batch.batchId,expectedRevision:batch.revision,marketProductId:product.productId})}>选这个</button></>:null}
         </li>)}</ul></details>:null}
       {canContinue?<button type="button" className="button secondary" disabled={saving}
         onClick={()=>run(onContinue,{batchId:batch.batchId,expectedRevision:batch.revision,jobId:job.jobId})}>执行已批准且尚未发送的查询</button>:null}
@@ -89,7 +96,7 @@ function BatchCard({ entry, onAuthorize, onContinue, onOpenCandidate }) {
   </article>;
 }
 
-export default function ProductDiscoveryCard({view,onCreate,onAuthorize,onContinue,onOpenCandidate}) {
+export default function ProductDiscoveryCard({view,onCreate,onAuthorize,onContinue,onSelect,onOpenCandidate}) {
   const [planKey,setPlanKey] = useState('');
   const [targetStore,setTargetStore] = useState('');
   const [key,setKey] = useState(newKey);
@@ -124,7 +131,7 @@ export default function ProductDiscoveryCard({view,onCreate,onAuthorize,onContin
     {view.runtimeStatus==='failed'?<p role="alert">发现服务因技术异常停止，请保留当前批次核对。</p>:null}
     {view.lastAdmissionRejection?<p role="alert">已批准作业未执行：{view.lastAdmissionRejection.code}</p>:null}
     {view.batches.map(entry=><BatchCard key={`${entry.batch.batchId}:${entry.batch.revision}`} entry={entry} onAuthorize={onAuthorize}
-      onContinue={onContinue} onOpenCandidate={onOpenCandidate}/>) }
+      onContinue={onContinue} onSelect={onSelect} onOpenCandidate={onOpenCandidate}/>) }
     {view.hasMore?<p>当前显示最近 100 个批次，更早记录仍被保留。</p>:null}
   </section>;
 }

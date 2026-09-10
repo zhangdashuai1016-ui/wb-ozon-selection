@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-10T05:24:18.478Z",
+  "frozenAt": "2026-09-10T06:05:46.949Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 622,
-      "sha256": "7f9f9e67c63e942d4718da44d6bbad531e9c068c857fde77ec89329cd77a8a90",
+      "sha256": "8eb18c7ead09a770e3cf74d4670cb6870a390a9703f209fd5b00a090d474b5da",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -72,7 +72,7 @@
       },
       {
         "path": "lib/a-discovery-candidate-import.mjs",
-        "sha256": "dbd62618188f92e86d363bb15da5b3426881f8602b7575bda1a2b58fa50737d2"
+        "sha256": "e7d24d3145f7d8388f7d09b580a9bcf3916b2c4435e8e10e0fd3fc62e54478cd"
       },
       {
         "path": "lib/a-discovery-contract.mjs",
@@ -80,7 +80,7 @@
       },
       {
         "path": "lib/a-discovery-runtime-services.mjs",
-        "sha256": "1b46102b84903c3978c59f3761c99f72d2a8336eac8c79c5ab68802971294ebe"
+        "sha256": "8c495aa71d07ddb56c87f41dc9cd8182e3c7880c73c1dca08bc6d2762e545939"
       },
       {
         "path": "lib/a-discovery-software-runner.mjs",
@@ -1148,11 +1148,11 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "de1e66c8bd50c19a091abc0fe02291168166976678e0a3f3a3e6f1b9b3eb0a8a"
+        "sha256": "a2a31559be1333cfc76a4f763c477f577f1173e384941014a3cc6f32f479af96"
       },
       {
         "path": "src/App.jsx",
-        "sha256": "022630f367ddc1c96eaea06faac0cc92685ce8faf9d9e3e2a5c82bf15cdb4c82"
+        "sha256": "566097adc01d84601da988c98d1a85d9be0311e8414e7631b4d8464ad100f5f4"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1164,7 +1164,7 @@
       },
       {
         "path": "src/api.js",
-        "sha256": "b18b8a3fbeb237012dbf6e5be4b34f3e963214cc393863fd37e0b02ccd2f2888"
+        "sha256": "24446e72227d805b7defdbb7d30007531d7f0ee730cdb8913e9b1d93d419185b"
       },
       {
         "path": "src/bExactCommissionInput.js",
@@ -1280,7 +1280,7 @@
       },
       {
         "path": "src/components/ProductDiscoveryCard.jsx",
-        "sha256": "4a5a4d1f92dbc944ef31fb31a2045fe05b40ce91b5600f4811d193629bd93c47"
+        "sha256": "843fe4519b9527b5968f5fb0e26afb4a33178c83f7b60846a8d3654d03f5ebfa"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1380,11 +1380,11 @@
       },
       {
         "path": "tests/a-discovery-api-boundary.test.mjs",
-        "sha256": "97bb72e8bc2e6cbcae5cc6b360808f76ad20e505ba66c0028ab15c76f23444ca"
+        "sha256": "bf7daed4ee622432b613a20905897fde17852af10a2ae1c003a1dc564ffc18d0"
       },
       {
         "path": "tests/a-discovery-candidate-import.test.mjs",
-        "sha256": "3bc711be5f8a54ae46a05afe6b1a686781d6a5ac690eb92ea4f7c6277482c4ac"
+        "sha256": "e6b069f830c128594269506dbcd0836139a3c346c947b0b3bcf3133534ebe74d"
       },
       {
         "path": "tests/a-discovery-contract.test.mjs",
@@ -1408,7 +1408,7 @@
       },
       {
         "path": "tests/a-discovery-ui.test.mjs",
-        "sha256": "486915f8861ef4002ed6b42fcd51f31b18e7df17634d5815bc56287ae66e650a"
+        "sha256": "09612352a313788ab1c435d98a260bd6fa89d1d1fb6f0f80391cc257e4a8f466"
       },
       {
         "path": "tests/a-product-detail-api-boundary.test.mjs",

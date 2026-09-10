@@ -284,7 +284,7 @@ const aDiscoveryRuntime = createADiscoveryRuntimeServices({repository:businessSt
   serviceBindings:runtimeConfiguration.aDiscoveryServiceBindings,connectorBindings:runtimeConfiguration.aDiscoveryConnectorBindings,
   plans:runtimeConfiguration.aDiscoveryPlans,getEvidenceRecords:()=>runtimeConfiguration.aDiscoveryEvidenceRecords,
   readSecret:(runtimeConfiguration.aDiscoveryConnectorBindings[0]?.provider==='seerfar' ? createSeerfarDiscoverySecretReader : createLinkfoxDiscoverySecretReader)({bindings:runtimeConfiguration.aDiscoveryCredentialBindings,runtimeMode:runtimeConfiguration.deploymentMode}),
-  fetchImpl:fetch,onBatchReady:input=>aDiscoveryCandidateImport.importBatch(input),
+  fetchImpl:fetch,onBatchReady:input=>aDiscoveryCandidateImport.importBatch(input),onSelectProduct:input=>aDiscoveryCandidateImport.importSelectedProduct(input),
   onError:()=>{console.error('A_DISCOVERY_RUNTIME_STOPPED: 商品发现服务因异常停止，请核对已保存的批次和作业。');}
 });
 const aProductDetailApplication = createAProductDetailApplicationUseCase({repository:businessStateRepository,serverClock:now});
@@ -2929,7 +2929,7 @@ async function handleApi(req, res, pathname) {
     return json(res, 200, responseState(await readData(), req));
   }
 
-  const aDiscoveryRoute = pathname.match(/^\/api\/product-discovery\/(create|authorize|continue)$/);
+  const aDiscoveryRoute = pathname.match(/^\/api\/product-discovery\/(create|authorize|continue|select)$/);
   if (req.method === 'GET' && pathname === '/api/product-discovery' || req.method === 'POST' && aDiscoveryRoute) {
     const actor = runtimeIdentityProvider.resolveActor({request:req});
     if (actor.source !== 'authenticated_identity_provider' || actor.actorType !== 'human' || !actor.roles.includes('owner')) {
@@ -2939,7 +2939,7 @@ async function handleApi(req, res, pathname) {
       let operationResult = null;
       if (req.method === 'POST') {
         const input = await readJsonRequestBody(req, {maxBytes:8192,requireJsonContentType:true});
-        const actions = {create:'createBatch',authorize:'authorizeAndRun',continue:'continueSavedCurrent'};
+        const actions = {create:'createBatch',authorize:'authorizeAndRun',continue:'continueSavedCurrent',select:'importSelected'};
         operationResult = await aDiscoveryRuntime[actions[aDiscoveryRoute[1]]]({actor,input});
       }
       const document = await readData();

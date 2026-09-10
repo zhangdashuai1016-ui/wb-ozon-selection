@@ -24,7 +24,7 @@ const f=createADiscoveryContractFixture();
 const view=()=>({schemaVersion:'a-discovery-view-v1',plans:[f.batch.plan],bindings:[{bindingId:f.batch.bindingId,configurationVersion:f.batch.configurationVersion}],
   canPrepare:true,configurationBlockers:[],targetStores:['miska','dandanshu'],batches:[],hasMore:false,runtimeStatus:'stopped',activeExecution:null,lastAdmissionRejection:null,platformWrites:0});
 const forbidden=()=>{throw new Error('RENDER_MUST_NOT_START_WORK');};
-const props=v=>({view:v,onCreate:forbidden,onAuthorize:forbidden,onContinue:forbidden,onOpenCandidate:forbidden});
+const props=v=>({view:v,onCreate:forbidden,onAuthorize:forbidden,onContinue:forbidden,onSelect:forbidden,onOpenCandidate:forbidden});
 
 test('discovery UI offers a local preparation and never preselects a paid plan or checkbox',async()=>{
   const html=await render(props(view()));
@@ -45,7 +45,7 @@ test('saved batch shows exact plan limits and a separate explicit paid decision'
   assert.match(html,/<button[^>]*disabled=""[^>]*>批准并开始本轮搜索/);
   // The permit expiry is prefilled two hours ahead (owner decision 2026-09-10) but approval still needs the explicit checkbox.
   assert.match(html,/已默认 2 小时后，可改/);
-  const expiry=/type="datetime-local" value="(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})"/.exec(html);assert.ok(expiry,'prefilled expiry');
+  const expiry=html.match(/type="datetime-local" value="(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})"/);assert.ok(expiry,'prefilled expiry');
   const ahead=Date.parse(expiry[1])-Date.now();assert.ok(ahead>110*60*1000&&ahead<=120*60*1000,`expiry ${ahead}ms ahead`);
 });
 test('failed and unknown queries expose no replay and imported materials remain unverified',async()=>{
@@ -119,4 +119,16 @@ test('changed saved batch configuration explains why new authorization is unavai
   assert.match(html, /该批次的查询配置已变更或移除/);
   assert.match(html, /维护人员需核对当前计划/);
   assert.doesNotMatch(html, /批准并开始本轮搜索/);
+});
+
+test('completed results offer one minimal owner pick per product and mark products already in the review board',async()=>{
+  const v=view(),receipt=createADiscoveryContractReceipt(f),productId=receipt.steps[0].result.products[0].productId;
+  v.batches=[{batch:f.batch,canAuthorize:false,jobs:[{job:{...f.job,status:'completed'},receipt,canContinue:false}],candidateImport:null,selections:[],importedCandidates:[]}];
+  let html=await render(props(v)); assert.match(html,/选这个/); assert.doesNotMatch(html,/已在评审台/);
+  v.batches[0].importedCandidates=[{marketProductId:productId,candidateId:'candidate:one'}];
+  html=await render(props(v)); assert.match(html,/已在评审台/); assert.doesNotMatch(html,/选这个/);
+  v.batches[0].importedCandidates=[]; v.batches[0].selections=[{marketProductId:productId,status:'all_duplicates',candidateId:null,failureClass:null}];
+  html=await render(props(v)); assert.match(html,/未重复建卡/); assert.doesNotMatch(html,/选这个/);
+  v.batches[0]={...v.batches[0],selections:[],jobs:[{job:{...f.job,status:'failed'},receipt,canContinue:false}]};
+  html=await render(props(v)); assert.doesNotMatch(html,/选这个/);
 });
