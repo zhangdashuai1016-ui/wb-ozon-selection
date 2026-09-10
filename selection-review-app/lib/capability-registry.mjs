@@ -1636,6 +1636,7 @@ export const CAPABILITY_ARTIFACT_ASSIGNMENTS = Object.freeze([
     [
       "lib/a-discovery-contract.mjs",
       "lib/seerfar-discovery-contract.mjs",
+      "lib/seerfar-web-discovery-contract.mjs",
       "lib/seerfar-discovery-software-runner.mjs",
       "lib/a-discovery-software-runner.mjs",
       "lib/a-product-detail-contract.mjs",
@@ -1655,6 +1656,7 @@ export const CAPABILITY_ARTIFACT_ASSIGNMENTS = Object.freeze([
       "tests/a-discovery-candidate-import.test.mjs",
       "tests/a-discovery-contract.test.mjs",
       "tests/seerfar-discovery-contract.test.mjs",
+      "tests/seerfar-web-discovery-contract.test.mjs",
       "tests/seerfar-discovery-integration.test.mjs",
       "tests/a-discovery-runtime-configuration.test.mjs",
       "tests/a-discovery-runtime-services.test.mjs",

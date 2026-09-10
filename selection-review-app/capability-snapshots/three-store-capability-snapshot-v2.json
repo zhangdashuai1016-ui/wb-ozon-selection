@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-09T15:55:33.724Z",
+  "frozenAt": "2026-09-10T04:10:12.012Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 620,
-      "sha256": "e2dbbf87f693ea83a23ceb573d3bb51195cd50f1d85f3b1d24b44ebe48f8e59c",
+      "artifactCount": 622,
+      "sha256": "0afbb3719ee1e0568a61106fd2c65abb1c9bb83981b4983d1ff5f16465482724",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -320,7 +320,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "648618bf8b57ce2a859b8dc1e3f70de8e24ef23308f9677d546f274a803ed356"
+        "sha256": "dcec4cb1656f7f99d40ece49f85288aed526cc98dca0664bff9364faa01f155d"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -777,6 +777,10 @@
       {
         "path": "lib/seerfar-runtime-connector.mjs",
         "sha256": "1b1d65318222cba9e3023039e56101bb10dd70a88aa16d4d53991de0d28f814b"
+      },
+      {
+        "path": "lib/seerfar-web-discovery-contract.mjs",
+        "sha256": "24bbde5214cc241c9cb799367d9cfacda861950759f77df92448a655b0931f20"
       },
       {
         "path": "lib/software-execution-state.mjs",
@@ -2425,6 +2429,10 @@
       {
         "path": "tests/seerfar-software-server-integration.test.mjs",
         "sha256": "6683b326615c0ebc423617679e6b98a914bcda260723c16e6d6b46ff11da742b"
+      },
+      {
+        "path": "tests/seerfar-web-discovery-contract.test.mjs",
+        "sha256": "f4b7cacc1ba7b84e7193a27d1e4e65cf9c454fe6e31fee1eb73048d635168201"
       },
       {
         "path": "tests/software-execution-state.test.mjs",
@@ -4553,6 +4561,7 @@
       "paths": [
         "lib/a-discovery-contract.mjs",
         "lib/seerfar-discovery-contract.mjs",
+        "lib/seerfar-web-discovery-contract.mjs",
         "lib/seerfar-discovery-software-runner.mjs",
         "lib/a-discovery-software-runner.mjs",
         "lib/a-product-detail-contract.mjs",
@@ -4572,6 +4581,7 @@
         "tests/a-discovery-candidate-import.test.mjs",
         "tests/a-discovery-contract.test.mjs",
         "tests/seerfar-discovery-contract.test.mjs",
+        "tests/seerfar-web-discovery-contract.test.mjs",
         "tests/seerfar-discovery-integration.test.mjs",
         "tests/a-discovery-runtime-configuration.test.mjs",
         "tests/a-discovery-runtime-services.test.mjs",

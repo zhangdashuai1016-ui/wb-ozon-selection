@@ -1,3 +1,34 @@
+## 当前接班入口（2026-09-10 上午，Claude Code：PR #4 已合并；Seerfar 会员网页路线严格合同落地；旧"自动选品"来源已核实，路线待主人拍板）
+
+**状态**：PR #4 已按主人"修完再合并"合并进 `main`（22c2ef7）。当前分支 `feature/seerfar-formal-job`（自 main 建，未开 PR）。未部署、未重启 4317/4318、未读取任何凭据、零 Open API 请求；主人授权的**唯一一次**会员网页查询已于 2026-09-10 11:47（北京）消费，此后没有再查询、翻页或导出。真实首件 A→E 仍未运行。
+
+### 主人本轮决定（2026-09-10）
+
+- 三家店铺 ID 已给出并只写入本地运行配置（不入库）；首件先走 Miska。
+- 首件方向"宠物保暖"，Seerfar 只查一次；网页路线：允许开网页、主人本人登录、查询配置经主人确认。
+- 主人新问题："旧评审台最初给了 Seerfar API 就自动选出很多，是怎么做的，为什么不能复用" —— 核实结论见下，路线选择留给主人。
+
+### 本批实际改动（均为合成数据，无真实商品/卖家/查询）
+
+1. **`lib/seerfar-web-discovery-contract.mjs`**（`seerfar-member-web-discovery-v1`，provider `seerfar_web`）：会员网页 `product-report/product/search` 响应 → 严格市场商品；请求/采集/结果三层封闭字段；`normalizeSeerfarWebRecord` 只接受 Ozon SKU 与 `https://www.ozon.ru/product/<sku>` 一致、价格为正、类目三段路径完整、履约枚举合法的记录，页面专属字段（品牌、drr、折扣等）不进入结果；图片链接按采集净化惯例只保留 `ir.ozone.ru` 源与路径。核心字段与 Open API 市场商品同形（`productId/productUrl/title/price/categoryPath/rawSellerType/providerRecordRef`），另带 `currency:'RUB'` 与 `webMetrics`（卖家、履约、毛利率、增长率、重量/体积/尺寸、变体数、退货取消率、浏览/会话、上架时间）。`assertSeerfarWebDiscoveryResult` 做规范往返（存储结果重新规范化后必须逐字节一致）与范围校验（`cnTitlePath` 必须在声明类目内；跨境卖家过滤时 `rawSellerType` 必须为 1）。**尚未接入任何作业、路由、导入或 UI**；不是 Open API 合同，不得重标为 `seerfar-category-discovery-v1`。
+2. `tests/seerfar-web-discovery-contract.test.mjs`（6 项）；能力登记 11.3 增加上述两文件；来源快照再生 622 项。
+
+### 旧"自动选品"核实（供主人决定，不是建议已实施）
+
+- 旧评审台的候选不是程序自动选的：`candidates.json` 52 个候选里 48 个来源为 `codex`（2026-07-31→08-02，聊天派发的 Codex 工位人工循环），其中 32 个后来被淘汰（全部候选共淘汰 35 个）；38 条旧派发的状态为 blocked 15、superseded 8、responded_unverified 7、failed 4、needs_decision 3、completed 1。Codex 当时跑的是 Seerfar 实验室技能 `seerfar-reverse-keywords`（最深子类目 Top20 池 13 分 + 关键词反查 15 分，每平台最多 28 分；7 月 27 日两平台各一次成功）。"一下选出很多"= 把整页 Top20 直接写成候选，没有筛选规则代码；主人 8 月 4 日的教学方法（类目四维、三模型）从未落成代码。
+- 能复用且已复用：Open API transport/解析器（7 月真实响应已回放通过）；正式 `a_product_discovery` Seerfar 作业（v2 计划/范围/三步回执/预算/一次性许可/导入器）在代码里存在并有合成测试，但**默认关闭**：五个 `SELECTION_REVIEW_A_DISCOVERY_*_JSON` 配置为空，决定记录里 `seerfarConfigurationPreparation.status = draft_not_activated`，当前类目/合同/计费证据引用均为 null，不得编造。钥匙串里正式作业读取的条目（service `egg-ozon-operations-center` / account `seerfar-open-api`）本轮只核实存在（未读值）。
+- 不能"原样复用"的部分：Codex 当工位已被 AGENTS §0 退役；正式导入器按设计每批只导入 1 个未重复候选（`maxCandidates: 1`），不会再"一下很多"。
+- 两条路线汇入同一导入脊柱：**Open API 路线** ≈ 半天（写五份配置、合成干跑、主人在 UI 勾选一次性许可，真实扣点约 13–15 分/次，当前价需再核）；**网页路线** ≈ 1–1.5 天（扩展截获 + 服务端作业/路由 + `seerfar_web` 导入 + UI + 测试，每次需主人浏览器登录）。未经主人决定不启用任何一条。
+
+### 本轮验证（内置 Node 24.19，`env -i`，干净树）
+
+| 检查 | 结果 |
+| --- | --- |
+| `node scripts/run-ci-tests.mjs`（195 自包含文件） | 1859/1859 通过，0 失败 |
+| 新合同测试单跑、`assertSelfContainedTestSource` 策略 | 6/6，通过 |
+| 快照 `--check`、`git diff --check`、语法 | 通过 |
+| 隔离 API 套件 | 未跑（本批无服务端/路由改动），以推送后 CI 为准 |
+
 ## 当前接班入口（2026-09-10 凌晨，Claude Code：14 项既有失败全部处理，成本政策按主人决定落地，本地 CI 等价全绿）
 
 **状态**：分支 `fix/ci-runtime-package-test-boundary`（PR #4 → main，主人决定"修完再合并"）。本节之前的 2026-09-09 晚入口所列 14 项既有失败已全部处理；云端首轮 CI 另暴露 2 项只在 Linux 容器出现的问题，也已处理。未部署、未重启 4317/4318、未读取凭据、零外部请求；真实首件 A→E 仍未运行。
