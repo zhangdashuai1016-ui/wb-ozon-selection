@@ -182,6 +182,19 @@ export function pointsLine(discoveryView, store) {
   return remaining === null ? null : `本店查询点数还剩 ${remaining}`;
 }
 
+/** The display-only Chinese title already saved for this candidate's market product, when the round translated it. */
+export function discoveredTitleZh(discoveryView, candidate) {
+  const productId = candidate?.aDiscoveryEvidenceV2?.marketProductId ?? candidate?.aDiscoveryEvidenceV1?.marketProductId ?? null;
+  if (text(productId) === null) return null;
+  for (const entry of list(discoveryView?.batches)) {
+    for (const job of list(entry?.jobs)) {
+      const product = list(marketResultOf(entry, job?.receipt)?.products).find(value => value?.productId === productId);
+      if (product && text(product.titleZh) !== null) return product.titleZh;
+    }
+  }
+  return null;
+}
+
 export function boardColumnKey(candidate) {
   if (candidate.workflowStatus === "listed") return "live";
   const phase = typeof candidate.executionRuntime?.businessPhase === "string" ? candidate.executionRuntime.businessPhase : "";

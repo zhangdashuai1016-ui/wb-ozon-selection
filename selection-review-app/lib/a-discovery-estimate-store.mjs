@@ -114,14 +114,12 @@ function savedExchangeRate(document, at) {
 }
 
 /**
- * Owner-triggered A-stage purchase-ceiling estimate for one completed discovery batch.
- * Every input is resolved once per call and stamped into each saved record, so a number can always be traced back to
- * the official commission table, the official FX evidence and the saved GUOO tariff rows that produced it. An input
- * that cannot be resolved becomes a recorded gap: the product ends up as "needs data", never as an invented number.
+ * The official inputs every A-stage estimate shares: commission, FX and freight, each resolved from the same reader
+ * the B stage uses. Any caller that estimates one product (the owner's supplier draft) or a whole batch resolves them
+ * here, so the two paths can never drift into different numbers for the same product.
  */
-export function createADiscoveryEstimateUseCase({ repository, serverClock, rules, readers, configuration }) {
-  if (typeof repository?.transact !== 'function' || typeof repository?.readSnapshot !== 'function' || typeof serverClock !== 'function' ||
-      !isObject(rules) || ['commission', 'fx', 'tariff'].some(key => typeof readers?.[key] !== 'function') ||
+export function createADiscoveryEstimateInputs({ rules, readers, configuration }) {
+  if (!isObject(rules) || ['commission', 'fx', 'tariff'].some(key => typeof readers?.[key] !== 'function') ||
       !isObject(configuration) || !(typeof configuration.packagingRmbDefault === 'number' && Number.isFinite(configuration.packagingRmbDefault) &&
       configuration.packagingRmbDefault >= 0)) {
     throw new TypeError('A_DISCOVERY_ESTIMATE_DEPENDENCY_INVALID');
@@ -168,6 +166,23 @@ export function createADiscoveryEstimateUseCase({ repository, serverClock, rules
         sourceRef: plainText(read.sourceRef, 400) ? read.sourceRef : null };
     } catch { return null; }
   }
+
+  return Object.freeze({ assumptions, resolveCommission, resolveFreightRows, resolveExchangeRate,
+    storeRule: (document, targetStore) => storeRuleFor(document, targetStore, rules) });
+}
+
+/**
+ * Owner-triggered A-stage purchase-ceiling estimate for one completed discovery batch.
+ * Every input is resolved once per call and stamped into each saved record, so a number can always be traced back to
+ * the official commission table, the official FX evidence and the saved GUOO tariff rows that produced it. An input
+ * that cannot be resolved becomes a recorded gap: the product ends up as "needs data", never as an invented number.
+ */
+export function createADiscoveryEstimateUseCase({ repository, serverClock, rules, readers, configuration }) {
+  if (typeof repository?.transact !== 'function' || typeof repository?.readSnapshot !== 'function' || typeof serverClock !== 'function') {
+    throw new TypeError('A_DISCOVERY_ESTIMATE_DEPENDENCY_INVALID');
+  }
+  const { assumptions, resolveCommission, resolveFreightRows, resolveExchangeRate } =
+    createADiscoveryEstimateInputs({ rules, readers, configuration });
 
   return Object.freeze({
     async estimateBatch({ actor, input }) {

@@ -23,7 +23,8 @@ import ThreeStoreMap from "./components/ThreeStoreMap";
 import SelectionDesk from "./components/SelectionDesk.jsx";
 import PipelineBoard from "./components/PipelineBoard.jsx";
 import OwnerInbox from "./components/OwnerInbox.jsx";
-import { DESK_STORES, deskCounts, storeLabel } from "./selectionDeskView.js";
+import ProductPage from "./components/ProductPage.jsx";
+import { DESK_STORES, deskCounts, discoveredTitleZh, storeLabel } from "./selectionDeskView.js";
 import {
   EXTENSION_STATUS_PING,
   EXTENSION_STATUS_RESPONSE,
@@ -36,9 +37,9 @@ const INITIAL_QUEUE = "codex_processing";
 /** The owner's own pages plus the maintenance list; every older page stays reachable under 维护. */
 const DESK_VIEWS = ["desk", "board", "inbox", "maint"];
 /** Views that read the saved query results, so the read keeps running while the owner is on any of them. */
-const DISCOVERY_VIEWS = ["discovery", "desk"];
-/** Views whose product links open the review board. */
-const CANDIDATE_LINK_VIEWS = ["discovery", "desk", "board", "inbox"];
+const DISCOVERY_VIEWS = ["discovery", "desk", "product"];
+/** Views whose product links open one product page. */
+const CANDIDATE_LINK_VIEWS = ["discovery", "desk", "board", "inbox", "product"];
 const MAINTENANCE_PAGES = [
   { view: "review", label: "今日选品评审" },
   { view: "discovery", label: "软件找商品" },
@@ -46,7 +47,7 @@ const MAINTENANCE_PAGES = [
   { view: "map", label: "全店能力地图" },
   { view: "phase2a", label: "第2A模拟验收" }
 ];
-const VIEW_TITLES = { desk: "选品台", board: "进行中", inbox: "需要你处理", maint: "维护",
+const VIEW_TITLES = { desk: "选品台", board: "进行中", inbox: "需要你处理", maint: "维护", product: "商品",
   map: "全店能力地图", phase2a: "第2A模拟验收", accounts: "账户准备", discovery: "软件找商品", review: "今日选品评审" };
 export default function App() {
   const [state, setState] = useState({
@@ -121,6 +122,35 @@ export default function App() {
       if(current())setDiscoveryView(next);
     },{protect:true});
     if(current())setDiscoveryRefresh(value=>value+1);
+    return result;
+  }
+  /**
+   * The 找货 step of one product. Opening it derives the market snapshot from the already-saved query receipt and
+   * recomputes the estimate on the server; the page itself starts no work and reads no platform.
+   */
+  const [productDraftView,setProductDraftView]=useState(null);
+  const [productDraftError,setProductDraftError]=useState(null);
+  const [productDraftRefresh,setProductDraftRefresh]=useState(0);
+  const productDraftReads=useRef(createLatestRead());
+  // Switching products clears the previous product's draft; a refresh of the same product keeps what is on screen.
+  useEffect(()=>{setProductDraftView(null);},[selectedId]);
+  useEffect(()=>{
+    setProductDraftError(null);
+    if(view!=='product'||!accountOwner||!selectedId)return undefined;
+    const controller=new AbortController();
+    productDraftReads.current.run(signal=>api.getSupplierDraft(selectedId,signal),setProductDraftView,{signal:controller.signal})
+      .catch(error=>{if(!controller.signal.aborted)setProductDraftError(errorMessage(error));});
+    return ()=>{controller.abort();productDraftReads.current.cancel();};
+  },[view,accountOwnerId,selectedId,productDraftRefresh]);
+  async function runProductStep(action,payload){
+    const ownerId=accountOwnerId,candidateId=selectedId;
+    const result=await productDraftReads.current.run(()=>action(candidateId,payload),next=>{
+      if(accountContext.current.ownerId===ownerId&&accountContext.current.view==='product'&&next?.supplierDraftV1!==undefined){
+        setProductDraftView(next);
+      }
+    },{protect:true});
+    await load(true);
+    setProductDraftRefresh(value=>value+1);
     return result;
   }
   const [extensionStatus, setExtensionStatus] = useState(() => extensionConnectionStatus({
@@ -330,7 +360,8 @@ export default function App() {
     }
     selectionGuard.current.changed();
     currentView.current={queue:candidate.workflowStatus,sourceFilter:'all'};
-    setQueue(candidate.workflowStatus);setSourceFilter('all');setSelectedId(candidateId);setView('review');
+    // The desk, the board and the inbox all open the owner-facing product page; the old A card stays under 维护.
+    setQueue(candidate.workflowStatus);setSourceFilter('all');setSelectedId(candidateId);setView('product');
   }
 
   async function addCandidate(payload) {
@@ -833,6 +864,18 @@ export default function App() {
             </div>
           </div>
         )
+      ) : view === "product" ? (
+        !accountOwner ? <div className="page-panel"><p role="status">请先登录主人身份后查看这件商品。</p></div> : <ProductPage
+          candidate={state.candidates.find(item => item.id === selectedId) ?? null}
+          view={productDraftView}
+          titleZh={discoveredTitleZh(discoveryView, state.candidates.find(item => item.id === selectedId))}
+          extensionStatus={effectiveExtensionStatus}
+          loadingLabel={productDraftError ? `读取这件商品的找货资料失败：${productDraftError}` : "正在读取这件商品的找货资料…"}
+          onSaveDraft={payload => runProductStep(api.saveSupplierDraft, payload)}
+          onRequestCapture={payload => runProductStep(api.confirmRealAStage, payload)}
+          onOpenLegacyCard={() => setView("review")}
+          onBack={() => setView("desk")}
+        />
       ) : view==='discovery'?<div className="page-panel">
         {!accountOwner?<p role="status">请先登录主人身份后查看商品发现计划。</p>:<>
           <button type="button" className="button secondary" onClick={()=>setDiscoveryRefresh(value=>value+1)}>刷新发现记录</button>

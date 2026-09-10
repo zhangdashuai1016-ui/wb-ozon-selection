@@ -1116,3 +1116,51 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 .desk-dialog { margin-top: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface, #fff); display: grid; gap: 8px; }
 .desk-dialog-warning { color: #a86a12; font-weight: 600; }
 .desk-dialog-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* 商品页：主人按六步看一件商品，当前一步展开，其余折叠。 */
+.product-page { max-width: 1000px; }
+.product-header { display: grid; grid-template-columns: 88px minmax(0, 1fr) auto; gap: 14px; align-items: start; }
+.product-thumb { width: 88px; height: 88px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); background: #f6f8f7; }
+.product-thumb-empty { display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+.product-headline h2 { margin: 0 0 4px; font-size: 20px; color: var(--green); overflow-wrap: anywhere; }
+.product-subline { margin: 0; color: var(--muted); font-size: 12px; }
+.product-header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.product-stepper { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 0; padding: 0; list-style: none; }
+.product-step { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 12px; }
+.product-step-current { border-color: #b9d7ca; background: var(--green-soft); color: var(--green); font-weight: 700; }
+.product-step-index { display: grid; place-items: center; width: 17px; height: 17px; border-radius: 999px; background: #fff; border: 1px solid var(--line-dark); font-size: 10px; }
+.product-section { margin-top: 18px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; display: grid; gap: 10px; }
+.product-section h3 { margin: 0; font-size: 17px; color: var(--green); }
+.product-section-hint { margin: 0; color: var(--muted); font-size: 12px; }
+.product-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.product-field { display: grid; gap: 4px; min-width: 0; }
+.product-field-label { font-size: 11px; font-weight: 750; color: #1f2b26; }
+.product-field input { min-height: 34px; border: 1px solid var(--line-dark); border-radius: 8px; padding: 0 9px; background: #fff; font: inherit; min-width: 0; }
+.product-field-hint { color: var(--muted); font-size: 11px; }
+.product-field-error { color: #b3261e; font-size: 11px; }
+.product-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.product-actions-note { color: var(--muted); font-size: 11px; }
+.product-notice { color: var(--green); font-size: 12px; margin: 0; }
+.product-result { display: grid; gap: 5px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #f8faf9; }
+.product-result p { margin: 0; overflow-wrap: anywhere; line-height: 1.55; }
+.product-result-market { font-size: 13px; font-weight: 700; }
+.product-result-provenance, .product-result-detail { color: var(--muted); font-size: 11px; }
+.product-result-estimate { font-size: 13px; }
+.product-result-warning { color: #a86a12; font-size: 12px; display: grid; gap: 3px; }
+.product-result-route { color: var(--muted); font-size: 11px; }
+.product-capture { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; }
+.product-capture h4 { margin: 0; font-size: 14px; }
+.product-capture p { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.product-capture-hint { color: var(--muted); }
+.product-capture button { justify-self: start; }
+.product-folded { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; background: #fff; }
+.product-folded summary { display: flex; justify-content: space-between; gap: 10px; cursor: pointer; font-size: 13px; font-weight: 700; }
+.product-folded-state { color: var(--muted); font-size: 11px; font-weight: 500; }
+.product-folded p { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+
+@media (max-width: 860px) {
+  .product-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .product-header { grid-template-columns: 64px minmax(0, 1fr); }
+  .product-thumb { width: 64px; height: 64px; }
+  .product-header-actions { grid-column: 1 / -1; }
+}

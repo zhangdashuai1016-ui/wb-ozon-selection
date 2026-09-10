@@ -7,7 +7,9 @@ import { createLinkfoxDiscoverySecretReader, createSeerfarDiscoverySecretReader 
 import { createADiscoveryCandidateImportUseCase } from './lib/a-discovery-candidate-import.mjs';
 import { createDiscoveryTitleTranslator, DiscoveryTitleTranslationError } from './lib/discovery-title-translation.mjs';
 import { createADiscoveryTitleTranslationUseCase } from './lib/discovery-title-translation-store.mjs';
-import { createADiscoveryEstimateUseCase } from './lib/a-discovery-estimate-store.mjs';
+import { createADiscoveryEstimateInputs, createADiscoveryEstimateUseCase } from './lib/a-discovery-estimate-store.mjs';
+import { ensureDiscoveryMarketSalesSnapshot, readDiscoveryMarketRecord, currentSalesSnapshot } from './lib/discovery-market-snapshot.mjs';
+import { SupplierDraftError, buildSupplierDraftEstimate, buildSupplierDraftV1, normalizeSupplierDraftInput } from './lib/supplier-draft.mjs';
 import { readOzonCommissionReference } from './lib/ozon-commission-reference-reader.mjs';
 import { readGuooTariffCatalog } from './lib/guoo-tariff-reader.mjs';
 import { readCurrentCbrExchangeRate } from './lib/official-fx-reader.mjs';
@@ -163,7 +165,7 @@ import {
   normalizeListingPreparationReviewInput
 } from "./lib/listing-preparation-review-boundary.mjs";
 import { createConfiguredIdentityProvider, OwnerIdentityError } from "./lib/runtime-identity-provider.mjs";
-import { createActorContext } from "./lib/runtime-identity.mjs";
+import { assertSafeBusinessMutationCandidate, createActorContext } from "./lib/runtime-identity.mjs";
 import { createRepositoryBackedSoftwareJobStore } from "./lib/software-job-repository.mjs";
 import { createLocalDevelopmentWorkerRegistry } from "./lib/worker-registry.mjs";
 import { assertRuntimeBoundaries } from "./lib/multi-user-central-runtime.mjs";
@@ -313,19 +315,24 @@ const A_ESTIMATE_PACKAGING_RMB = (() => {
   const raw = String(process.env.SELECTION_REVIEW_A_ESTIMATE_PACKAGING_RMB ?? "").trim();
   return raw !== "" && Number.isFinite(Number(raw)) && Number(raw) >= 0 ? Number(raw) : 3;
 })();
+const aEstimateReaders = {
+  commission:input=>readOzonCommissionReference(input),
+  fx:input=>readCurrentCbrExchangeRate({...input,fetchImpl:fetch,
+    ...(process.env.SELECTION_REVIEW_CBR_FX_URL?{sourceUrl:process.env.SELECTION_REVIEW_CBR_FX_URL}:{})}),
+  tariff:input=>readGuooTariffCatalog(input)
+};
+const aEstimateConfiguration = {
+  ozonCommissionReference:runtimeConfiguration.ozonCommissionReference,
+  guooTariffFile:runtimeConfiguration.guooTariffFile,
+  packagingRmbDefault:A_ESTIMATE_PACKAGING_RMB
+};
 const aDiscoveryEstimateUseCase = createADiscoveryEstimateUseCase({
   repository:businessStateRepository,serverClock:now,rules:DEFAULT_RULES,
-  readers:{
-    commission:input=>readOzonCommissionReference(input),
-    fx:input=>readCurrentCbrExchangeRate({...input,fetchImpl:fetch,
-      ...(process.env.SELECTION_REVIEW_CBR_FX_URL?{sourceUrl:process.env.SELECTION_REVIEW_CBR_FX_URL}:{})}),
-    tariff:input=>readGuooTariffCatalog(input)
-  },
-  configuration:{
-    ozonCommissionReference:runtimeConfiguration.ozonCommissionReference,
-    guooTariffFile:runtimeConfiguration.guooTariffFile,
-    packagingRmbDefault:A_ESTIMATE_PACKAGING_RMB
-  }
+  readers:aEstimateReaders,configuration:aEstimateConfiguration
+});
+/** The owner's 找货 draft is priced with exactly the same official inputs as the discovery batch estimate. */
+const supplierDraftEstimateInputs = createADiscoveryEstimateInputs({
+  rules:DEFAULT_RULES,readers:aEstimateReaders,configuration:aEstimateConfiguration
 });
 const aProductDetailApplication = createAProductDetailApplicationUseCase({repository:businessStateRepository,serverClock:now});
 const aProductDetailRuntime = createAProductDetailRuntimeServices({repository:businessStateRepository,softwareJobStore,
@@ -2213,6 +2220,46 @@ function effectiveNeededFields(candidate) {
   ));
 }
 
+/**
+ * The purchase ceiling and the profit the owner's declared purchase price actually reaches, from the same official
+ * commission, FX and GUOO inputs as the discovery batch estimate. An input that cannot be resolved keeps the estimate
+ * incomplete; the draft is still saved, because the owner's declaration is a fact even when the pricing is not ready.
+ */
+async function supplierDraftEstimate(document, candidate, draft) {
+  const at = now();
+  const record = readDiscoveryMarketRecord({ document, candidate });
+  const marketProduct = record.status === "available" ? record.product : null;
+  let storeRule;
+  try { storeRule = supplierDraftEstimateInputs.storeRule(document, candidate.targetStore); }
+  catch { return null; }
+  const [fx, freight] = [await supplierDraftEstimateInputs.resolveExchangeRate(document, at),
+    await supplierDraftEstimateInputs.resolveFreightRows()];
+  const commission = await supplierDraftEstimateInputs.resolveCommission(
+    { categoryPath: marketProduct?.categoryPath ?? null, price: draft.targetSalePriceRub }, at);
+  return buildSupplierDraftEstimate({
+    draft, storeRule, fx, commission, tariffRows: freight.rows,
+    assumptions: supplierDraftEstimateInputs.assumptions, estimatedAt: at, marketProduct,
+    inputs: { fxSourceRef: fx?.sourceRef ?? null, fxRateDate: fx?.rateDate ?? null,
+      commissionSourceRef: commission.sourceRef, tariffRuleVersion: freight.ruleVersion,
+      costPolicyVersion: typeof storeRule.pricingPolicyVersion === "string" ? storeRule.pricingPolicyVersion : null }
+  });
+}
+
+/** What the 找货 step shows: the saved draft, the current market snapshot and a freshly recomputed estimate. */
+async function supplierDraftView(document, candidate) {
+  const draft = candidate.supplierDraftV1 ?? null;
+  const snapshot = currentSalesSnapshot(candidate);
+  return {
+    schemaVersion: "supplier-draft-view-v1",
+    candidateId: candidate.id,
+    dataRevision: candidate.dataRevision,
+    supplierDraftV1: draft === null ? null : structuredClone(draft),
+    supplierDraftEstimateV1: draft === null ? null : await supplierDraftEstimate(document, candidate, draft),
+    marketSnapshot: snapshot === null ? null : structuredClone(snapshot),
+    candidate: publicCandidate(candidate, document.rules, {}, document.evidencePacks || [], document.currentCommissionCatalogs ?? [])
+  };
+}
+
 function publicCandidate(candidate, rules, queueInfo = {}, evidencePacks = [], currentCommissionCatalogs = []) {
   const stripCaptureCredentials = capture => {
     if (!capture) return capture;
@@ -3918,6 +3965,77 @@ async function handleApi(req, res, pathname) {
   if (req.method === "POST" && listingPreparationStartRoute) {
     await requestBody(req);
     throw httpError(409, "旧“开始上架准备”入口已停用：awaiting_user_start只作为历史状态读取；新版商品必须由B通过后自动进入C1，调用本接口不会改变商品状态");
+  }
+
+  const supplierDraftRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/supplier-draft$/);
+  if (supplierDraftRoute && ["GET", "POST"].includes(req.method)) {
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      throw httpError(403, "请先登录主人身份后填写找货资料。");
+    }
+    const candidateId = decodeURIComponent(supplierDraftRoute[1]);
+    try {
+      if (req.method === "GET") {
+        // Opening 找货 derives the market snapshot once from the already-saved discovery receipt; it reads nothing external.
+        const prepared = await mutateDataWhenChanged((data) => {
+          const current = data.candidates.find((item) => item.id === candidateId);
+          if (!current) throw httpError(404, "候选不存在");
+          const outcome = ensureDiscoveryMarketSalesSnapshot({ document: data, candidate: current });
+          if (!outcome.changed) return { changed: false, result: null };
+          assertSafeBusinessMutationCandidate(current, "businessMutation.candidate");
+          current.updatedAt = now();
+          addHistory(current, "system", "discoveryMarketSnapshotDerived",
+            "已按本次查询回执保存市场快照（只读引用服务商记录，未访问平台、未改变阶段）", current.updatedAt);
+          return { changed: true, result: outcome.snapshot.snapshotId };
+        });
+        void prepared;
+        const document = await readData();
+        const candidate = document.candidates.find((item) => item.id === candidateId);
+        if (!candidate) throw httpError(404, "候选不存在");
+        return json(res, 200, await supplierDraftView(document, candidate));
+      }
+      const input = await readJsonRequestBody(req, { maxBytes: 8192, requireJsonContentType: true });
+      const normalized = normalizeSupplierDraftInput(input);
+      const snapshot = await readData();
+      const snapshotCandidate = snapshot.candidates.find((item) => item.id === candidateId);
+      if (!snapshotCandidate) throw httpError(404, "候选不存在");
+      if (Number(snapshotCandidate.dataRevision) !== normalized.dataRevision) {
+        throw httpError(409, "商品资料已变化，请刷新后重新保存找货资料", { currentRevision: snapshotCandidate.dataRevision });
+      }
+      const timestamp = now();
+      const draft = buildSupplierDraftV1(normalized, { declaredAt: timestamp });
+      const estimate = await supplierDraftEstimate(snapshot, snapshotCandidate, draft);
+      await mutateData((data) => {
+        const current = data.candidates.find((item) => item.id === candidateId);
+        if (!current) throw httpError(404, "候选不存在");
+        if (Number(current.dataRevision) !== normalized.dataRevision) {
+          throw httpError(409, "商品资料已变化，请刷新后重新保存找货资料", { currentRevision: current.dataRevision });
+        }
+        current.supplierDraftV1 = structuredClone(draft);
+        current.supplierDraftEstimateV1 = estimate === null ? null : structuredClone(estimate);
+        // The same declaration also fills the per-field owner columns the older cards already read, so nothing regresses.
+        current.sourceUrl = draft.sourceUrl;
+        current.purchasePriceRmb = draft.allInPurchaseRmb;
+        current.domesticShippingRmb = draft.domesticShippingRmb;
+        current.packedWeightKg = draft.packedWeightKg;
+        current.dimensionsCm = { ...draft.dimensionsCm };
+        current.expectedPriceRub = draft.targetSalePriceRub;
+        current.dataRevision = Number(current.dataRevision || 0) + 1;
+        current.updatedAt = timestamp;
+        current.lastModifiedBy = "user";
+        assertSafeBusinessMutationCandidate(current, "businessMutation.candidate");
+        addHistory(current, "user", "supplierDraftDeclared",
+          "主人填写的找货方案已保存为主人声明资料；未确认供货、未开始采集、未形成正式利润结论。", timestamp);
+        return current.dataRevision;
+      });
+      const savedDocument = await readData();
+      const savedCandidate = savedDocument.candidates.find((item) => item.id === candidateId);
+      if (!savedCandidate) throw httpError(404, "候选不存在");
+      return json(res, 200, await supplierDraftView(savedDocument, savedCandidate));
+    } catch (error) {
+      if (error instanceof SupplierDraftError) throw httpError(error.status, error.message, { code: error.code });
+      throw error;
+    }
   }
 
   const realAConfirmationRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/a-confirm$/);

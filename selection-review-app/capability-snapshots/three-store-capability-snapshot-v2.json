@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-10T16:56:37.242Z",
+  "frozenAt": "2026-09-10T18:01:01.947Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 637,
-      "sha256": "2512bcc6721590f03ae5d053329ece4dfac01ebd70fd901db60803ab1458dec2",
+      "artifactCount": 644,
+      "sha256": "eb610ed661e9445b2124ffb4b3509833bff155df641b6291f8769382a6f4eaf2",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -80,7 +80,7 @@
       },
       {
         "path": "lib/a-discovery-estimate-store.mjs",
-        "sha256": "3179e89c31eda8f7abc0c4764ff3f68af3b0a434489b07031f54815e7c841828"
+        "sha256": "e955b8eb6be57b9b343e253d73ced8858bf16c63c4e8d3214ea426fdf9dc61f3"
       },
       {
         "path": "lib/a-discovery-estimate.mjs",
@@ -328,7 +328,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "5546557e0f459fb8fdc082c5cddbd903ab8cf367dad728a20f369f4f66616c3f"
+        "sha256": "9920413ca884825e5de3a1c339bbb8b7b3102af0c8c9b02db5a42eceff985d7c"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -405,6 +405,10 @@
       {
         "path": "lib/d-production-preparation-contract.mjs",
         "sha256": "3e1d1b25d6ea7a385c3e21efcaca4b6ebd2ff37684749a2795b92cfd05993f2e"
+      },
+      {
+        "path": "lib/discovery-market-snapshot.mjs",
+        "sha256": "283dbcdf236f938ff057db6b9a6aaf7d9773b48c6bf77a9049d070ad5badb68e"
       },
       {
         "path": "lib/discovery-title-translation-store.mjs",
@@ -756,7 +760,7 @@
       },
       {
         "path": "lib/real-a-confirmation-card.mjs",
-        "sha256": "debb6bf8a1ec7c38657fd056c9a1684437866af13a2b08d25e697a7d9e95ae00"
+        "sha256": "ba4e07f18ae08150902f4a6edd57bac086d06df34df75ca8b216ac572cc66ffa"
       },
       {
         "path": "lib/real-c1-preparation.mjs",
@@ -780,19 +784,19 @@
       },
       {
         "path": "lib/sales-snapshot.mjs",
-        "sha256": "35402daa1f90e520c7e20eed598982527c41ee4fddcc3f4a5df3d386eacaa096"
+        "sha256": "387f48fc790de768be2ee2a51103f150d9d3bf917dfa5c462d17aa0e458116d2"
       },
       {
         "path": "lib/seerfar-discovery-contract.mjs",
-        "sha256": "5b5ce92bb32b06ea799a51fc6b8a9a3a0c5a2f24994b6cba9194b04cb5ce8d6b"
+        "sha256": "4b232f2df5b4e060c019be1d2702100a80b5383c86b0aae1052549c4c623539c"
       },
       {
         "path": "lib/seerfar-discovery-software-runner.mjs",
-        "sha256": "bf2e473a3a92b99160fd82d639e87622f98750a23890ea471b3171d4f09300dd"
+        "sha256": "05e075a453e7002e28cbfb7f98cc513404d438fb0f3c379a2690ec24e1599bf9"
       },
       {
         "path": "lib/seerfar-open-api-transport.mjs",
-        "sha256": "f960c400fc06558007742ee940bc4115b1d406adbf117ca3219cab07df96effe"
+        "sha256": "4889952f0bd98cbc130eba66b08f3158ffc2eff6de3d64d5a57b5b71bc023803"
       },
       {
         "path": "lib/seerfar-runtime-connector.mjs",
@@ -825,6 +829,10 @@
       {
         "path": "lib/store-binding.mjs",
         "sha256": "aea684659cad84c6c8e1bd2b0d57f89ac5b5e708ff319c21bd53c75c296c0310"
+      },
+      {
+        "path": "lib/supplier-draft.mjs",
+        "sha256": "5b2e403f685f3b8d05a7ef8183b06e35c661a72f0b12fe242019053c9299d075"
       },
       {
         "path": "lib/supplier-option.mjs",
@@ -872,7 +880,7 @@
       },
       {
         "path": "schema/a-discovery-v2.schema.json",
-        "sha256": "2fb331a07db77337d6d8251e91dca9f29b9d80f5811737c5f4b3a2094904a3ff"
+        "sha256": "3c4ca53d7402367f588ebad78881e3fe3eb2d7568beeb3bd7763d146293e63ad"
       },
       {
         "path": "schema/a-market-assessment-v1.1.schema.json",
@@ -1120,7 +1128,7 @@
       },
       {
         "path": "scripts/ci-test-suites.mjs",
-        "sha256": "5c169847b360b75fa35e7012f75fdfe92e3ec7ed11a43a4478af1477adf0326b"
+        "sha256": "c3176239f4594ffe9c1ede585e4d8a7580ad5b55f82ad9d9e8b81773564d87bf"
       },
       {
         "path": "scripts/deploy-local-runtime.sh",
@@ -1168,11 +1176,11 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "d22be07e1a31ef545a4f5e37128451f0c9093efbcb51bc87ab899a8c7520a7b9"
+        "sha256": "828ba88a19a7062e821b0209fb15ccad456184b84214cd3bde7b4fad1537834d"
       },
       {
         "path": "src/App.jsx",
-        "sha256": "55e9fd901b549c3bedb29bd69969f9c066fddf5a805c48f2350edf691a739992"
+        "sha256": "57615764d657e92b6c16b3f39ff03eff53d258f0106ad4348d99288afb2bd8c8"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1184,7 +1192,7 @@
       },
       {
         "path": "src/api.js",
-        "sha256": "3c3cae30fbb75623094128d617d23788a0f451f1a5887ded8adf05f416c58437"
+        "sha256": "71e7eedea364ec5659d26523386403eb7f34b224042e3455a7708e91ba6b4745"
       },
       {
         "path": "src/bExactCommissionInput.js",
@@ -1311,6 +1319,10 @@
         "sha256": "2eb0bd680b2086f3fbeebf1aff435c8e93846a99bec508e9dc1ec1b9c1135ac4"
       },
       {
+        "path": "src/components/ProductPage.jsx",
+        "sha256": "b1204944f00ea2caa0d9006f81126e808cd8a9bb290a21f39498b9cfb78cff5b"
+      },
+      {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
         "sha256": "3d39f0b292509d3a679e17c4178720fa84a27022f0b7dcee52da144d4002860f"
       },
@@ -1404,11 +1416,11 @@
       },
       {
         "path": "src/selectionDeskView.js",
-        "sha256": "f03b0a8ae0bdb88764ab85d0eaaa4d8e9bf34f712ee514275cda91750e0af2b5"
+        "sha256": "cf64088a825366dba4512d12eae48c98cee5636cc20ec2d8a7c316333fccd9c9"
       },
       {
         "path": "src/styles.css",
-        "sha256": "b38008ee669d9ba02c30850776d4225767796cddafda36b41df527ad350a7b90"
+        "sha256": "2b2dc4992b01fc918f1c9760f990cfbaee300fb84021ff3d49b5ffbbfc340662"
       },
       {
         "path": "src/wbPresentation.js",
@@ -1752,7 +1764,7 @@
       },
       {
         "path": "tests/ci-api-boundary.test.mjs",
-        "sha256": "7a67a7c37f349a8707f966ed028520a9485139fb9e365e7912fc27b20ef397b3"
+        "sha256": "3d4310610f8b999c47121651412b6de03715110a3d61348000d1b51fefde325e"
       },
       {
         "path": "tests/ci-test-policy.test.mjs",
@@ -1861,6 +1873,10 @@
       {
         "path": "tests/d-remaining-inventory-admission.test.mjs",
         "sha256": "c7a205d4289d34dccd09cdd7edbbdad550a8c94f93da6f08d0ad5823b6c371b5"
+      },
+      {
+        "path": "tests/discovery-market-snapshot.test.mjs",
+        "sha256": "c3e16d65f1c455dbbf4e2eda4d49ae0164a76e549376f334e4ef26c3cba4e186"
       },
       {
         "path": "tests/discovery-title-translation.test.mjs",
@@ -2036,7 +2052,7 @@
       },
       {
         "path": "tests/fixtures/seerfar-discovery-runtime-fixture.mjs",
-        "sha256": "00fce3ebaad783ecfe643819dfe406cb828829f2d56217af33f8dc6a744f2bdf"
+        "sha256": "472de0b8f05826887a62591e4145fbf8ac3f9056394f59aaacb98b27036a8c35"
       },
       {
         "path": "tests/fixtures/seerfar-market-entry-replay.mjs",
@@ -2379,6 +2395,10 @@
         "sha256": "155e139688399c4e02b1a0abc04d88d6f43722920e624e1317340867bf81747a"
       },
       {
+        "path": "tests/product-page-ui.test.mjs",
+        "sha256": "cde3c865d39665e5e745c9305953af35a428fb2751e2cef1cbf8b3514297947c"
+      },
+      {
         "path": "tests/production-owner-decision-api.test.mjs",
         "sha256": "a6bc75bb314c1a4be3d90d025ccd534aa9dbd6605374fb4d82093028fb87ae92"
       },
@@ -2460,15 +2480,15 @@
       },
       {
         "path": "tests/seerfar-discovery-contract.test.mjs",
-        "sha256": "98b2320e7466a6a08acbd43e96293bac36987463da506ea85041597370fc25c2"
+        "sha256": "0c196c14e64582b059432a25dc2e50e7ca42af894315527b24cc6d5ebd1fee66"
       },
       {
         "path": "tests/seerfar-discovery-integration.test.mjs",
-        "sha256": "f59d57fd9533819057399d5fa925944c624bc6dfb90dbb058db29b5767b2e3aa"
+        "sha256": "e037b9ab86263f22110dc32d81a75565cc9516dbedeaf1c3e6ecfc71d38efa57"
       },
       {
         "path": "tests/seerfar-open-api-transport.test.mjs",
-        "sha256": "eebbe78dc41b17d20a35db99fe7b4e550827b82df3933462dfa738da6ea1b603"
+        "sha256": "693d5882695f5c253942723fe34d9146e47b0349bef40d387683d5f0c6fd7b8a"
       },
       {
         "path": "tests/seerfar-runtime-connector.test.mjs",
@@ -2533,6 +2553,14 @@
       {
         "path": "tests/structured-dispatch-integration.test.mjs",
         "sha256": "b2faf5ee1295720c60a0b01fe32497d6283e69d598216288e2b184d916a313e8"
+      },
+      {
+        "path": "tests/supplier-draft-api.test.mjs",
+        "sha256": "6ace14dd55c3c966823869c020418ebdfbed59642af61c6ea60d474b180e926c"
+      },
+      {
+        "path": "tests/supplier-draft.test.mjs",
+        "sha256": "8955cdb82daef439dec618d8c3feef0ea3d70a7eecada86a6b7d31c559aee0cb"
       },
       {
         "path": "tests/supplier-option.test.mjs",
@@ -2792,6 +2820,10 @@
         },
         {
           "path": "src/components/ProductDiscoveryCard.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/ProductPage.jsx",
           "status": "present_in_integration_source"
         },
         {
@@ -4644,6 +4676,8 @@
         "lib/seerfar-web-discovery-contract.mjs",
         "lib/a-discovery-estimate.mjs",
         "lib/a-discovery-estimate-store.mjs",
+        "lib/discovery-market-snapshot.mjs",
+        "lib/supplier-draft.mjs",
         "src/selectionDeskView.js",
         "lib/discovery-title-translation.mjs",
         "lib/discovery-title-translation-store.mjs",
@@ -4669,6 +4703,10 @@
         "tests/seerfar-web-discovery-contract.test.mjs",
         "tests/a-discovery-estimate.test.mjs",
         "tests/a-discovery-estimate-store.test.mjs",
+        "tests/discovery-market-snapshot.test.mjs",
+        "tests/supplier-draft.test.mjs",
+        "tests/supplier-draft-api.test.mjs",
+        "tests/product-page-ui.test.mjs",
         "tests/selection-desk-view.test.mjs",
         "tests/selection-desk-ui.test.mjs",
         "tests/discovery-title-translation.test.mjs",

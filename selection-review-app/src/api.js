@@ -92,6 +92,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  getSupplierDraft: (candidateId, signal) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/supplier-draft`, { signal }),
+  saveSupplierDraft: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/supplier-draft`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   getState: (signal) => request("/api/state", { signal }),
   getThreeStoreMap: () => request("/api/three-store-map"),
   dispatchCandidate: (candidateId, payload) =>
