@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-10T05:22:18.785Z",
+  "frozenAt": "2026-09-10T05:24:18.478Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 622,
-      "sha256": "5024ea3ac8a90a85932b9c16dcc69cc59fd70373e67c5de81e97c57443c25051",
+      "sha256": "7f9f9e67c63e942d4718da44d6bbad531e9c068c857fde77ec89329cd77a8a90",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -72,7 +72,7 @@
       },
       {
         "path": "lib/a-discovery-candidate-import.mjs",
-        "sha256": "bcab922e717436c2c95e40ae43c89654a4b2fa64108622fdcef7269f2e361dfd"
+        "sha256": "dbd62618188f92e86d363bb15da5b3426881f8602b7575bda1a2b58fa50737d2"
       },
       {
         "path": "lib/a-discovery-contract.mjs",
@@ -2412,7 +2412,7 @@
       },
       {
         "path": "tests/seerfar-discovery-integration.test.mjs",
-        "sha256": "3c06f5bfd6927db3de5ff40161f886f2579d2dd31f7d54584d185e0e1211bffc"
+        "sha256": "118e892159b7d58f6671ee55600c3c40b5ba49e4c850809066d8a199fa4a8f36"
       },
       {
         "path": "tests/seerfar-open-api-transport.test.mjs",

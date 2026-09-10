@@ -65,6 +65,8 @@ test('Seerfar service, one job, three actual transport requests and real importe
   assert.equal(saved.candidates[0].aDiscoveryEvidenceV2.contractVersion, 'seerfar-category-discovery-v1');
   assert.equal(saved.candidates[0].aDiscoveryEvidenceV2.platform, 'ozon');
   assert.deepEqual(saved.candidates[0].aDiscoveryEvidenceV2.supplierReceiptRefs, []);
+  // The provider's main image travels to the candidate card so the owner can image-search 1688; nothing else is filled in.
+  assert.equal(saved.candidates[0].imageUrl, 'https://images.example.test/synthetic-organizer.png');
   assert.equal(saved.candidates[0].productUrl, syntheticMarketProduct().productUrl);
   const bytes = await fs.readFile(f.filePath, 'utf8');
   assert.equal(bytes.includes('synthetic-secret-only'), false);

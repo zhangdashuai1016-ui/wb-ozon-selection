@@ -105,7 +105,9 @@ export function createADiscoveryCandidateImportUseCase({ repository, serverClock
         if (product) {
           const id = `candidate:${randomUUID()}`;
           requireValue(isCanonicalFrozenRef(id) && !document.candidates.some(value=>value.id===id), 'IMPORT_CANDIDATE_CONFLICT');
-          const candidate = createInitialCandidate({input:{targetStore:batch.targetStore,productName:product.title,productUrl:product.productUrl},
+          const candidate = createInitialCandidate({input:{targetStore:batch.targetStore,productName:product.title,productUrl:product.productUrl,
+            // The provider's main image is display-only evidence for the owner's supplier search; it is not a listing asset.
+            imageUrl:typeof product.imageUrl==='string'?product.imageUrl:''},
             source:'software',id,timestamp:at,storeBindings});
           candidate.targetPlatform = 'ozon';
           const seerfar = batch.plan.provider === 'seerfar';
