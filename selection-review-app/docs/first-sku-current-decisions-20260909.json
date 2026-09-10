@@ -210,19 +210,29 @@
     "maximumTotalSampleCount": 5
   },
   "seerfarConfigurationPreparation": {
-    "status": "draft_not_activated",
-    "runtimeConfigurationWritten": false,
+    "status": "drafted_validated_not_deployed_not_authorized",
+    "runtimeConfigurationWritten": true,
     "authorizationGranted": false,
-    "sourceTask": "施工前讨论语音五",
+    "sourceTask": "Claude Code 2026-09-10 (owner chose the Open API route first: 先走api同意)",
     "targetStore": "miska",
-    "currentDirection": null,
-    "currentCategoryId": null,
-    "currentCategoryEvidenceRef": null,
-    "currentContractEvidenceRef": null,
-    "currentCostEvidenceRef": null,
-    "currentBudget": null,
-    "credentialLocator": null,
-    "missingMeaning": "Current evidence is not verified; historical identity is recovered, not a failed current request.",
+    "currentDirection": "宠物保暖 → Ozon 宠物用品 > 携带和睡眠配件 > 宠物躺床",
+    "currentCategoryId": "17027487_17028674_95203",
+    "currentCategoryEvidenceRef": "evidence:seerfar-web-trial-2026-09-10:category:17027487_17028674_95203",
+    "currentContractEvidenceRef": "evidence:seerfar-lab-2026-07-27:category-detail-contract",
+    "currentCostEvidenceRef": "evidence:seerfar-lab-2026-07-27:category-detail-points",
+    "currentBudget": {
+      "unit": "seerfar_points",
+      "maxRequests": 3,
+      "maxCredits": 20,
+      "estimatedPointsByStep": {
+        "quota_before": 0,
+        "category_detail": 13,
+        "quota_after": 0
+      },
+      "costBasis": "2026-07-27 observed 13 points per category Top20 query; current price not re-verified; cap 20 leaves margin"
+    },
+    "credentialLocator": "macos_keychain (owner-stored item; names kept in the local runtime-config directory, not in this repository)",
+    "missingMeaning": "Configuration is drafted and offline-validated; nothing is deployed, authorized or billed. Owner deploy approval (cold backup first) and the UI one-use permit are still required.",
     "historicalMapping": {
       "observedOn": "2026-07-27",
       "platform": "ozon",
@@ -245,7 +255,32 @@
       "currentDirectionSelected": false,
       "currentFeeReusable": false
     },
-    "nextEngineering": "Category identity and frozen-plan gates are implemented. Complete in-progress final-pricing verification, then rebuild the existing runtime review package. Real Seerfar activation still requires verified current category, data and billing evidence; do not fabricate references."
+    "nextEngineering": "Owner approves deployment (cold backup → install package → launchd env → restart 4317), then authorizes the single category query in the UI; the job imports one 待核验 candidate for Miska and B starts from it.",
+    "configurationLocation": "local, outside the repository: ~/.local/share/wb-ozon-engineering/first-sku-runtime-config/a-discovery-seerfar-20260910/",
+    "verification20260910": {
+      "normalizersPassed": true,
+      "evidenceResolves": true,
+      "fullRuntimeConfigurationParse": true,
+      "isolatedDryRun": {
+        "runtimeStatus": "running",
+        "canPrepare": true,
+        "configurationBlockers": [],
+        "batchCreated": true,
+        "idempotentReplay": true,
+        "canAuthorize": true,
+        "jobs": 0,
+        "authorizations": 0,
+        "externalRequests": 0,
+        "stderrBytes": 0
+      },
+      "runtimePackage": {
+        "path": "~/.local/share/wb-ozon-engineering/runtime-packages/20260910-seerfar-first-sku-r6",
+        "prepared": true,
+        "startupVerifiedOnIsolatedPort": true,
+        "installed": false,
+        "activated": false
+      }
+    }
   },
   "c1DraftConfigurationPreparation": {
     "status": "validated_not_activated",
@@ -550,11 +585,24 @@
     "includedInSettlement": "unsupported until the formula has a verified carrying charge/basis; do not turn into zero",
     "ownerDecision20260909": {
       "decision": "option_1_keep_evidenced_policy_seed_from_approved_costs",
-      "notApplicableByOwner": ["acquiringRate", "taxRate", "otherRate"],
-      "seededFromApprovedHistory": { "labelRmb": 1.5, "fixedOtherRmb": "not_applicable", "advertisingRate": 0, "returnReserveRate": 0.05, "damageReserveRate": 0.05, "withdrawalFeeRate": 0.02 },
+      "notApplicableByOwner": [
+        "acquiringRate",
+        "taxRate",
+        "otherRate"
+      ],
+      "seededFromApprovedHistory": {
+        "labelRmb": 1.5,
+        "fixedOtherRmb": "not_applicable",
+        "advertisingRate": 0,
+        "returnReserveRate": 0.05,
+        "damageReserveRate": 0.05,
+        "withdrawalFeeRate": 0.02
+      },
       "templateVersion": "owner-approved-store-costs-2026-09-09-v1",
       "carrier": "lib/workflow.mjs ownerApprovedStoreCostPolicy -> DEFAULT_RULES.<store>.costPolicy; B binds it to the candidate scope",
-      "salesSchemes": ["rfbs"],
+      "salesSchemes": [
+        "rfbs"
+      ],
       "storeIdentityStillRequired": true
     },
     "runtimePolicyCreated": true,

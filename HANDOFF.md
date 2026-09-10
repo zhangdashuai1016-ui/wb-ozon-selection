@@ -1,3 +1,28 @@
+## 当前接班入口（2026-09-10 中午，Claude Code：主人拍板"先走 API"；Seerfar 正式作业配置已起草并离线干跑通过；运行包已备好；待主人批准部署）
+
+**状态**：分支 `feature/seerfar-formal-job`。主人回复"先走api同意"。五份 A 发现配置（连接器、服务、凭据定位、计划、证据记录）与店铺绑定已写在**仓库外**本地目录 `~/.local/share/wb-ozon-engineering/first-sku-runtime-config/a-discovery-seerfar-20260910/`（README 记录全部取值与来源）。未部署、未重启 4317/4318、未读取密钥值、零 Seerfar 请求、零扣点。
+
+### 配置要点
+
+- 计划：Ozon 类目 `17027487_17028674_95203`（宠物用品 > 携带和睡眠配件 > 宠物躺床，来自 9 月 10 日主人授权的那次网页查询），履约 `RFBS`（与 7 月真实请求一致），第 1 页 20 条，每批只导入 1 个候选，排除项为已有决定（旧候选不复活；只做类目发现）。
+- 预算：3 次请求（查询前额度、类目、查询后额度），上限 20 分；计费证据是 7 月 27 日实扣 13 分（`seerfar-lab …/run_summary.json`），当前单价未重核，回执以实测为准；实扣超 20 则 BUDGET_EXCEEDED 不导入。
+- 凭据：凭据绑定指向主人已放入钥匙串的条目（名称只在本地 README）；读取发生在主人授权后的作业里，`local_development` 模式且 macOS。
+- 证据记录有效期 2026-10-10；过期后作业拒绝新授权（EVIDENCE_EXPIRED）。
+
+### 本轮验证
+
+| 检查 | 结果 |
+| --- | --- |
+| 五份配置经应用 normalizer/assert；证据按计划三引用解析；`createSelectionReviewRuntimeConfiguration` 全量解析 | 通过 |
+| 隔离端口干跑（源码 `server.mjs --api-only`，临时数据，本地密码身份）：视图 `running`/`canPrepare=true`/无阻塞；创建批次 200 且幂等；`canAuthorize=true` | 0 作业、0 许可、0 外部请求、stderr 空 |
+| 运行包 `~/.local/share/wb-ozon-engineering/runtime-packages/20260910-seerfar-first-sku-r6`（本分支源码 + 新 dist）`prepareRuntimePackage` 生成；隔离端口启动 `/api/health` ok、首页 200 | 通过；未安装、未激活 |
+
+### 下一步（需主人）
+
+1. 批准部署：冷备数据与 plist → 安装运行包到版本目录 → plist 指向新版本并写入六个环境变量 → 重启 4317 → 核对健康与登录。
+2. 主人在商品发现卡：创建批次 → 填许可截止时间、勾选同意 → 批准并开始（首次读钥匙串可能弹"允许访问"）。
+3. 作业完成即导入 1 个 Miska 待核验候选；之后进入 B（成本/利润，店铺成本政策已就绪）。
+
 ## 当前接班入口（2026-09-10 上午，Claude Code：PR #4 已合并；Seerfar 会员网页路线严格合同落地；旧"自动选品"来源已核实，路线待主人拍板）
 
 **状态**：PR #4 已按主人"修完再合并"合并进 `main`（22c2ef7）。当前分支 `feature/seerfar-formal-job`（自 main 建，未开 PR）。未部署、未重启 4317/4318、未读取任何凭据、零 Open API 请求；主人授权的**唯一一次**会员网页查询已于 2026-09-10 11:47（北京）消费，此后没有再查询、翻页或导出。真实首件 A→E 仍未运行。
