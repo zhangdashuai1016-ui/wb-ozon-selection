@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-10T16:32:46.354Z",
+  "frozenAt": "2026-09-10T16:56:37.242Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 637,
-      "sha256": "09e7497d4c3ac5d929740c17ed20888685d93e43d8e160ea71529a1b2ead0daf",
+      "sha256": "2512bcc6721590f03ae5d053329ece4dfac01ebd70fd901db60803ab1458dec2",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -836,7 +836,7 @@
       },
       {
         "path": "lib/three-store-map.mjs",
-        "sha256": "be34cc0371de3a8ab331305e4ac09522dfc765046ca6c105b5d98992d27c95a7"
+        "sha256": "8d24e304ce208c82bdaea27e8e7c6c360e20dfef3af4d33f272097527717a979"
       },
       {
         "path": "lib/wb-commission-reference-reader.mjs",
@@ -2552,7 +2552,7 @@
       },
       {
         "path": "tests/three-store-map.test.mjs",
-        "sha256": "402bd311f18126b11433efb7c03ee59482f66d3b058336efb7c5addef08a777d"
+        "sha256": "7d24dd4e8b8871d750bffd8e1d66c9b12b4630893d423993b5f1145c0e8cdcd3"
       },
       {
         "path": "tests/wb-commission-reference-reader.test.mjs",
