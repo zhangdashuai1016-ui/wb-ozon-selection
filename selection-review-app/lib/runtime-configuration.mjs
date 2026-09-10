@@ -264,6 +264,19 @@ function aDiscoveryConfiguration(env) {
     aProductDetailConnectorBindings,aProductDetailServiceBindings,aProductDetailCredentialBindings };
 }
 
+/** Optional local pointer to the saved Ozon official commission workbook JSON; absent means not configured. */
+export function normalizeOzonCommissionReferenceConfiguration(config) {
+  const invalid = () => new Error("OZON_COMMISSION_REFERENCE_CONFIGURATION_INVALID: Ozon官方佣金参考表配置必须提供绝对路径和CN卖家范围");
+  if (config === null || config === undefined) return null;
+  if (!exactConfigurationKeys(config, ["catalogPath", "sellerRegion"]) ||
+      typeof config.catalogPath !== "string" || config.catalogPath !== config.catalogPath.trim() ||
+      config.catalogPath === "" || config.catalogPath.includes("\0") || !path.isAbsolute(config.catalogPath) ||
+      config.sellerRegion !== "CN") {
+    throw invalid();
+  }
+  return Object.freeze({ catalogPath: path.resolve(config.catalogPath), sellerRegion: config.sellerRegion });
+}
+
 export const RUNTIME_MODES = Object.freeze(["local_development", "central_test", "central_production"]);
 export const STATE_ADAPTERS = Object.freeze(["json", "memory", "postgres"]);
 
@@ -431,6 +444,15 @@ export function createSelectionReviewRuntimeConfiguration({ env = process.env, a
     }
   }
   ossRuntimeConfiguration = normalizeAliyunOssRuntimeConfiguration(ossRuntimeConfiguration);
+  let ozonCommissionReferenceInput = null;
+  if (Object.hasOwn(env, "SELECTION_REVIEW_OZON_COMMISSION_REFERENCE_JSON")) {
+    try { ozonCommissionReferenceInput = JSON.parse(env.SELECTION_REVIEW_OZON_COMMISSION_REFERENCE_JSON); }
+    catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      throw new Error("OZON_COMMISSION_REFERENCE_CONFIGURATION_INVALID: Ozon官方佣金参考表配置必须是有效JSON，未加载配置");
+    }
+  }
+  const ozonCommissionReference = normalizeOzonCommissionReferenceConfiguration(ozonCommissionReferenceInput);
   const deploymentMode = String(env.SELECTION_REVIEW_RUNTIME_MODE || "local_development").trim();
   if (!RUNTIME_MODES.includes(deploymentMode)) throw new Error("RUNTIME_CONFIGURATION_INVALID: deploymentMode无效");
   let c1DraftServiceBindings = [];
@@ -554,6 +576,7 @@ export function createSelectionReviewRuntimeConfiguration({ env = process.env, a
     ozonAccountDiscoveryBindings,
     ozonDECredentialBindings,
     ossRuntimeConfiguration,
+    ozonCommissionReference,
     c1DraftServiceBindings,
     keywordEvidenceServiceBindings,
     ...discoveryConfiguration,

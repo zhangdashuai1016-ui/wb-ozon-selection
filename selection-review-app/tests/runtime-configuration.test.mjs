@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   createSelectionReviewRuntimeConfiguration,
   normalizeKeywordEvidenceServiceBindings,
+  normalizeOzonCommissionReferenceConfiguration,
   normalizeServiceOrigin
 } from "../lib/runtime-configuration.mjs";
 
@@ -206,4 +207,41 @@ test("独立E消费者仅接受显式受限间隔，不借用D观察配置", () 
   for (const value of ["", "null", "0", "999", "-1", "1000.0", "1e3", "2147483648", " 1000", 1000, undefined]) {
     assert.throws(() => create({ SELECTION_REVIEW_E_READBACK_PUMP_INTERVAL_MS: value }), /E_READBACK_RUNTIME_CONFIGURATION_INVALID/);
   }
+});
+
+test("Ozon官方佣金参考表配置默认未启用，显式配置要求绝对路径和CN卖家范围", () => {
+  const create = env => createSelectionReviewRuntimeConfiguration({ env, appDir: APP_DIR, argv: [] });
+  assert.equal(create({}).ozonCommissionReference, null);
+
+  const catalogPath = "/private/tmp/ozon-commission-reference-test/ozon-china-2026-09-10.json";
+  const config = create({ SELECTION_REVIEW_OZON_COMMISSION_REFERENCE_JSON: JSON.stringify({ catalogPath, sellerRegion: "CN" }) });
+  assert.deepEqual(config.ozonCommissionReference, { catalogPath, sellerRegion: "CN" });
+  assert.ok(Object.isFrozen(config.ozonCommissionReference));
+
+  // Explicit JSON null mirrors the OSS runtime configuration convention: still "not configured", not an error.
+  assert.equal(create({ SELECTION_REVIEW_OZON_COMMISSION_REFERENCE_JSON: "null" }).ozonCommissionReference, null);
+  for (const value of ["", "broken-json"]) {
+    assert.throws(() => create({ SELECTION_REVIEW_OZON_COMMISSION_REFERENCE_JSON: value }),
+      /OZON_COMMISSION_REFERENCE_CONFIGURATION_INVALID/);
+  }
+  for (const bad of [
+    { catalogPath, sellerRegion: "CN", extra: "must-not-appear" },
+    { catalogPath: "relative/ozon-china.json", sellerRegion: "CN" },
+    { catalogPath, sellerRegion: "RU" },
+    { catalogPath: "", sellerRegion: "CN" },
+    { catalogPath: `${catalogPath} `, sellerRegion: "CN" },
+    { sellerRegion: "CN" }
+  ]) {
+    assert.throws(() => create({ SELECTION_REVIEW_OZON_COMMISSION_REFERENCE_JSON: JSON.stringify(bad) }),
+      error => /OZON_COMMISSION_REFERENCE_CONFIGURATION_INVALID/.test(error.message) && !error.message.includes("must-not-appear"));
+  }
+});
+
+test("normalizeOzonCommissionReferenceConfiguration resolves a clean absolute path and rejects a non-absolute one directly", () => {
+  assert.equal(normalizeOzonCommissionReferenceConfiguration(null), null);
+  assert.equal(normalizeOzonCommissionReferenceConfiguration(undefined), null);
+  const normalized = normalizeOzonCommissionReferenceConfiguration({ catalogPath: "/tmp/a/../a/ozon.json", sellerRegion: "CN" });
+  assert.equal(normalized.catalogPath, "/tmp/a/ozon.json");
+  assert.throws(() => normalizeOzonCommissionReferenceConfiguration({ catalogPath: "ozon.json", sellerRegion: "CN" }),
+    /OZON_COMMISSION_REFERENCE_CONFIGURATION_INVALID/);
 });

@@ -727,7 +727,8 @@ export const CAPABILITY_NODES = Object.freeze([
     position: { x: 360, y: 70 },
     codeRefs: [capabilityRef("lib/lifecycle-b-real-evidence-readers.mjs", "createLifecycleBRealEvidenceReaders", "B 真实证据读者")],
     testRefs: [capabilityRef("tests/lifecycle-b-real-evidence-readers.test.mjs", "test(", "证据读者测试")],
-    artifactRefs: ["lib/lifecycle-b-evidence-providers.mjs", "lib/wb-commission-reference-reader.mjs", "tests/wb-commission-reference-reader.test.mjs"]
+    artifactRefs: ["lib/lifecycle-b-evidence-providers.mjs", "lib/wb-commission-reference-reader.mjs", "tests/wb-commission-reference-reader.test.mjs",
+      "lib/ozon-commission-reference-reader.mjs", "tests/ozon-commission-reference-reader.test.mjs"]
   }),
   capability({
     id: "3.3", capabilityId: "selection.b.logistics-fx", areaId: "3",
