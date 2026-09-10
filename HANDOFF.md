@@ -88,6 +88,12 @@
 - 验证：全套 CI 1914/1914；快照 637；运行包 `20260911-selection-desk-r11` 隔离启动通过。**待主人批准部署**：部署时 plist 需新增 `SELECTION_REVIEW_OZON_COMMISSION_REFERENCE_JSON`（本地 `first-sku-runtime-config/ozon-commission-reference.json`，已在 env-map）。
 - 已知限制：本批 20 条无尺寸重量（合同 v3 之前查询），要看到运费和采购区间需再查一次（约 10 分）；看板和收件箱只显示候选原标题，无中文。
 
+### 部署 r11（2026-09-11 00:39，主人"批准部署"）
+
+- 冷备 `cold-backups/20260911-003835/`；安装 `20260911-selection-desk-r11`（提交 81ee334）；plist 改程序路径/工作目录并新增 `SELECTION_REVIEW_OZON_COMMISSION_REFERENCE_JSON`（含 versionState）；重启后 `running`、health ok、首页 200、新包 `index-BWUqSWPK.js`、5 个 A 发现变量 + 佣金表变量在、r9 进程无残留、stderr 无新增。r9 目录保留可回退。
+- 线上现在：登录后默认进入选品台（待你决定卡片流、右栏、进行中看板、需要你处理、维护）；"找一轮新品"为一次费用确认后全自动；算利润区间与 B 阶段官方佣金均已生效；旧页面在"维护"里。
+- 主人下一步：在选品台任选一款小猫窝点"要"（只为跑通首件流水线，不代表选品口径），之后进入找货（贴 1688 链接）。
+
 ### 下一步（需主人）
 
 1. ~~批准部署~~（已完成）：冷备数据与 plist → 安装运行包到版本目录 → plist 指向新版本并写入六个环境变量 → 重启 4317 → 核对健康与登录。
