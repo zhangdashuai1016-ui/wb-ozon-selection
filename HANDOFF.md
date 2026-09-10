@@ -102,11 +102,21 @@
 - **配置变更**：主人装好采集插件（ID `dakjehbcohonajmppgapfdpbdcmfbgdk`，版本 1.2.7），经主人"重启"确认后 plist 写入 `SELECTION_REVIEW_ALLOWED_EXTENSION_ORIGINS=chrome-extension://dakjehbcohonajmppgapfdpbdcmfbgdk` 并重启 4317（01:21，版本仍 r11，预检 204，旧 plist 备份在 cold-backups）。
 - 主人批准读一次 Seerfar 会员网页取"宠物服装"类目 ID（不查询不扣分）；会话已过期，等主人在应用内浏览器面板重新登录。Miska Seller API Key 经主人确认可用于 D 阶段。
 
+### 宠物服装方向配置、查询过滤器与新"找货"页落地（2026-09-11 凌晨，Opus 子代理施工、主会话审查）
+
+- Seerfar 类目树：主人"可以"后读取公开静态文件 `https://seerfar-cn.tos-accelerate.volces.com/public/prod/categoryTree.txt`（gzip），宠物服装 = `17027487_17028966_96063`（宠物用品 > 宠物服装和靴子 > 宠物服装）；树与读取回执存 `~/.local/share/wb-ozon-engineering/seerfar-category-tree-20260911/`。未查询、未扣点。
+- 本地计划（仓库外 `a-discovery-seerfar-20260910/plans.json`）新增**第一位**计划 `plan:miska-first-sku-pet-clothing-2026-09-11`：类目同上、RFBS、第 1 页 20 条、筛选 **售价 ≥ 800 卢布、重量 ≤ 1000 克**；证据记录 `evidence:seerfar-first-sku-pet-clothing-2026-09-11`（类目证据引用上面的读取回执）。离线用 assertADiscoveryPlan / resolveSeerfarDiscoveryEvidence 解析通过（两个计划都解析到各自证据）。选品台"找一轮新品"取 plans[0]，所以 **r12 重启后才会用新方向；重启前点"找一轮新品"仍按旧的宠物躺床方向再扣一次点**。
+- 查询过滤器（子代理；contract 17/17、transport 22/22、integration 31/31）：请求可带 `filters {priceRub, weightGrams, volumeLitres, salesCount}`（各 `{min,max}`），透传到 Open API，回执记录 `appliedFilters`，`describeSeerfarFilters` 供界面显示。
+- 新"找货"页（子代理；supplier-draft 6/6、discovery-market-snapshot 5/5、product-page-ui 5/5、supplier-draft-api 1/1）：选品台/进行中/收件箱点商品进入"商品"页（六步进度条，从选定到上架回读）。找货表单只收 1688 链接（detail.1688.com 详情或 qr.1688.com 短链）、货价、国内运费、打包重量、长宽高、目标成交价（默认取 Seerfar 快照价，可改）；保存即按官方佣金 / 央行汇率 / GUOO 资费重算采购上限、单件利润、利润率、是否过线；无可走线路时提示"需折叠到单边 ≤60 厘米或按大件 ≥2.001 公斤申报"（数字来自资费表，不写死）。路由 `GET|POST /api/candidates/:id/lifecycle/supplier-draft` 仅主人、封闭输入、修订号不符 409；GET 首次打开时从已保存的 Seerfar 回执派生销售快照（source `seerfar_category_detail`，只读引用，不访问平台）。保存同时回填旧字段（sourceUrl、purchasePriceRmb 含国内运费、domesticShippingRmb、packedWeightKg、dimensionsCm、expectedPriceRub）；旧 A 卡收进"打开旧版A卡"。
+- 主人 2026-09-11 凌晨提出（**未实施**，应并入"反算接入"）：从 1688 链接起步时，Ozon 目标售价不应由主人填，应由软件反查；玲珑 AI 只负责由中文标题生成俄文检索词并挑同类，价格数字必须来自 Seerfar 真实查询或平台读数，不能由模型估。现状：Seerfar 来的商品价格自动带入；纯 1688 起步目前需主人填目标价，这一点主人已否定。
+- 集成结果（Opus 子代理，02:2x）：提交 `206a906`（查询过滤器）与 `a2b5672`（找货页 + 快照 644 项 + CI 分类修复），已推送 origin。全量自含套件 **1934/1934**（`run-ci-tests.mjs` 在 HEAD 上原本跑不起来：28f42ce 给 three-store-map.test.mjs 加了 `server.mjs` 字面量却未分类，已在 a2b5672 归入 SOURCE_CONTRACT_TESTS）。隔离 API 套件按 `run-ci-api-tests.mjs` 同款方式直接 `node --test` 跑 51 文件：**236/238**，`supplier-draft-api` 通过；两项失败为既有问题（clean HEAD 复现）：`collaboration-api.test.mjs:272` 旧派发 claim 期望 200 实得 409、`phase-2a-api-guards.test.mjs:184` 拒绝文案与正则不符，均属 28f42ce 退役旧派发通道后的测试期望未更新，未改动，待裁决改路由还是改期望。另：`run-local-api-tests.mjs` 在本机跑不了 51 个隔离测试中的 31 个（要求源码含 `SELECTION_REVIEW_TEST_PORT` 字面量），既有缺口。vite 构建通过。r12 运行包 `~/.local/share/wb-ozon-engineering/runtime-packages/20260911-product-page-r12`（5437 文件、233 MB，node 与 r11 同一二进制）隔离启动（端口 4611、临时数据目录、无密钥无店铺 ID）：health 200、首页 200、资源 200、stderr 空。**未部署，待主人批准。**
+
 ### 下一步（需主人）
 
-1. ~~批准部署~~（已完成）：冷备数据与 plist → 安装运行包到版本目录 → plist 指向新版本并写入六个环境变量 → 重启 4317 → 核对健康与登录。
-2. 主人在商品发现卡：创建批次 → 填许可截止时间、勾选同意 → 批准并开始（首次读钥匙串可能弹"允许访问"）。
-3. 作业完成即导入 1 个 Miska 待核验候选；之后进入 B（成本/利润，店铺成本政策已就绪）。
+1. 批准部署 r12：冷备数据与 plist → 安装到版本目录 → plist 指向 r12（环境变量不变，计划文件已在原路径更新）→ 重启 4317 → 核对健康、登录、选品台显示"宠物服装"方向。
+2. r12 上线后再在选品台点"找一轮新品"（约 10 分）；上线前不要点。
+3. 从 20 条里挑品 → 商品页"找货"填 1688 资料 → 看是否过线 → 申请插件采集。
+4. 待裁决：1688 起步的反查机制（AI 生成俄文词 + Seerfar 关键词查询，每次查询扣点需主人同意）排在本轮之后立即做，还是先做 AI 选品层。
 
 ## 当前接班入口（2026-09-10 上午，Claude Code：PR #4 已合并；Seerfar 会员网页路线严格合同落地；旧"自动选品"来源已核实，路线待主人拍板）
 
