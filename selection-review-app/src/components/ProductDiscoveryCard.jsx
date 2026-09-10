@@ -20,10 +20,17 @@ const configurationLabels = {
   PLAN_NOT_SUPPORTED:'已配置服务不能执行计划中的全部查询：维护人员需核对计划与服务能力。'
 };
 const newKey = () => `product-discovery:${crypto.randomUUID()}`;
+const DEFAULT_PERMIT_WINDOW_MS = 2 * 60 * 60 * 1000;
+/** Prefilled permit expiry for the datetime-local input: two hours ahead in the viewer's local time, still editable. */
+export function defaultPermitExpiryLocal(now = Date.now()) {
+  const at = new Date(now + DEFAULT_PERMIT_WINDOW_MS); at.setSeconds(0, 0);
+  const pad = value => String(value).padStart(2, '0');
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
 
 function BatchCard({ entry, onAuthorize, onContinue, onOpenCandidate }) {
   const {batch,jobs,canAuthorize,candidateImport} = entry;
-  const [expiresAt,setExpiresAt] = useState('');
+  const [expiresAt,setExpiresAt] = useState(defaultPermitExpiryLocal);
   const [confirmed,setConfirmed] = useState(false);
   const [key,setKey] = useState(newKey);
   const [saving,setSaving] = useState(false);
@@ -48,7 +55,7 @@ function BatchCard({ entry, onAuthorize, onContinue, onOpenCandidate }) {
     {entry.configurationBlocker==='PLAN_NOT_CONFIGURED'?<p role="alert">该批次的查询配置已变更或移除，已停止新授权和未发送查询；维护人员需核对当前计划。</p>:null}
     {entry.configurationBlocker?.startsWith('EVIDENCE_')?<p role="alert">{configurationLabels[entry.configurationBlocker]}</p>:null}
     {canAuthorize?<>
-      <label>本轮查询许可截止时间<input type="datetime-local" value={expiresAt} onChange={event=>{setExpiresAt(event.target.value);setConfirmed(false);setKey(newKey());}}/></label>
+      <label>本轮查询许可截止时间（已默认 2 小时后，可改）<input type="datetime-local" value={expiresAt} onChange={event=>{setExpiresAt(event.target.value);setConfirmed(false);setKey(newKey());}}/></label>
       <label><input type="checkbox" checked={confirmed} onChange={event=>setConfirmed(event.target.checked)}/>
         我同意按上面的范围和积分上限执行这一轮搜索</label>
       <button type="button" className="button primary" disabled={saving||!confirmed||!Number.isFinite(expiry)||expiry<=Date.now()}

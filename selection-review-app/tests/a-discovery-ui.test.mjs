@@ -43,6 +43,10 @@ test('saved batch shows exact plan limits and a separate explicit paid decision'
   assert.match(html,/失败或空结果是否扣费尚未确认/);
   assert.doesNotMatch(html,/<input[^>]*type="checkbox"[^>]*checked/);
   assert.match(html,/<button[^>]*disabled=""[^>]*>批准并开始本轮搜索/);
+  // The permit expiry is prefilled two hours ahead (owner decision 2026-09-10) but approval still needs the explicit checkbox.
+  assert.match(html,/已默认 2 小时后，可改/);
+  const expiry=/type="datetime-local" value="(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})"/.exec(html);assert.ok(expiry,'prefilled expiry');
+  const ahead=Date.parse(expiry[1])-Date.now();assert.ok(ahead>110*60*1000&&ahead<=120*60*1000,`expiry ${ahead}ms ahead`);
 });
 test('failed and unknown queries expose no replay and imported materials remain unverified',async()=>{
   const v=view(),receipt=createADiscoveryContractReceipt(f);

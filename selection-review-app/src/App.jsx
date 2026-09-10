@@ -757,7 +757,7 @@ export default function App() {
       </header>
       <LocalOwnerAccessPanel onAccessResolved={refreshOwnerPermissions} onAccessUnknown={clearOwnerPermissions} />
 
-      {view==='discovery'?<>
+      {view==='discovery'?<div className="page-panel">
         {!accountOwner?<p role="status">请先登录主人身份后查看商品发现计划。</p>:<>
           <button type="button" className="button secondary" onClick={()=>setDiscoveryRefresh(value=>value+1)}>刷新发现记录</button>
           {discoveryError?<p role="alert">读取发现记录失败：{discoveryError}</p>:discoveryView?
@@ -767,7 +767,7 @@ export default function App() {
               onContinue={payload=>runProductDiscovery(api.continueProductDiscovery,payload)}
               onOpenCandidate={openDiscoveredCandidate}/>:<p role="status">正在读取当前发现计划和保存的批次…</p>}
         </>}
-      </>:view==='accounts'?<>
+      </div>:view==='accounts'?<div className="page-panel">
         {!accountOwner?<p role="status">请先登录主人身份后查看账户准备。</p>:<>
           <button type="button" className="button secondary" onClick={()=>setAccountRefresh(value=>value+1)}>重新读取准备记录</button>
           {accountPreparationError?<p role="alert">读取账户准备失败：{accountPreparationError}</p>:accountPreparationView?
@@ -777,7 +777,7 @@ export default function App() {
               onContinue={payload=>runAccountPreparation(api.continueAccountDiscovery,payload)}
               onSelectWarehouse={payload=>runAccountPreparation(api.selectAccountWarehouse,payload)}/>:<p role="status">正在读取已保存的账户准备…</p>}
         </>}
-      </>:view === "phase2a" ? (
+      </div>:view === "phase2a" ? (
         <Phase2ASimulation onClose={() => setView("review")} />
       ) : view === "map" ? (
         <>

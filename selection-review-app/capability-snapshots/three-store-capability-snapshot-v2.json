@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-10T04:10:12.012Z",
+  "frozenAt": "2026-09-10T05:22:18.785Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 622,
-      "sha256": "0afbb3719ee1e0568a61106fd2c65abb1c9bb83981b4983d1ff5f16465482724",
+      "sha256": "5024ea3ac8a90a85932b9c16dcc69cc59fd70373e67c5de81e97c57443c25051",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -1152,7 +1152,7 @@
       },
       {
         "path": "src/App.jsx",
-        "sha256": "6c3fa32f29590428872ac56d449195a3456a37407531a046c15f72e8b49f938d"
+        "sha256": "022630f367ddc1c96eaea06faac0cc92685ce8faf9d9e3e2a5c82bf15cdb4c82"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1280,7 +1280,7 @@
       },
       {
         "path": "src/components/ProductDiscoveryCard.jsx",
-        "sha256": "d986040b52712fd3756362c87cc3bb4624ff33eb757f9c23e284891f2833900b"
+        "sha256": "4a5a4d1f92dbc944ef31fb31a2045fe05b40ce91b5600f4811d193629bd93c47"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1372,7 +1372,7 @@
       },
       {
         "path": "src/styles.css",
-        "sha256": "bcc32fdd7cb4533892bb0ca4b995d86b7638a64899b847d10c6c255fd5ab79f6"
+        "sha256": "9504e3592cc49b5b94c566ffe53fca1e624b3147fd6b8e9c29460002e6b9f967"
       },
       {
         "path": "src/wbPresentation.js",
@@ -1408,7 +1408,7 @@
       },
       {
         "path": "tests/a-discovery-ui.test.mjs",
-        "sha256": "26288059c97be849d01f784026edb0760ecc7e330adc17736d9412f9e313985f"
+        "sha256": "486915f8861ef4002ed6b42fcd51f31b18e7df17634d5815bc56287ae66e650a"
       },
       {
         "path": "tests/a-product-detail-api-boundary.test.mjs",

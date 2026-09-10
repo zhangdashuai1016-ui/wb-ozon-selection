@@ -307,6 +307,10 @@ a svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-widt
 .source-capture-summary.capture-failed, .source-capture-summary.capture-busy { border-color: #e1bd78; background: var(--amber-soft); }
 .source-capture-summary.capture-failed b, .source-capture-summary.capture-busy b { color: var(--amber); }
 
+.page-panel { display: grid; gap: 14px; align-content: start; padding: 22px 28px 36px; max-width: 1080px; }
+.page-panel section { display: grid; gap: 10px; }
+.page-panel label { display: grid; gap: 6px; max-width: 520px; }
+.page-panel .button { justify-self: start; }
 .phase2a-page { display: grid; gap: 18px; padding: 22px 28px 36px; }
 .phase2a-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 22px 24px; border: 1px solid #bad9cc; border-radius: 18px; background: #f5fbf8; }
 .phase2a-header h2 { margin: 5px 0 6px; font-size: 24px; }
