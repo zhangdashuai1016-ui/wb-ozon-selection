@@ -53,6 +53,16 @@
 - 核对：`state=running`、health ok、首页 200、新前端包 `index-BAB4SpVw.js`、新进程带 5 个 A 发现变量、`/api/product-discovery/select` 未登录 403、旧 r6 进程无残留、stderr 无新增。r6 目录保留可回退。
 - 现在主人可在批次卡"查看本次发现材料"里对每条点"选这个"。
 
+### 施工方式变更与本批（2026-09-10 下午晚些，提交 c21843a / 8762fde / 3030ca3）
+
+- **主人决定**：Fable 只做计划、讨论、审查；施工、测试、部署交给 Opus 子代理（"一律 opus"）。本批三项由子代理完成、主会话审查后提交。
+- **Ozon 官方佣金读取器** `lib/ozon-commission-reference-reader.mjs`（+12 项测试）：按平台/地区/销售模式/类型名/价格档从带版本（生效日 + 文件哈希）的本地官方表取数，品牌专属行不用，业务缺口以 gaps 返回。配置 `SELECTION_REVIEW_OZON_COMMISSION_REFERENCE_JSON` → `ozonCommissionReference`（未接入 B 阶段 provider，未写入线上 plist）。真实表验证：宠物躺床 1835 卢布 rFBS → 14%，>5000 → 15%，FBP 1501–5000 → 13%。
+- **发现列表可读性**：每条带 72px 缩略图（`safeImageUrl` 新增只放行 `https://ir.ozone.ru/<path>`，无查询/锚点/百分号/凭据/点段）、俄文标题链接、一行售价/销量/营收/评价/评分、中文类目、"中文标题：待翻译"占位；已完成的批次材料默认展开。主人反馈"没图没翻译根本没法选"由此批部分解决，翻译待做。
+- **旧派发通道安全修复**：`dispatchDeliveryEnabledFromEnvironment` 使 `SELECTION_REVIEW_CODEX_DISPATCH` 真正生效（须与 AUTO_DELIVER 同开且非 CODEX_OFFLINE）；`/api/dispatches/:id/{claim,desktop-turn,approval}` 在派发关闭时先返回 409"旧派发通道已停用"，不再空指针 500、不再改写历史派发。
+- **验证**：全套自包含 CI 1874/1874；隔离测试（dispatch-api、dispatch-delivery-integration、structured-dispatch-integration、a-discovery-api-boundary 等）通过；快照 624 项 `--check` 通过；运行包 `20260910-discovery-thumbnails-r8` 已备好并隔离启动通过，**待主人批准部署**。
+- **Codex 残留核查结论（只读子代理）**：已替换：A 快照辅助判断、C1 草稿、C1 关键词、A 发现、商品详情、B 模型、C2；未替换：采购上限反算写入、负利润门只对 codex 来源、选品判断（AI 层）、标题翻译、给 Codex 的留言通道；D 阶段 Seller API 执行路由与 E 独立回读仍未完成；约 20 处界面文案仍写 Codex（一半是正确边界说明）。
+- **主人对"软件找商品"的评价**：现页面是工程步骤外露，"完全是降低生产效率"。主会话已提出"选品台"设计（店铺切换 + 待决定卡片流：图、中文标题、一行数字、利润框、AI 理由与风险标签、要/不要/稍后；进行中进度与"需要你处理"收件箱；批次/许可等内部概念收入后台；分三步落地），待主人拍板，未开工。
+
 ### 下一步（需主人）
 
 1. ~~批准部署~~（已完成）：冷备数据与 plist → 安装运行包到版本目录 → plist 指向新版本并写入六个环境变量 → 重启 4317 → 核对健康与登录。
