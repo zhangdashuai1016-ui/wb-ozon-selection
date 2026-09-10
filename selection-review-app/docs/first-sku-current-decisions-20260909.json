@@ -210,9 +210,9 @@
     "maximumTotalSampleCount": 5
   },
   "seerfarConfigurationPreparation": {
-    "status": "drafted_validated_not_deployed_not_authorized",
+    "status": "deployed_and_first_query_completed",
     "runtimeConfigurationWritten": true,
-    "authorizationGranted": false,
+    "authorizationGranted": true,
     "sourceTask": "Claude Code 2026-09-10 (owner chose the Open API route first: 先走api同意)",
     "targetStore": "miska",
     "currentDirection": "宠物保暖 → Ozon 宠物用品 > 携带和睡眠配件 > 宠物躺床",
@@ -255,7 +255,7 @@
       "currentDirectionSelected": false,
       "currentFeeReusable": false
     },
-    "nextEngineering": "Owner approves deployment (cold backup → install package → launchd env → restart 4317), then authorizes the single category query in the UI; the job imports one 待核验 candidate for Miska and B starts from it.",
+    "nextEngineering": "A-stage automatic estimate: keep Seerfar weight/volume/dimension (contract v3), GUOO volumetric freight + oversize flags, official Ozon commission reference reader (owner OK needed for one official page read), suggested purchase range; UI: padded discovery container and default permit expiry.",
     "configurationLocation": "local, outside the repository: ~/.local/share/wb-ozon-engineering/first-sku-runtime-config/a-discovery-seerfar-20260910/",
     "verification20260910": {
       "normalizersPassed": true,
@@ -280,6 +280,26 @@
         "installed": false,
         "activated": false
       }
+    },
+    "firstQuery20260910": {
+      "completedAt": "2026-09-10T05:17:44.802Z",
+      "pointsBefore": 8430,
+      "pointsAfter": 8420,
+      "pointsSpent": 10,
+      "products": 20,
+      "dateRange": {
+        "startDate": "2026-08-10",
+        "endDate": "2026-09-09"
+      },
+      "hasNextPage": true,
+      "importedCandidateId": "candidate:724e9ef6-a798-412e-9cbb-27f65d19d1ca",
+      "marketProductId": "3456194476",
+      "targetStore": "miska",
+      "knownGaps": [
+        "market product contract drops weight/volume/dimension; no volumetric-weight warning at A yet",
+        "Ozon official commission reference not saved; same-type store reading unavailable for a new category",
+        "discovery view lacks padded container (left text clipped); permit expiry should default to now+2h"
+      ]
     }
   },
   "c1DraftConfigurationPreparation": {
