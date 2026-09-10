@@ -149,3 +149,19 @@ test('点数一行和查询时间只在已保存结果里有时才出现，不�
   assert.deepEqual(DECLINE_REASONS, ['尺寸太大', '利润太薄', '品牌风险', '不想做这类', '其他']);
   assert.equal(DECLINE_REASONS.every(reason => reason.length <= 40), true);
 });
+
+test('newRoundPlan explains one click before anything is created and refuses when a round is running or unconfigured', async () => {
+  const { newRoundPlan } = await import('../src/selectionDeskView.js');
+  const plan = { planId: 'plan:x', version: 'version:1', direction: '宠物躺床', budget: { maxCredits: 20, estimatedPointsByStep: { quota_before: 0, category_detail: 13, quota_after: 0 } } };
+  const binding = { bindingId: 'binding:x', configurationVersion: 'version:1' };
+  const base = { canPrepare: true, plans: [plan], bindings: [binding], batches: [] };
+  const ready = newRoundPlan(base, 'miska', Date.parse('2026-09-11T00:00:00Z'));
+  assert.equal(ready.ready, true); assert.equal(ready.estimatedPoints, 13); assert.equal(ready.maxCredits, 20); assert.equal(ready.warning, null); assert.equal(ready.direction, '宠物躺床');
+  const recent = { ...base, batches: [{ batch: { targetStore: 'miska', createdAt: '2026-09-10T06:15:00Z', batchId: 'b', revision: 0, plan }, jobs: [{ job: { status: 'completed', completedAt: '2026-09-10T06:15:56Z', scopeBinding: { request: { method: 'category_detail' } } }, receipt: null }] }] };
+  assert.match(newRoundPlan(recent, 'miska', Date.parse('2026-09-11T00:00:00Z')).warning, /再查会再扣一次点数/);
+  assert.equal(newRoundPlan(recent, 'miska', Date.parse('2026-09-13T00:00:00Z')).warning, null);
+  const running = { ...base, batches: [{ batch: { targetStore: 'miska', createdAt: '2026-09-11T00:00:00Z', batchId: 'b', revision: 0, plan }, jobs: [{ job: { status: 'claimed', completedAt: null, scopeBinding: { request: { method: 'category_detail' } } }, receipt: null }] }] };
+  assert.equal(newRoundPlan(running, 'miska').ready, false); assert.match(newRoundPlan(running, 'miska').reason, /在进行/);
+  assert.equal(newRoundPlan({ ...base, canPrepare: false }, 'miska').ready, false);
+  assert.equal(newRoundPlan({ ...base, bindings: [] }, 'miska').ready, false);
+});

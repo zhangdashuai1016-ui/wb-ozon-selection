@@ -248,3 +248,32 @@ export function deskCounts({ discoveryView, candidates, store }) {
     inbox: inboxItems(candidates, store).length
   };
 }
+
+const RUNNING_JOB_STATUSES = ["queued", "claimed", "waiting_platform"];
+/**
+ * What one click on 找一轮新品 would do, in the owner's words, before anything is created or billed.
+ * Owner rule 2026-09-11: never show a confusing engineering step; one explicit cost confirmation, then automatic.
+ */
+export function newRoundPlan(discoveryView, store, now = Date.now()) {
+  const plans = list(discoveryView?.plans), bindings = list(discoveryView?.bindings);
+  if (discoveryView?.canPrepare !== true || plans.length === 0 || bindings.length !== 1) {
+    return { ready: false, reason: "还没有可执行的查询计划，需要维护人员先配置方向。", plan: null, binding: null, warning: null, estimatedPoints: null, maxCredits: null };
+  }
+  const plan = plans[0], binding = bindings[0];
+  const entries = batchesForStore(discoveryView, store);
+  let latestCompletedAt = null;
+  for (const entry of entries) {
+    for (const { job } of list(entry.jobs)) {
+      if (RUNNING_JOB_STATUSES.includes(job?.status)) {
+        return { ready: false, reason: "本店已有一轮查询在进行，等它完成后再找。", plan, binding, warning: null, estimatedPoints: null, maxCredits: null };
+      }
+      const at = Date.parse(job?.completedAt ?? "");
+      if (Number.isFinite(at) && (latestCompletedAt === null || at > latestCompletedAt)) latestCompletedAt = at;
+    }
+  }
+  const estimatedPoints = plan.budget?.estimatedPointsByStep?.category_detail ?? null;
+  const maxCredits = plan.budget?.maxCredits ?? null;
+  const warning = latestCompletedAt !== null && now - latestCompletedAt < 24 * 60 * 60 * 1000
+    ? `本店 ${formatInstant(new Date(latestCompletedAt).toISOString())} 刚查过同一方向，结果就在下面；再查会再扣一次点数。` : null;
+  return { ready: true, reason: null, plan, binding, warning, estimatedPoints, maxCredits, direction: plan.direction ?? "" };
+}

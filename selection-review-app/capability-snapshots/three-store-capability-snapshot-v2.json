@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-10T16:22:16.924Z",
+  "frozenAt": "2026-09-10T16:32:46.354Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 637,
-      "sha256": "ffdc34adb59800eae9dd4ef8ee166fdf7369c2be592ea83871d6a1a5979f993e",
+      "sha256": "09e7497d4c3ac5d929740c17ed20888685d93e43d8e160ea71529a1b2ead0daf",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -1172,7 +1172,7 @@
       },
       {
         "path": "src/App.jsx",
-        "sha256": "e5d395c4b14cbbe158c6e99a77c483e14ed7976dd882352fde69e72f4e4f9488"
+        "sha256": "55e9fd901b549c3bedb29bd69969f9c066fddf5a805c48f2350edf691a739992"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1328,7 +1328,7 @@
       },
       {
         "path": "src/components/SelectionDesk.jsx",
-        "sha256": "86b7d5e65183803166acd1454e73abade6a68abf4004bfb5395ba2377241edd8"
+        "sha256": "484f0dc06d48eae80a27af784aed78fd7fbea5c1ecd8e8e8c7e364cf01a744a0"
       },
       {
         "path": "src/components/StatusBadge.jsx",
@@ -1404,11 +1404,11 @@
       },
       {
         "path": "src/selectionDeskView.js",
-        "sha256": "1773a46c150a7f3d580e2e07e3093c559087fdf2f0e8abab650e9fc77e66eeb6"
+        "sha256": "f03b0a8ae0bdb88764ab85d0eaaa4d8e9bf34f712ee514275cda91750e0af2b5"
       },
       {
         "path": "src/styles.css",
-        "sha256": "6fc5405363edca1eff76e74993810434297057a5400d1dc09f08a85c7e22c80f"
+        "sha256": "b38008ee669d9ba02c30850776d4225767796cddafda36b41df527ad350a7b90"
       },
       {
         "path": "src/wbPresentation.js",
@@ -2492,7 +2492,7 @@
       },
       {
         "path": "tests/selection-desk-view.test.mjs",
-        "sha256": "16d0a463f52c759372eadade63c8cb6df8188052df3f9832c0f4a263f57fbf49"
+        "sha256": "9ddf0376bf9875df18b7b643a63eb48040000c3c167acc7bbc001c76a236c448"
       },
       {
         "path": "tests/software-execution-state.test.mjs",

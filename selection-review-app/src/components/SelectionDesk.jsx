@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage } from "../formState.js";
-import { DECLINE_REASONS, FEED_SORTS, boardColumns, feedRows, inboxItems, pointsLine } from "../selectionDeskView.js";
+import { DECLINE_REASONS, FEED_SORTS, boardColumns, feedRows, inboxItems, newRoundPlan, pointsLine } from "../selectionDeskView.js";
 
 const fact = value => (value === null || value === undefined || value === "unknown" ? "未知" : value);
 const money = value => (typeof value === "number" && Number.isFinite(value) ? `¥${value.toFixed(2)}` : null);
@@ -70,7 +70,7 @@ function FeedCard({ row, active, saving, declining, onDeclining, onSelect, onDec
 export default function SelectionDesk({
   discoveryView, candidates, store, ownerReady = true, loadingLabel = "正在读取本店的查询结果…",
   onSelectProduct, onDeclineProduct, onLaterProduct, onEstimate, onTranslate,
-  onOpenCandidate, onFindNewRound, onOpenBoard, onOpenInbox, skipped = []
+  onOpenCandidate, onStartNewRound, onOpenBoard, onOpenInbox, skipped = []
 }) {
   const [sort, setSort] = useState("profit");
   const [saving, setSaving] = useState(false);
@@ -110,6 +110,14 @@ export default function SelectionDesk({
     if (typeof onLaterProduct === "function") onLaterProduct(row);
   }
   const batchAction = action => run(action, feed.current === null ? null : { ...feed.current });
+  const [roundDialog, setRoundDialog] = useState(null);
+  function openRoundDialog() { setError(null); setRoundDialog(newRoundPlan(discoveryView, store)); }
+  async function confirmRound() {
+    const dialog = roundDialog; setRoundDialog(null);
+    if (!dialog?.ready || typeof onStartNewRound !== "function") return;
+    const result = await run(onStartNewRound, { plan: dialog.plan, binding: dialog.binding, store });
+    if (result !== null) setNotice("已开始这一轮：查询、算数、翻译都自动进行，几分钟内结果出现在这里。");
+  }
 
   // The keyboard shortcuts always act on what the page shows right now, so they read the latest render, not a closure.
   const live = useRef(null);
@@ -189,7 +197,21 @@ export default function SelectionDesk({
           <h3>本轮方向</h3>
           <p className="desk-rail-direction">{feed.direction ?? "还没有本店的查询方向。"}</p>
           {points === null ? null : <p className="desk-rail-points">{points}</p>}
-          <button type="button" className="button primary" onClick={onFindNewRound}>找一轮新品</button>
+          <button type="button" className="button primary" disabled={saving} onClick={openRoundDialog}>找一轮新品</button>
+          {roundDialog === null ? null : <div className="desk-dialog" role="dialog" aria-label="找一轮新品">
+            {roundDialog.ready ? <>
+              <p><b>这一轮会做什么</b></p>
+              <p>向 Seerfar 查一次「{roundDialog.direction}」，预计扣 {roundDialog.estimatedPoints ?? "约 10"} 分，本轮上限 {roundDialog.maxCredits ?? "20"} 分。确认后自动创建并开始，查询、算数、翻译都不用你再点；结果出现在"待你决定"。</p>
+              {roundDialog.warning ? <p className="desk-dialog-warning">{roundDialog.warning}</p> : null}
+              <div className="desk-dialog-actions">
+                <button type="button" className="button secondary" onClick={() => setRoundDialog(null)}>取消</button>
+                <button type="button" className="button primary" disabled={saving} onClick={confirmRound}>确认，开始这一轮</button>
+              </div>
+            </> : <>
+              <p>{roundDialog.reason}</p>
+              <div className="desk-dialog-actions"><button type="button" className="button secondary" onClick={() => setRoundDialog(null)}>知道了</button></div>
+            </>}
+          </div>}
         </section>
       </aside>
     </div>

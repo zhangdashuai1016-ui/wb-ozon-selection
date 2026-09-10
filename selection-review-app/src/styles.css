@@ -1113,3 +1113,6 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 .desk-decline summary::-webkit-details-marker { display: none; }
 .desk-decline[open] summary { border-color: #efd19d; background: var(--amber-soft); color: var(--amber); }
 .desk-decline-reasons { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 7px; color: var(--muted); font-size: 11px; }
+.desk-dialog { margin-top: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface, #fff); display: grid; gap: 8px; }
+.desk-dialog-warning { color: #a86a12; font-weight: 600; }
+.desk-dialog-actions { display: flex; gap: 8px; flex-wrap: wrap; }

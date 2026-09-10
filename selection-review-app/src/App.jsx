@@ -808,7 +808,15 @@ export default function App() {
             onEstimate={payload => runProductDiscovery(api.estimateProductDiscovery, payload)}
             onTranslate={payload => runProductDiscovery(api.translateProductDiscovery, payload)}
             onOpenCandidate={openDiscoveredCandidate}
-            onFindNewRound={() => setView("discovery")}
+            onStartNewRound={async ({ plan, binding, store }) => {
+              // One explicit confirmation on the desk replaces the old create → permit → approve steps (owner, 2026-09-11).
+              const created = await runProductDiscovery(api.createProductDiscovery, { planId: plan.planId, planVersion: plan.version, targetStore: store,
+                bindingId: binding.bindingId, configurationVersion: binding.configurationVersion, idempotencyKey: `desk-round:${crypto.randomUUID()}` });
+              const batch = created?.operationResult?.batch;
+              if (!batch) throw new Error("这一轮没有创建成功，未扣任何点数。");
+              return runProductDiscovery(api.authorizeProductDiscovery, { batchId: batch.batchId, expectedRevision: batch.revision,
+                expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(), idempotencyKey: `desk-permit:${crypto.randomUUID()}` });
+            }}
             onOpenBoard={() => setView("board")}
             onOpenInbox={() => setView("inbox")}
           />
