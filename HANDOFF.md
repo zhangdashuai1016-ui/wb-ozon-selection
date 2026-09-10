@@ -72,6 +72,14 @@
 - **凭据查找结果（只看条目名，未读值）**：钥匙串 service `egg-ozon-operations-center` 下有 account `ozon-store-a-seller-api`（蛋蛋鼠 3847026）与 `ozon-store-b-seller-api`（Miska 3852479），由 Ozon 只读证据服务使用。评审台 D 阶段凭据绑定形状为 `{credentialAlias, clientId, keychainService, keychainAccount}`，可直接指向这两条；该 API Key 的写权限：主人 2026-09-10 晚回复"确认可以"，即允许 D 阶段直接使用该条目；接线时先用 Seller API `/v1/roles` 只读核对权限范围，确认含商品创建后才发任何写请求。
 - **接下来的施工顺序（主人 2026-09-10 晚调整："我等你的新页面做好了再选"）**：① 反算接入列表和候选卡（进行中）；② **新选品台第一版**（接现有引擎：待你决定卡片流、进行中、需要你处理、四入口顶栏；主人在新页面里选候选）；③ AI 选品第一阶段；④ B 接官方佣金表、D 真实上架接口与 E 独立回读。
 
+### 深夜批（2026-09-10 23:xx，提交 d62aec2 / e03e7ec，Opus 子代理施工、主会话审查）
+
+- **反算接入**：`lib/a-discovery-estimate-store.mjs` + `POST /api/product-discovery/estimate`；每批一次解析汇率（优先新鲜的已存证据包，否则官方读取器）、国欧资费行、官方佣金（按类型 + 价格），逐条算出并持久化 `runtime.aDiscoveryEstimates`；视图附带状态/摘要/标记；负利润的商品 `/select` 拒绝（`ESTIMATE_EXCLUDED` → 409），列表显示"预估负利润，已排除"。包材假设 3 元（`SELECTION_REVIEW_A_ESTIMATE_PACKAGING_RMB` 可改）。
+- **佣金表版本绑定**：`SELECTION_REVIEW_OZON_COMMISSION_REFERENCE_JSON` 可带 `versionState {fileSha256, effectiveFrom, status}`；本地配置 `first-sku-runtime-config/ozon-commission-reference.json` 已写好并加入 env-map，**下次部署要写入 plist**（r9 线上尚无此变量，佣金在反算里会报缺口）。
+- **B 阶段接官方佣金表**：店内无同类商品（证据服务 `data_unavailable`）且配置了官方表时，按销售模式 + A 冻结的目标价（价格档）+ 快照类目叶子类型名匹配，产出 `commissionEvidenceMode: official_reference`（来源 `ozon_official_commission_table`，带生效日与文件哈希，24 小时有效，绑定候选版本与价格，不跨档复用）；任何缺口回退到原"主人授权估算"路径并带出缺口码。已知限制：首次 A 确认那一轮尚无冻结目标价，官方表路径在 `/lifecycle/b-evidence/prepare` 及之后的重新准备时生效。
+- **验证**：全套自包含 CI 1901/1901；隔离 B/发现相关 5 文件 19/19；快照 631。运行包 `20260910-estimate-b-commission-r10` 已备好并隔离启动通过（带佣金表配置），**未部署**：主人已说等新页面再选，计划与新选品台一起作为 r11 部署，除非主人要先看数字。
+- **新选品台第一版已派 Opus 子代理施工**：主页"待你决定"卡片流（图、中文标题、一行数字、利润框、要/不要/稍后，负利润不显示，已导入的显示"已在评审台"）、右栏需要你处理/进行中/本轮方向、进行中看板五列、需要你处理收件箱、维护入口收纳旧页面；新增 `POST /api/product-discovery/decline`（"不要"的原因持久化，作为 AI 层记忆）。
+
 ### 下一步（需主人）
 
 1. ~~批准部署~~（已完成）：冷备数据与 plist → 安装运行包到版本目录 → plist 指向新版本并写入六个环境变量 → 重启 4317 → 核对健康与登录。
