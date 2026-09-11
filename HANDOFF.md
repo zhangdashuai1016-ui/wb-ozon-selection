@@ -1,3 +1,12 @@
+## 新会话接班提示词（2026-09-11 14:44，主人 Fable 用量将尽，改用 Opus 5 新会话继续）
+
+> 打开文件夹 `~/.local/share/wb-ozon-engineering/github-checkpoint-20260909`（Finder 选择框里 Cmd+Shift+G 粘贴路径），新会话第一句粘贴：
+>
+> 「先读 AGENTS.md、CURRENT.md 和 HANDOFF.md 最上面的"当前接班入口"整节（含所有 ### 小节，最新的在该节末尾），再读 `selection-review-app/HANDOFF.md`（如有）。规则：数字必须有来源；施工与部署交给 Opus 子代理，主会话只做计划、审查和与我讨论；改整页逻辑先给我看 HTML 草稿；线上 4317 的部署/重启每次都要我明确批准；Seerfar 每次查询扣点也要我同意；密钥只在钥匙串里，不要读取。现在的状态：r13 在线（含运费表变量），r14 已提交/推送但未部署（若 HANDOFF 里没有 r14 部署记录），下一步是按已认可的 v2 草稿（HANDOFF 里有链接）补齐淘汰按钮、需要你处理页原因直写、商品页定价指引，然后一次部署；首件雨衣 3321582481 已过线，等我点"申请插件采集"后进入 C 阶段。先用 1、2、3 列出你打算做的事，等我确认再动手。」
+
+- 记忆文件已复制到该文件夹对应的记忆目录（`~/.claude/projects/-Users-shuaizhang--local-share-wb-ozon-engineering-github-checkpoint-20260909/memory/`），新会话会自动读到。
+- 本会话（Fable）在 r14 子代理完成、提交推送并写完接班记录后即可关闭；不要在两个会话里同时改同一个工作树。
+
 ## 当前接班入口（2026-09-10 中午，Claude Code：主人拍板"先走 API"；Seerfar 正式作业配置已起草并离线干跑通过；运行包已备好；待主人批准部署）
 
 **状态**：分支 `feature/seerfar-formal-job`。主人回复"先走api同意"。五份 A 发现配置（连接器、服务、凭据定位、计划、证据记录）与店铺绑定已写在**仓库外**本地目录 `~/.local/share/wb-ozon-engineering/first-sku-runtime-config/a-discovery-seerfar-20260910/`（README 记录全部取值与来源）。未部署、未重启 4317/4318、未读取密钥值、零 Seerfar 请求、零扣点。
