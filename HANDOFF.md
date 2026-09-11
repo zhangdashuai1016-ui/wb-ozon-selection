@@ -170,6 +170,11 @@
 - plist 三处：ProgramArguments、WorkingDirectory 指向 r13；新增 `SELECTION_REVIEW_GUOO_TARIFF_FILE=~/.local/share/wb-ozon-engineering/first-sku-runtime-config/logistics/GUOO产品资费测算表【2026.8.19更新】.xlsx`；原 37 个变量逐字节不变（现 38 个）。
 - 重启：pid 83413 → **4160**，7 秒内 health ok；launchctl 环境块含资费表变量；首页 200 引用新包；`GET /api/product-discovery` 401；`POST /api/product-discovery/start` 401（OWNER_LOGIN_REQUIRED，路由存在）；无 r12.1 残留进程；4318 未动；stderr 无新增；数据与冷备一致；插件约 30 秒后重连。r12.1/r12/r11 目录完整可回退。
 
+### 主人首次填"找货"（2026-09-11 13:17）与入口混乱反馈（13:59）
+
+- 候选 `candidate:2e417eaf…`（3321582481）已保存找货资料：1688 `detail.1688.com/offer/943009939489.html`，货价 ¥41.5 + 国内运费 ¥3.5 = 含运 ¥45，打包 0.24 kg，25×22×2.5 cm，目标价 1600 卢布。线上估算（r13，官方佣金 14%、央行 12.5637、GUOO 2026-08-19）：Economy Extra Small 运费 ¥10.11，营收 ¥127.35，采购上限 ¥60.52，status ok；过线判定见 `profitAtDeclaredPurchase`。主人 11:03 还"选这个"了 3605840795（1457 卢布反光雨衣）→ `candidate:f2e447df…`，未填找货。
+- 主人反馈："我已经填好了，但是页面找不到了，还是入口很混乱"。现状：商品页只能从选品台行、"进行中"看板卡片或收件箱进入；保存后没有固定的"我选的商品"入口。**r14 待办**：选品台顶部固定"我选的商品（N）"区，按六步显示每件的当前步骤与下一步动作，一键进商品页；商品页保存后停留并高亮下一步；顶栏加"商品"面包屑可返回。
+
 ### 下一步（需主人）
 
 1. ~~部署 r13~~（已上线）：主人强制刷新页面（Cmd+Shift+R），对 3321582481 进商品页 → "找货"填 1688 链接、货价、国内运费、打包重量、长宽高 → 保存看是否过线（现在能算出线路与上限）→ 申请插件采集。
