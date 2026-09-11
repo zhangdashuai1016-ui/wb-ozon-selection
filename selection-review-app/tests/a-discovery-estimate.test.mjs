@@ -78,3 +78,10 @@ test('store rule mapping and input validation fail closed', () => {
   assert.throws(() => estimateDiscoveredProduct({ product: product(0, 1, '1x1x1'), storeRule: rule, fx, commission, tariffRows, assumptions }), /PRODUCT_INVALID/);
   assert.throws(() => estimateDiscoveredProduct({ product: product(10, 1, '1x1x1'), storeRule: rule, fx, commission, tariffRows, assumptions: {} }), /ASSUMPTIONS_INVALID/);
 });
+
+test('provider dimension text with the multiplication sign parses into the same sides as the x form', () => {
+  const a = estimateDiscoveredProduct({ product: product(1850, 1300, '750x210x40'), storeRule: rule, fx, commission, tariffRows, assumptions });
+  const b = estimateDiscoveredProduct({ product: product(1850, 1300, '750×210×40'), storeRule: rule, fx, commission, tariffRows, assumptions });
+  assert.deepEqual(b.freight.sidesCm, a.freight.sidesCm); assert.deepEqual(b.freight.sidesCm, [75, 21, 4]);
+  assert.equal(b.freight.status, a.freight.status); assert.equal(b.status, a.status);
+});

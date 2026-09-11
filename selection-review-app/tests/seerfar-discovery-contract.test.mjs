@@ -354,3 +354,16 @@ test('published v2 schema keeps filters optional, closed and bounded on the requ
   for (const key of ['weightGrams', 'volumeLitres', 'dimensionMm']) delete v2Echo.products[0][key];
   assert.equal(validateResult(v2Echo), false);
 });
+
+test('v3 dimension text accepts the provider multiplication sign and keeps it literal (2026-07-27 real capture; 2026-09-11 RESPONSE_INVALID root cause)', async () => {
+  const f = fixture(), result = f.receipt.steps[1].result;
+  result.schemaVersion = 'seerfar-discovery-market-result-v3';
+  result.dateRange = { startDate: '2026-08-10', endDate: '2026-09-09' };
+  Object.assign(result.products[0], { reviewCount: 41, reviewRating: 4.8, rawSellerType: 1, weightGrams: 23400, volumeLitres: 162.685, dimensionMm: '487×223×1498' });
+  assertADiscoveryReceipt(f.receipt, f.job);
+  assert.equal(readADiscoveryMarketResult(f.receipt).products[0].dimensionMm, '487×223×1498');
+  for (const bad of ['487×223', '487*223*1498', '487××223×1498']) {
+    const copy = structuredClone(f.receipt); copy.steps[1].result.products[0].dimensionMm = bad;
+    assert.throws(() => assertADiscoveryReceipt(copy, f.job));
+  }
+});

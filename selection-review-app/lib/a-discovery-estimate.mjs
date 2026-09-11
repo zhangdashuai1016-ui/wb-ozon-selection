@@ -36,8 +36,8 @@ export function parseSizeLimitCm(text) {
 function packageFacts(product) {
   const actualKg = nonNegative(product.weightGrams) ? product.weightGrams / 1000 : null;
   let sidesCm = null;
-  if (typeof product.dimensionMm === 'string' && /^\d+(?:\.\d+)?x\d+(?:\.\d+)?x\d+(?:\.\d+)?$/.test(product.dimensionMm.trim())) {
-    sidesCm = product.dimensionMm.trim().split('x').map(value => Number(value) / 10).sort((a, b) => b - a);
+  if (typeof product.dimensionMm === 'string' && /^\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?$/.test(product.dimensionMm.trim())) {
+    sidesCm = product.dimensionMm.trim().split(/[x×]/).map(value => Number(value) / 10).sort((a, b) => b - a);
     if (sidesCm.some(value => !(value > 0))) sidesCm = null;
   }
   const volumetricKg = sidesCm ? sidesCm[0] * sidesCm[1] * sidesCm[2] / VOLUME_DIVISOR_CM3_PER_KG : null;

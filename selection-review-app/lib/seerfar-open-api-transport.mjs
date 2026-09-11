@@ -100,8 +100,9 @@ function marketMetric(row, field, integer = false) {
   marketSchema(Number.isFinite(row[field]) && row[field] >= 0 && (!integer || Number.isSafeInteger(row[field])));
   return row[field];
 }
-const MARKET_DIMENSION_MM = /^\d+(?:\.\d+)?x\d+(?:\.\d+)?x\d+(?:\.\d+)?$/;
-// The provider writes the three sides as one millimetre string ("600x450x150"). It is kept literal:
+const MARKET_DIMENSION_MM = /^\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?$/;
+// The provider writes the three sides as one millimetre string; real responses use the multiplication sign
+// ("487×223×1498", 2026-07-27 capture) while fixtures use "600x450x150". Both separators are accepted; the string is kept literal:
 // no unit conversion, no reordering and no guess about which side is length.
 function marketDimension(row) {
   if (!Object.hasOwn(row, 'dimension') || row.dimension === null) return null;

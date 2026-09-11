@@ -12,7 +12,7 @@ const MARKET_RESULT_SCHEMA_VERSIONS = Object.freeze(['seerfar-discovery-market-r
 // response never carried stays absent on read and is never filled in with a guessed value.
 const MARKET_REVIEW_FACT_VERSIONS = Object.freeze(['seerfar-discovery-market-result-v2', SEERFAR_MARKET_RESULT_SCHEMA_VERSION]);
 const MARKET_PACKAGE_FACT_VERSIONS = Object.freeze([SEERFAR_MARKET_RESULT_SCHEMA_VERSION]);
-const MARKET_DIMENSION_MM = /^\d+(?:\.\d+)?x\d+(?:\.\d+)?x\d+(?:\.\d+)?$/;
+const MARKET_DIMENSION_MM = /^\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?[x×]\d+(?:\.\d+)?$/;
 export const SEERFAR_DISCOVERY_STEPS = Object.freeze(['quota_before', 'category_detail', 'quota_after']);
 export const SEERFAR_DISCOVERY_EVIDENCE_FAILURE_CLASSES = Object.freeze(['EVIDENCE_UNAVAILABLE', 'EVIDENCE_UNVERIFIED',
   'EVIDENCE_REVOKED', 'EVIDENCE_SUPERSEDED', 'EVIDENCE_NOT_EFFECTIVE', 'EVIDENCE_EXPIRED', 'EVIDENCE_AMBIGUOUS', 'EVIDENCE_INVALID']);

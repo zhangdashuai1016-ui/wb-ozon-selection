@@ -380,3 +380,16 @@ test('a filtered category run sends the declared ranges and echoes them back wit
     httpTransport: async () => assert.fail('no request') });
   await assert.rejects(guard(filteredCategoryRequest({ priceRub: { min: 900, max: 800 } })), /SEERFAR_CATEGORY_FILTERS_INVALID/);
 });
+
+test('real responses write the three sides with the multiplication sign; it is accepted and kept literal (2026-07-27 capture, 2026-09-11 RESPONSE_INVALID)', async () => {
+  const data = categoryData('ozon');
+  Object.assign(data.productList[0], { weight: 23400, volume: 162.685, dimension: '487×223×1498' });
+  Object.assign(data.productList[1], { weight: 216, volume: 1.132, dimension: '149×146×52' });
+  const result = await categoryTransport(data)(categoryRequest('ozon'));
+  assert.equal(result.marketProducts[0].dimensionMm, '487×223×1498'); assert.equal(result.marketProducts[0].weightGrams, 23400);
+  assert.equal(result.marketProducts[1].dimensionMm, '149×146×52');
+  for (const bad of [{ dimension: '487×223' }, { dimension: '487*223*1498' }, { dimension: '487××223×1498' }]) {
+    const broken = categoryData('ozon'); Object.assign(broken.productList[0], bad);
+    await assert.rejects(() => categoryTransport(broken)(categoryRequest('ozon')), error => error instanceof SeerfarTransportError && error.code === 'schema_error');
+  }
+});
