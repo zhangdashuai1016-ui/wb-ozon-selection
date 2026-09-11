@@ -68,6 +68,22 @@ export function errorMessage(error) {
   return [error.message || "操作失败", details.length ? JSON.stringify(details) : "", evidence ? `证据准备：${JSON.stringify(evidence)}` : ""].filter(Boolean).join("；");
 }
 
+/**
+ * A write is not a read. Once the server has answered a mutation, that answer belongs to the caller even if a refresh,
+ * a view switch or an unmount cancelled the read guard while the request was in flight: only publishing the returned
+ * view is conditional. Routing a mutation through createLatestRead() instead would silently turn a saved server change
+ * into `null`, which is how one confirmed round was created on the server and never started (owner, 2026-09-11).
+ */
+export async function runMutation(request, { publish, isCurrent = () => true, reads = null } = {}) {
+  const result = await request();
+  if (isCurrent()) {
+    // A read already in flight holds the state from before this write; drop it instead of letting it publish later.
+    reads?.cancel();
+    publish?.(result);
+  }
+  return result;
+}
+
 // Only the latest read may publish. Cancellation is never treated as success.
 export function createLatestRead() {
   let sequence = 0;

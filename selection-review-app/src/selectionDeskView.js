@@ -119,48 +119,64 @@ export function sortFeedRows(rows, sort = "profit") {
   return [...rows].sort(compareRows(sort));
 }
 
+/** The market jobs of one round that actually saved a result; a supplier search is never part of the feed. */
+function completedMarketJobs(entry) {
+  return list(entry.jobs).filter(({ job }) =>
+    job?.scopeBinding?.request?.method !== "supplier_search" && job?.status === "completed");
+}
+
 /**
- * Everything the home feed shows for one store: the rows still waiting for a decision, the rows an estimate already
- * ruled out, and the rows the owner personally turned down. Nothing here is computed: each number comes from a saved
- * query result or a saved estimate, and a missing number stays missing.
+ * Everything the home feed shows for one store: the newest finished round first, then the rows an estimate already
+ * ruled out, the rows the owner personally turned down, and — folded away — whatever older rounds left undecided.
+ * Nothing here is computed: each number comes from a saved query result or a saved estimate, and a missing number
+ * stays missing.
  */
 export function feedRows(discoveryView, store, sort = "profit") {
   const entries = batchesForStore(discoveryView, store);
   const rows = [];
+  // Older rounds keep only what the owner already acted on; their undecided rows wait behind one toggle.
+  const carried = [];
+  const history = [];
   const excluded = [];
   const declined = [];
   let pendingTranslations = 0;
   let estimable = 0;
-  // One product appears once even when several rounds returned it; the newest round (entries[0]) wins.
+  let newest = null;
+  // One product appears once even when several rounds returned it; the newest round that returned it wins.
   const seen = new Set();
   for (const entry of entries) {
-    // The two refresh buttons act on the newest round, so their counters describe that round only.
-    const latestRound = entry === entries[0];
+    const jobs = completedMarketJobs(entry);
+    // A round that has not saved a result yet — created, queued or failed — contributes nothing and heads nothing.
+    if (jobs.length === 0) continue;
+    const latestRound = newest === null;
+    if (latestRound) newest = entry;
     const imported = new Map(list(entry.importedCandidates).map(value => [value.marketProductId, value.candidateId]));
     const selections = new Map(list(entry.selections).map(value => [value.marketProductId, value]));
     const declines = new Map(list(entry.declines).map(value => [value.marketProductId, value.reason]));
-    for (const { job, receipt } of list(entry.jobs)) {
-      if (job?.scopeBinding?.request?.method === "supplier_search" || job?.status !== "completed") continue;
+    for (const { receipt } of jobs) {
       for (const product of list(marketResultOf(entry, receipt)?.products)) {
         if (typeof product?.productId !== "string" || seen.has(product.productId)) continue;
         seen.add(product.productId);
         const row = feedRow(entry, product, { imported, selections, declines });
+        // The two refresh buttons act on the newest finished round, so their counters describe that round only.
         if (latestRound) estimable += 1;
         if (latestRound && row.titleZh === null) pendingTranslations += 1;
         if (row.outcome === "excluded_negative") excluded.push(row);
         else if (row.declineReason !== null) declined.push(row);
-        else rows.push(row);
+        else if (latestRound) rows.push(row);
+        else if (row.importedCandidateId !== null) carried.push(row);
+        else history.push(row);
       }
     }
   }
-  const latest = entries[0] ?? null;
   return {
     store,
     storeLabel: storeLabel(store),
-    direction: text(latest?.batch.plan?.direction),
-    queriedAt: formatInstant(latest?.batch.createdAt),
-    current: latest === null ? null : { batchId: latest.batch.batchId, expectedRevision: latest.batch.revision },
-    rows: sortFeedRows(rows, sort),
+    direction: text(newest?.batch.plan?.direction),
+    queriedAt: formatInstant(newest?.batch.createdAt),
+    current: newest === null ? null : { batchId: newest.batch.batchId, expectedRevision: newest.batch.revision },
+    rows: [...sortFeedRows(rows, sort), ...sortFeedRows(carried, sort)],
+    history: sortFeedRows(history, sort),
     excluded: sortFeedRows(excluded, sort),
     declined: sortFeedRows(declined, sort),
     pendingTranslations,
@@ -263,6 +279,10 @@ export function deskCounts({ discoveryView, candidates, store }) {
 }
 
 const RUNNING_JOB_STATUSES = ["queued", "claimed", "waiting_platform"];
+const DAY_MS = 24 * 60 * 60 * 1000;
+const notReady = (reason, extra = {}) =>
+  ({ ready: false, reason, plan: null, binding: null, warning: null, estimatedPoints: null, maxCredits: null, direction: null, resume: null, ...extra });
+
 /**
  * What one click on 找一轮新品 would do, in the owner's words, before anything is created or billed.
  * Owner rule 2026-09-11: never show a confusing engineering step; one explicit cost confirmation, then automatic.
@@ -270,23 +290,35 @@ const RUNNING_JOB_STATUSES = ["queued", "claimed", "waiting_platform"];
 export function newRoundPlan(discoveryView, store, now = Date.now()) {
   const plans = list(discoveryView?.plans), bindings = list(discoveryView?.bindings);
   if (discoveryView?.canPrepare !== true || plans.length === 0 || bindings.length !== 1) {
-    return { ready: false, reason: "还没有可执行的查询计划，需要维护人员先配置方向。", plan: null, binding: null, warning: null, estimatedPoints: null, maxCredits: null };
+    return notReady("还没有可执行的查询计划，需要维护人员先配置方向。");
   }
   const plan = plans[0], binding = bindings[0];
   const entries = batchesForStore(discoveryView, store);
-  let latestCompletedAt = null;
+  let latestCompleted = null;
   for (const entry of entries) {
     for (const { job } of list(entry.jobs)) {
       if (RUNNING_JOB_STATUSES.includes(job?.status)) {
-        return { ready: false, reason: "本店已有一轮查询在进行，等它完成后再找。", plan, binding, warning: null, estimatedPoints: null, maxCredits: null };
+        return notReady("本店已有一轮查询在进行，等它完成后再找。", { plan, binding, direction: text(plan.direction) });
       }
       const at = Date.parse(job?.completedAt ?? "");
-      if (Number.isFinite(at) && (latestCompletedAt === null || at > latestCompletedAt)) latestCompletedAt = at;
+      if (Number.isFinite(at) && (latestCompleted === null || at > latestCompleted.at)) latestCompleted = { at, entry };
     }
   }
   const estimatedPoints = plan.budget?.estimatedPointsByStep?.category_detail ?? null;
   const maxCredits = plan.budget?.maxCredits ?? null;
-  const warning = latestCompletedAt !== null && now - latestCompletedAt < 24 * 60 * 60 * 1000
-    ? `本店 ${formatInstant(new Date(latestCompletedAt).toISOString())} 刚查过同一方向，结果就在下面；再查会再扣一次点数。` : null;
-  return { ready: true, reason: null, plan, binding, warning, estimatedPoints, maxCredits, direction: plan.direction ?? "" };
+  const direction = text(plan.direction) ?? "";
+  // An earlier click that saved the round but never started it: continue that same batch instead of opening a new one.
+  // canAuthorize is the server's own answer, so a batch the current configuration can no longer run is never offered.
+  const orphan = entries.find(entry => list(entry.jobs).length === 0 && entry.canAuthorize === true) ?? null;
+  const resume = orphan === null ? null : { batchId: orphan.batch.batchId, expectedRevision: orphan.batch.revision,
+    direction: text(orphan.batch.plan?.direction) ?? direction, createdAt: formatInstant(orphan.batch.createdAt) };
+  let warning = null;
+  if (latestCompleted !== null && now - latestCompleted.at < DAY_MS) {
+    const at = formatInstant(new Date(latestCompleted.at).toISOString());
+    const previous = text(latestCompleted.entry.batch.plan?.direction);
+    warning = latestCompleted.entry.batch.plan?.planId === plan.planId
+      ? `本店 ${at} 刚查过同一方向「${previous ?? direction}」，结果就在下面；再查会再扣一次点数。`
+      : `本店 ${at} 刚查过「${previous ?? "未记录的方向"}」，这一轮是「${direction}」，不是同一个方向；这次查询会再扣一次点数。`;
+  }
+  return { ready: true, reason: null, plan, binding, warning, estimatedPoints, maxCredits, direction, resume };
 }

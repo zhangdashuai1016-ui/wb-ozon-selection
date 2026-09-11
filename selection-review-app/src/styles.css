@@ -1036,6 +1036,7 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 .desk-feed-tools label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 750; }
 .desk-feed-tools select { min-height: 34px; border: 1px solid var(--line-dark); border-radius: 8px; padding: 0 8px; background: #fff; }
 .desk-hint { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.desk-round-header { margin: 0; padding-bottom: 2px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .desk-notice { margin: 0; color: var(--green); font-size: 12px; }
 
 .desk-card { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 14px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; }
@@ -1064,7 +1065,7 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 .desk-rail-block { display: grid; gap: 8px; padding: 13px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: #fbfdfc; }
 .desk-rail-block h3 { margin: 0; font-size: 13px; color: var(--green); }
 .desk-rail-block .button { justify-self: start; }
-.desk-rail-empty, .desk-rail-direction, .desk-rail-points { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.desk-rail-empty, .desk-rail-direction, .desk-rail-points, .desk-rail-estimate { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .desk-rail-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
 .desk-rail-list li { display: grid; gap: 3px; padding-bottom: 8px; border-bottom: 1px solid var(--line); font-size: 11px; }
 .desk-rail-list li:last-child { border-bottom: 0; padding-bottom: 0; }

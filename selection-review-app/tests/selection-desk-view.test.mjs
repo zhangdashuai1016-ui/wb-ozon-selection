@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BOARD_COLUMNS, DECLINE_REASONS, FEED_SORTS, boardColumnKey, boardColumns, deskCounts, feedRows,
-  formatInstant, freightShare, inboxItems, pointsLine, sortFeedRows, storeLabel } from '../src/selectionDeskView.js';
+  formatInstant, freightShare, inboxItems, newRoundPlan, pointsLine, sortFeedRows, storeLabel } from '../src/selectionDeskView.js';
 
 // Everything below is synthetic display data written in this file: no saved records, no services, no requests.
 const product = (productId, extra = {}) => ({ productId, title: `Explicitly synthetic ${productId}`,
@@ -164,4 +164,79 @@ test('newRoundPlan explains one click before anything is created and refuses whe
   assert.equal(newRoundPlan(running, 'miska').ready, false); assert.match(newRoundPlan(running, 'miska').reason, /在进行/);
   assert.equal(newRoundPlan({ ...base, canPrepare: false }, 'miska').ready, false);
   assert.equal(newRoundPlan({ ...base, bindings: [] }, 'miska').ready, false);
+});
+
+const orphanEntry = ({ batchId = 'a-discovery-batch:orphan', createdAt = '2026-09-10T04:00:00.000Z',
+  direction = '刚点的方向（合成）', targetStore = 'miska', canAuthorize = true, plan = { provider: 'seerfar', direction } } = {}) =>
+  ({ batch: { batchId, revision: 0, targetStore, createdAt, plan }, jobs: [], canAuthorize,
+    selections: [], importedCandidates: [], declines: [] });
+
+test('最新一轮排在最前，历史轮次没处理的收进折叠，同一件商品跨轮只出现一次', () => {
+  const older = batchEntry({ batchId: 'a-discovery-batch:older', createdAt: '2026-09-08T04:00:00.000Z', direction: '旧方向（合成）',
+    products: [product('2107989730'), product('2107989731'), product('2107989732'),
+      product('2107989733', { estimate: estimate('excluded_negative', { maximumAllInPurchaseRmb: -1 }) }), product('2107989734')],
+    importedCandidates: [{ marketProductId: '2107989732', candidateId: 'candidate:old' }],
+    declines: [{ marketProductId: '2107989734', reason: '利润太薄' }] });
+  const newer = batchEntry({ batchId: 'a-discovery-batch:newer', createdAt: '2026-09-10T04:00:00.000Z', direction: '新方向（合成）',
+    products: [product('2107989735'), product('2107989731')] });
+  const feed = feedRows(viewOf(older, newer), 'miska');
+  assert.equal(feed.direction, '新方向（合成）');
+  assert.equal(feed.current.batchId, 'a-discovery-batch:newer');
+  // The newest round comes first in its own sort order; an older round keeps only what the owner already acted on.
+  assert.deepEqual(feed.rows.map(row => row.marketProductId), ['2107989731', '2107989735', '2107989732']);
+  assert.equal(feed.rows[2].importedCandidateId, 'candidate:old');
+  // A product returned by both rounds shows once, under the newest round it came back in.
+  assert.equal(feed.rows.filter(row => row.marketProductId === '2107989731').length, 1);
+  assert.equal(feed.rows[0].batchId, 'a-discovery-batch:newer');
+  assert.deepEqual(feed.history.map(row => row.marketProductId), ['2107989730']);
+  assert.equal(feed.history[0].batchId, 'a-discovery-batch:older');
+  assert.deepEqual(feed.excluded.map(row => row.marketProductId), ['2107989733']);
+  assert.deepEqual(feed.declined.map(row => row.marketProductId), ['2107989734']);
+  // The two batch buttons act on the newest round, so they count that round only.
+  assert.equal(feed.estimable, 2);
+  assert.equal(feed.pendingTranslations, 2);
+  assert.deepEqual(deskCounts({ discoveryView: viewOf(older, newer), candidates: [], store: 'miska' }), { desk: 3, board: 0, inbox: 0 });
+});
+
+test('还没有结果的新批次不抢走本轮标题，待决定仍来自最近一次真的查完的轮次', () => {
+  const finished = batchEntry({ batchId: 'a-discovery-batch:finished', createdAt: '2026-09-08T04:00:00.000Z',
+    direction: '已经查完（合成）', products: [product('2107989735')] });
+  const queued = batchEntry({ batchId: 'a-discovery-batch:queued', createdAt: '2026-09-09T04:00:00.000Z',
+    direction: '正在查（合成）', products: [product('2107989736')], jobStatus: 'queued' });
+  const feed = feedRows(viewOf(finished, queued, orphanEntry()), 'miska');
+  assert.equal(feed.direction, '已经查完（合成）');
+  assert.equal(feed.queriedAt, formatInstant('2026-09-08T04:00:00.000Z'));
+  assert.equal(feed.current.batchId, 'a-discovery-batch:finished');
+  assert.deepEqual(feed.rows.map(row => row.marketProductId), ['2107989735']);
+  assert.deepEqual(feed.history, []);
+  assert.equal(feed.estimable, 1);
+});
+
+test('上一次点了却没开始的那一轮可以直接续上，两种"刚查过"分别说清是不是同一个方向', () => {
+  const budget = { maxCredits: 20, estimatedPointsByStep: { quota_before: 0, category_detail: 13, quota_after: 0 } };
+  const plan = { planId: 'plan:clothing', version: 'version:1', direction: '宠物服装', budget };
+  const previous = { planId: 'plan:bed', version: 'version:1', direction: '宠物躺床', budget };
+  const base = { canPrepare: true, plans: [plan], bindings: [{ bindingId: 'binding:x', configurationVersion: 'version:1' }], batches: [] };
+  assert.equal(newRoundPlan(base, 'miska').resume, null);
+  const resumable = newRoundPlan({ ...base, batches: [orphanEntry({ plan, createdAt: '2026-09-11T09:00:00Z' })] },
+    'miska', Date.parse('2026-09-11T10:00:00Z'));
+  assert.equal(resumable.ready, true);
+  assert.equal(resumable.resume.batchId, 'a-discovery-batch:orphan');
+  assert.equal(resumable.resume.expectedRevision, 0);
+  assert.equal(resumable.resume.direction, '宠物服装');
+  assert.equal(resumable.resume.createdAt, formatInstant('2026-09-11T09:00:00Z'));
+  // A saved batch the server says it can no longer authorize is never offered as something to continue.
+  assert.equal(newRoundPlan({ ...base, batches: [orphanEntry({ plan, canAuthorize: false })] }, 'miska').resume, null);
+  const round = savedPlan => ({ ...base, batches: [{ batch: { targetStore: 'miska', createdAt: '2026-09-10T06:15:00Z',
+    batchId: 'a-discovery-batch:done', revision: 0, plan: savedPlan },
+    jobs: [{ job: { status: 'completed', completedAt: '2026-09-10T06:15:56Z', scopeBinding: { request: { method: 'category_detail' } } }, receipt: null }] }] });
+  const same = newRoundPlan(round(plan), 'miska', Date.parse('2026-09-11T00:00:00Z')).warning;
+  assert.match(same, /刚查过同一方向「宠物服装」/u);
+  assert.match(same, /再查会再扣一次点数/u);
+  const different = newRoundPlan(round(previous), 'miska', Date.parse('2026-09-11T00:00:00Z')).warning;
+  assert.doesNotMatch(different, /同一方向/u);
+  assert.match(different, /刚查过「宠物躺床」/u);
+  assert.match(different, /这一轮是「宠物服装」/u);
+  assert.match(different, /会再扣一次点数/u);
+  assert.equal(newRoundPlan(round(previous), 'miska', Date.parse('2026-09-13T00:00:00Z')).warning, null);
 });

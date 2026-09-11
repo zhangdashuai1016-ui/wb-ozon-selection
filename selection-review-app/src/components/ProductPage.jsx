@@ -208,7 +208,7 @@ export default function ProductPage({
   if (!candidate) return <div className="page-panel"><p role="status">{loadingLabel}</p></div>;
 
   const extensionCode = extensionStatus?.code ?? "disconnected";
-  const extensionConnected = extensionCode === "authentication_unverified";
+  const extensionConnected = extensionCode === "connected";
   const title = textOf(titleZh) || textOf(candidate.productName) || candidate.id;
 
   return <div className="page-panel product-page">

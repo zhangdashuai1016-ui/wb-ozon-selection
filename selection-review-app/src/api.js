@@ -47,6 +47,8 @@ export const api = {
   continueProductDetails: payload => request(`/api/candidates/${encodeURIComponent(payload.candidateId)}/product-details/continue`,{method:'POST',body:JSON.stringify(payload)}),
   getProductDiscovery: signal => request('/api/product-discovery',{signal}),
   createProductDiscovery: payload => request('/api/product-discovery/create',{method:'POST',body:JSON.stringify(payload)}),
+  // One request starts one round: the desk never sends a create that a second request has to finish.
+  startProductDiscovery: payload => request('/api/product-discovery/start',{method:'POST',body:JSON.stringify(payload)}),
   authorizeProductDiscovery: payload => request('/api/product-discovery/authorize',{method:'POST',body:JSON.stringify(payload)}),
   continueProductDiscovery: payload => request('/api/product-discovery/continue',{method:'POST',body:JSON.stringify(payload)}),
   selectProductDiscovery: payload => request('/api/product-discovery/select',{method:'POST',body:JSON.stringify(payload)}),

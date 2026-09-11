@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
 import react from "@vitejs/plugin-react";
-import { newDraft, receiveDraft, createSubmitLock, createLatestRead, createSelectionGuard, shouldContinuePolling, optionalNumber, safeWebUrl, safeImageUrl, candidatePlatform, errorMessage } from "../src/formState.js";
+import { newDraft, receiveDraft, createSubmitLock, createLatestRead, createSelectionGuard, runMutation, shouldContinuePolling, optionalNumber, safeWebUrl, safeImageUrl, candidatePlatform, errorMessage } from "../src/formState.js";
 import { orderCandidates, firstInQueue } from "../src/candidateViews.js";
 import { api } from "../src/api.js";
 import { buildAConfirmationInput, selectAConfirmationSku } from "../src/aConfirmationInput.js";
@@ -472,9 +472,15 @@ test("缺少当前准备DTO或只有旧主人确认时不能用B建议或truthy�
   }
 });
 
-test("扩展heartbeat或页面桥接不能冒充后台认证可用", () => {
+test("扩展后台应答就是已连接，后台不应答才说不可用", () => {
+  // Owner rule 2026-09-11: the status line reports the handshake it actually saw; one capture's outcome is reported by
+  // that capture's own result, never here.
   for(const options of [{liveVersion:EXPECTED_EXTENSION_VERSION,backgroundReady:true},{serverHeartbeat:{version:EXPECTED_EXTENSION_VERSION,fresh:true,backgroundReady:true}}]) {
-    const result=extensionConnectionStatus(options);assert.equal(result.code,"authentication_unverified");assert.match(result.label,/不可用/);
+    const result=extensionConnectionStatus(options);assert.equal(result.code,"connected");assert.equal(result.label,"插件已连接 · 等待采集任务");
+    assert.doesNotMatch(result.label,/不可用|未核验/);
+  }
+  for(const options of [{liveVersion:EXPECTED_EXTENSION_VERSION,backgroundReady:false},{serverHeartbeat:{version:EXPECTED_EXTENSION_VERSION,fresh:true,backgroundReady:false}}]) {
+    const result=extensionConnectionStatus(options);assert.equal(result.code,"background_unavailable");assert.match(result.label,/后台暂未响应/);
   }
 });
 
@@ -533,4 +539,30 @@ test("A卡区分技术证据与完整成本，旧卡及成本缺口不放行正�
   card.costPolicyReadiness = { ready: true, missing: [], code: null };
   assert.match(renderRealA(card), /完整成本策略已就绪/);
   assert.doesNotMatch(button(renderRealA(card), 'primary'), /disabled/);
+});
+
+test("写操作不走读取守卫：服务端已经答复后，中途取消不能把结果变成没发生", async () => {
+  // The 2026-09-11 regression: one confirmed round reached the server, a refresh cancelled the read guard while the
+  // answer was in flight, and the owner was told "这一轮没有创建成功". A write's answer belongs to the caller.
+  const reads = createLatestRead(), gate = deferred(), staleGate = deferred(), published = [];
+  const answered = { operationResult: { batch: { batchId: "a-discovery-batch:synthetic" }, resumed: false } };
+  let staleSignal;
+  const stale = reads.run(signal => { staleSignal = signal; return staleGate.promise; }, value => published.push(value));
+  const mutation = runMutation(() => gate.promise, { reads, isCurrent: () => true, publish: value => published.push(value) });
+  // A refresh or a view switch cancels the read guard while the write is in flight; this is the exact race that broke.
+  reads.cancel();
+  gate.resolve(answered);
+  assert.strictEqual(await mutation, answered);
+  assert.deepEqual(published, [answered]);
+  assert.equal(staleSignal.aborted, true);
+  staleGate.resolve({ stale: "view from before the write" });
+  assert.equal(await stale, null);
+  // Leaving the page keeps the server's answer; only the publishing stops.
+  const left = await runMutation(async () => answered, { reads, isCurrent: () => false, publish: () => { throw new Error("published after leaving"); } });
+  assert.strictEqual(left, answered);
+  // A real failure still reaches the caller instead of turning into a silent null.
+  await assert.rejects(runMutation(async () => { throw new Error("409 BATCH_CHANGED"); },
+    { reads, isCurrent: () => true, publish: () => { throw new Error("failed write published"); } }), /BATCH_CHANGED/);
+  // Publishing is optional; the request still runs and its answer is returned.
+  assert.strictEqual(await runMutation(async () => answered), answered);
 });

@@ -111,7 +111,7 @@ test('插件没连上时给一句安装提示，连上后不再显示', async ()
   assert.match(absent, /还没连上插件：打开 Chrome 的 chrome:\/\/extensions，开启开发者模式，点「加载已解压的扩展程序」，选择本项目的 extension\/1688-capture 目录。/);
   assert.match(absent, /申请插件采集/);
   assert.match(absent, /还没有申请过插件采集。/);
-  const connected = await render(props({ extensionStatus: { code: 'authentication_unverified', label: '已检测到插件v1.2.7' },
+  const connected = await render(props({ extensionStatus: { code: 'connected', label: '插件已连接 · 等待采集任务' },
     view: { supplierDraftV1: draft, supplierDraftEstimateV1: okEstimate, marketSnapshot },
     candidate: candidate({ sourceCapture: { status: 'waiting_extension', jobStatus: 'queued' } }) }));
   assert.doesNotMatch(connected, /还没连上插件/);

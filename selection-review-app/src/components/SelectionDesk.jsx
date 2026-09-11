@@ -70,7 +70,7 @@ function FeedCard({ row, active, saving, declining, onDeclining, onSelect, onDec
 export default function SelectionDesk({
   discoveryView, candidates, store, ownerReady = true, loadingLabel = "正在读取本店的查询结果…",
   onSelectProduct, onDeclineProduct, onLaterProduct, onEstimate, onTranslate,
-  onOpenCandidate, onStartNewRound, onOpenBoard, onOpenInbox, skipped = []
+  onOpenCandidate, onStartNewRound, onResumeRound, onOpenBoard, onOpenInbox, skipped = []
 }) {
   const [sort, setSort] = useState("profit");
   const [saving, setSaving] = useState(false);
@@ -81,9 +81,12 @@ export default function SelectionDesk({
   const feed = useMemo(() => feedRows(discoveryView, store, sort), [discoveryView, store, sort]);
   const skippedKeys = useMemo(() => new Set(skipped), [skipped]);
   const rows = useMemo(() => feed.rows.filter(row => !skippedKeys.has(row.key)), [feed, skippedKeys]);
+  const history = useMemo(() => feed.history.filter(row => !skippedKeys.has(row.key)), [feed, skippedKeys]);
   const board = useMemo(() => boardColumns(candidates, store), [candidates, store]);
   const inbox = useMemo(() => inboxItems(candidates, store), [candidates, store]);
   const points = pointsLine(discoveryView, store);
+  // What the next click would query, read before anything is created: the rail names that direction, not the last one.
+  const nextRound = useMemo(() => newRoundPlan(discoveryView, store), [discoveryView, store]);
   const activeKey = rows.length === 0 ? null : rows[Math.min(cursor, rows.length - 1)].key;
 
   async function run(action, payload) {
@@ -112,11 +115,22 @@ export default function SelectionDesk({
   const batchAction = action => run(action, feed.current === null ? null : { ...feed.current });
   const [roundDialog, setRoundDialog] = useState(null);
   function openRoundDialog() { setError(null); setRoundDialog(newRoundPlan(discoveryView, store)); }
-  async function confirmRound() {
+  async function confirmRound({ resume }) {
     const dialog = roundDialog; setRoundDialog(null);
-    if (!dialog?.ready || typeof onStartNewRound !== "function") return;
-    const result = await run(onStartNewRound, { plan: dialog.plan, binding: dialog.binding, store });
-    if (result !== null) setNotice("已开始这一轮：查询、算数、翻译都自动进行，几分钟内结果出现在这里。");
+    if (!dialog?.ready) return;
+    // A round that was created but never started is continued from its own saved batch; no second batch is opened.
+    // The owner can still say no to that one and open a fresh round instead, so an old batch never blocks the button.
+    const resuming = resume && dialog.resume !== null;
+    const action = resuming ? onResumeRound : onStartNewRound;
+    if (typeof action !== "function") return;
+    const result = await run(action, resuming
+      ? { batchId: dialog.resume.batchId, expectedRevision: dialog.resume.expectedRevision }
+      : { plan: dialog.plan, binding: dialog.binding, store });
+    if (result !== null) {
+      setNotice(resuming
+        ? "已继续上一次点的那一轮：没有新建批次，查询、算数、翻译都自动进行。"
+        : "已开始这一轮：查询、算数、翻译都自动进行，几分钟内结果出现在这里。");
+    }
   }
 
   // The keyboard shortcuts always act on what the page shows right now, so they read the latest render, not a closure.
@@ -151,7 +165,7 @@ export default function SelectionDesk({
         <header className="desk-feed-header">
           <div>
             <h2>待你决定</h2>
-            <p className="desk-subline">{feed.storeLabel} · {feed.direction ?? "还没有本店的查询结果"}{feed.queriedAt === null ? "" : ` · 查询于 ${feed.queriedAt}`}</p>
+            <p className="desk-subline">{feed.storeLabel} · 本轮结果：{feed.direction ?? "还没有本店的查询结果"}</p>
           </div>
           <div className="desk-feed-tools">
             <label>排序<select value={sort} onChange={event => setSort(event.target.value)}>
@@ -166,9 +180,15 @@ export default function SelectionDesk({
         {error ? <p role="alert">{error}</p> : null}
         {notice ? <p role="status" className="desk-notice">{notice}</p> : null}
         {rows.length === 0 ? <p role="status">本店当前没有等你决定的商品。点右上角「找一轮新品」再找一批。</p> : null}
+        {feed.direction === null ? null : <p className="desk-round-header">本轮结果：{feed.direction} · 查询于 {feed.queriedAt ?? "未记录时间"}</p>}
         {rows.map(row => <FeedCard key={row.key} row={row} active={activeKey === row.key} saving={saving}
           declining={declining === row.key} onDeclining={setDeclining}
           onSelect={select} onDecline={decline} onLater={later} onOpenCandidate={onOpenCandidate} />)}
+        {history.length ? <details className="desk-folded"><summary>历史轮次未处理的 {history.length} 条（默认隐藏）</summary>
+          {history.map(row => <FeedCard key={row.key} row={row} active={false} saving={saving}
+            declining={declining === row.key} onDeclining={setDeclining}
+            onSelect={select} onDecline={decline} onLater={later} onOpenCandidate={onOpenCandidate} />)}
+        </details> : null}
         {feed.excluded.length ? <details className="desk-folded"><summary>已自动排除 {feed.excluded.length} 条（预估负利润）</summary>
           <ul>{feed.excluded.map(row => <li key={row.key}>{row.titleZh ?? row.title} · 售价 {fact(row.price)} 卢布 · {row.estimate?.summary ?? "预估负利润"}</li>)}</ul>
         </details> : null}
@@ -194,18 +214,24 @@ export default function SelectionDesk({
           <button type="button" className="button secondary" onClick={onOpenBoard}>打开进行中</button>
         </section>
         <section className="desk-rail-block">
-          <h3>本轮方向</h3>
-          <p className="desk-rail-direction">{feed.direction ?? "还没有本店的查询方向。"}</p>
+          <h3>下一轮方向</h3>
+          <p className="desk-rail-direction">{nextRound.direction || "还没有配置下一轮的查询方向。"}</p>
+          {nextRound.estimatedPoints === null ? null : <p className="desk-rail-estimate">这一轮预计扣 {nextRound.estimatedPoints} 分</p>}
           {points === null ? null : <p className="desk-rail-points">{points}</p>}
           <button type="button" className="button primary" disabled={saving} onClick={openRoundDialog}>找一轮新品</button>
           {roundDialog === null ? null : <div className="desk-dialog" role="dialog" aria-label="找一轮新品">
             {roundDialog.ready ? <>
               <p><b>这一轮会做什么</b></p>
-              <p>向 Seerfar 查一次「{roundDialog.direction}」，预计扣 {roundDialog.estimatedPoints ?? "约 10"} 分，本轮上限 {roundDialog.maxCredits ?? "20"} 分。确认后自动创建并开始，查询、算数、翻译都不用你再点；结果出现在"待你决定"。</p>
+              {roundDialog.resume === null
+                ? <p>向 Seerfar 查一次「{roundDialog.direction}」，预计扣 {roundDialog.estimatedPoints ?? "约 10"} 分，本轮上限 {roundDialog.maxCredits ?? "20"} 分。确认后自动创建并开始，查询、算数、翻译都不用你再点；结果出现在"待你决定"。</p>
+                : <p>上一次点「找一轮新品」已经建好了这一轮「{roundDialog.resume.direction}」（{roundDialog.resume.createdAt ?? "时间未记录"}），但没有真正开始查询。确认后继续这一轮，不会再建一个新的批次；预计扣 {roundDialog.estimatedPoints ?? "约 10"} 分，只扣这一次。</p>}
               {roundDialog.warning ? <p className="desk-dialog-warning">{roundDialog.warning}</p> : null}
               <div className="desk-dialog-actions">
                 <button type="button" className="button secondary" onClick={() => setRoundDialog(null)}>取消</button>
-                <button type="button" className="button primary" disabled={saving} onClick={confirmRound}>确认，开始这一轮</button>
+                {roundDialog.resume === null ? null : <button type="button" className="button secondary" disabled={saving}
+                  onClick={() => confirmRound({ resume: false })}>不要这一轮了，重新找一轮</button>}
+                <button type="button" className="button primary" disabled={saving}
+                  onClick={() => confirmRound({ resume: true })}>{roundDialog.resume === null ? "确认，开始这一轮" : "确认，继续这一轮"}</button>
               </div>
             </> : <>
               <p>{roundDialog.reason}</p>

@@ -54,7 +54,9 @@ test('选品台先要求登录，再显示本店方向、查询时间和一件�
   assert.match(loading, /正在读取本店的查询结果/);
   const html = await render(props(view({ products: [product('2107989735', { titleZh: '合成收纳盒' })] })));
   assert.match(html, /待你决定/);
-  assert.match(html, /Miska · 普通非电桌面整理小件（合成） · 查询于 2026-09-0\d/u);
+  assert.match(html, /Miska · 本轮结果：普通非电桌面整理小件（合成）/u);
+  // The round's own direction and query time head the cards it returned.
+  assert.match(html, /本轮结果：普通非电桌面整理小件（合成） · 查询于 2026-09-0\d/u);
   assert.match(html, /合成收纳盒/);
   assert.match(html, /Explicitly synthetic 2107989735/);
   assert.match(html, /售价 900 卢布 · 月销 12 · 评价 4 · 评分 4\.5/);
@@ -112,7 +114,7 @@ test('每张卡片给出要、不要的固定理由和稍后；已建卡的商�
   assert.equal(imported.match(/<summary>不要<\/summary>/gu), null);
 });
 
-test('右栏说明等你处理、进行中和本轮方向，空的时候直说没有', async () => {
+test('右栏说明等你处理、进行中和下一轮方向，空的时候直说没有', async () => {
   const empty = await render(props(view({ products: [] })));
   assert.match(empty, /本店当前没有等你决定的商品/);
   assert.match(empty, /现在没有等你处理的商品/);
@@ -132,4 +134,38 @@ test('右栏说明等你处理、进行中和本轮方向，空的时候直说�
   assert.doesNotMatch(html, /合成商品乙/, '店铺切换后不显示别的店的商品');
   assert.match(html, /打开进行中/);
   assert.match(html, /普通非电桌面整理小件（合成）/);
+});
+
+// The rail names what the next click would query, which is not the direction the last round used.
+const nextRoundView = (batches, direction = '宠物服装（合成）') => ({ schemaVersion: 'a-discovery-view-v1',
+  targetStores: ['miska', 'dandanshu'], canPrepare: true, bindings: [{ bindingId: 'binding:x', configurationVersion: 'version:1' }],
+  plans: [{ planId: 'plan:next', version: 'version:1', direction,
+    budget: { maxCredits: 20, estimatedPointsByStep: { quota_before: 0, category_detail: 13, quota_after: 0 } } }],
+  batches });
+
+test('右栏写的是下一轮要查的方向和预计点数，不是上一轮的方向', async () => {
+  const html = await render(props(nextRoundView(view({ products: [product('2107989735')] }).batches)));
+  assert.match(html, /<h3>下一轮方向<\/h3>/u);
+  assert.doesNotMatch(html, /<h3>本轮方向<\/h3>/u);
+  assert.match(html, /<p class="desk-rail-direction">宠物服装（合成）<\/p>/u);
+  assert.match(html, /这一轮预计扣 13 分/u);
+  // The feed still reports the direction the shown products actually came from.
+  assert.match(html, /本轮结果：普通非电桌面整理小件（合成）/u);
+});
+
+test('历史轮次没处理的商品默认藏在一个折叠里，最新一轮在上面', async () => {
+  const round = (batchId, createdAt, direction, products) => ({ batch: { batchId, revision: 0, targetStore: 'miska', createdAt,
+    plan: { provider: 'seerfar', direction } },
+    jobs: [{ job: { status: 'completed', scopeBinding: { request: { method: 'category_detail' } } },
+      receipt: { steps: [{ method: 'category_detail', result: { products } }] } }],
+    selections: [], importedCandidates: [], declines: [] });
+  const html = await render(props(nextRoundView([
+    round('a-discovery-batch:older', '2026-09-08T04:00:00.000Z', '旧方向（合成）', [product('2107989730', { titleZh: '去年的收纳盒' })]),
+    round('a-discovery-batch:newer', '2026-09-10T04:00:00.000Z', '新方向（合成）', [product('2107989735', { titleZh: '本轮的收纳盒' })])
+  ])));
+  assert.match(html, /历史轮次未处理的 1 条（默认隐藏）/u);
+  assert.match(html, /本轮结果：新方向（合成） · 查询于 2026-09-\d\d/u);
+  assert.ok(html.indexOf('本轮的收纳盒') < html.indexOf('历史轮次未处理的'), '最新一轮排在折叠之前');
+  assert.ok(html.indexOf('历史轮次未处理的') < html.indexOf('去年的收纳盒'), '历史商品只出现在折叠里');
+  assert.doesNotMatch(html, /<details class="desk-folded" open/u);
 });

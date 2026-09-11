@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
-import { createLatestRead, createSelectionGuard, shouldContinuePolling, errorMessage, candidatePlatform } from "./formState.js";
+import { createLatestRead, createSelectionGuard, runMutation, shouldContinuePolling, errorMessage, candidatePlatform } from "./formState.js";
 import { validateCandidateCommentReceipt } from "./commentInput.js";
 import { requestSupplierCaptureStart } from "./captureStart.js";
 import { firstInQueue, matchesQueue } from "./candidateViews";
@@ -115,14 +115,17 @@ export default function App() {
     read();
     return ()=>{controller.abort();window.clearTimeout(timer);discoveryReads.current.cancel();};
   },[view,accountOwnerId,discoveryRefresh]);
-  async function runProductDiscovery(action,payload){
+  /**
+   * Every discovery write goes through here and never through the read guard: the guard drops its result whenever a
+   * refresh or a view switch happens mid-flight, which is how a confirmed round reached the server and was reported to
+   * the owner as "没有创建成功" (2026-09-11). The server's answer is always returned; only publishing it is conditional.
+   */
+  async function mutateProductDiscovery(action,payload){
     const ownerId=accountOwnerId;
     const current=()=>accountContext.current.ownerId===ownerId&&DISCOVERY_VIEWS.includes(accountContext.current.view);
-    const result=await discoveryReads.current.run(()=>action(payload),next=>{
-      if(current())setDiscoveryView(next);
-    },{protect:true});
-    if(current())setDiscoveryRefresh(value=>value+1);
-    return result;
+    return runMutation(()=>action(payload),{reads:discoveryReads.current,isCurrent:current,publish(next){
+      setDiscoveryView(next);setDiscoveryRefresh(value=>value+1);
+    }});
   }
   /**
    * The 找货 step of one product. Opening it derives the market snapshot from the already-saved query receipt and
@@ -157,7 +160,8 @@ export default function App() {
     cachedVersion: readCachedExtensionVersion()
   }));
   const effectiveExtensionStatus = useMemo(() => {
-    if (["authentication_unverified", "background_unavailable", "reload_required"].includes(extensionStatus.code)) {
+    // The page bridge answered for this exact tab, so its verdict wins; only an unanswered ping falls back to the heartbeat.
+    if (["connected", "background_unavailable", "reload_required"].includes(extensionStatus.code)) {
       return extensionStatus;
     }
     return extensionConnectionStatus({
@@ -833,21 +837,22 @@ export default function App() {
             ownerReady={accountOwner}
             loadingLabel={discoveryError ? `读取本店查询结果失败：${discoveryError}` : "正在读取本店的查询结果…"}
             skipped={skippedProducts}
-            onSelectProduct={payload => runProductDiscovery(api.selectProductDiscovery, payload)}
-            onDeclineProduct={payload => runProductDiscovery(api.declineProductDiscovery, payload)}
+            onSelectProduct={payload => mutateProductDiscovery(api.selectProductDiscovery, payload)}
+            onDeclineProduct={payload => mutateProductDiscovery(api.declineProductDiscovery, payload)}
             onLaterProduct={row => setSkippedProducts(current => current.includes(row.key) ? current : [...current, row.key])}
-            onEstimate={payload => runProductDiscovery(api.estimateProductDiscovery, payload)}
-            onTranslate={payload => runProductDiscovery(api.translateProductDiscovery, payload)}
+            onEstimate={payload => mutateProductDiscovery(api.estimateProductDiscovery, payload)}
+            onTranslate={payload => mutateProductDiscovery(api.translateProductDiscovery, payload)}
             onOpenCandidate={openDiscoveredCandidate}
-            onStartNewRound={async ({ plan, binding, store }) => {
-              // One explicit confirmation on the desk replaces the old create → permit → approve steps (owner, 2026-09-11).
-              const created = await runProductDiscovery(api.createProductDiscovery, { planId: plan.planId, planVersion: plan.version, targetStore: store,
-                bindingId: binding.bindingId, configurationVersion: binding.configurationVersion, idempotencyKey: `desk-round:${crypto.randomUUID()}` });
-              const batch = created?.operationResult?.batch;
-              if (!batch) throw new Error("这一轮没有创建成功，未扣任何点数。");
-              return runProductDiscovery(api.authorizeProductDiscovery, { batchId: batch.batchId, expectedRevision: batch.revision,
-                expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(), idempotencyKey: `desk-permit:${crypto.randomUUID()}` });
-            }}
+            onStartNewRound={({ plan, binding, store }) =>
+              // One explicit confirmation on the desk, one request: the server creates, authorizes and starts the round
+              // in one saved transaction, so a dropped answer can never leave a paid batch that was never started.
+              mutateProductDiscovery(api.startProductDiscovery, { planId: plan.planId, planVersion: plan.version, targetStore: store,
+                bindingId: binding.bindingId, configurationVersion: binding.configurationVersion,
+                expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(), idempotencyKey: `desk-round:${crypto.randomUUID()}` })}
+            onResumeRound={({ batchId, expectedRevision }) =>
+              // An older click that created a batch without a permit: this authorizes that same batch, never a new one.
+              mutateProductDiscovery(api.authorizeProductDiscovery, { batchId, expectedRevision,
+                expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(), idempotencyKey: `desk-permit:${crypto.randomUUID()}` })}
             onOpenBoard={() => setView("board")}
             onOpenInbox={() => setView("inbox")}
           />
@@ -881,12 +886,12 @@ export default function App() {
           <button type="button" className="button secondary" onClick={()=>setDiscoveryRefresh(value=>value+1)}>刷新发现记录</button>
           {discoveryError?<p role="alert">读取发现记录失败：{discoveryError}</p>:discoveryView?
             <ProductDiscoveryCard view={discoveryView}
-              onCreate={payload=>runProductDiscovery(api.createProductDiscovery,payload)}
-              onAuthorize={payload=>runProductDiscovery(api.authorizeProductDiscovery,payload)}
-              onContinue={payload=>runProductDiscovery(api.continueProductDiscovery,payload)}
-              onSelect={payload=>runProductDiscovery(api.selectProductDiscovery,payload)}
-              onTranslate={payload=>runProductDiscovery(api.translateProductDiscovery,payload)}
-              onEstimate={payload=>runProductDiscovery(api.estimateProductDiscovery,payload)}
+              onCreate={payload=>mutateProductDiscovery(api.createProductDiscovery,payload)}
+              onAuthorize={payload=>mutateProductDiscovery(api.authorizeProductDiscovery,payload)}
+              onContinue={payload=>mutateProductDiscovery(api.continueProductDiscovery,payload)}
+              onSelect={payload=>mutateProductDiscovery(api.selectProductDiscovery,payload)}
+              onTranslate={payload=>mutateProductDiscovery(api.translateProductDiscovery,payload)}
+              onEstimate={payload=>mutateProductDiscovery(api.estimateProductDiscovery,payload)}
               onOpenCandidate={openDiscoveredCandidate}/>:<p role="status">正在读取当前发现计划和保存的批次…</p>}
         </>}
       </div>:view==='accounts'?<div className="page-panel">
