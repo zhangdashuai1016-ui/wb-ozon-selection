@@ -213,10 +213,26 @@
 - 部署安排：r14 与 r14b（淘汰按钮、需要你处理页原因直写、定价指引）合并一次部署，需主人批准；部署步骤沿用 r13 记录（plist 只改 ProgramArguments/WorkingDirectory；环境变量不变）。
 - 交接：新会话 `local_ae9582dd…`（Opus 5，工作树目录）已收到接班提示词，被告知在主人说"r14 已提交"前只读不改。本 Fable 会话到此收尾。
 
+### 采集插件换代码 + 一次白名单重启（2026-09-11 15:26–15:31，主人批准，主会话执行）
+
+- **根因**：Chrome 一直加载的是**主树** `~/Documents/wb & ozon 选品/selection-review-app/extension/1688-capture` 的旧代码（8 月 14–28 日），7 个文件全与检查点不同，但两边 manifest 都写 `version 1.2.7`，服务端版本校验看不出差别。旧 `bridge.js` 要求页面消息带 `message.payload.captureId`，而现在的前端（`src/captureStart.js`）发扁平 `{type, captureId}` → 旧插件**静默忽略**，作业 2 分钟后 `extension_job_unclaimed`。主人当天 14:44 / 15:04 / 15:11 / 15:33 四次申请采集全部因此空等。心跳一直正常，是因为心跳由插件后台直连服务端，与页面无关。
+- **替换**：插件从工作树复制到仓库外稳定目录 `~/.local/share/wb-ozon-engineering/chrome-extension/1688-capture`（校验和逐一致），主人在 chrome://extensions 停用旧的、加载新的。未打包插件 ID = sha256(绝对路径) 前 16 字节按 0-15→a-p 映射，可离线精确预测（已用旧 ID `dakjehbcohonajmppgapfdpbdcmfbgdk` 反验）；新 ID **`jppcceenfaaagbfgojppfdnedldkghfc`**，已从 Chrome 配置读出核对一致。
+- **重启**：冷备 `cold-backups/20260911-152642/`（12 数据文件 + 原 plist，校验和一致，LATEST 已指向）。plist 只改 `SELECTION_REVIEW_ALLOWED_EXTENSION_ORIGINS` 一个键为**新旧两个 ID 逗号分隔**（该变量是逗号分隔列表，`lib/runtime-configuration.mjs:554`），逐键比对确认其余 37 个变量与 10 个顶层键字节不变，`plutil -lint` 通过；版本仍 r13。pid 4160 → **30087**。**坑**：`bootout` 后立刻 `bootstrap` 会报 `Bootstrap failed: 5: Input/output error`（收口竞争），重试一次即成功，服务离线约 20 秒。重启后核对：running、health ok、首页 200、未登录 401、旧进程退出、4318 未动（404 不变）、数据校验和一致、stderr 无新增、**新插件心跳 connected**。
+- **只读探针**（主人授权，用 AppleScript 在主人 Chrome 的 4317 标签页里跑）：`postMessage` 一个 `SELECTION_REVIEW_EXTENSION_STATUS_PING` 等 `..._STATUS_RESPONSE` → `BRIDGE_OK version=1.2.7 backgroundReady=true`。证明内容脚本已在该标签页，且地址确为 `http://127.0.0.1:4317`。这是判断"这个标签页里有没有插件"的可靠办法；界面那句"插件已连接"读的是心跳，**不能**用来证明这一点。
+- **手动跑一次采集失败**：按主人授权用页面自身会话调 `/lifecycle/a-confirm`，服务端返回 **409 `previous_capture_requires_review`**——那条卡死的 `waiting_extension` 记录在服务端挡住一切新采集申请，应用里没有任何清它的入口。由此确定必须改代码。
+
+### r15 施工完成（2026-09-11 17:3x，提交 `eca5a64` 已推送，Opus 子代理施工、主会话审查复跑）
+
+- 三处缺陷（都是"新页面这条路从没真跑过"）：① 商品页「申请插件采集」走 `runProductStep`，只调接口**不发开始信号**（插件后台不轮询作业，领取必须由页面 postMessage 触发）；② `requestSupplierCaptureStart` 把插件 ACK 的 `code` 丢掉，界面只会说"未收到领取确认"；③ `expireSourceCaptureJob` 在候选 `dataRevision` 变化时放弃收口 → 候选永远停在 `waiting_extension`，旧 A 卡按钮因 `RealAConfirmationCard.jsx:126` 变灰，服务端守卫又拒绝新申请，主人被彻底卡死。
+- 修复：`src/captureStart.js` 保留 `code`（超时给 `no_bridge`）并新增**共用的 code→人话映射**（`captureStartMessage` / `startQueuedSupplierCapture`），商品页与旧 A 卡共用；`src/App.jsx` 新增 `requestProductCapture`，写操作走 `runMutation`（**不再穿读取守卫**，r13 同类教训），queued 且非 duplicate 时发信号，三种结局都 `load(true)`；`server.mjs` 过期收口只认 `captureId`，并新增**启动对账** `reconcileSourceCaptureJobsAfterRestart()`（`server.listen` 之前一次性，把本进程没有会话的 queued/claimed/waiting_extension/capturing 记录收口为新失败码 `capture_job_lost`，`writeOccurred=false`，无此类记录则完全不写盘）。
+- 验证（主会话自己复跑）：全量自含 **1964/1964**（594 秒）；`node --check` 通过；vite `index-BkmiBqtV.js`；快照 `--check` **644 项**；运行包 `runtime-packages/20260911-capture-signal-r15`（5437 文件，node 与 r13 同一二进制）在隔离端口 4620 用**线上数据副本**启动：health ok、首页 200、未登录被挡、stderr 干净，且那条卡死记录自动变成 `failed / capture_job_lost`、`writeOccurred=false`、`workflowStatus` 仍 `needs_user_data`、dataRevision 10→11，日志打出收口行。
+- 子代理标注、主会话已核的风险：改写了 `source-capture-restart-reconciliation.test.mjs` 里"重启后数据字节不变"的旧断言（与本次要实现的行为直接冲突，新断言覆盖了收口内容、幂等、干净数据不写盘）；`src/captureStart.js` 因文案含 `http://127.0.0.1:4317` 被登记进本机依赖审计表；商品页点击链路无 jsdom，只有纯函数与源码契约断言覆盖，真机一次采集尚未跑通。线上扫描确认**重启只会命中一条**记录（candidate:2e417eaf…，`a_supplier_capture` 模式，该路径只写采集记录 + 修订号 +1 + 一行历史，不动业务状态）。
+- **r15 包含 r14 的全部内容**，所以 r14 包不再单独部署。**待主人批准部署**（plist 只改 ProgramArguments 与 WorkingDirectory，38 个环境变量不动）。
+
 ### 下一步（需主人）
 
-1. ~~部署 r13~~（已上线）：主人强制刷新页面（Cmd+Shift+R），对 3321582481 进商品页 → "找货"填 1688 链接、货价、国内运费、打包重量、长宽高 → 保存看是否过线（现在能算出线路与上限）→ 申请插件采集。
-2. r14b（新会话接手）：淘汰按钮（四页）、需要你处理页原因直写、商品页定价指引；连同 r14 一次部署（需批准）。
+1. **部署 r15（待批准）**：包 `runtime-packages/20260911-capture-signal-r15`，含 r14 全部内容 + 采集三处修复。plist 只改 ProgramArguments 与 WorkingDirectory，38 个环境变量不动。重启会顺带把 candidate:2e417eaf… 那条卡死的采集记录收口成 `capture_job_lost`（副本已验证）。部署后主人 Cmd+Shift+R，再在商品页点「申请插件采集」，这次会真的发信号；C1/C2 首跑仍未发生，第一份回执要盯。
+2. r14b（下一批）：淘汰按钮（四页，软删除、默认隐藏、可恢复、一键淘汰上一轮）、需要你处理页每行原因与动作直写、商品页定价指引（保本/达标最低/市场价利润/价格阶梯，目标价默认市场价）；另两处小修：空状态文案"选这个"应为"要"、10 分钟防重复守卫与"不要这一轮了"冲突。
 3. r14 待办：回执保存原始响应体（脱敏、限长）；估算时从原始体重读尺寸。
 4. 待裁决：1688 起步的反查路线（Ozon 以图搜款 + 插件采集结果页 → 自动价格带）排在本轮之后。
 5. 待裁决：两项既有隔离测试失败（旧派发 claim 路由 409 vs 期望 200；拒绝文案正则）改路由还是改期望。
