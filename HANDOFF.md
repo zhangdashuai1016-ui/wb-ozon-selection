@@ -229,9 +229,30 @@
 - 子代理标注、主会话已核的风险：改写了 `source-capture-restart-reconciliation.test.mjs` 里"重启后数据字节不变"的旧断言（与本次要实现的行为直接冲突，新断言覆盖了收口内容、幂等、干净数据不写盘）；`src/captureStart.js` 因文案含 `http://127.0.0.1:4317` 被登记进本机依赖审计表；商品页点击链路无 jsdom，只有纯函数与源码契约断言覆盖，真机一次采集尚未跑通。线上扫描确认**重启只会命中一条**记录（candidate:2e417eaf…，`a_supplier_capture` 模式，该路径只写采集记录 + 修订号 +1 + 一行历史，不动业务状态）。
 - **r15 包含 r14 的全部内容**，所以 r14 包不再单独部署。**待主人批准部署**（plist 只改 ProgramArguments 与 WorkingDirectory，38 个环境变量不动）。
 
+### 部署记录 r15 与首次真实采集的结果（2026-09-11 17:19–17:26，主人"批准部署"，主会话执行）
+
+- 冷备 `cold-backups/20260911-171821/`（13 文件，校验和一致，LATEST 已指向）。安装 `20260911-capture-signal-r15`（5437 文件，`server.mjs` 校验和与包一致，前端 `index-BkmiBqtV.js`）。plist **只改 ProgramArguments 与 WorkingDirectory**；顶层 10 键、环境变量 38 个逐键相同；`plutil -lint` 通过。
+- 重启：pid 30087 → **48044**。**`bootstrap` 连报两次 `Input/output error`，第三次才成功**，服务离线约 40 秒（上次是一次重试即成，这个竞争要按"可能重试多次"对待）。核对：running、路径为 r15、health ok、首页 200、未登录 401、旧进程退出、4318 未动（404）、stderr 无新增、白名单含新旧两个插件 ID。
+- **启动对账按设计生效**：日志打出收口行，`candidate:2e417eaf…` 从 `waiting_extension/queued` 变为 `failed / capture_job_lost`、`writeOccurred=false`、`workflowStatus` 仍 `needs_user_data`、rev 10→11；60 个候选里只有这一条内容变化，规则表未变。
+- **17:25 首次真实采集：信号→领取→执行全通**（`status=capturing`、`jobStatus=claimed`、插件开了 1688 页面并正常关闭、`cleanupBlocked` 为空），但**插件没有回传结果**，60 秒租约到期记为 `unknown_outcome`。静态核对了全链路合同（会话、Origin、令牌、`input.dataRevision === session.dataRevision`（claim 后 payload 是用更新过的 session 生成的，能对上）、失败码白名单（`safeFailureCode` 回落 `system_error` 也在服务端白名单内）、CORS 预检），**都对得上**；服务端没有收到任何回传，所以疑点集中在插件后台是否被 MV3 回收，或回传在网络层未送达。
+- 为此给 `bridge.js` 加了 `lastCaptureCode` / `captureActive`（提交 `2e6bb09`），主人重载插件后已生效（探针读到该字段）。但重载会清空 worker 内存，17:25 那次的结论码已丢失，需要下一次失败才能读到。
+- **随后暴露第二条死胡同**：`unknown_outcome` 会被 `previous_capture_requires_review` 守卫拦住一切新采集申请，而应用里**没有任何路由或按钮**能"处理这条记录"（`/source-capture/start` 对 a_supplier_capture 已 409 停用，`recovery-action` 只服务 codex_processing / listingHandoff）。主人被彻底卡在首件雨衣上。
+- 界面文案坑：选品台「我选的商品」里过线那行按钮写「申请插件采集」但只跳转商品页，主人因此白点一次（r16 已改为「去申请采集」）。
+- 主人还给第二件填了找货：`candidate:f2e447df…`（3605840795，1457 卢布反光雨衣，1688 offer 772180461018），单件利润 ¥23.69、已过线、**无采集记录**，可作为不受守卫影响的采集验证对象。
+
+### r14b + 采集出口施工完成，r16 待部署（2026-09-11 20:1x，提交 `3ceb70a` 已推送，两个 Opus 子代理施工、主会话审查并复跑）
+
+- **淘汰（软删除）**：新增 `POST /api/candidates/:id/workflow/{eliminate,restore}`（仅主人、封闭输入、修订号 409、理由复用五个枚举、写 `eliminatedFromStatus` 供恢复、`addHistory`、不派发不访问平台）。界面五处：待你决定卡片（已建卡的独立「淘汰」；未决定的沿用改名后的「不要（淘汰）」）、我选的商品、进行中看板、需要你处理、商品页头部；每处底部「已淘汰 N」折叠可恢复；另有「一键淘汰上一轮全部未选」。**两处按子代理判断做了偏离，待主人确认**：未决定卡片不再加同义按钮；"你自己不要的"那类不提供恢复（decline 记录是 AI 层唯一的判断存档）。
+- **需要你处理**：`OwnerInbox` 从 22 行改为每行直写原因与动作，判定读候选自身记录（已采到等你选规格 / 采集中 / 已排队 / 上次采集已停止〈原话〉/ 找货未填 / 算不出利润缺什么 / 未到利润门槛并写明单件利润与利润率 / 平台自己提的缺口），纯函数在 `selectionDeskView.js`。徽标计数会比以前多（并入了"已采到等你选"和"采集已停止"两类）。
+- **定价指引**：`lib/a-discovery-estimate.mjs` 新增 `commissionTierForPrice` / `pricePointAt` / `pricingGuidance`（每个佣金档内分别反解、只取落在本档的解、整卢布向上取整后逐卢布校验）；档位与卢布区间由新的 `readOzonCommissionReferenceTiers()` 从官方表读出，**1500/5000 没有写死**。用主人真实数据核对：保本 **986**（12% 档）、达标 **1228**（basis=margin）、单件 ¥20 线 1317、1600 → **¥34.62**（与线上显示一致）、市场价 1666 → **¥38.51**；阶梯 986/1228/1300/1600/1666，佣金分别 12/12/12/14/14。目标成交价默认改为同款市场价。
+- **采集出口**：新增 `POST /api/candidates/:id/source-capture/review`（仅主人、只收 `dataRevision` + 可选枚举 `no_result_received`、只在结果未知且未核实时可用、只写 `jobStatus:failed` + `reviewedAt/reviewedBy/acknowledgement`、**不编造结果、不动业务状态**）；守卫改为"结果未知**且未核实**"才拦；`markSourceCaptureFailure` 加兜底，同一 `captureId` 已核实的记录重写时保留核实字段。商品页在被挡住时说明现状、置灰「申请插件采集」，并给「这次采集没有结果，我确认并重新申请」（确认 + 重新申请 + 发开始信号，两步各自如实报错）。
+- **验证（主会话复跑）**：全量自含 **1987/1987**（484 秒）；`node --check` 通过；快照 **647** 项 `--check` 通过；vite `index-BeCeeRsJ.js`；包 `runtime-packages/20260911-desk-eliminate-pricing-r16` 在隔离端口 4621 用线上数据副本启动：health ok、首页 200、两条新路由存在且未登录被拒、stderr 干净、卡死那条记录保持原样（要主人亲自确认，不自动抹）。
+- 已知遗留：claim 落盘失败会留下 `waiting_extension/queued` 但无会话的记录，只能靠重启对账收口，不在核实路由范围内；旧 A 卡撞上同一守卫时的 409 文案没有指向商品页的出口；定价指引只在商品页"找货"一步显示；每次打开/保存找货会多读一次官方佣金表。
+
 ### 下一步（需主人）
 
-1. **部署 r15（待批准）**：包 `runtime-packages/20260911-capture-signal-r15`，含 r14 全部内容 + 采集三处修复。plist 只改 ProgramArguments 与 WorkingDirectory，38 个环境变量不动。重启会顺带把 candidate:2e417eaf… 那条卡死的采集记录收口成 `capture_job_lost`（副本已验证）。部署后主人 Cmd+Shift+R，再在商品页点「申请插件采集」，这次会真的发信号；C1/C2 首跑仍未发生，第一份回执要盯。
+1. **部署 r16（待批准）**：包 `runtime-packages/20260911-desk-eliminate-pricing-r16`（淘汰、收件箱原因直写、定价指引、采集出口）。plist 只改 ProgramArguments 与 WorkingDirectory，38 个环境变量不动。部署后主人 Cmd+Shift+R，先在首件雨翼商品页点「这次采集没有结果，我确认并重新申请」解封，再看采集能否真的回传结果（插件已带 `lastCaptureCode`，失败时能读出插件自己的结论码）。备选验证对象：`candidate:f2e447df…`（无采集记录，不受守卫影响）。
+1. ~~部署 r15~~（已于 17:19 上线）：包 `runtime-packages/20260911-capture-signal-r15`，含 r14 全部内容 + 采集三处修复。plist 只改 ProgramArguments 与 WorkingDirectory，38 个环境变量不动。重启会顺带把 candidate:2e417eaf… 那条卡死的采集记录收口成 `capture_job_lost`（副本已验证）。部署后主人 Cmd+Shift+R，再在商品页点「申请插件采集」，这次会真的发信号；C1/C2 首跑仍未发生，第一份回执要盯。
 2. r14b（下一批）：淘汰按钮（四页，软删除、默认隐藏、可恢复、一键淘汰上一轮）、需要你处理页每行原因与动作直写、商品页定价指引（保本/达标最低/市场价利润/价格阶梯，目标价默认市场价）；另两处小修：空状态文案"选这个"应为"要"、10 分钟防重复守卫与"不要这一轮了"冲突。
 3. r14 待办：回执保存原始响应体（脱敏、限长）；估算时从原始体重读尺寸。
 4. 待裁决：1688 起步的反查路线（Ozon 以图搜款 + 插件采集结果页 → 自动价格带）排在本轮之后。
