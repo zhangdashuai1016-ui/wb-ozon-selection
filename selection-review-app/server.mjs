@@ -3038,7 +3038,11 @@ async function handleApi(req, res, pathname) {
       if (!(error instanceof ADiscoveryError)) throw error;
       const status = error.code === 'SERVICE_NOT_CONFIGURED' ? 503 :
         ['INPUT_INVALID','PLAN_INVALID','IMPORT_INPUT_INVALID'].includes(error.code) ? 400 : 409;
-      return json(res,status,{code:error.code,message:'商品发现未继续，请核对当前计划、批次版本及已保存的执行结果。'});
+      // A second round for the same store and direction is refused in the owner's own words, not in batch vocabulary.
+      const message = error.code === 'ROUND_ALREADY_RUNNING'
+        ? '本店已有一轮查询在进行，等它完成后再找；没有新建批次，也没有再扣点数。'
+        : '商品发现未继续，请核对当前计划、批次版本及已保存的执行结果。';
+      return json(res,status,{code:error.code,message});
     }
   }
 

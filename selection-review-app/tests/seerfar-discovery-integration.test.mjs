@@ -352,13 +352,16 @@ for (const change of ['removed', 'same_version_budget_changed', 'credential_chan
 
 test('removed plan stops previously queued work through pump and repeated authorization without replaying completed history', async t => {
   const f = await createSeerfarDiscoveryRuntimeFixture(t), entered = Promise.withResolvers(), release = Promise.withResolvers();
-  const { service } = f.create({ respond: async (call, response) => {
+  // One store runs one direction at a time (ROUND_ALREADY_RUNNING), so the round queued behind the running one is a
+  // second saved direction; what this test is about — a removed plan stopping queued work — is unchanged.
+  const secondPlan = { ...f.plan, planId: 'plan:synthetic-seerfar-second' };
+  const { service } = f.create({ plans: [f.plan, secondPlan], respond: async (call, response) => {
     if (call.step === 'quota_before') { entered.resolve(); await release.promise; }
     return response(call);
   } });
   const first = await f.prepare(service), running = f.authorize(service, first);
   await entered.promise;
-  const second = await service.createBatch({ actor: f.owner, input: { planId: f.plan.planId, planVersion: f.plan.version,
+  const second = await service.createBatch({ actor: f.owner, input: { planId: secondPlan.planId, planVersion: secondPlan.version,
     targetStore: 'miska', bindingId: f.connectorBinding.bindingId, configurationVersion: f.connectorBinding.configurationVersion,
     idempotencyKey: 'create:second-category' } });
   assert.equal((await f.authorize(service, second)).status, 'queued');

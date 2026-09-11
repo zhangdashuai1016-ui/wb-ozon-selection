@@ -167,6 +167,8 @@ test('an owner turning one product down saves one fixed reason, replays the same
 const startInput=(f,overrides={})=>({planId:f.batch.plan.planId,planVersion:f.batch.plan.version,targetStore:f.batch.targetStore,
   bindingId:f.batch.bindingId,configurationVersion:f.batch.configurationVersion,expiresAt:'2026-09-08T13:00:00.000Z',
   idempotencyKey:'desk-round:one',...overrides});
+const createInput=(f,overrides={})=>({planId:f.batch.plan.planId,planVersion:f.batch.plan.version,targetStore:f.batch.targetStore,
+  bindingId:f.batch.bindingId,configurationVersion:f.batch.configurationVersion,idempotencyKey:'create:another',...overrides});
 
 test('一次点击把这一轮建好、许可并开始；同一个幂等键只续这一轮，不会再建第二个批次',async()=>{
   const f=createADiscoveryRuntimeFixture(),{service}=f.create();
@@ -224,6 +226,52 @@ test('上一次只建好却没开始的这一轮，用同一个幂等键续上�
   assert.deepEqual(Object.keys(saved.runtime.aDiscoveryBatches),[created.batch.batchId]);
   assert.equal(saved.runtime.softwareJobAuthorizationRecords.length,f.batch.plan.requests.length);
   assert.equal(saved.runtime.softwareJobs.filter(job=>job.subject.batchId===created.batch.batchId&&job.scopeBinding.requestIndex===0).length,1);
+  assert.equal(f.counts().requests,1);
+  await service.stop();
+});
+
+test('同店同方向已经有一轮在跑时不再开第二轮，原来那一轮仍能用同一个幂等键续上',async()=>{
+  const f=createADiscoveryRuntimeFixture(),{service}=f.create();
+  const first=await service.startRound({actor:f.owner,input:startInput(f)});
+  const jobs=(await f.repository.readSnapshot()).runtime.softwareJobs;
+  assert.ok(jobs.some(job=>job.status==='queued'),'这一轮还有没跑完的步骤');
+  const requests=f.counts().requests;
+  // A lost answer to the first click must not let the second click open — and pay for — a second round.
+  await assert.rejects(()=>service.startRound({actor:f.owner,input:startInput(f,{idempotencyKey:'desk-round:two'})}),/ROUND_ALREADY_RUNNING/);
+  await assert.rejects(()=>service.createBatch({actor:f.owner,input:createInput(f)}),/ROUND_ALREADY_RUNNING/);
+  const saved=await f.repository.readSnapshot();
+  assert.deepEqual(Object.keys(saved.runtime.aDiscoveryBatches),[first.batch.batchId]);
+  assert.equal(saved.runtime.softwareJobAuthorizationRecords.length,f.batch.plan.requests.length);
+  assert.equal(f.counts().requests,requests,'被拒绝的一轮没有发出任何查询');
+  const again=await service.startRound({actor:f.owner,input:startInput(f)});
+  assert.equal(again.resumed,true);assert.equal(again.batch.batchId,first.batch.batchId);
+  assert.equal(f.counts().requests,requests);
+  await service.stop();
+});
+
+test('刚建好还没开始的那一轮十分钟内挡住同店同方向的新一轮，别的店和十分钟以后都不挡',async()=>{
+  const f=createADiscoveryRuntimeFixture(),{service}=f.create();
+  const created=await f.prepare(service);
+  assert.deepEqual((await f.repository.readSnapshot()).runtime.softwareJobs,[]);
+  await assert.rejects(()=>service.createBatch({actor:f.owner,input:createInput(f)}),/ROUND_ALREADY_RUNNING/);
+  await assert.rejects(()=>service.startRound({actor:f.owner,input:startInput(f,{idempotencyKey:'desk-round:second'})}),/ROUND_ALREADY_RUNNING/);
+  let saved=await f.repository.readSnapshot();
+  assert.deepEqual(Object.keys(saved.runtime.aDiscoveryBatches),[created.batch.batchId]);
+  assert.deepEqual(saved.runtime.softwareJobs,[]);assert.deepEqual(f.counts(),{secrets:0,requests:0});
+  // Another store's round answers a different question and is never blocked by this one.
+  const other=await service.createBatch({actor:f.owner,input:createInput(f,{targetStore:'dandanshu',idempotencyKey:'create:other-store'})});
+  assert.equal(other.batch.targetStore,'dandanshu');
+  // The saved round keeps resuming: the same key still names it.
+  assert.equal((await f.prepare(service)).idempotentReplay,true);
+  // Ten minutes on, the saved round is no longer one the desk is about to start, so a fresh round is allowed again.
+  f.advance(10*60*1000);
+  const later=await service.createBatch({actor:f.owner,input:createInput(f,{idempotencyKey:'create:after-window'})});
+  assert.notEqual(later.batch.batchId,created.batch.batchId);
+  // A refusal changed nothing: the first saved round can still be authorized and started from its own permit.
+  assert.equal((await f.authorize(service,created)).status,'completed');
+  saved=await f.repository.readSnapshot();
+  assert.deepEqual(Object.keys(saved.runtime.aDiscoveryBatches).sort(),
+    [created.batch.batchId,later.batch.batchId,other.batch.batchId].sort());
   assert.equal(f.counts().requests,1);
   await service.stop();
 });

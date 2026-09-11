@@ -22,6 +22,9 @@ export const A_DISCOVERY_DECLINE_COLLECTION='aDiscoveryDeclines';
 /** The owner picks one of these words and nothing else; a free-text reason is not offered anywhere. */
 export const A_DISCOVERY_DECLINE_REASONS=Object.freeze(['尺寸太大','利润太薄','品牌风险','不想做这类','其他']);
 export const aDiscoveryDeclineKey=({batchId,revision,marketProductId})=>`${batchId}:${revision}:${marketProductId}`;
+/** A round is in flight while its job has not finished, and while a just-created round is still waiting to be started. */
+export const ROUND_IN_FLIGHT_JOB_STATUSES=Object.freeze(['queued','claimed','waiting_platform']);
+export const ROUND_RESUMABLE_WINDOW_MS=10*60*1000;
 
 /**
  * One saved "not this one" per market product and batch revision.
@@ -170,12 +173,31 @@ export function createADiscoveryRuntimeServices({repository,softwareJobStore,run
     return {service,plan};
   }
   /**
+   * One store queries one direction once at a time. A round whose job is still queued or running, and a round that was
+   * just created and is waiting to be started from the desk, both mean the owner's question is already being answered:
+   * opening a second batch for it would spend the points twice. Owner incident 2026-09-11: a lost answer to one click
+   * made the next click open a second round. The saved round is refused, not replaced — every resume path still works,
+   * because a repeated idempotency key names the existing batch and never reaches this check.
+   */
+  function assertNoRoundInFlight({document,actor,targetStore,planId,batchId}){
+    const batches=readCollection(document,'aDiscoveryBatches'),jobs=readCollection(document,'softwareJobs',true),at=Date.parse(serverClock());
+    for(const [id,saved] of Object.entries(batches)){
+      if(id===batchId)continue;
+      const batch=assertADiscoveryBatch(saved);
+      if(batch.ownerUserId!==actor.userId||batch.targetStore!==targetStore||batch.plan.planId!==planId)continue;
+      const own=jobs.filter(job=>job.jobType===A_DISCOVERY_JOB_TYPE&&job.subject?.batchId===batch.batchId);
+      requireValue(!own.some(job=>ROUND_IN_FLIGHT_JOB_STATUSES.includes(job.status)),'ROUND_ALREADY_RUNNING');
+      requireValue(own.length>0||!Number.isFinite(at)||at-Date.parse(batch.createdAt)>=ROUND_RESUMABLE_WINDOW_MS,'ROUND_ALREADY_RUNNING');
+    }
+  }
+  /**
    * One saved batch per idempotency key, written into the caller's transaction. The same key always names the same
    * batch, so a repeated click resumes the round it already paid for instead of opening a second one.
    */
   function saveBatchInDocument({document,actor,input,plan,service}){
     const batchId=`a-discovery-batch:${fingerprintCanonicalRecord({ownerUserId:actor.userId,idempotencyKey:input.idempotencyKey})}`;
     const batches=collection(document,'aDiscoveryBatches'),exists=Object.hasOwn(batches,batchId),existing=exists?assertADiscoveryBatch(batches[batchId]):null;
+    if(!exists)assertNoRoundInFlight({document,actor,targetStore:input.targetStore,planId:plan.planId,batchId});
     collection(document,'aDiscoveryReceipts');
     const batch=assertADiscoveryBatch({schemaVersion:plan.provider==='seerfar'?'a-discovery-batch-v2':'a-discovery-batch-v1',batchId,revision:0,ownerUserId:actor.userId,
       createdAt:exists?existing.createdAt:serverClock(),plan:clone(plan),targetStore:input.targetStore,bindingId:service.connector.bindingId,
