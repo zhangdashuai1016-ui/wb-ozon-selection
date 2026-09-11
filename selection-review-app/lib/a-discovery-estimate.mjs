@@ -122,6 +122,161 @@ export function estimateDiscoveredProduct({ product, storeRule, fx, commission, 
     commission: commissionSource, costPolicy: policy, assumptions: { packagingRmbDefault: assumptions.packagingRmbDefault, assumed: true }, freight, ceiling, status, missing };
 }
 
+/**
+ * Pricing guidance (owner question 2026-09-11: "目标成交价应该平台算给我看，我怎么知道卖多少钱是赚钱的").
+ *
+ * The profit formula is exactly the one `estimateDiscoveredProduct` and the supplier draft already use — revenue at the
+ * official FX, minus the reserve rates, minus the non-purchase fixed costs, minus the declared purchase — read backwards
+ * to answer "which sale price reaches this profit". Nothing here invents a rate: the commission ladder is handed in by
+ * the caller exactly as the official table carries it, including the ruble band each rate applies to. Because the rate
+ * jumps at a band edge, the inverse is solved once inside every band and only a solution that actually falls inside its
+ * own band is kept; the answer is the cheapest legal price across the bands.
+ */
+const PRICE_SEARCH_STEPS = 24;
+
+const tierBand = tier => {
+  if (!isObject(tier) || !finite(tier.rate) || tier.rate < 0 || tier.rate >= 1 || !nonNegative(tier.minRub)) return null;
+  const max = tier.maxRub === null ? Infinity : finite(tier.maxRub) && tier.maxRub > tier.minRub ? tier.maxRub : null;
+  return max === null ? null : { min: Math.max(tier.minRub, 1), max };
+};
+
+/** The band one price falls in, read from the bands themselves; a price outside every band has no rate. */
+export function commissionTierForPrice(tiers, priceRub) {
+  if (!Array.isArray(tiers) || !finite(priceRub)) return null;
+  return tiers.find(tier => {
+    const band = tierBand(tier);
+    return band !== null && priceRub >= band.min && priceRub <= band.max;
+  }) ?? null;
+}
+
+function pricingContext({ fx, costs, policy }) {
+  if (!isObject(fx) || !finite(fx.rubPerCny) || fx.rubPerCny <= 0) return null;
+  if (!isObject(costs) || !finite(costs.allInPurchaseRmb) || !finite(costs.nonPurchaseFixedRmb)) return null;
+  if (!isObject(policy)) return null;
+  const reserveBase = ['advertisingReserveRate', 'returnOpsReserveRate', 'damageLossReserveRate', 'withdrawalFeeRate']
+    .reduce((total, key) => (nonNegative(policy[key]) ? total + policy[key] : NaN), 0);
+  if (!finite(reserveBase)) return null;
+  return { rubPerCny: fx.rubPerCny, reserveBase,
+    totalCostRmb: roundDownCents(costs.allInPurchaseRmb + costs.nonPurchaseFixedRmb),
+    allInPurchaseRmb: costs.allInPurchaseRmb, nonPurchaseFixedRmb: costs.nonPurchaseFixedRmb };
+}
+
+/** What one sale price actually earns, with the same rounding the saved estimate uses. */
+export function pricePointAt({ priceRub, fx, tiers, costs, policy }) {
+  const context = pricingContext({ fx, costs, policy });
+  if (context === null || !finite(priceRub) || priceRub <= 0) return null;
+  const tier = commissionTierForPrice(tiers, priceRub);
+  if (tier === null) return null;
+  const reserveRate = tier.rate + context.reserveBase;
+  const revenueCny = roundDownCents(priceRub / context.rubPerCny);
+  const unitProfitRmb = roundDownCents(revenueCny * (1 - reserveRate) - context.totalCostRmb);
+  return { priceRub, commissionRate: tier.rate, commissionTier: tier.tier ?? null,
+    reserveRate: Math.round(reserveRate * 10000) / 10000, revenueCny, unitProfitRmb,
+    marginRate: revenueCny > 0 ? Math.round(unitProfitRmb / revenueCny * 10000) / 10000 : null };
+}
+
+const reaches = (point, want) => point !== null && (want.kind === 'margin'
+  ? point.marginRate !== null && point.marginRate >= want.value
+  : point.unitProfitRmb >= want.value);
+
+/** The cheapest whole-ruble price inside one band that reaches the target, or null when the band cannot reach it. */
+function solveInTier({ tier, want, fx, tiers, costs, policy }) {
+  const context = pricingContext({ fx, costs, policy });
+  const band = tierBand(tier);
+  if (context === null || band === null) return null;
+  const reserveRate = tier.rate + context.reserveBase;
+  const denominator = want.kind === 'margin' ? 1 - reserveRate - want.value : 1 - reserveRate;
+  if (!(denominator > 0)) return null;
+  const numerator = want.kind === 'unit_profit' ? context.totalCostRmb + want.value : context.totalCostRmb;
+  const raw = numerator * context.rubPerCny / denominator;
+  if (!finite(raw) || raw <= 0) return null;
+  let priceRub = Math.max(Math.ceil(raw), Math.ceil(band.min), 1);
+  // Cent-level rounding inside the formula can leave the analytic price one or two roubles short; step up, never down.
+  for (let step = 0; step < PRICE_SEARCH_STEPS && priceRub <= band.max; step += 1, priceRub += 1) {
+    if (reaches(pricePointAt({ priceRub, fx, tiers, costs, policy }), want)) return priceRub;
+  }
+  return null;
+}
+
+function lowestPriceFor(want, inputs) {
+  const solved = (Array.isArray(inputs.tiers) ? inputs.tiers : [])
+    .map(tier => solveInTier({ tier, want, ...inputs })).filter(value => value !== null);
+  return solved.length === 0 ? null : Math.min(...solved);
+}
+
+const roundUpTo = (value, step) => Math.ceil(value / step) * step;
+const roundDownTo = (value, step) => Math.floor(value / step) * step;
+
+/** Two plain round prices to sit between the threshold price and the market price, so the ladder is readable. */
+function roundLadderPrices(thresholdRub, marketRub) {
+  const base = finite(thresholdRub) ? thresholdRub : null;
+  if (base === null) return [];
+  if (finite(marketRub) && marketRub > base) {
+    return [roundUpTo(base + 1, 100), roundDownTo(marketRub - 1, 100)]
+      .filter(value => value > base && value < marketRub);
+  }
+  const first = roundUpTo(base + 1, 100);
+  return [first, first + 100];
+}
+
+/**
+ * The four things the owner asked to see beside the 找货 form: the price that breaks even, the cheapest price that
+ * reaches this store's own profit threshold (and which of the two thresholds it reached), what the same product sells
+ * for today and what that price would earn, and a short ladder of prices with the profit each one leaves.
+ */
+export function pricingGuidance({ fx, tiers, costs, policy, marketPriceRub = null }) {
+  const inputs = { fx, tiers, costs, policy };
+  const context = pricingContext({ fx, costs, policy });
+  const usableTiers = (Array.isArray(tiers) ? tiers : []).filter(tier => tierBand(tier) !== null);
+  if (context === null || usableTiers.length === 0) {
+    return { status: 'unavailable', breakEven: null, threshold: null, market: null, ladder: [],
+      allInPurchaseRmb: null, nonPurchaseFixedRmb: null, rubPerCny: null,
+      minimumUnitProfitRmb: null, targetMarginRate: null, thresholdPolicy: null };
+  }
+  const breakEvenRub = lowestPriceFor({ kind: 'unit_profit', value: 0 }, inputs);
+  const byUnitProfit = nonNegative(policy.minimumUnitProfitRmb)
+    ? lowestPriceFor({ kind: 'unit_profit', value: policy.minimumUnitProfitRmb }, inputs) : null;
+  const byMargin = nonNegative(policy.targetMarginRate)
+    ? lowestPriceFor({ kind: 'margin', value: policy.targetMarginRate }, inputs) : null;
+  const both = policy.thresholdPolicy === 'both';
+  let thresholdRub = null;
+  let basis = null;
+  if (both && byUnitProfit !== null && byMargin !== null) {
+    thresholdRub = Math.max(byUnitProfit, byMargin);
+    basis = 'both';
+  } else if (!both && (byUnitProfit !== null || byMargin !== null)) {
+    const reachable = [byUnitProfit, byMargin].filter(value => value !== null);
+    thresholdRub = Math.min(...reachable);
+    basis = byUnitProfit === byMargin ? 'both' : byUnitProfit === thresholdRub ? 'unit_profit' : 'margin';
+  }
+  const point = priceRub => (priceRub === null ? null : pricePointAt({ priceRub, ...inputs }));
+  const breakEven = point(breakEvenRub);
+  const threshold = point(thresholdRub);
+  const market = point(finite(marketPriceRub) && marketPriceRub > 0 ? marketPriceRub : null);
+  const labelled = [
+    breakEven === null ? null : { label: '保本价', ...breakEven },
+    threshold === null ? null : { label: '达标价', ...threshold },
+    market === null ? null : { label: '同款市场价', ...market }
+  ].filter(Boolean);
+  const taken = new Set(labelled.map(entry => entry.priceRub));
+  for (const priceRub of roundLadderPrices(thresholdRub, market === null ? null : market.priceRub)) {
+    if (taken.has(priceRub)) continue;
+    const extra = point(priceRub);
+    if (extra === null) continue;
+    taken.add(priceRub);
+    labelled.push({ label: '整数价位', ...extra });
+  }
+  return {
+    status: breakEven === null && threshold === null && market === null ? 'unavailable' : 'ok',
+    breakEven, market, ladder: labelled.sort((a, b) => a.priceRub - b.priceRub),
+    threshold: threshold === null ? null : { ...threshold, basis },
+    allInPurchaseRmb: context.allInPurchaseRmb, nonPurchaseFixedRmb: context.nonPurchaseFixedRmb,
+    rubPerCny: context.rubPerCny, minimumUnitProfitRmb: nonNegative(policy.minimumUnitProfitRmb) ? policy.minimumUnitProfitRmb : null,
+    targetMarginRate: nonNegative(policy.targetMarginRate) ? policy.targetMarginRate : null,
+    thresholdPolicy: policy.thresholdPolicy ?? null
+  };
+}
+
 export function estimateOutcomeForPool(estimate) {
   if (!isObject(estimate)) fail('ESTIMATE_INVALID');
   return estimate.status === 'negative' ? 'excluded_negative' : estimate.status === 'ok' ? 'selectable' : 'needs_data';

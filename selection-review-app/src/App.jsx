@@ -180,6 +180,21 @@ export default function App() {
     // the server actually holds, so a rejection is never read off a stale card.
     }finally{await load(true);setProductDraftRefresh(value=>value+1);}
   }
+  /**
+   * 这次采集没有结果，我确认并重新申请. Two explicit steps, in this order and never merged: the review route records the
+   * owner's own acknowledgement that no result arrived (it writes no capture evidence and moves no business state), and
+   * only then does the existing request chain run again. The second step must carry the revision the review actually
+   * produced — the review advances dataRevision, so the payload built from the page's candidate is already stale. If
+   * either step fails the owner is told which one, because "已核实但没能重新申请" and "根本没核实" need different actions.
+   */
+  async function reviewCaptureAndRequest({review,capture}){
+    const candidateId=selectedId;
+    let reviewed;
+    try{reviewed=await api.reviewSourceCapture(candidateId,review);}
+    catch(cause){await load(true);setProductDraftRefresh(value=>value+1);throw new Error(`没能记下你的确认，这次也没有重新申请采集：${errorMessage(cause)}`);}
+    try{return await requestProductCapture({...capture,dataRevision:reviewed.candidate.dataRevision,sourceDataRevision:reviewed.candidate.dataRevision});}
+    catch(cause){throw new Error(`已记下你的确认（这条记录不再挡路），但这次重新申请采集没有成功：${errorMessage(cause)}`);}
+  }
   const [extensionStatus, setExtensionStatus] = useState(() => extensionConnectionStatus({
     cachedVersion: readCachedExtensionVersion()
   }));
@@ -390,6 +405,44 @@ export default function App() {
     currentView.current={queue:candidate.workflowStatus,sourceFilter:'all'};
     // The desk, the board and the inbox all open the owner-facing product page; the old A card stays under 维护.
     setQueue(candidate.workflowStatus);setSourceFilter('all');setSelectedId(candidateId);setView('product');
+  }
+  /** Choosing a captured 1688 size still lives on the old A card, so that one inbox row goes straight there. */
+  async function openLegacyCandidate(candidateId){
+    const ownerId=accountOwnerId;
+    const next=await load(true);
+    if(accountContext.current.ownerId!==ownerId||!CANDIDATE_LINK_VIEWS.includes(accountContext.current.view))return;
+    const candidate=next?.candidates.find(value=>value.id===candidateId);
+    if(!candidate){
+      setNotice({type:'error',message:'这件商品没能从当前保存记录里读出来，请刷新数据后再打开。'});
+      return;
+    }
+    selectionGuard.current.changed();
+    currentView.current={queue:candidate.workflowStatus,sourceFilter:'all'};
+    setQueue(candidate.workflowStatus);setSourceFilter('all');setSelectedId(candidateId);setView('review');
+  }
+  /**
+   * 淘汰 / 恢复 from any list. The write carries the revision the list rendered, so a stale page is refused with 409
+   * instead of dropping something the owner is no longer looking at; either way the page then reads what was saved.
+   */
+  async function eliminateCandidate({ id, dataRevision, reason }){
+    const revision=Number.isInteger(dataRevision)?dataRevision:state.candidates.find(item=>item.id===id)?.dataRevision;
+    try{
+      await api.eliminateCandidate(id,{dataRevision:revision,...(typeof reason==='string'&&reason!==''?{reason}:{})});
+      setNotice({type:'success',message:'已淘汰，可以在列表底部的「已淘汰」里恢复。'});
+    }catch(error){
+      setNotice({type:'error',message:errorMessage(error)});
+      throw error;
+    }finally{await load(true);}
+  }
+  async function restoreCandidate({ id, dataRevision }){
+    const revision=Number.isInteger(dataRevision)?dataRevision:state.candidates.find(item=>item.id===id)?.dataRevision;
+    try{
+      await api.restoreCandidate(id,{dataRevision:revision});
+      setNotice({type:'success',message:'已恢复，它回到了淘汰前的那一步；没有自动继续任何事。'});
+    }catch(error){
+      setNotice({type:'error',message:errorMessage(error)});
+      throw error;
+    }finally{await load(true);}
   }
 
   async function addCandidate(payload) {
@@ -884,11 +937,16 @@ export default function App() {
                 expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(), idempotencyKey: `desk-permit:${crypto.randomUUID()}` })}
             onOpenBoard={() => setView("board")}
             onOpenInbox={() => setView("inbox")}
+            onEliminateCandidate={eliminateCandidate}
+            onRestoreCandidate={restoreCandidate}
           />
         ) : view === "board" ? (
-          <PipelineBoard candidates={state.candidates} store={deskStore} onOpenCandidate={openDiscoveredCandidate} />
+          <PipelineBoard candidates={state.candidates} store={deskStore} onOpenCandidate={openDiscoveredCandidate}
+            onEliminateCandidate={eliminateCandidate} onRestoreCandidate={restoreCandidate} />
         ) : view === "inbox" ? (
-          <OwnerInbox candidates={state.candidates} store={deskStore} onOpenCandidate={openDiscoveredCandidate} />
+          <OwnerInbox candidates={state.candidates} store={deskStore} onOpenCandidate={openDiscoveredCandidate}
+            onOpenLegacyCandidate={openLegacyCandidate}
+            onEliminateCandidate={eliminateCandidate} onRestoreCandidate={restoreCandidate} />
         ) : (
           <div className="page-panel">
             <h2>维护</h2>
@@ -907,7 +965,9 @@ export default function App() {
           loadingLabel={productDraftError ? `读取这件商品的找货资料失败：${productDraftError}` : "正在读取这件商品的找货资料…"}
           onSaveDraft={payload => runProductStep(api.saveSupplierDraft, payload)}
           onRequestCapture={payload => requestProductCapture(payload)}
+          onReviewCaptureAndRequest={payload => reviewCaptureAndRequest(payload)}
           onOpenLegacyCard={() => setView("review")}
+          onEliminateCandidate={eliminateCandidate}
           onBack={() => setView("desk")}
         />
       ) : view==='discovery'?<div className="page-panel">

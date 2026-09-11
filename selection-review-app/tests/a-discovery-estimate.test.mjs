@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { estimateDiscoveredProduct, describeEstimate, estimateOutcomeForPool, parseWeightLimitKg, parseSizeLimitCm, roundDownCents, costPolicyFromStoreRule } from '../lib/a-discovery-estimate.mjs';
+import { estimateDiscoveredProduct, describeEstimate, estimateOutcomeForPool, parseWeightLimitKg, parseSizeLimitCm, roundDownCents, costPolicyFromStoreRule, pricingGuidance, pricePointAt, commissionTierForPrice } from '../lib/a-discovery-estimate.mjs';
 
 // Synthetic inputs only. Tariff rows mirror the GUOO reader's row shape; rates are stand-ins, not the live table.
 const rule = { pricingPolicyVersion: 'synthetic', minimumUnitProfitRmb: 20, targetMarginRate: 0.15, thresholdPolicy: 'either', advertisingReserveRate: 0,
@@ -84,4 +84,87 @@ test('provider dimension text with the multiplication sign parses into the same 
   const b = estimateDiscoveredProduct({ product: product(1850, 1300, '750×210×40'), storeRule: rule, fx, commission, tariffRows, assumptions });
   assert.deepEqual(b.freight.sidesCm, a.freight.sidesCm); assert.deepEqual(b.freight.sidesCm, [75, 21, 4]);
   assert.equal(b.freight.status, a.freight.status); assert.equal(b.status, a.status);
+});
+
+// 定价指引 (owner question 2026-09-11). The numbers below are the owner's own hand calculation for one real product:
+// 含运采购 ¥45、运费 ¥10.11、包装 ¥3、贴标 ¥1.5、储备 10%+2%、汇率 12.5637, Ozon 宠物用品 rFBS 12% / 14% / 15%.
+// The band edges and the three rates are handed in exactly as the official table carries them; none are written here
+// as a policy decision — they are this test's synthetic copy of that table, and the reader test covers the real read.
+const OWNER_TIERS = [
+  { tier: 'le1500', rate: 0.12, minRub: 0, maxRub: 1500 },
+  { tier: '1500_5000', rate: 0.14, minRub: 1500.01, maxRub: 5000 },
+  { tier: 'gt5000', rate: 0.15, minRub: 5000.01, maxRub: null }
+];
+const OWNER_FX = { rubPerCny: 12.5637 };
+const OWNER_COSTS = { allInPurchaseRmb: 45, nonPurchaseFixedRmb: 10.11 + 3 + 1.5 };
+const OWNER_POLICY = costPolicyFromStoreRule(rule);
+
+test('定价指引反解出的保本价、达标价和市场价利润与主人自己手算的一致', () => {
+  const guidance = pricingGuidance({ fx: OWNER_FX, tiers: OWNER_TIERS, costs: OWNER_COSTS, policy: OWNER_POLICY, marketPriceRub: 1666 });
+  assert.equal(guidance.status, 'ok');
+  // 主人手算：保本约 985 卢布，按 12% 档；整卢布向上取整后是 986，落在 12% 档内。
+  assert.equal(guidance.breakEven.priceRub, 986);
+  assert.equal(guidance.breakEven.commissionRate, 0.12);
+  assert.ok(guidance.breakEven.unitProfitRmb >= 0 && guidance.breakEven.unitProfitRmb < 0.2);
+  // 主人手算：达标最低约 1228 卢布，是"利润率 15%"先达到的（单件 ¥20 要到约 1316）。
+  assert.equal(guidance.threshold.priceRub, 1228);
+  assert.equal(guidance.threshold.basis, 'margin');
+  assert.ok(guidance.threshold.marginRate >= 0.15);
+  // 主人手算：市场价 1666 → 约 ¥38.5，1600 → ¥34.6，两档都在 14% 佣金档。
+  assert.equal(guidance.market.priceRub, 1666);
+  assert.equal(guidance.market.commissionRate, 0.14);
+  assert.equal(guidance.market.unitProfitRmb, 38.51);
+  const at1600 = pricePointAt({ priceRub: 1600, fx: OWNER_FX, tiers: OWNER_TIERS, costs: OWNER_COSTS, policy: OWNER_POLICY });
+  assert.equal(at1600.unitProfitRmb, 34.62);
+  assert.equal(at1600.commissionRate, 0.14);
+  // 价格阶梯：保本价、达标价、市场价，外加两档整数价位，从低到高排好。
+  assert.deepEqual(guidance.ladder.map(entry => entry.priceRub), [986, 1228, 1300, 1600, 1666]);
+  assert.deepEqual(guidance.ladder.map(entry => entry.label), ['保本价', '达标价', '整数价位', '整数价位', '同款市场价']);
+  assert.deepEqual(guidance.ladder.map(entry => entry.commissionRate), [0.12, 0.12, 0.12, 0.14, 0.14]);
+  assert.equal(guidance.rubPerCny, 12.5637);
+  assert.equal(guidance.allInPurchaseRmb, 45);
+  assert.equal(guidance.thresholdPolicy, 'either');
+});
+
+test('佣金档位在分界线上换档，反解在每档内分别求解，只取落在本档里的价', () => {
+  assert.equal(commissionTierForPrice(OWNER_TIERS, 1500).tier, 'le1500');
+  assert.equal(commissionTierForPrice(OWNER_TIERS, 1500.01).tier, '1500_5000');
+  assert.equal(commissionTierForPrice(OWNER_TIERS, 5001).tier, 'gt5000');
+  assert.equal(commissionTierForPrice(OWNER_TIERS, 0), null, '0 不是一个售价');
+  assert.equal(commissionTierForPrice([], 1600), null);
+  // A purchase this expensive can only break even above the 1500 line, so the answer must carry the 14% rate.
+  const costly = pricingGuidance({ fx: OWNER_FX, tiers: OWNER_TIERS, policy: OWNER_POLICY,
+    costs: { allInPurchaseRmb: 120, nonPurchaseFixedRmb: 14.61 }, marketPriceRub: null });
+  assert.ok(costly.breakEven.priceRub > 1500);
+  assert.equal(costly.breakEven.commissionRate, 0.14);
+  assert.equal(costly.breakEven.commissionTier, '1500_5000');
+  // Every ladder line carries the rate of the band its own price falls in, never one rate for the whole ladder.
+  for (const entry of costly.ladder) {
+    assert.equal(entry.commissionRate, commissionTierForPrice(OWNER_TIERS, entry.priceRub).rate);
+  }
+});
+
+test('门槛策略both要两项同时达到，缺费率或缺汇率时没有指引而不是猜一个', () => {
+  const both = pricingGuidance({ fx: OWNER_FX, tiers: OWNER_TIERS, costs: OWNER_COSTS,
+    policy: { ...OWNER_POLICY, thresholdPolicy: 'both' }, marketPriceRub: 1666 });
+  assert.equal(both.threshold.basis, 'both');
+  assert.ok(both.threshold.priceRub >= 1316, '两项同时达到要走单件利润那条更贵的线');
+  assert.ok(both.threshold.unitProfitRmb >= OWNER_POLICY.minimumUnitProfitRmb);
+  assert.ok(both.threshold.marginRate >= OWNER_POLICY.targetMarginRate);
+  for (const missing of [
+    { fx: null, tiers: OWNER_TIERS }, { fx: { rubPerCny: 0 }, tiers: OWNER_TIERS }, { fx: OWNER_FX, tiers: [] },
+    { fx: OWNER_FX, tiers: [{ tier: 'broken', rate: 1.4, minRub: 0, maxRub: 1500 }] }
+  ]) {
+    const blank = pricingGuidance({ ...missing, costs: OWNER_COSTS, policy: OWNER_POLICY, marketPriceRub: 1666 });
+    assert.equal(blank.status, 'unavailable', JSON.stringify(missing));
+    assert.deepEqual(blank.ladder, []);
+    assert.equal(blank.breakEven, null);
+    assert.equal(blank.threshold, null);
+  }
+  // A price nobody can reach inside any band leaves that one answer empty; the rest of the panel still stands.
+  const unreachable = pricingGuidance({ fx: OWNER_FX, tiers: [OWNER_TIERS[0]], policy: OWNER_POLICY,
+    costs: { allInPurchaseRmb: 400, nonPurchaseFixedRmb: 14.61 }, marketPriceRub: null });
+  assert.equal(unreachable.breakEven, null);
+  assert.equal(unreachable.status, 'unavailable');
+  assert.equal(pricePointAt({ priceRub: 9000, fx: OWNER_FX, tiers: [OWNER_TIERS[0]], costs: OWNER_COSTS, policy: OWNER_POLICY }), null);
 });

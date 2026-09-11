@@ -154,3 +154,66 @@ export async function readOzonCommissionReference({ catalogPath, scope, versionS
 
   return { ...base, commissionRate, matchedRows, gaps: [] };
 }
+
+const LADDER_SCOPE_REQUIRED_KEYS = Object.freeze(['platform', 'sellerRegion', 'salesScheme', 'typeIdentity']);
+
+function assertLadderScope(scope) {
+  check(closedOptional(scope, LADDER_SCOPE_REQUIRED_KEYS, SCOPE_OPTIONAL_KEYS) && scope.platform === 'ozon' &&
+    scope.sellerRegion === 'CN' && ['rfbs', 'fbp'].includes(scope.salesScheme) &&
+    closedOptional(scope.typeIdentity, [], TYPE_IDENTITY_KEYS) && Object.keys(scope.typeIdentity).length > 0 &&
+    Object.keys(scope.typeIdentity).every(key => text(scope.typeIdentity[key])) &&
+    (!Object.hasOwn(scope, 'mpCategoryZh') || text(scope.mpCategoryZh)), 'INPUT_INVALID');
+}
+
+/**
+ * Every price tier of one product type in one read, with the ruble band each rate applies to.
+ * The same catalog, the same matching and the same gap vocabulary as the single-price read above; the only difference
+ * is that no price is supplied, so all tiers come back at once. A caller that has to answer "what would this product
+ * earn at some other price" needs the whole ladder, and reading it here keeps the 1500/5000 RUB cut points where they
+ * belong — in the official table — instead of copying them into the caller.
+ */
+export async function readOzonCommissionReferenceTiers({ catalogPath, scope, versionState, asOf } = {}) {
+  check(text(catalogPath) && instant(asOf), 'INPUT_INVALID');
+  assertLadderScope(scope);
+  assertVersionStateShape(versionState);
+  const catalog = await readCatalog(catalogPath);
+  assertCatalog(catalog);
+
+  const source = {
+    sourceUrl: catalog.sourceUrl, sourcePage: catalog.sourcePage, effectiveFrom: catalog.effectiveFrom,
+    fileSha256: catalog.fileSha256, fileLastModified: catalog.fileLastModified, downloadedAt: catalog.downloadedAt,
+    catalogSchemaVersion: catalog.schemaVersion
+  };
+  const base = {
+    schemaVersion: 'ozon-commission-reference-tiers-read-v1', platform: 'ozon', sellerRegion: scope.sellerRegion,
+    salesScheme: scope.salesScheme, source, versionState: structuredClone(versionState), checkedAt: asOf
+  };
+  const blocked = (code, field, matchedRows = []) => ({ ...base, tiers: [], matchedRows, gaps: [gap(code, field)] });
+
+  if (versionState.fileSha256 !== catalog.fileSha256 || versionState.effectiveFrom !== catalog.effectiveFrom) {
+    return blocked('CATALOG_VERSION_MISMATCH', 'versionState');
+  }
+  if (versionState.status === 'invalidated') return blocked('CATALOG_VERSION_INVALIDATED', 'versionState.status');
+  if (Date.parse(asOf) < Date.parse(`${catalog.effectiveFrom}T00:00:00.000Z`)) return blocked('NOT_YET_EFFECTIVE', 'source.effectiveFrom');
+
+  const typeMatches = catalog.sheets['Full ChinaHK'].rows.filter(row => typeIdentityMatches(row, scope.typeIdentity) &&
+    (!Object.hasOwn(scope, 'mpCategoryZh') || normalizeText(row.mpCategoryZh) === normalizeText(scope.mpCategoryZh)));
+  if (typeMatches.length === 0) return blocked('TYPE_NOT_FOUND', 'scope.typeIdentity');
+  const allCandidates = typeMatches.filter(row => row.brand === 'All');
+  if (allCandidates.length === 0) return blocked('BRAND_SPECIFIC_ONLY', 'matchedRows', typeMatches.map(projectMatchedRow));
+  const matchedRows = allCandidates.map(projectMatchedRow);
+  const distinctRateSets = new Set(allCandidates.map(row => JSON.stringify(RATE_FIELD_NAMES.map(field => row[field]))));
+  if (distinctRateSets.size > 1) return blocked('TYPE_AMBIGUOUS', 'scope.mpCategoryZh', matchedRows);
+
+  const row = allCandidates[0];
+  const tiers = [];
+  const missing = [];
+  for (const tier of PRICE_TIER_KEYS) {
+    const rateField = `${scope.salesScheme}_${tier}`;
+    const rate = row[rateField];
+    if (rate === null) { missing.push(rateField); continue; }
+    const [minRub, maxRub] = catalog.priceTiersRub[tier];
+    tiers.push({ tier, rate, minRub, maxRub });
+  }
+  return { ...base, tiers, matchedRows, gaps: missing.map(field => gap('RATE_MISSING', `matchedRows.${field}`, false)) };
+}

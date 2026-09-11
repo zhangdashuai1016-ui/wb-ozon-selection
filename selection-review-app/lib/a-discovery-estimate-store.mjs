@@ -90,6 +90,7 @@ export function typeZhFromCategoryPath(categoryPath) {
 }
 
 const commissionGap = (code, field) => ({ rate: null, tier: null, sourceRef: null, gaps: [{ code, field, blocking: true }] });
+const commissionTiersGap = (code, field) => ({ tiers: [], sourceRef: null, gaps: [{ code, field, blocking: true }] });
 
 /** Store cost rules saved by the owner win; the injected defaults only fill fields a saved rule never carried. */
 function storeRuleFor(document, targetStore, fallbackRules) {
@@ -146,6 +147,30 @@ export function createADiscoveryEstimateInputs({ rules, readers, configuration }
       sourceRef, gaps: Array.isArray(read?.gaps) ? structuredClone(read.gaps) : [] };
   }
 
+  /**
+   * The whole official rate ladder for one product type: every price band with the rate that applies inside it.
+   * Same table, same version gate and same gap vocabulary as resolveCommission; it exists because pricing guidance has
+   * to answer "what would this earn at another price", and the band edges must come from the table, never from code.
+   */
+  async function resolveCommissionTiers(product, at) {
+    const typeZh = typeZhFromCategoryPath(product.categoryPath);
+    if (typeZh === null) return commissionTiersGap('CATEGORY_PATH_MISSING', 'product.categoryPath');
+    if (typeof readers.commissionTiers !== 'function') return commissionTiersGap('TIER_READER_NOT_CONFIGURED', 'readers.commissionTiers');
+    if (reference === null) return commissionTiersGap('REFERENCE_NOT_CONFIGURED', 'configuration.ozonCommissionReference');
+    if (!isObject(reference.versionState)) return commissionTiersGap('VERSION_STATE_NOT_CONFIGURED', 'configuration.ozonCommissionReference.versionState');
+    let read;
+    try {
+      read = await readers.commissionTiers({ catalogPath: reference.catalogPath, versionState: structuredClone(reference.versionState), asOf: at,
+        scope: { platform: 'ozon', sellerRegion: reference.sellerRegion, salesScheme: 'rfbs', typeIdentity: { typeZh } } });
+    } catch (error) {
+      return commissionTiersGap(plainText(error?.code, 120) ? error.code : 'REFERENCE_UNREADABLE', 'configuration.ozonCommissionReference.catalogPath');
+    }
+    const sourceRef = plainText(read?.source?.fileSha256, 200) && plainText(read?.source?.effectiveFrom, 40)
+      ? `ozon-official-commission:${read.source.effectiveFrom}:sha256:${read.source.fileSha256}` : null;
+    return { tiers: Array.isArray(read?.tiers) ? structuredClone(read.tiers) : [], sourceRef,
+      gaps: Array.isArray(read?.gaps) ? structuredClone(read.gaps) : [] };
+  }
+
   async function resolveFreightRows() {
     if (tariffFile === null) return { rows: [], ruleVersion: null };
     try {
@@ -167,7 +192,7 @@ export function createADiscoveryEstimateInputs({ rules, readers, configuration }
     } catch { return null; }
   }
 
-  return Object.freeze({ assumptions, resolveCommission, resolveFreightRows, resolveExchangeRate,
+  return Object.freeze({ assumptions, resolveCommission, resolveCommissionTiers, resolveFreightRows, resolveExchangeRate,
     storeRule: (document, targetStore) => storeRuleFor(document, targetStore, rules) });
 }
 

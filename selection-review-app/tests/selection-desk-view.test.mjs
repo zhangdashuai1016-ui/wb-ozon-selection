@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BOARD_COLUMNS, DECLINE_REASONS, FEED_SORTS, ROUND_ALREADY_RUNNING_MESSAGE, boardColumnKey, boardColumns, deskCounts,
   deskErrorMessage, feedRows, formatInstant, freightShare, inboxItems, myProductRows, newRoundPlan, pointsLine,
-  shortProductTitle, sortFeedRows, storeLabel } from '../src/selectionDeskView.js';
+  shortProductTitle, sortFeedRows, storeLabel, eliminatedRows, lastRoundUndecidedRows, ownerAttentionReasons,
+  ROUND_REOPEN_WINDOW_MS } from '../src/selectionDeskView.js';
+import { ROUND_RESUMABLE_WINDOW_MS } from '../lib/a-discovery-runtime-services.mjs';
 
 // Everything below is synthetic display data written in this file: no saved records, no services, no requests.
 const product = (productId, extra = {}) => ({ productId, title: `Explicitly synthetic ${productId}`,
@@ -134,9 +136,12 @@ test('需要你处理只列出真的在等你的商品，并保留其余缺口�
   ];
   const items = inboxItems(candidates, 'miska');
   assert.deepEqual(items.map(item => item.id), ['candidate:a', 'candidate:c']);
-  assert.deepEqual(items[0], { id: 'candidate:a', title: '合成商品 candidate:a', storeLabel: 'Miska',
-    statusLine: '选品处理', need: '补一个1688链接', moreNeeds: 1 });
-  assert.equal(items[1].moreNeeds, 0);
+  // Owner feedback 2026-09-11: a row has to say what it is waiting for, read from this product's own records —
+  // 找货 not filled in yet comes first, then the platform's own asks, in that order.
+  assert.deepEqual(items[0], { id: 'candidate:a', dataRevision: null, title: '合成商品 candidate:a', imageUrl: '',
+    storeLabel: 'Miska', statusLine: '选品处理', need: '找货还没填', moreNeeds: 2,
+    reasons: ['找货还没填', '补一个1688链接', '补重量'], action: { key: 'draft', label: '去填找货' } });
+  assert.equal(items[1].moreNeeds, 1);
   assert.equal(items[1].statusLine, '待上架准备');
 });
 
@@ -274,24 +279,26 @@ test('我选的商品把本店选下的商品按最新在前列出，标题、�
 });
 
 test('我选的商品的每种下一步都来自这件商品自己保存的找货方案、估算和采集作业', () => {
+  // Owner mis-click 2026-09-11: this button only opens the product page, so it must say so; the button that really
+  // queues a capture lives on that page and nowhere else.
   const branches = [
-    [{}, 'draft_missing', '找货未填', '填找货'],
-    [{ supplierDraftV1: savedDraft }, 'draft_incomplete', '找货已填 · 缺数据', '补资料'],
+    [{}, 'draft_missing', '找货未填', '去填找货'],
+    [{ supplierDraftV1: savedDraft }, 'draft_incomplete', '找货已填 · 缺数据', '去补资料'],
     [{ supplierDraftV1: savedDraft, supplierDraftEstimateV1: savedEstimate('incomplete', null) },
-      'draft_incomplete', '找货已填 · 缺数据', '补资料'],
+      'draft_incomplete', '找货已填 · 缺数据', '去补资料'],
     [{ supplierDraftV1: savedDraft, supplierDraftEstimateV1: savedEstimate('ok', { passes: false, unitProfitRmb: 1.2 }) },
-      'draft_blocked', '找货已填 · 未过线', '改找货'],
+      'draft_blocked', '找货已填 · 未过线', '去改找货'],
     [{ supplierDraftV1: savedDraft, supplierDraftEstimateV1: savedEstimate('ok', { passes: true, unitProfitRmb: 41.26 }) },
-      'draft_passes', '找货已填 · 过线 单件利润 ¥41.26', '申请插件采集'],
+      'draft_passes', '找货已填 · 过线 单件利润 ¥41.26', '去申请采集'],
     [{ supplierDraftV1: savedDraft, supplierDraftEstimateV1: savedEstimate('ok', { passes: true, unitProfitRmb: null }) },
-      'draft_passes', '找货已填 · 过线 单件利润 未取得', '申请插件采集'],
+      'draft_passes', '找货已填 · 过线 单件利润 未取得', '去申请采集'],
     [{ supplierDraftV1: savedDraft, sourceCapture: { status: 'waiting_extension', jobStatus: 'queued' } }, 'capture_queued', '待采集', '查看'],
     [{ supplierDraftV1: savedDraft, sourceCapture: { status: 'capturing', jobStatus: 'claimed' } }, 'capture_running', '采集中', '查看'],
     [{ supplierDraftV1: savedDraft, sourceCapture: { status: 'captured_waiting_owner_selection' } }, 'capture_done', '已采到', '查看'],
     [{ supplierDraftV1: savedDraft, sourceCapture: { status: 'verified' } }, 'capture_done', '已采到', '查看'],
     // A capture that already stopped is not a step: the owner is sent back to the declaration the estimate judged.
     [{ supplierDraftV1: savedDraft, supplierDraftEstimateV1: savedEstimate('ok', { passes: false, unitProfitRmb: 1.2 }),
-      sourceCapture: { status: 'failed', jobStatus: 'failed', failureCode: 'extension_timeout' } }, 'draft_blocked', '找货已填 · 未过线', '改找货']
+      sourceCapture: { status: 'failed', jobStatus: 'failed', failureCode: 'extension_timeout' } }, 'draft_blocked', '找货已填 · 未过线', '去改找货']
   ];
   for (const [saved, step, chip, action] of branches) {
     const [row] = myProductRows([mine('candidate:one', saved)], viewOf(), 'miska');
@@ -342,4 +349,106 @@ test('顶栏用的商品名先用翻译过的中文标题，再用原标题，�
   assert.equal(shortProductTitle(null, null), '未取得名称');
   assert.equal(shortProductTitle({ productName: '合'.repeat(40) }, null), `${'合'.repeat(16)}…`);
   assert.equal(shortProductTitle({ productName: '合'.repeat(16) }, null), '合'.repeat(16));
+});
+
+test('刚建好的那一轮在十分钟内不能另开一轮，选品台在点之前就说清还要等多久', () => {
+  const budget = { maxCredits: 20, estimatedPointsByStep: { category_detail: 13 } };
+  const plan = { planId: 'plan:clothing', version: 'version:1', direction: '宠物服装', budget };
+  const base = { canPrepare: true, plans: [plan], bindings: [{ bindingId: 'binding:x', configurationVersion: 'version:1' }], batches: [] };
+  const at = instant => Date.parse(instant);
+  const view = { ...base, batches: [orphanEntry({ plan, createdAt: '2026-09-11T09:00:00Z' })] };
+  const fresh = newRoundPlan(view, 'miska', at('2026-09-11T09:03:00Z')).resume;
+  assert.equal(fresh.canReopenNow, false);
+  assert.equal(fresh.reopenWaitMinutes, 7);
+  assert.equal(fresh.reopenAt, formatInstant('2026-09-11T09:10:00Z'));
+  const later = newRoundPlan(view, 'miska', at('2026-09-11T09:10:00Z')).resume;
+  assert.equal(later.canReopenNow, true);
+  assert.equal(later.reopenWaitMinutes, 0);
+  // The desk's window has to be the server's window, or the sentence it shows would be a guess.
+  assert.equal(ROUND_REOPEN_WINDOW_MS, ROUND_RESUMABLE_WINDOW_MS);
+});
+
+test('一键淘汰上一轮全部未选只作用于最新一轮里既没要也没不要的那些', () => {
+  const newest = batchEntry({ batchId: 'a-discovery-batch:newest', createdAt: '2026-09-11T04:00:00.000Z',
+    products: [product('2107989735'), product('2107989736'), product('2107989737'), product('2107989738')],
+    importedCandidates: [{ marketProductId: '2107989736', candidateId: 'candidate:taken' }],
+    declines: [{ marketProductId: '2107989737', reason: '尺寸太大' }] });
+  const older = batchEntry({ batchId: 'a-discovery-batch:older', createdAt: '2026-09-08T04:00:00.000Z',
+    products: [product('2107989740')] });
+  const feed = feedRows(viewOf(newest, older), 'miska');
+  const undecided = lastRoundUndecidedRows(feed);
+  assert.deepEqual(undecided.map(row => row.marketProductId), ['2107989735', '2107989738']);
+  assert.equal(undecided.every(row => row.batchId === feed.current.batchId), true, '只动最新一轮');
+  assert.equal(undecided.every(row => row.expectedRevision === feed.current.expectedRevision), true);
+  assert.deepEqual(lastRoundUndecidedRows(feedRows(viewOf(), 'miska')), [], '没有轮次就没有可淘汰的');
+  assert.deepEqual(lastRoundUndecidedRows(null), []);
+});
+
+test('已淘汰的商品折在每个列表下面，理由和时间照已保存记录原样显示，最新在前', () => {
+  const dropped = (id, extra = {}) => candidate(id, { workflowStatus: 'eliminated', ...extra });
+  const rows = eliminatedRows([
+    dropped('candidate:old', { eliminatedAt: '2026-09-09T04:00:00.000Z', eliminationReason: '主人淘汰：尺寸太大', dataRevision: 7 }),
+    dropped('candidate:new', { eliminatedAt: '2026-09-11T04:00:00.000Z', eliminationReason: '主人淘汰', dataRevision: 3 }),
+    dropped('candidate:other-store', { targetStore: 'dandanshu', eliminatedAt: '2026-09-11T05:00:00.000Z' }),
+    candidate('candidate:alive')
+  ], 'miska');
+  assert.deepEqual(rows.map(row => row.id), ['candidate:new', 'candidate:old']);
+  assert.equal(rows[0].reasonLine, '主人淘汰');
+  assert.equal(rows[0].dataRevision, 3);
+  assert.equal(rows[1].reasonLine, '主人淘汰：尺寸太大');
+  assert.equal(rows[1].eliminatedAtLabel, formatInstant('2026-09-09T04:00:00.000Z'));
+  // Nothing is invented for a record that never carried a reason or an instant.
+  const bare = eliminatedRows([dropped('candidate:bare')], 'miska');
+  assert.equal(bare[0].reasonLine, '没有记录理由');
+  assert.equal(bare[0].eliminatedAtLabel, '时间未记录');
+  assert.deepEqual(eliminatedRows([dropped('candidate:x')], 'wb'), []);
+  assert.equal(eliminatedRows([dropped('candidate:x'), dropped('candidate:y', { targetStore: 'dandanshu' })], null).length, 2);
+  assert.deepEqual(eliminatedRows(null, 'miska'), []);
+});
+
+test('每条需要你处理的商品都说出为什么等你，说不出就说未取得，绝不编一个理由', () => {
+  const reasonsOf = saved => ownerAttentionReasons(candidate('candidate:one', saved));
+  const draft = { schemaVersion: 'supplier-draft-v1', sourceUrl: 'https://detail.1688.com/offer/876240928352.html' };
+  assert.deepEqual(reasonsOf({}), { reasons: ['找货还没填'], action: { key: 'draft', label: '去填找货' } });
+  const incomplete = reasonsOf({ supplierDraftV1: draft,
+    supplierDraftEstimateV1: { estimate: { status: 'incomplete', missing: ['官方佣金', '包装尺寸重量'] }, profitAtDeclaredPurchase: null } });
+  assert.deepEqual(incomplete.reasons, ['找货已填，还算不出利润：缺官方佣金、包装尺寸重量']);
+  assert.deepEqual(incomplete.action, { key: 'draft', label: '去补资料' });
+  // A blocked route repeats the saved sentence word for word instead of summarising it.
+  const blocked = reasonsOf({ supplierDraftV1: draft,
+    supplierDraftEstimateV1: { estimate: { status: 'incomplete', missing: ['可行物流线路'] },
+      routeBlock: { message: '当前尺寸重量没有可走的国欧线路，需折叠到单边 ≤60 厘米。' } } });
+  assert.deepEqual(blocked.reasons, ['当前尺寸重量没有可走的国欧线路，需折叠到单边 ≤60 厘米。']);
+  const under = reasonsOf({ supplierDraftV1: draft,
+    supplierDraftEstimateV1: { estimate: { status: 'ok' }, profitAtDeclaredPurchase: { passes: false, unitProfitRmb: 1.2, marginRate: 0.03 } } });
+  assert.deepEqual(under.reasons, ['按你填的到手总价没到本店利润门槛：单件利润 ¥1.20 · 利润率 3%']);
+  assert.deepEqual(under.action, { key: 'draft', label: '去改找货' });
+  const missingNumbers = reasonsOf({ supplierDraftV1: draft,
+    supplierDraftEstimateV1: { estimate: { status: 'ok' }, profitAtDeclaredPurchase: { passes: false, unitProfitRmb: null, marginRate: null } } });
+  assert.deepEqual(missingNumbers.reasons, ['按你填的到手总价没到本店利润门槛：单件利润 未取得 · 利润率 未取得']);
+  // A capture the owner has to answer wins over everything else, and points at the page that can answer it.
+  const sku = reasonsOf({ supplierDraftV1: draft, sourceCapture: { status: 'captured_waiting_owner_selection' },
+    supplierDraftEstimateV1: { estimate: { status: 'ok' }, profitAtDeclaredPurchase: { passes: true, unitProfitRmb: 41.26 } } });
+  assert.deepEqual(sku.reasons, ['插件已采到1688页面，等你选具体规格']);
+  assert.deepEqual(sku.action, { key: 'sku', label: '去选规格' });
+  const failed = reasonsOf({ supplierDraftV1: draft, sourceCapture: { status: 'failed', failureCode: 'extension_timeout', reason: '插件没有在时限内回报' },
+    supplierDraftEstimateV1: { estimate: { status: 'ok' }, profitAtDeclaredPurchase: { passes: true, unitProfitRmb: 41.26 } } });
+  assert.deepEqual(failed.reasons, ['上一次采集已停止：插件没有在时限内回报']);
+  assert.deepEqual(failed.action, { key: 'capture', label: '重新申请采集' });
+  // Nothing blocking of its own: the platform's own asks are the reasons, in the order they were saved.
+  const asks = reasonsOf({ supplierDraftV1: draft, needsFromUser: ['确认最终素材', '补一个链接'],
+    supplierDraftEstimateV1: { estimate: { status: 'ok' }, profitAtDeclaredPurchase: { passes: true, unitProfitRmb: 41.26 } } });
+  assert.deepEqual(asks.reasons, ['确认最终素材', '补一个链接']);
+  assert.deepEqual(asks.action, { key: 'capture', label: '去申请采集' });
+  assert.deepEqual(ownerAttentionReasons(null), { reasons: ['未取得需要你做什么的记录'], action: { key: 'open', label: '打开' } });
+});
+
+test('采到1688页面还没选规格、或采集已停止的商品，即使没有平台缺口也在需要你处理里', () => {
+  const waiting = candidate('candidate:sku', { sourceCapture: { status: 'captured_waiting_owner_selection' } });
+  const stopped = candidate('candidate:failed', { sourceCapture: { status: 'failed', failureCode: 'extension_timeout' } });
+  const running = candidate('candidate:running', { sourceCapture: { status: 'capturing', jobStatus: 'claimed' } });
+  const items = inboxItems([waiting, stopped, running, candidate('candidate:quiet')], 'miska');
+  assert.deepEqual(new Set(items.map(item => item.id)), new Set(['candidate:sku', 'candidate:failed']));
+  assert.equal(items.find(item => item.id === 'candidate:sku').action.key, 'sku');
+  assert.equal(items.find(item => item.id === 'candidate:failed').action.key, 'capture');
 });

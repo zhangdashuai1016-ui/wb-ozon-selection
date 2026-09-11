@@ -1,5 +1,5 @@
 import { normalize1688CaptureSource } from './source-capture.mjs';
-import { estimateDiscoveredProduct, parseSizeLimitCm, parseWeightLimitKg, roundDownCents } from './a-discovery-estimate.mjs';
+import { estimateDiscoveredProduct, parseSizeLimitCm, parseWeightLimitKg, pricingGuidance, roundDownCents } from './a-discovery-estimate.mjs';
 
 /**
  * The owner's own supply plan for one product, before any extension capture exists.
@@ -175,7 +175,7 @@ export function supplierDraftRouteBlock({ estimate, tariffRows }) {
  * requires the two together. An input the software could not evidence keeps the estimate incomplete and the profit
  * null; it never becomes a guessed number.
  */
-export function buildSupplierDraftEstimate({ draft, storeRule, fx, commission, tariffRows, assumptions, estimatedAt, inputs = {}, marketProduct = null }) {
+export function buildSupplierDraftEstimate({ draft, storeRule, fx, commission, commissionTiers = null, tariffRows, assumptions, estimatedAt, inputs = {}, marketProduct = null }) {
   if (!isObject(draft)) throw new SupplierDraftError(500, '找货资料无效', 'supplier_draft_invalid');
   const product = supplierDraftEstimateProduct(draft, {
     productId: marketProduct?.productId ?? null,
@@ -207,6 +207,18 @@ export function buildSupplierDraftEstimate({ draft, storeRule, fx, commission, t
       withinPurchaseCeiling: draft.allInPurchaseRmb <= estimate.ceiling.maximumAllInPurchaseRmb
     };
   }
+  // Owner question 2026-09-11: "目标成交价应该平台算给我看". Same FX, same reserves, same freight and the same official
+  // rate ladder as the estimate above, read backwards into the prices that break even and that clear the threshold.
+  // Without a usable rate ladder there is no guidance at all; a guessed rate would be worse than an empty panel.
+  const guidance = estimate.status === 'incomplete' || estimate.ceiling === null
+    ? null
+    : pricingGuidance({
+      fx: estimate.fx,
+      tiers: Array.isArray(commissionTiers?.tiers) ? commissionTiers.tiers : [],
+      costs: { allInPurchaseRmb: draft.allInPurchaseRmb, nonPurchaseFixedRmb: estimate.ceiling.nonPurchaseFixedRmb },
+      policy: estimate.costPolicy,
+      marketPriceRub: typeof marketProduct?.price === 'number' && Number.isFinite(marketProduct.price) ? marketProduct.price : null
+    });
   return Object.freeze({
     schemaVersion: SUPPLIER_DRAFT_ESTIMATE_SCHEMA_VERSION,
     estimatedAt,
@@ -217,10 +229,12 @@ export function buildSupplierDraftEstimate({ draft, storeRule, fx, commission, t
       commissionSourceRef: inputs.commissionSourceRef ?? null,
       tariffRuleVersion: inputs.tariffRuleVersion ?? null,
       costPolicyVersion: inputs.costPolicyVersion ?? null,
-      packagingRmbDefault: assumptions.packagingRmbDefault
+      packagingRmbDefault: assumptions.packagingRmbDefault,
+      commissionTiersSourceRef: commissionTiers?.sourceRef ?? null
     },
     estimate,
     profitAtDeclaredPurchase: profit,
+    pricingGuidance: guidance === null || guidance.status !== 'ok' ? null : guidance,
     routeBlock: supplierDraftRouteBlock({ estimate, tariffRows })
   });
 }

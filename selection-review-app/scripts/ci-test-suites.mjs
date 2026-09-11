@@ -30,6 +30,7 @@ export const API_PROCESS_TESTS = Object.freeze([
   "source-capture-api.test.mjs",
   "source-capture-job-api.test.mjs",
   "source-capture-restart-reconciliation.test.mjs",
+  "source-capture-review-api.test.mjs",
   "structured-dispatch-integration.test.mjs",
 ]);
 

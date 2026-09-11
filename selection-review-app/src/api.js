@@ -94,10 +94,27 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  // 主人亲自核实一条「结果未知」的采集记录。只记下他的确认，不写采集结果，也不动业务状态。
+  reviewSourceCapture: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/source-capture/review`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   getSupplierDraft: (candidateId, signal) =>
     request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/supplier-draft`, { signal }),
   saveSupplierDraft: (candidateId, payload) =>
     request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/supplier-draft`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  // 淘汰 / 恢复 are the owner's own soft delete: one status, one instant, one history line, no dispatch, no platform.
+  eliminateCandidate: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/workflow/eliminate`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  restoreCandidate: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/workflow/restore`, {
       method: "POST",
       body: JSON.stringify(payload)
     }),

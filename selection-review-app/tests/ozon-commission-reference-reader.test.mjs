@@ -4,7 +4,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { readOzonCommissionReference, OzonCommissionReferenceError } from '../lib/ozon-commission-reference-reader.mjs';
+import { readOzonCommissionReference, readOzonCommissionReferenceTiers, OzonCommissionReferenceError } from '../lib/ozon-commission-reference-reader.mjs';
 
 const FILE_SHA256 = 'ab'.repeat(32);
 const EFFECTIVE_FROM = '2025-12-01';
@@ -86,7 +86,9 @@ async function fixture(t, { catalog = BASE_CATALOG, raw } = {}) {
   const catalogPath = path.join(directory, 'catalog.json');
   await writeFile(catalogPath, raw !== undefined ? raw : JSON.stringify(catalog));
   const base = { catalogPath, scope: buildScope(), versionState: structuredClone(VERSION_STATE), asOf: AS_OF };
-  return { catalogPath, lookup: overrides => readOzonCommissionReference({ ...base, ...overrides }) };
+  const tierScope = { platform: 'ozon', sellerRegion: 'CN', salesScheme: 'rfbs', typeIdentity: { typeZh: '宠物躺床' } };
+  return { catalogPath, lookup: overrides => readOzonCommissionReference({ ...base, ...overrides }),
+    tiers: overrides => readOzonCommissionReferenceTiers({ ...base, scope: tierScope, ...overrides }) };
 }
 
 const rejectsCode = (promise, code) => assert.rejects(promise, error => error instanceof OzonCommissionReferenceError && error.code === code);
@@ -258,5 +260,52 @@ test('malformed scope, version state, asOf or catalog path throw rather than sil
   ];
   for (const overrides of cases) {
     await rejectsCode(f.lookup(overrides), 'INPUT_INVALID');
+  }
+});
+
+// The whole rate ladder in one read. Pricing guidance has to answer "what would another price earn", and the band
+// edges must come from the catalog itself — this is the read that keeps 1500/5000 out of the calling code.
+test('每档费率和它适用的卢布区间一次读全，区间边界来自目录自己', async t => {
+  const f = await fixture(t);
+  const read = await f.tiers();
+  assert.equal(read.schemaVersion, 'ozon-commission-reference-tiers-read-v1');
+  assert.equal(read.salesScheme, 'rfbs');
+  assert.equal(read.checkedAt, AS_OF);
+  assert.deepEqual(read.gaps, []);
+  assert.deepEqual(read.matchedRows, [project(petBedRow)]);
+  assert.deepEqual(read.tiers, [
+    { tier: 'le1500', rate: 0.12, minRub: 0, maxRub: 1500 },
+    { tier: '1500_5000', rate: 0.14, minRub: 1500.01, maxRub: 5000 },
+    { tier: 'gt5000', rate: 0.15, minRub: 5000.01, maxRub: null }
+  ]);
+  assert.equal(read.source.fileSha256, FILE_SHA256);
+  assert.equal(read.source.effectiveFrom, EFFECTIVE_FROM);
+  // The same read for the other sales scheme carries that scheme's own rates, never rFBS's.
+  const fbp = await f.tiers({ scope: { platform: 'ozon', sellerRegion: 'CN', salesScheme: 'fbp', typeIdentity: { typeZh: '宠物躺床' } } });
+  assert.deepEqual(fbp.tiers.map(tier => tier.rate), [0.11, 0.13, 0.14]);
+});
+
+test('档位读取用与单价读取同一套版本闸门和缺口词，坏输入一律拒绝', async t => {
+  const f = await fixture(t);
+  for (const [overrides, code] of [
+    [{ versionState: { ...VERSION_STATE, fileSha256: 'cd'.repeat(32) } }, 'CATALOG_VERSION_MISMATCH'],
+    [{ versionState: { ...VERSION_STATE, status: 'invalidated' } }, 'CATALOG_VERSION_INVALIDATED'],
+    [{ asOf: '2025-11-30T00:00:00.000Z' }, 'NOT_YET_EFFECTIVE'],
+    [{ scope: { platform: 'ozon', sellerRegion: 'CN', salesScheme: 'rfbs', typeIdentity: { typeZh: '查无此类' } } }, 'TYPE_NOT_FOUND'],
+    [{ scope: { platform: 'ozon', sellerRegion: 'CN', salesScheme: 'rfbs', typeIdentity: { typeZh: '品牌专属类型' } } }, 'BRAND_SPECIFIC_ONLY'],
+    [{ scope: { platform: 'ozon', sellerRegion: 'CN', salesScheme: 'rfbs', typeIdentity: { typeZh: '模糊类型' } } }, 'TYPE_AMBIGUOUS']
+  ]) {
+    const read = await f.tiers(overrides);
+    assert.deepEqual(read.tiers, [], code);
+    assert.deepEqual(read.gaps.map(gap => gap.code), [code]);
+    assert.equal(read.gaps[0].blocking, true);
+  }
+  // A price is not part of this read, and an unknown key is refused exactly as the single-price read refuses one.
+  for (const scope of [
+    { platform: 'wb', sellerRegion: 'CN', salesScheme: 'rfbs', typeIdentity: { typeZh: '宠物躺床' } },
+    { platform: 'ozon', sellerRegion: 'CN', salesScheme: 'rfbs', priceRub: 1500, typeIdentity: { typeZh: '宠物躺床' } },
+    { platform: 'ozon', sellerRegion: 'CN', salesScheme: 'rfbs', typeIdentity: {} }
+  ]) {
+    await rejectsCode(f.tiers({ scope }), 'INPUT_INVALID');
   }
 });

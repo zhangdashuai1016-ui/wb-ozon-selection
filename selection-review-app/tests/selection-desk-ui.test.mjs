@@ -92,7 +92,7 @@ test('预估负利润不进入待决定，只留一条折叠记录，你排除�
     product('2107989737')
   ], declines: [{ marketProductId: '2107989737', reason: '尺寸太大' }] })));
   assert.match(html, /已自动排除 1 条（预估负利润）/);
-  assert.match(html, /你已排除 1 条/);
+  assert.match(html, /已淘汰 1 条（你自己不要的，默认隐藏）/u);
   assert.match(html, /你的理由：尺寸太大/);
   assert.equal(html.match(/>要</gu).length, 1, '只有还没被排除的商品有「要」');
   assert.equal(html.match(/预估负利润，不建议做/gu), null, '被排除的商品不再占用主列表');
@@ -100,7 +100,7 @@ test('预估负利润不进入待决定，只留一条折叠记录，你排除�
 
 test('每张卡片给出要、不要的固定理由和稍后；已建卡的商品只给查看', async () => {
   const html = await render(props(view({ products: [product('2107989735')] })));
-  assert.match(html, /<summary>不要<\/summary>/);
+  assert.match(html, /<summary>不要（淘汰）<\/summary>/u);
   assert.match(html, /选一个原因：/);
   for (const reason of ['尺寸太大', '利润太薄', '品牌风险', '不想做这类', '其他', '返回']) {
     assert.match(html, new RegExp(`>${reason}<`, 'u'));
@@ -111,7 +111,7 @@ test('每张卡片给出要、不要的固定理由和稍后；已建卡的商�
   assert.match(imported, /已在评审台/);
   assert.match(imported, />查看</);
   assert.equal(imported.match(/>要</gu), null);
-  assert.equal(imported.match(/<summary>不要<\/summary>/gu), null);
+  assert.equal(imported.match(/<summary>不要（淘汰）<\/summary>/gu), null);
 });
 
 test('右栏说明等你处理、进行中和下一轮方向，空的时候直说没有', async () => {
@@ -130,7 +130,10 @@ test('右栏说明等你处理、进行中和下一轮方向，空的时候直�
   const html = await render(props(view({ products: [product('2107989735')] }), { candidates }));
   assert.match(html, /需要你处理（1）/);
   assert.match(html, /合成商品甲/);
-  assert.match(html, /补一个1688链接/);
+  // The rail has room for one line, so it shows the first thing this product is waiting for and counts the rest.
+  assert.match(html, /找货还没填/u);
+  assert.match(html, /还有 1 项/u);
+  assert.match(html, />去填找货</u);
   assert.doesNotMatch(html, /合成商品乙/, '店铺切换后不显示别的店的商品');
   assert.match(html, /打开进行中/);
   assert.match(html, /普通非电桌面整理小件（合成）/);
@@ -188,9 +191,9 @@ test('选品台最上面固定一块"我选的商品"，每行给出这件商品
   }));
   assert.match(html, /我选的商品（2）/u);
   assert.match(html, /找货已填 · 过线 单件利润 ¥41\.26/u);
-  assert.match(html, /申请插件采集/u);
+  assert.match(html, />去申请采集</u, "这个按钮只会打开商品页，真正的采集按钮在商品页里");
   assert.match(html, /找货未填/u);
-  assert.match(html, />填找货</u);
+  assert.match(html, />去填找货</u);
   assert.match(html, /售价 297 卢布/u);
   assert.match(html, /合成收纳盒/u);
   assert.match(html, /<img[^>]*class="desk-mine-thumb"[^>]*src="https:\/\/ir\.ozone\.ru\/s3\/synthetic\/2107989735\.jpg"/u);
@@ -203,7 +206,7 @@ test('选品台最上面固定一块"我选的商品"，每行给出这件商品
 test('还没选过商品时"我选的商品"直说没有，并指回下面的列表', async () => {
   const html = await render(props(view({ products: [product('2107989735')] })));
   assert.match(html, /我选的商品（0）/u);
-  assert.match(html, /还没有选定的商品。在下面的列表里点&quot;选这个&quot;。/u);
+  assert.match(html, /还没有选定的商品。在下面的列表里点「要」。/u);
   assert.doesNotMatch(html, /找货未填/u);
 });
 
@@ -230,4 +233,48 @@ test('顶栏在商品页写明是哪件商品，并留一条回选品台的路',
   assert.match(app, /candidate=\{productCandidate\}/u);
   assert.match(app, /titleZh=\{productTitleZh\}/u);
   assert.match(app, /onBack=\{\(\) => setView\("desk"\)\}/u);
+});
+
+test('选品台每一行和每张已建卡的卡片都能淘汰，已淘汰折在下面并能恢复', async () => {
+  const gone = (id, extra = {}) => picked(id, { workflowStatus: 'eliminated', displayStatus: 'eliminated',
+    eliminatedAt: '2026-09-11T06:00:00.000Z', eliminationReason: '主人淘汰：利润太薄', dataRevision: 9, ...extra });
+  const html = await render(props(view({ products: [product('2107989735', { titleZh: '合成收纳盒' })],
+    importedCandidates: [{ marketProductId: '2107989735', candidateId: 'candidate:filled' }] }), {
+    candidates: [picked('candidate:filled', { dataRevision: 4 }), gone('candidate:dropped', { productName: '被淘汰的合成商品' })]
+  }));
+  // 我选的商品 keeps only the live product; the dropped one is folded away with its own saved reason and time.
+  assert.match(html, /我选的商品（1）/u);
+  assert.match(html, /已淘汰 1（默认隐藏）/u);
+  assert.match(html, /主人淘汰：利润太薄/u);
+  assert.match(html, /2026-09-11 \d{2}:\d{2}/u);
+  assert.match(html, />恢复</u);
+  assert.doesNotMatch(html, /<details class="desk-folded eliminated-fold" open/u, '已淘汰默认收起');
+  // Both the shelf row and the already-taken feed card offer the same 淘汰 button.
+  assert.ok((html.match(/eliminate-button/gu) ?? []).length >= 2, '我选的商品和已建卡的卡片都有淘汰');
+  assert.match(html, /已在评审台/u);
+});
+
+test('一键淘汰上一轮全部未选先说清会淘汰几条，只数没要也没不要的那些', async () => {
+  const html = await render(props(view({
+    products: [product('2107989735'), product('2107989736'), product('2107989737')],
+    importedCandidates: [{ marketProductId: '2107989736', candidateId: 'candidate:taken' }],
+    declines: [{ marketProductId: '2107989737', reason: '尺寸太大' }]
+  })));
+  assert.match(html, /一键淘汰上一轮全部未选（1）/u, '已经要过和已经不要的都不算在内');
+  // The sentence itself only appears after the button is pressed, so the first render carries no confirmation.
+  assert.doesNotMatch(html, /确定淘汰这 1 条/u);
+  const none = await render(props(view({ products: [product('2107989735')],
+    declines: [{ marketProductId: '2107989735', reason: '尺寸太大' }] })));
+  assert.match(none, /一键淘汰上一轮全部未选（0）/u);
+  assert.match(none, /<button type="button" class="button secondary" disabled="">一键淘汰上一轮全部未选（0）<\/button>/u);
+});
+
+test('淘汰按钮的确认是一句话加固定几个理由，不套第二层弹窗', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(fileURLToPath(new URL('../src/components/EliminateControl.jsx', import.meta.url)), 'utf8');
+  assert.match(source, /确定淘汰这件？它会从各个列表里消失，随时能在「已淘汰」里恢复。/u);
+  assert.match(source, /DECLINE_REASONS\.map/u, '理由只能是选品台已有的那五个词');
+  assert.doesNotMatch(source, /window\.confirm|role="dialog"/u, '不再套一层弹窗');
+  assert.match(source, />直接淘汰</u, '理由可以不写');
+  assert.match(source, />取消</u);
 });

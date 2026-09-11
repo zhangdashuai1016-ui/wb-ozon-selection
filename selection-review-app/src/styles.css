@@ -1116,6 +1116,40 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 .inbox-row-body b { font-size: 13px; overflow-wrap: anywhere; }
 .inbox-row-need { color: var(--amber); font-size: 11px; font-weight: 700; }
 .inbox-row-status { color: var(--muted); font-size: 11px; }
+.inbox-row-reasons { margin: 0; padding-left: 16px; display: grid; gap: 2px; color: var(--amber); font-size: 11px; font-weight: 700; line-height: 1.5; }
+.inbox-row-reasons li { overflow-wrap: anywhere; }
+.inbox-row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
+/* 淘汰 looks the same wherever it appears: one quiet button that turns into one sentence plus the choices. */
+.eliminate-confirm { display: flex; flex-direction: column; gap: 5px; flex: 1 1 240px; padding: 7px 9px; border: 1px solid var(--line-dark); border-radius: 10px; background: #fffdf5; }
+.eliminate-confirm-line { font-size: 11px; font-weight: 700; line-height: 1.5; }
+.eliminate-confirm-reasons { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.eliminate-confirm-hint { color: var(--muted); font-size: 10px; }
+.eliminate-confirm .button { padding: 4px 8px; font-size: 11px; }
+.board-card-shell { display: grid; gap: 5px; }
+.board-card-shell .eliminate-button { justify-self: start; padding: 3px 8px; font-size: 10px; }
+.eliminated-fold .eliminated-list { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.eliminated-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.eliminated-body { min-width: 0; display: grid; gap: 2px; }
+.eliminated-body b { font-size: 12px; overflow-wrap: anywhere; }
+.eliminated-meta { color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+.desk-bulk-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 9px 11px; border: 1px solid var(--line-dark); border-radius: 11px; background: #fffdf5; font-size: 12px; line-height: 1.55; }
+.product-eliminated-note { color: var(--muted); font-size: 11px; align-self: center; }
+
+/* 定价指引: four answers plus the ladder, read from the saved estimate and never computed on this page. */
+.product-pricing { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #f8faf9; }
+.product-pricing h4 { margin: 0; font-size: 13px; }
+.product-pricing-empty { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.product-pricing-facts { margin: 0; display: grid; gap: 4px; }
+.product-pricing-facts > div { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; line-height: 1.55; }
+.product-pricing-facts dt { min-width: 84px; color: var(--muted); font-weight: 700; }
+.product-pricing-facts dd { margin: 0; overflow-wrap: anywhere; }
+.product-pricing-scroll { overflow-x: auto; }
+.product-pricing-ladder { width: 100%; border-collapse: collapse; font-size: 12px; }
+.product-pricing-ladder caption { text-align: left; color: var(--muted); font-size: 11px; padding-bottom: 4px; }
+.product-pricing-ladder th, .product-pricing-ladder td { border: 1px solid var(--line); padding: 4px 7px; text-align: left; white-space: nowrap; }
+.product-pricing-ladder th { background: #eef3f1; font-weight: 700; }
+.product-pricing-provenance { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
 
 @media (max-width: 1080px) {
   .desk-layout { grid-template-columns: minmax(0, 1fr); }
@@ -1174,6 +1208,8 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 .product-capture h4 { margin: 0; font-size: 14px; }
 .product-capture p { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
 .product-capture-hint { color: var(--muted); }
+/* 结果未知且还没核实：这件商品此刻申请不了采集，颜色和位置都要让主人先看见这句话。 */
+.product-capture-blocked { color: #a86a12; font-weight: 700; }
 .product-capture button { justify-self: start; }
 /* 保存之后只强调一件事：下一步要做的那一块。 */
 .product-next { border: 1px solid #b9d7ca; border-radius: 12px; background: var(--green-soft); box-shadow: 0 0 0 2px var(--green-soft); }

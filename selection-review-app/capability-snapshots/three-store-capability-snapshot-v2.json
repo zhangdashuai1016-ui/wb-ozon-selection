@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-11T08:40:56.183Z",
+  "frozenAt": "2026-09-11T12:12:54.576Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 644,
-      "sha256": "b96ff22fe448d65be0854c87501ea6ae6ed4376f08d979aa93a05e57aa13679f",
+      "artifactCount": 647,
+      "sha256": "e97b1a0cf401da308ccdd75f282887b897a7bc2d2a0f92d7ca8265e0cda615ef",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -44,7 +44,7 @@
       },
       {
         "path": "extension/1688-capture/bridge.js",
-        "sha256": "026ba934d78460d8e3dae4f797bfa765c857ff7b6840abea35bdd688c5f4588f"
+        "sha256": "37baa0ee87e7c35c3688665b687525a2484040b46501017905232fbce80cb707"
       },
       {
         "path": "extension/1688-capture/capture-request.js",
@@ -80,11 +80,11 @@
       },
       {
         "path": "lib/a-discovery-estimate-store.mjs",
-        "sha256": "e955b8eb6be57b9b343e253d73ced8858bf16c63c4e8d3214ea426fdf9dc61f3"
+        "sha256": "b6ecf7be69b55bde16097386222bde0218612d6eff9c258f326b5b4e7b0246dc"
       },
       {
         "path": "lib/a-discovery-estimate.mjs",
-        "sha256": "3f9dc71cbe5644a7bf3da76040f2ecb5cd19ae98f0b586558f399bb9d20cb104"
+        "sha256": "f6c58348d802d61e53a91a18cdbb61354e00ce6e9f5609594e9e821c94e0f55f"
       },
       {
         "path": "lib/a-discovery-runtime-services.mjs",
@@ -328,7 +328,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "9920413ca884825e5de3a1c339bbb8b7b3102af0c8c9b02db5a42eceff985d7c"
+        "sha256": "f0fb95abdb81058907fbc652fddf49970706f098bcb74f2f237869761c946724"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -616,7 +616,7 @@
       },
       {
         "path": "lib/ozon-commission-reference-reader.mjs",
-        "sha256": "2836db9d9fcd506ff0c09347a5272b58dff6fc4645af53c008e836e3052bc977"
+        "sha256": "b8b27352d8cb53f709c9f773b4e0193b90651ae060e9e924506f6404730bc20c"
       },
       {
         "path": "lib/ozon-de-http-configuration.mjs",
@@ -832,7 +832,7 @@
       },
       {
         "path": "lib/supplier-draft.mjs",
-        "sha256": "5b2e403f685f3b8d05a7ef8183b06e35c661a72f0b12fe242019053c9299d075"
+        "sha256": "0ed3967605b8e947a3fd482540dd5718cb7468247e6646ae983fc75300d2ce1f"
       },
       {
         "path": "lib/supplier-option.mjs",
@@ -1128,7 +1128,7 @@
       },
       {
         "path": "scripts/ci-test-suites.mjs",
-        "sha256": "c3176239f4594ffe9c1ede585e4d8a7580ad5b55f82ad9d9e8b81773564d87bf"
+        "sha256": "5d9d38af41147c073f8a16b416ddc858402762b66f702d2ffc875287345229b4"
       },
       {
         "path": "scripts/deploy-local-runtime.sh",
@@ -1176,11 +1176,11 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "4b01793224bc23efa0ea8b16e8f0cd17e5bead0e31b27b202b0e3768b261ce3a"
+        "sha256": "d7d73c8161c6dbdbfb7a601b000a878fffc4c5f65da617a90a19e97b6cc91449"
       },
       {
         "path": "src/App.jsx",
-        "sha256": "987842afcc1d107141caa020d3e4405a14a778d7d6fe0bc188a6ca1ea5defce5"
+        "sha256": "adec3549895b5e4543cf16791a620725f9c8e81a4cefbdba853ed9fea4d5c84d"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1192,7 +1192,7 @@
       },
       {
         "path": "src/api.js",
-        "sha256": "27742ad93bacb7787e4e9bc8cef07f7fe64dffd46b8a9e1a405734a93afe8108"
+        "sha256": "20738c8933cf587e790b4bc037aecd2919738fd56af82608326e67a402ccf93b"
       },
       {
         "path": "src/bExactCommissionInput.js",
@@ -1251,6 +1251,10 @@
         "sha256": "9c796d6482b42afc4470ebe52e42ef839c6d252f6020acce010f9a20f302a2ef"
       },
       {
+        "path": "src/components/EliminateControl.jsx",
+        "sha256": "c3fa0073a11a376eb7b9931bf219a097971564455c35bb227408cbf56ea2269f"
+      },
+      {
         "path": "src/components/ExecutionRuntimeCard.jsx",
         "sha256": "4da9d623c042acec1eed92e6088112df69480a8b8579dedef1d7e9ed3a8309c4"
       },
@@ -1288,7 +1292,7 @@
       },
       {
         "path": "src/components/OwnerInbox.jsx",
-        "sha256": "22f1dd2dfd9e7cd1ba78fdd2844b503d5cf8a2af6ec813cc9b3b1390d7c6e96f"
+        "sha256": "d639949214701dfb7ea7f91c3782f6a6384e72d724bfa50e826b50edd018e64d"
       },
       {
         "path": "src/components/OzonAccountPreparationCard.jsx",
@@ -1304,7 +1308,7 @@
       },
       {
         "path": "src/components/PipelineBoard.jsx",
-        "sha256": "b0daf199f0f62a932a28bede189ec1b27fbed37bc870fdbd2ec0b47f63756731"
+        "sha256": "e5dae65641a06fcaaa150474542edfb2cb8cee079dc202f7df43924c6cbbe973"
       },
       {
         "path": "src/components/ProcessingBreakdown.jsx",
@@ -1320,7 +1324,7 @@
       },
       {
         "path": "src/components/ProductPage.jsx",
-        "sha256": "f2dabf548128c37a768126c6e72296986c0284ccbac72bd764d770d7cd3b4344"
+        "sha256": "9f65dc5b9597c390bc0a4574bcdd894fcbe6dee59a7861c284a6a71df4a99ed3"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1340,7 +1344,7 @@
       },
       {
         "path": "src/components/SelectionDesk.jsx",
-        "sha256": "7a9575492224567755a7483ba5143b916b7859164ab81af8480cda90ba458b94"
+        "sha256": "539df97798e8fe6f49e379c370d59b247220dca47c8a4bbc19f048ea655c15b8"
       },
       {
         "path": "src/components/StatusBadge.jsx",
@@ -1416,11 +1420,11 @@
       },
       {
         "path": "src/selectionDeskView.js",
-        "sha256": "3256c62fe17ec66061ef9175b5ee692d3232eaf4881c699f40a29361c4a632fe"
+        "sha256": "848d4bbd9399edf5daa94ee95440c4dc8e84f376b30f860390aea1401d6a3ff0"
       },
       {
         "path": "src/styles.css",
-        "sha256": "ae499adb5bf1d8a13934d4d09e66295e1b8b07681c9f304e32589e8ac706d886"
+        "sha256": "f5fd31de27a78aa50bccc157f78cc2aa8c953d5916d0114d05337e9b199dd107"
       },
       {
         "path": "src/wbPresentation.js",
@@ -1440,11 +1444,11 @@
       },
       {
         "path": "tests/a-discovery-estimate-store.test.mjs",
-        "sha256": "989139335355d8214a1f1bf69c761f194418369ba5b6a3a550e01fada4e68f73"
+        "sha256": "82c70f8120567935a593156a0003ad41466b381e632625eb7379d0b5b1ed2218"
       },
       {
         "path": "tests/a-discovery-estimate.test.mjs",
-        "sha256": "3797f50943ed276ae4b8b4a79f13c2934a241250a2ad4f84398eb9f35fee9634"
+        "sha256": "177032b373d672e2f88e62c2659300fb60458a58290d7a9ff08d7b4efcbfedb7"
       },
       {
         "path": "tests/a-discovery-runtime-configuration.test.mjs",
@@ -1764,7 +1768,7 @@
       },
       {
         "path": "tests/ci-api-boundary.test.mjs",
-        "sha256": "3d4310610f8b999c47121651412b6de03715110a3d61348000d1b51fefde325e"
+        "sha256": "ed4171f2ea917b0cfae8bb37d6d055bd44d1382c6afe11b7103b02f551d32740"
       },
       {
         "path": "tests/ci-test-policy.test.mjs",
@@ -2259,6 +2263,10 @@
         "sha256": "f3610c7fd1ec8a0f972a182d389b111c31ce934074ddfaecfb004b6f7857266c"
       },
       {
+        "path": "tests/owner-inbox-board-ui.test.mjs",
+        "sha256": "fb995ecb2d3e5022d4f701371a3e6c34f2eb32468cf8e568262cfeb91cd40eb8"
+      },
+      {
         "path": "tests/ozon-account-discovery-configuration.test.mjs",
         "sha256": "1b275197638e1eaa09e41faec2a4730211c061c55ca3b6d230c2bc1bba41277e"
       },
@@ -2296,7 +2304,7 @@
       },
       {
         "path": "tests/ozon-commission-reference-reader.test.mjs",
-        "sha256": "6c345e0e003ae6483d969c863423d6ae95d82444b6e53f43ff4a2771f925c55a"
+        "sha256": "da3f8d23da1ae711a6840c043e588c1825e8bf3bb814fd3e0dda0f4df025cdf7"
       },
       {
         "path": "tests/ozon-de-http-transport.test.mjs",
@@ -2396,7 +2404,7 @@
       },
       {
         "path": "tests/product-page-ui.test.mjs",
-        "sha256": "f5d18c4cbe12f6fe0f2ce898487dc1acc5be3eed10eca8e58b07e8b1e9448ceb"
+        "sha256": "4726087108a7c33f6e336c28fcd9ddd94d8e657622ea95aaa30e6e99ea62cbec"
       },
       {
         "path": "tests/production-owner-decision-api.test.mjs",
@@ -2508,11 +2516,11 @@
       },
       {
         "path": "tests/selection-desk-ui.test.mjs",
-        "sha256": "9a2abe894097a25b052d06479bacd2c691e142c6b0b92c5060948e4c1171d892"
+        "sha256": "99fe12ab562926fe4418897b782f7af32f31db9c70d999830a48ba5a47cec489"
       },
       {
         "path": "tests/selection-desk-view.test.mjs",
-        "sha256": "c59c0c60b2d7e40f293c7c0900aaa17d57ddb5944fe8cd46f5beb9875de7c808"
+        "sha256": "4bc0accbd0c6f2cb4f95dd6bcd5f32fcfb0d51c5d0f7a838df318c85472957e8"
       },
       {
         "path": "tests/software-execution-state.test.mjs",
@@ -2539,6 +2547,10 @@
         "sha256": "d4159e999ee9901d37cfd2dc40a24f8ef7f15564ba21e313b419e90044840e92"
       },
       {
+        "path": "tests/source-capture-review-api.test.mjs",
+        "sha256": "5db54a0a2cabbf0dd0c9164e7fceef1b85c2f85988fe2fd2653a57b0185640d4"
+      },
+      {
         "path": "tests/source-capture.test.mjs",
         "sha256": "7a37ce5c21a618bab798460ab61cf4e41afe4f3719acb98b0f162fe835999d0e"
       },
@@ -2556,11 +2568,11 @@
       },
       {
         "path": "tests/supplier-draft-api.test.mjs",
-        "sha256": "6ace14dd55c3c966823869c020418ebdfbed59642af61c6ea60d474b180e926c"
+        "sha256": "8136a566576f4d98e151da8374db765b980fed302de6ec582017ad2eac01fe95"
       },
       {
         "path": "tests/supplier-draft.test.mjs",
-        "sha256": "8955cdb82daef439dec618d8c3feef0ea3d70a7eecada86a6b7d31c559aee0cb"
+        "sha256": "23caa44b3a297fe030c3343b194a4c508d8f0741e9273d99060a86315c4ec272"
       },
       {
         "path": "tests/supplier-option.test.mjs",
@@ -2811,6 +2823,10 @@
           "status": "present_in_integration_source"
         },
         {
+          "path": "src/components/EliminateControl.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
           "path": "src/components/OwnerInbox.jsx",
           "status": "present_in_integration_source"
         },
@@ -2940,6 +2956,10 @@
         },
         {
           "path": "tests/source-capture-job-api.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/source-capture-review-api.test.mjs",
           "status": "present_in_integration_source"
         }
       ],
@@ -4709,6 +4729,7 @@
         "tests/product-page-ui.test.mjs",
         "tests/selection-desk-view.test.mjs",
         "tests/selection-desk-ui.test.mjs",
+        "tests/owner-inbox-board-ui.test.mjs",
         "tests/discovery-title-translation.test.mjs",
         "tests/seerfar-discovery-integration.test.mjs",
         "tests/a-discovery-runtime-configuration.test.mjs",

@@ -554,6 +554,7 @@ export const CAPABILITY_NODES = Object.freeze([
       capabilityRef("src/components/SelectionDesk.jsx", "SelectionDesk", "选品台首页与右栏"),
       capabilityRef("src/components/PipelineBoard.jsx", "PipelineBoard", "进行中五列看板"),
       capabilityRef("src/components/OwnerInbox.jsx", "OwnerInbox", "需要主人处理清单"),
+      capabilityRef("src/components/EliminateControl.jsx", "EliminateControl", "各列表通用的淘汰确认与已淘汰恢复"),
       capabilityRef("src/components/ProductPage.jsx", "ProductPage", "商品页六步与找货填写")],
     testRefs: [capabilityRef("tests/collaboration-api.test.mjs", "test(", "候选 API 测试")]
   }),
@@ -597,6 +598,7 @@ export const CAPABILITY_NODES = Object.freeze([
       capabilityRef("lib/a-supplier-image-search-runtime-services.mjs", "supplierImageSearchAvailability", "图搜未配置门禁")],
     uiRefs: [capabilityRef("src/App.jsx", "startSourceCapture", "评审台采集桥接")],
     testRefs: [capabilityRef("tests/source-capture-job-api.test.mjs", "test(", "1688 作业 API 测试"),
+      capabilityRef("tests/source-capture-review-api.test.mjs", "test(", "结果未知记录的主人核实出口测试"),
       capabilityRef("tests/a-supplier-image-search-contract.test.mjs", "test(", "图搜合同测试"),
       capabilityRef("tests/a-supplier-image-search-runner.test.mjs", "test(", "图搜执行边界测试"),
       capabilityRef("tests/a-supplier-image-search-runtime-services.test.mjs", "test(", "图搜配置门禁测试"),
@@ -1677,6 +1679,7 @@ export const CAPABILITY_ARTIFACT_ASSIGNMENTS = Object.freeze([
       "tests/product-page-ui.test.mjs",
       "tests/selection-desk-view.test.mjs",
       "tests/selection-desk-ui.test.mjs",
+      "tests/owner-inbox-board-ui.test.mjs",
       "tests/discovery-title-translation.test.mjs",
       "tests/seerfar-discovery-integration.test.mjs",
       "tests/a-discovery-runtime-configuration.test.mjs",

@@ -223,22 +223,90 @@ function captureStage(candidate) {
 
 const CAPTURE_CHIPS = Object.freeze({ queued: "待采集", running: "采集中", done: "已采到" });
 
+const money = value => (finite(value) === null ? "未取得" : `¥${value.toFixed(2)}`);
+const percent = value => (finite(value) === null ? "未取得" : `${Math.round(value * 100)}%`);
+
+/**
+ * Why the capture job of this product is waiting on the owner, in his own words, read from the saved job alone.
+ * A job nobody ever asked for is not a reason for anything, so it answers null.
+ */
+function captureAttention(candidate) {
+  const capture = candidate.sourceCapture;
+  if (!isObject(capture)) return null;
+  if (capture.status === "captured_waiting_owner_selection") {
+    return { reason: "插件已采到1688页面，等你选具体规格", action: { key: "sku", label: "去选规格" } };
+  }
+  if (["verified"].includes(capture.status)) return null;
+  if (capture.jobStatus === "claimed" || ["capturing", "extension_running"].includes(capture.status)) {
+    return { reason: "插件正在读这个1688页面，先等它读完", action: { key: "open", label: "查看" } };
+  }
+  if (capture.jobStatus === "queued" || capture.status === "waiting_extension") {
+    return { reason: "采集已排队，等插件领取", action: { key: "open", label: "查看" } };
+  }
+  if (text(capture.failureCode) !== null) {
+    return { reason: `上一次采集已停止：${text(capture.reason) ?? capture.failureCode}`,
+      action: { key: "capture", label: "重新申请采集" } };
+  }
+  return null;
+}
+
+/**
+ * What the 找货 declaration and the estimate saved beside it say about this product, read from those records only.
+ * A missing estimate says so instead of turning into "没过线", and a blocked route repeats the saved sentence verbatim.
+ */
+function draftAttention(candidate) {
+  if (!isObject(candidate.supplierDraftV1)) {
+    return { step: "draft_missing", chip: "找货未填", reason: "找货还没填", action: { key: "draft", label: "去填找货" } };
+  }
+  const record = isObject(candidate.supplierDraftEstimateV1) ? candidate.supplierDraftEstimateV1 : null;
+  if (record?.estimate?.status !== "ok") {
+    const missing = list(record?.estimate?.missing).filter(value => text(value) !== null);
+    const block = text(record?.routeBlock?.message);
+    return { step: "draft_incomplete", chip: "找货已填 · 缺数据",
+      reason: block ?? (missing.length ? `找货已填，还算不出利润：缺${missing.join("、")}` : "找货已填，还算不出利润：缺必要数据"),
+      action: { key: "draft", label: "去补资料" } };
+  }
+  const profit = isObject(record.profitAtDeclaredPurchase) ? record.profitAtDeclaredPurchase : null;
+  if (profit?.passes !== true) {
+    return { step: "draft_blocked", chip: "找货已填 · 未过线",
+      reason: `按你填的到手总价没到本店利润门槛：单件利润 ${money(profit?.unitProfitRmb)} · 利润率 ${percent(profit?.marginRate)}`,
+      action: { key: "draft", label: "去改找货" } };
+  }
+  return { step: "draft_passes", chip: `找货已填 · 过线 单件利润 ${money(profit.unitProfitRmb)}`,
+    reason: null, action: { key: "capture", label: "去申请采集" } };
+}
+
 /**
  * The one thing that still has to happen to this product, read from its own saved records: the 找货 declaration, the
  * estimate that was saved beside it and the capture job it already carries. Nothing is computed and nothing is guessed;
  * a missing estimate says so instead of turning into "没过线".
+ * Owner feedback 2026-09-11: the 我选的商品 button said 申请插件采集 but only opened the product page, so it now says
+ * where the click goes; the one button that really queues a capture lives on the product page and nowhere else.
  */
 function myProductStep(candidate) {
   const capture = captureStage(candidate);
   if (capture !== null) return { step: `capture_${capture}`, chip: CAPTURE_CHIPS[capture], action: "查看" };
-  if (!isObject(candidate.supplierDraftV1)) return { step: "draft_missing", chip: "找货未填", action: "填找货" };
-  const record = isObject(candidate.supplierDraftEstimateV1) ? candidate.supplierDraftEstimateV1 : null;
-  if (record?.estimate?.status !== "ok") return { step: "draft_incomplete", chip: "找货已填 · 缺数据", action: "补资料" };
-  const profit = isObject(record.profitAtDeclaredPurchase) ? record.profitAtDeclaredPurchase : null;
-  if (profit?.passes !== true) return { step: "draft_blocked", chip: "找货已填 · 未过线", action: "改找货" };
-  const unit = finite(profit.unitProfitRmb);
-  return { step: "draft_passes", action: "申请插件采集",
-    chip: `找货已填 · 过线 单件利润 ${unit === null ? "未取得" : `¥${unit.toFixed(2)}`}` };
+  const draft = draftAttention(candidate);
+  return { step: draft.step, chip: draft.chip, action: draft.action.label };
+}
+
+/**
+ * Owner feedback 2026-09-11: "还有 5 条需要我处理，我不能直观看到它要处理什么，得挨个打开."
+ * Every sentence below is read from this product's own saved records — the capture job, the 找货 declaration, the
+ * estimate beside it and the platform's own asks. Nothing is inferred from a status name, and a product whose records
+ * say nothing specific says "未取得" rather than inventing a reason.
+ */
+export function ownerAttentionReasons(candidate) {
+  if (!isObject(candidate)) return { reasons: ["未取得需要你做什么的记录"], action: { key: "open", label: "打开" } };
+  const capture = captureAttention(candidate);
+  const draft = draftAttention(candidate);
+  const needs = list(candidate.needsFromUser).map(need => text(need)).filter(need => need !== null);
+  // The platform's own ask can repeat a sentence the records already produced; the owner reads it once.
+  const reasons = [...new Set([capture?.reason ?? null, draft.reason, ...needs].filter(reason => reason !== null))];
+  return {
+    reasons: reasons.length ? reasons : ["未取得需要你做什么的具体记录，打开看它的六步"],
+    action: capture?.action ?? draft.action
+  };
 }
 
 /** The Ozon price this product carried when the round returned it; the unit is only named when the record names it. */
@@ -326,18 +394,71 @@ export function boardColumns(candidates, store) {
   }));
 }
 
+/**
+ * A product is in 需要你处理 when the platform itself asks the owner for something, and also when its own saved capture
+ * job is standing still on him: a captured 1688 page waiting for a size choice, or a capture that stopped. Those two
+ * are unambiguous — nobody but the owner can move them — and leaving them out was how a finished capture could sit
+ * unnoticed. Everything else stays on 我选的商品 with its own chip.
+ */
+function waitsOnOwner(candidate) {
+  if (list(candidate.needsFromUser).some(need => text(need) !== null)) return true;
+  const capture = candidate.sourceCapture;
+  if (!isObject(capture)) return false;
+  return capture.status === "captured_waiting_owner_selection" || text(capture.failureCode) !== null;
+}
+
 export function inboxItems(candidates, store) {
   return activeCandidates(candidates, store)
     .map(candidate => ({ candidate, card: boardCard(candidate) }))
-    .filter(({ card }) => card.waitingLine !== null)
-    .map(({ candidate, card }) => ({
-      id: card.id,
-      title: card.title,
-      storeLabel: card.storeLabel,
-      statusLine: card.statusLine,
-      need: card.waitingLine,
-      moreNeeds: Math.max(list(candidate.needsFromUser).length - 1, 0)
+    .filter(({ candidate }) => waitsOnOwner(candidate))
+    .map(({ candidate, card }) => {
+      const attention = ownerAttentionReasons(candidate);
+      return {
+        id: card.id,
+        dataRevision: candidate.dataRevision ?? null,
+        title: card.title,
+        imageUrl: card.imageUrl,
+        storeLabel: card.storeLabel,
+        statusLine: card.statusLine,
+        // Kept for the desk rail, which has room for exactly one line.
+        need: attention.reasons[0],
+        moreNeeds: Math.max(attention.reasons.length - 1, 0),
+        reasons: attention.reasons,
+        action: attention.action
+      };
+    });
+}
+
+/**
+ * What the owner already dropped, per store, newest first. Every list folds these away by default and offers 恢复 on
+ * each row; the reason and the instant are read from the saved candidate and never re-worded.
+ */
+export function eliminatedRows(candidates, store, discoveryView = null) {
+  return list(candidates)
+    .filter(candidate => isObject(candidate) && candidate.workflowStatus === "eliminated" &&
+      (store === null || candidate.targetStore === store))
+    .sort((a, b) => ((Date.parse(b.eliminatedAt ?? b.updatedAt) || 0) - (Date.parse(a.eliminatedAt ?? a.updatedAt) || 0)) ||
+      String(a.id).localeCompare(String(b.id)))
+    .map(candidate => ({
+      id: candidate.id,
+      dataRevision: candidate.dataRevision ?? null,
+      title: discoveredTitleZh(discoveryView, candidate) ?? text(candidate.productName) ?? candidate.id,
+      imageUrl: safeImageUrl(candidate.imageUrl),
+      storeLabel: storeLabel(candidate.targetStore),
+      reasonLine: text(candidate.eliminationReason) ?? "没有记录理由",
+      eliminatedAtLabel: formatInstant(candidate.eliminatedAt) ?? "时间未记录"
     }));
+}
+
+/**
+ * The rows of the newest finished round the owner never answered — neither 要 nor 不要. This is exactly what
+ * 一键淘汰上一轮全部未选 acts on, so the count shown before the click and the rows acted on afterwards are one list.
+ */
+export function lastRoundUndecidedRows(feed) {
+  if (!isObject(feed) || feed.current === null) return [];
+  return list(feed.rows).filter(row => row.batchId === feed.current.batchId &&
+    row.expectedRevision === feed.current.expectedRevision &&
+    row.importedCandidateId === null && row.declineReason === null && row.duplicate !== true);
 }
 
 /** The three counters the top bar shows beside the view names. */
@@ -352,6 +473,12 @@ export function deskCounts({ discoveryView, candidates, store }) {
 
 const RUNNING_JOB_STATUSES = ["queued", "claimed", "waiting_platform"];
 const DAY_MS = 24 * 60 * 60 * 1000;
+/**
+ * The server refuses a second round for the same store and direction while a just-created round is this young, so the
+ * desk has to say so before the click instead of letting 「不要这一轮了，重新找一轮」 come back refused (owner incident
+ * 2026-09-11). It mirrors ROUND_RESUMABLE_WINDOW_MS in lib/a-discovery-runtime-services.mjs and a test holds the two equal.
+ */
+export const ROUND_REOPEN_WINDOW_MS = 10 * 60 * 1000;
 /**
  * One sentence for "this store is already querying this direction", wherever the answer comes from: the saved rounds
  * the rail reads before a click, and the server's own ROUND_ALREADY_RUNNING refusal after one.
@@ -398,8 +525,14 @@ export function newRoundPlan(discoveryView, store, now = Date.now()) {
   // An earlier click that saved the round but never started it: continue that same batch instead of opening a new one.
   // canAuthorize is the server's own answer, so a batch the current configuration can no longer run is never offered.
   const orphan = entries.find(entry => list(entry.jobs).length === 0 && entry.canAuthorize === true) ?? null;
+  // A saved round this young blocks a fresh one on the server, so say the wait here rather than after a refused click.
+  const orphanCreatedAt = orphan === null ? NaN : Date.parse(orphan.batch.createdAt);
+  const reopenAt = Number.isFinite(orphanCreatedAt) ? orphanCreatedAt + ROUND_REOPEN_WINDOW_MS : NaN;
+  const canReopenNow = !Number.isFinite(reopenAt) || now >= reopenAt;
   const resume = orphan === null ? null : { batchId: orphan.batch.batchId, expectedRevision: orphan.batch.revision,
-    direction: text(orphan.batch.plan?.direction) ?? direction, createdAt: formatInstant(orphan.batch.createdAt) };
+    direction: text(orphan.batch.plan?.direction) ?? direction, createdAt: formatInstant(orphan.batch.createdAt),
+    canReopenNow, reopenAt: Number.isFinite(reopenAt) ? formatInstant(new Date(reopenAt).toISOString()) : null,
+    reopenWaitMinutes: canReopenNow ? 0 : Math.max(1, Math.ceil((reopenAt - now) / 60000)) };
   let warning = null;
   if (latestCompleted !== null && now - latestCompleted.at < DAY_MS) {
     const at = formatInstant(new Date(latestCompleted.at).toISOString());

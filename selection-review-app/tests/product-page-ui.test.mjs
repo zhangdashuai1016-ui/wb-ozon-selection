@@ -13,7 +13,8 @@ async function pageModule() {
     const output = await build({ configFile: false, logLevel: 'warn', plugins: [react(), { name: 'product-page-ui-test',
       resolveId: id => id === entry ? entry : null,
       load: id => id === entry ? `import React from 'react';import {renderToStaticMarkup} from 'react-dom/server';
-      import Page, {stepNotice} from ${JSON.stringify(component)};export {stepNotice};export const render=props=>renderToStaticMarkup(<Page {...props}/>);` : null }],
+      import Page, {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload} from ${JSON.stringify(component)};
+      export {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload};export const render=props=>renderToStaticMarkup(<Page {...props}/>);` : null }],
       ssr: { noExternal: true }, build: { ssr: true, write: false, rollupOptions: { input: entry, output: { format: 'es' } } } });
     const chunk = output.output.find(value => value.type === 'chunk' && value.isEntry);
     assert.ok(chunk);
@@ -197,4 +198,126 @@ test('商品页的申请插件采集走专用处理：写操作不经读取守�
   assert.match(app, /const captureStart = await startQueuedSupplierCapture\(result\);/u);
   assert.match(app, /\$\{captureStart\.message\}/u);
   assert.match(app, /import \{ startQueuedSupplierCapture \} from "\.\/captureStart\.js";/u);
+});
+
+// 定价指引 (owner question 2026-09-11). Synthetic guidance only: the page shows what the saved estimate carries.
+const guidance = {
+  status: 'ok', rubPerCny: 12.5637, allInPurchaseRmb: 45, nonPurchaseFixedRmb: 14.61,
+  minimumUnitProfitRmb: 20, targetMarginRate: 0.15, thresholdPolicy: 'either',
+  breakEven: { priceRub: 986, commissionRate: 0.12, commissionTier: 'le1500', revenueCny: 78.48, unitProfitRmb: 0.03, marginRate: 0.0004 },
+  threshold: { priceRub: 1228, commissionRate: 0.12, commissionTier: 'le1500', revenueCny: 97.74, unitProfitRmb: 14.67, marginRate: 0.1501, basis: 'margin' },
+  market: { priceRub: 1666, commissionRate: 0.14, commissionTier: '1500_5000', revenueCny: 132.6, unitProfitRmb: 38.51, marginRate: 0.2904 },
+  ladder: [
+    { label: '保本价', priceRub: 986, commissionRate: 0.12, unitProfitRmb: 0.03, marginRate: 0.0004 },
+    { label: '达标价', priceRub: 1228, commissionRate: 0.12, unitProfitRmb: 14.67, marginRate: 0.1501 },
+    { label: '整数价位', priceRub: 1600, commissionRate: 0.14, unitProfitRmb: 34.62, marginRate: 0.2718 },
+    { label: '同款市场价', priceRub: 1666, commissionRate: 0.14, unitProfitRmb: 38.51, marginRate: 0.2904 }
+  ]
+};
+
+test('保存找货资料后，商品页自己把保本价、达标价、市场价利润和价格阶梯算给主人看', async () => {
+  const html = await render(props({ view: { supplierDraftV1: draft, marketSnapshot,
+    supplierDraftEstimateV1: { ...okEstimate, pricingGuidance: guidance } } }));
+  assert.match(html, /定价指引/u);
+  assert.match(html, /保本价<\/dt><dd>986 卢布（佣金 12%）/u);
+  assert.match(html, /达标最低售价<\/dt><dd>1228 卢布（佣金 12%） · 按「利润率 ≥ 15%」先达到/u);
+  assert.match(html, /同款市场价<\/dt><dd>1666 卢布 · 按这个价单件利润 ¥38\.51 · 利润率 29%/u);
+  // The ladder shows the rate of each price's own band, which is why 1600 carries 14% and 1228 carries 12%.
+  assert.match(html, /价格阶梯：每个售价能落下多少/u);
+  assert.match(html, /<td>1600 卢布<\/td><td>14%<\/td><td>¥34\.62<\/td><td>27%<\/td><td>整数价位<\/td>/u);
+  assert.match(html, /<td>1228 卢布<\/td><td>12%<\/td>/u);
+  assert.match(html, /超过档位分界线会换一档费率/u);
+  assert.match(html, /1 元 ≈ 12\.5637 卢布/u);
+  assert.match(html, /你填的到手总价 ¥45\.00/u);
+  // 目标成交价 starts at the market price and says so; the owner no longer types a number out of thin air.
+  assert.match(html, /id="supply-target-price"[^>]*value="1850"/u, '已经填过找货方案时按方案里的价预填');
+  const fresh = await render(props({ view: { supplierDraftV1: null, marketSnapshot, supplierDraftEstimateV1: null } }));
+  assert.match(fresh, /id="supply-target-price"[^>]*value="1850"/u, '还没填过时默认就是同款市场价');
+  assert.match(fresh, /默认就是同款现在的市场价；它也是以后上架时的起价/u);
+  assert.doesNotMatch(fresh, /定价指引/u, '还没保存找货方案时不显示定价指引');
+});
+
+test('算不出定价指引时直说缺什么，不给一个猜出来的价', async () => {
+  const html = await render(props({ view: { supplierDraftV1: draft, marketSnapshot,
+    supplierDraftEstimateV1: { ...okEstimate, pricingGuidance: null } } }));
+  assert.match(html, /定价指引/u);
+  assert.match(html, /还算不出来：需要官方汇率、官方佣金和一条可行运费线路都齐了才有这几个价。/u);
+  assert.doesNotMatch(html, /卢布（佣金/u);
+  const { thresholdBasisLine } = await pageModule();
+  assert.equal(thresholdBasisLine(null), null);
+  assert.equal(thresholdBasisLine({ threshold: null }), null);
+  assert.equal(thresholdBasisLine({ ...guidance, threshold: { ...guidance.threshold, basis: 'unit_profit' } }),
+    '按「单件利润 ≥ ¥20.00」先达到');
+  assert.equal(thresholdBasisLine({ ...guidance, threshold: { ...guidance.threshold, basis: 'both' } }),
+    '单件利润 ≥ ¥20.00 和利润率 ≥ 15% 同时达到');
+});
+
+// 结果未知：插件领走了作业，服务端没有收到结果。守卫会挡住之后的每一次采集申请，页面必须把这件事和出路一起说出来。
+const unknownOutcomeCapture = {
+  captureId: 'SCJ-synthetic-unknown-outcome', status: 'failed', jobStatus: 'unknown_outcome', failureCode: 'unknown_outcome',
+  reason: '插件领取作业后中断，当前采集结果未知', mode: 'a_supplier_capture', attempt: 1, writeOccurred: false
+};
+const savedFind = { supplierDraftV1: draft, supplierDraftEstimateV1: okEstimate, marketSnapshot };
+
+test('结果未知又没核实：页面说清被挡住了并给出唯一出路，「申请插件采集」当场就不可用', async () => {
+  const { captureNeedsOwnerReview, captureReviewPayload, captureStatusLine } = await pageModule();
+  const stuck = candidate({ sourceCapture: unknownOutcomeCapture });
+  const settled = candidate({ sourceCapture: { ...unknownOutcomeCapture, jobStatus: 'failed',
+    reviewedAt: '2026-09-11T09:00:00.000Z', reviewedBy: 'owner', acknowledgement: 'no_result_received' } });
+  assert.equal(captureNeedsOwnerReview(stuck), true);
+  assert.deepEqual(captureReviewPayload(stuck), { dataRevision: 4, acknowledgement: 'no_result_received' });
+  // 核实过的同一条记录不再挡路，也就不再需要这个按钮；没采集过的商品从来不需要。
+  assert.equal(captureNeedsOwnerReview(settled), false);
+  assert.equal(captureReviewPayload(settled), null);
+  assert.equal(captureNeedsOwnerReview(candidate()), false);
+  assert.equal(captureNeedsOwnerReview(candidate({ sourceCapture: { status: 'waiting_extension', jobStatus: 'queued' } })), false);
+  assert.equal(captureStatusLine(stuck), '上一次采集的结果未知：插件领取作业后中断，当前采集结果未知。');
+  assert.equal(captureStatusLine(settled), '上一次采集的结果未知：插件领取作业后中断，当前采集结果未知。你已确认这次没有结果，可以重新申请采集。');
+
+  const blocked = await render(props({ candidate: stuck, view: savedFind, onReviewCaptureAndRequest: forbidden }));
+  assert.match(blocked, /插件领走了上一次采集，但一直没有把结果传回来，服务端只能记成「结果未知」。/u);
+  assert.match(blocked, /在你确认之前，这件商品不能再申请采集。/u);
+  assert.match(blocked, /<p class="product-capture-blocked" role="alert">/u);
+  assert.match(blocked, /<button[^>]*disabled[^>]*>申请插件采集<\/button>/u, '被挡住时不能让主人点了才收到 409');
+  assert.match(blocked, /在你确认这条「结果未知」的记录之前，「申请插件采集」不可用/u);
+  assert.match(blocked, /<button[^>]*class="button primary"[^>]*>这次采集没有结果，我确认并重新申请<\/button>/u);
+  assert.match(blocked, /确认只是记下你的判断，不会替你补一份采集结果。/u);
+  // 「下一步」不能再指向一个点不动的按钮。
+  assert.match(blocked, /下一步：先确认下面那条「结果未知」的采集记录，才能重新申请采集。/u);
+  assert.doesNotMatch(blocked, /下一步：点下面的「申请插件采集」/u);
+
+  const after = await render(props({ candidate: settled, view: savedFind }));
+  assert.doesNotMatch(after, /这次采集没有结果，我确认并重新申请/u);
+  assert.doesNotMatch(after, /product-capture-blocked/u);
+  assert.match(after, /<button[^>]*class="button primary"[^>]*>申请插件采集<\/button>/u);
+  assert.doesNotMatch(after, /<button[^>]*disabled[^>]*>申请插件采集<\/button>/u);
+  assert.match(after, /下一步：点下面的「申请插件采集」/u);
+});
+
+test('确认并重新申请是两步：先调核实接口，成功再走原有的申请采集链路，哪一步失败就说哪一步', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const app = await readFile(fileURLToPath(new URL('../src/App.jsx', import.meta.url)), 'utf8');
+  const apiClient = await readFile(fileURLToPath(new URL('../src/api.js', import.meta.url)), 'utf8');
+  assert.match(apiClient, /reviewSourceCapture: \(candidateId, payload\) =>/u);
+  assert.match(apiClient, /source-capture\/review/u);
+  assert.match(app, /onReviewCaptureAndRequest=\{payload => reviewCaptureAndRequest\(payload\)\}/u);
+  const handler = app.match(/async function reviewCaptureAndRequest\(\{review,capture\}\)\{[\s\S]*?\n  \}/u);
+  assert.ok(handler, '确认并重新申请必须有自己的处理函数');
+  assert.match(handler[0], /api\.reviewSourceCapture\(candidateId,review\)/u);
+  assert.match(handler[0], /requestProductCapture\(\{\.\.\.capture,dataRevision:reviewed\.candidate\.dataRevision/u,
+    '核实会推进修订号，第二步必须带服务端刚返回的那个修订号');
+  assert.match(handler[0], /没能记下你的确认，这次也没有重新申请采集/u);
+  assert.match(handler[0], /已记下你的确认（这条记录不再挡路），但这次重新申请采集没有成功/u);
+  // 第二步就是原来的那条链路：核实自己既不建作业，也不发开始信号。
+  assert.doesNotMatch(handler[0], /startQueuedSupplierCapture/u);
+  assert.doesNotMatch(handler[0], /confirmRealAStage/u);
+});
+
+test('商品页头部也能淘汰这件商品，已经淘汰的只说明在哪里恢复', async () => {
+  const live = await render(props({ onEliminateCandidate: forbidden }));
+  assert.match(live, /product-header-actions/u);
+  assert.match(live, /class="button secondary eliminate-button"[^>]*>淘汰</u);
+  const dropped = await render(props({ candidate: candidate({ workflowStatus: 'eliminated' }), onEliminateCandidate: forbidden }));
+  assert.match(dropped, /已淘汰 · 在选品台的「已淘汰」里可以恢复/u);
+  assert.doesNotMatch(dropped, /eliminate-button/u);
 });

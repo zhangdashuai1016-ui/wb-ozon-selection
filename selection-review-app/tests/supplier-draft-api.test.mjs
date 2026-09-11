@@ -134,3 +134,71 @@ test('找货资料接口只接受已登录主人的封闭输入和当前修订�
   assert.equal(reread.body.candidate.supplierDraftV1.provenance, 'owner_declared');
   await api.assertClean();
 });
+
+test('淘汰与恢复是主人自己的软删除：封闭输入、认修订号、只改状态，不派发也不碰平台', async t => {
+  const fixture = await productionOwnerDecisionHttpFixture();
+  const candidate = createMusicBoxCandidate();
+  delete candidate.lifecycleV11;
+  delete candidate.sourceCapture;
+  candidate.workflowStatus = 'codex_processing';
+  candidate.storeRef = structuredClone(fixture.binding.storeRef);
+  candidate.targetStore = fixture.binding.storeRef.stableStoreId;
+  const document = { ...fixture.document, candidates: [candidate], evidencePacks: [],
+    runtime: { softwareJobs: [], softwareJobAuthorizationRecords: [], softwareJobCredentialBindings: [], operationAudit: [], idempotencyRecords: [] } };
+  const directory = await mkdtemp(path.join(tmpdir(), 'owner-elimination-api-'));
+  const port = await freePort();
+  let dependencyPort = await freePort();
+  while (port === dependencyPort) dependencyPort = await freePort();
+  const env = { SELECTION_REVIEW_TEST_GATEWAY_PORT: String(dependencyPort),
+    SELECTION_REVIEW_A_DISCOVERY_SERVICE_BINDINGS_JSON: '[]', SELECTION_REVIEW_A_DISCOVERY_CONNECTOR_BINDINGS_JSON: '[]',
+    SELECTION_REVIEW_A_DISCOVERY_CREDENTIAL_BINDINGS_JSON: '[]', SELECTION_REVIEW_A_DISCOVERY_PLANS_JSON: '[]',
+    SELECTION_REVIEW_A_PRODUCT_DETAIL_SERVICE_BINDINGS_JSON: '[]', SELECTION_REVIEW_A_PRODUCT_DETAIL_CONNECTOR_BINDINGS_JSON: '[]',
+    SELECTION_REVIEW_A_PRODUCT_DETAIL_CREDENTIAL_BINDINGS_JSON: '[]' };
+  const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
+  let api;
+  try { Object.assign(process.env, env); api = await startSavedDEApi(t, { directory, port, document, binding: fixture.binding }); }
+  finally { for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } }
+  const eliminate = `/api/candidates/${candidate.id}/workflow/eliminate`;
+  const restore = `/api/candidates/${candidate.id}/workflow/restore`;
+
+  assert.equal((await api.post(eliminate, { dataRevision: candidate.dataRevision }, { authenticated: false })).status, 401);
+  await api.authenticate();
+
+  const bytesBefore = await api.readBytes();
+  assert.equal((await api.post(eliminate, { dataRevision: candidate.dataRevision, note: '自由文本' })).status, 400);
+  assert.equal((await api.post(eliminate, { dataRevision: candidate.dataRevision, reason: '我就是不想要' })).status, 400);
+  assert.equal((await api.post(eliminate, { dataRevision: '4' })).status, 400);
+  assert.equal((await api.post(restore, { dataRevision: candidate.dataRevision, reason: '尺寸太大' })).status, 400, '恢复不收理由');
+  assert.equal((await api.post(eliminate, { dataRevision: candidate.dataRevision + 1 })).status, 409);
+  assert.equal((await api.post(restore, { dataRevision: candidate.dataRevision })).status, 409, '没淘汰过就不用恢复');
+  assert.equal((await api.post('/api/candidates/candidate:missing/workflow/eliminate', { dataRevision: 0 })).status, 404);
+  assert.deepEqual(await api.readBytes(), bytesBefore, '被拒绝的提交不得写入任何数据');
+
+  const gone = await api.post(eliminate, { dataRevision: candidate.dataRevision, reason: '利润太薄' });
+  assert.equal(gone.status, 200, JSON.stringify(gone.body));
+  assert.equal(gone.body.dispatch, null, '淘汰不得派发任何任务');
+  assert.equal(gone.body.candidate.workflowStatus, 'eliminated');
+  const eliminated = (await api.readDocument()).candidates[0];
+  assert.equal(eliminated.workflowStatus, 'eliminated');
+  assert.equal(eliminated.eliminationReason, '主人淘汰：利润太薄');
+  assert.equal(eliminated.eliminatedFromStatus, 'codex_processing');
+  assert.ok(Number.isFinite(Date.parse(eliminated.eliminatedAt)));
+  assert.equal(eliminated.dataRevision, candidate.dataRevision + 1);
+  assert.equal(eliminated.processing.state, 'idle');
+  assert.equal(eliminated.processing.manualHold, true);
+  assert.ok(eliminated.history.some(entry => entry.action === 'ownerEliminated'));
+  assert.equal((await api.readDocument()).dispatches?.length ?? 0, 0);
+  assert.equal((await api.post(eliminate, { dataRevision: eliminated.dataRevision })).status, 409, '已经淘汰过不能再淘汰');
+
+  const back = await api.post(restore, { dataRevision: eliminated.dataRevision });
+  assert.equal(back.status, 200, JSON.stringify(back.body));
+  const restored = (await api.readDocument()).candidates[0];
+  assert.equal(restored.workflowStatus, 'codex_processing', '回到淘汰前的那一步');
+  assert.equal(restored.eliminatedAt, null);
+  assert.equal(restored.eliminationReason, '');
+  assert.equal(restored.eliminatedFromStatus, null);
+  assert.equal(restored.dataRevision, eliminated.dataRevision + 1);
+  assert.ok(restored.history.some(entry => entry.action === 'ownerRestored'));
+  assert.equal((await api.readDocument()).dispatches?.length ?? 0, 0, '恢复也不派发任何任务');
+  await api.assertClean();
+});

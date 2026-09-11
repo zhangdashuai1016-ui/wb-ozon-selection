@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSeerfarDiscoveryRuntimeFixture } from './fixtures/seerfar-discovery-runtime-fixture.mjs';
-import { createADiscoveryEstimateUseCase, readADiscoveryEstimates, readADiscoveryEstimateOutcome,
+import { createADiscoveryEstimateUseCase, createADiscoveryEstimateInputs, readADiscoveryEstimates, readADiscoveryEstimateOutcome,
   attachADiscoveryEstimates, typeZhFromCategoryPath, aDiscoveryEstimateKey } from '../lib/a-discovery-estimate-store.mjs';
 import { createActorContext } from '../lib/runtime-identity.mjs';
 
@@ -219,4 +219,44 @@ test('主人身份、批次版本和封闭输入在任何读取之前检查', as
   assert.equal(typeZhFromCategoryPath({ cnTitlePath: '   ' }), null);
   assert.throws(() => createADiscoveryEstimateUseCase({ repository: f.repository, serverClock: f.clock, rules,
     readers: { commission: async () => ({}), fx: async () => ({}) }, configuration: { packagingRmbDefault: 3 } }), /A_DISCOVERY_ESTIMATE_DEPENDENCY_INVALID/);
+});
+
+// The rate ladder every pricing answer needs, resolved through the same configured reference as the single rate.
+test('佣金档位读取走同一份官方目录配置，缺配置或读不到时只留缺口不猜费率', async () => {
+  const tierCalls = [];
+  const readers = {
+    ...fakeReaders(),
+    commissionTiers: async ({ scope, catalogPath, versionState }) => {
+      tierCalls.push({ scope, catalogPath, versionState });
+      return { tiers: [{ tier: 'le1500', rate: 0.12, minRub: 0, maxRub: 1500 },
+        { tier: '1500_5000', rate: 0.14, minRub: 1500.01, maxRub: 5000 }],
+      source: { effectiveFrom: '2025-12-01', fileSha256: SHA }, matchedRows: [], gaps: [] };
+    }
+  };
+  const inputs = createADiscoveryEstimateInputs({ rules, readers,
+    configuration: { ozonCommissionReference: REFERENCE, guooTariffFile: '/synthetic/guoo-tariff.xlsx', packagingRmbDefault: 3 } });
+  const read = await inputs.resolveCommissionTiers({ categoryPath: category }, '2026-09-10T12:00:00.000Z');
+  assert.deepEqual(read.tiers.map(tier => tier.rate), [0.12, 0.14]);
+  assert.equal(read.sourceRef, `ozon-official-commission:2025-12-01:sha256:${SHA}`);
+  assert.deepEqual(read.gaps, []);
+  // The scope carries no price at all: this read is the whole ladder, and it uses the same configured catalog.
+  assert.deepEqual(tierCalls[0].scope, { platform: 'ozon', sellerRegion: 'CN', salesScheme: 'rfbs', typeIdentity: { typeZh: '宠物躺床' } });
+  assert.equal(tierCalls[0].catalogPath, REFERENCE.catalogPath);
+  assert.deepEqual(tierCalls[0].versionState, REFERENCE.versionState);
+
+  const gapCases = [
+    [{ categoryPath: null }, inputs, 'CATEGORY_PATH_MISSING'],
+    [{ categoryPath: category }, createADiscoveryEstimateInputs({ rules, readers: fakeReaders(),
+      configuration: { ozonCommissionReference: REFERENCE, packagingRmbDefault: 3 } }), 'TIER_READER_NOT_CONFIGURED'],
+    [{ categoryPath: category }, createADiscoveryEstimateInputs({ rules, readers, configuration: { packagingRmbDefault: 3 } }), 'REFERENCE_NOT_CONFIGURED'],
+    [{ categoryPath: category }, createADiscoveryEstimateInputs({ rules,
+      readers: { ...readers, commissionTiers: async () => { const error = new Error('x'); error.code = 'CATALOG_UNREADABLE'; throw error; } },
+      configuration: { ozonCommissionReference: REFERENCE, packagingRmbDefault: 3 } }), 'CATALOG_UNREADABLE']
+  ];
+  for (const [product, resolver, code] of gapCases) {
+    const blocked = await resolver.resolveCommissionTiers(product, '2026-09-10T12:00:00.000Z');
+    assert.deepEqual(blocked.tiers, [], code);
+    assert.equal(blocked.sourceRef, null);
+    assert.deepEqual(blocked.gaps.map(gap => gap.code), [code]);
+  }
 });

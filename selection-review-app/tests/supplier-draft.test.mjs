@@ -120,7 +120,9 @@ test('折叠后能走小包时，报出采购上限和按声明采购价的真�
   assert.equal(profit.withinPurchaseCeiling, 18.86 <= result.estimate.ceiling.maximumAllInPurchaseRmb);
   assert.deepEqual(result.inputs, { fxSourceRef: fx.sourceRef, fxRateDate: '2026-09-10',
     commissionSourceRef: commission.sourceRef, tariffRuleVersion: 'guoo-synthetic',
-    costPolicyVersion: 'synthetic-policy-1', packagingRmbDefault: 3 });
+    costPolicyVersion: 'synthetic-policy-1', packagingRmbDefault: 3, commissionTiersSourceRef: null });
+  // No official rate ladder was handed in, so there is no pricing guidance at all — never a guessed one.
+  assert.equal(result.pricingGuidance, null);
 });
 
 test('门槛策略决定通过口径：either任一达标即通过，both必须同时达标', () => {
@@ -151,4 +153,52 @@ test('缺汇率或缺佣金时估算保持不完整，不产生任何利润数�
   assert.deepEqual(noCommission.estimate.missing, ['官方佣金']);
   assert.equal(noCommission.profitAtDeclaredPurchase, null);
   assert.equal(noCommission.routeBlock, null);
+});
+
+// 定价指引 rides on the same saved estimate: same FX, same reserves, same freight, plus the official rate ladder.
+const TIERS = { tiers: [{ tier: 'le1500', rate: 0.12, minRub: 0, maxRub: 1500 },
+  { tier: '1500_5000', rate: 0.14, minRub: 1500.01, maxRub: 5000 },
+  { tier: 'gt5000', rate: 0.15, minRub: 5000.01, maxRub: null }],
+sourceRef: 'ozon-official-commission:2025-12-01:sha256:synthetic', gaps: [] };
+
+test('保存找货资料后同时给出保本价、达标价、市场价利润和价格阶梯，口径与利润判断同一套', () => {
+  const draft = draftFrom({ dimensionsCm: { length: 40, width: 21, height: 4 } });
+  const marketProduct = { productId: '2107989735', price: 1666, categoryPath: { cnTitlePath: '宠物用品 > 宠物躺床' } };
+  const result = buildSupplierDraftEstimate({ draft, storeRule, fx, commission, commissionTiers: TIERS,
+    tariffRows: TARIFF_ROWS, assumptions, estimatedAt: at, marketProduct });
+  const guidance = result.pricingGuidance;
+  assert.equal(result.inputs.commissionTiersSourceRef, TIERS.sourceRef);
+  assert.equal(guidance.status, 'ok');
+  // Same arithmetic as profitAtDeclaredPurchase, only solved the other way round: at 保本价 the profit is barely ≥ 0.
+  assert.equal(guidance.allInPurchaseRmb, draft.allInPurchaseRmb);
+  assert.equal(guidance.nonPurchaseFixedRmb, result.estimate.ceiling.nonPurchaseFixedRmb);
+  assert.equal(guidance.rubPerCny, fx.rubPerCny);
+  assert.ok(guidance.breakEven.unitProfitRmb >= 0);
+  const belowBreakEven = guidance.breakEven.priceRub - 1;
+  const revenue = roundDownCents(belowBreakEven / fx.rubPerCny);
+  const reserve = guidance.breakEven.commissionRate + 0.05 + 0.05 + 0.02;
+  assert.ok(roundDownCents(revenue * (1 - reserve) - guidance.nonPurchaseFixedRmb - draft.allInPurchaseRmb) < 0,
+    '再低一卢布就亏，保本价确实是最低的那个整卢布');
+  // 达标价 reaches this store's own threshold, and says which of the two it reached.
+  assert.ok(['unit_profit', 'margin', 'both'].includes(guidance.threshold.basis));
+  assert.ok(guidance.threshold.unitProfitRmb >= storeRule.minimumUnitProfitRmb ||
+    guidance.threshold.marginRate >= storeRule.targetMarginRate);
+  // 市场价 is the Seerfar snapshot price of this very product, never the owner's typed target price.
+  assert.equal(guidance.market.priceRub, 1666);
+  assert.notEqual(guidance.market.priceRub, draft.targetSalePriceRub);
+  assert.ok(guidance.ladder.length >= 3);
+  assert.deepEqual(guidance.ladder.map(entry => entry.priceRub), [...guidance.ladder.map(entry => entry.priceRub)].sort((a, b) => a - b));
+});
+
+test('没有官方费率档位、或估算本身就不完整时，一个定价指引都不给', () => {
+  const draft = draftFrom({ dimensionsCm: { length: 40, width: 21, height: 4 } });
+  const noTiers = buildSupplierDraftEstimate({ draft, storeRule, fx, commission, commissionTiers: { tiers: [], sourceRef: null, gaps: [] },
+    tariffRows: TARIFF_ROWS, assumptions, estimatedAt: at });
+  assert.equal(noTiers.pricingGuidance, null);
+  assert.equal(noTiers.inputs.commissionTiersSourceRef, null);
+  // The declared package has no feasible route here, so there is no freight and therefore no price at all.
+  const blocked = buildSupplierDraftEstimate({ draft: draftFrom(), storeRule, fx, commission, commissionTiers: TIERS,
+    tariffRows: TARIFF_ROWS, assumptions, estimatedAt: at });
+  assert.equal(blocked.estimate.status, 'incomplete');
+  assert.equal(blocked.pricingGuidance, null);
 });

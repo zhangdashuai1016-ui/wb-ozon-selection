@@ -26,7 +26,7 @@ test("API test inventory contains every separately isolated suite once", () => {
     "local-owner-access-api.test.mjs", "ozon-account-preparation-api-boundary.test.mjs", "ozon-account-read-api-boundary.test.mjs",
     "ozon-sales-capture-api.test.mjs", "phase-2a-api-guards.test.mjs", "production-owner-decision-api.test.mjs", "real-a-b-c1-api.test.mjs",
     "recovery-classification.test.mjs", "runtime-package-api.test.mjs", "seerfar-software-api-guard.test.mjs", "source-capture-api.test.mjs",
-    "source-capture-job-api.test.mjs", "source-capture-restart-reconciliation.test.mjs",
+    "source-capture-job-api.test.mjs", "source-capture-restart-reconciliation.test.mjs", "source-capture-review-api.test.mjs",
     "store-binding-api.test.mjs", "structured-dispatch-integration.test.mjs",
     "supplier-draft-api.test.mjs"
   ]);

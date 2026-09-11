@@ -1,5 +1,5 @@
 import { createInitialCandidate, queuedProcessing } from "./lib/candidate-initialization.mjs";
-import { createADiscoveryRuntimeServices } from './lib/a-discovery-runtime-services.mjs';
+import { createADiscoveryRuntimeServices, A_DISCOVERY_DECLINE_REASONS } from './lib/a-discovery-runtime-services.mjs';
 import { supplierImageSearchAvailability, readSupplierImageSearchPreparation, requireSupplierImageSearchPreparation,
   SupplierImageSearchPreparationError } from './lib/a-supplier-image-search-runtime-services.mjs';
 import { ADiscoveryError } from './lib/a-discovery-contract.mjs';
@@ -10,7 +10,7 @@ import { createADiscoveryTitleTranslationUseCase } from './lib/discovery-title-t
 import { createADiscoveryEstimateInputs, createADiscoveryEstimateUseCase } from './lib/a-discovery-estimate-store.mjs';
 import { ensureDiscoveryMarketSalesSnapshot, readDiscoveryMarketRecord, currentSalesSnapshot } from './lib/discovery-market-snapshot.mjs';
 import { SupplierDraftError, buildSupplierDraftEstimate, buildSupplierDraftV1, normalizeSupplierDraftInput } from './lib/supplier-draft.mjs';
-import { readOzonCommissionReference } from './lib/ozon-commission-reference-reader.mjs';
+import { readOzonCommissionReference, readOzonCommissionReferenceTiers } from './lib/ozon-commission-reference-reader.mjs';
 import { readGuooTariffCatalog } from './lib/guoo-tariff-reader.mjs';
 import { readCurrentCbrExchangeRate } from './lib/official-fx-reader.mjs';
 import { createAProductDetailRuntimeServices } from './lib/a-product-detail-runtime-services.mjs';
@@ -317,6 +317,9 @@ const A_ESTIMATE_PACKAGING_RMB = (() => {
 })();
 const aEstimateReaders = {
   commission:input=>readOzonCommissionReference(input),
+  // The whole official rate ladder for one type, so pricing guidance can answer "what would another price earn"
+  // without ever copying the 1500/5000 RUB band edges out of the official table.
+  commissionTiers:input=>readOzonCommissionReferenceTiers(input),
   fx:input=>readCurrentCbrExchangeRate({...input,fetchImpl:fetch,
     ...(process.env.SELECTION_REVIEW_CBR_FX_URL?{sourceUrl:process.env.SELECTION_REVIEW_CBR_FX_URL}:{})}),
   tariff:input=>readGuooTariffCatalog(input)
@@ -395,6 +398,11 @@ const dispatchSkillCatalog = createDispatchSkillCatalog({
 const legacyManualC1InputEnabled = process.env.SELECTION_REVIEW_LEGACY_MANUAL_C1_INPUT === "true";
 const seerfarSoftwareExecutionEnabled = false;
 const c1PaidKeywordGenericQueueEnabled = true;
+
+/** Where an owner-eliminated product may be put back: every queue except the eliminated one it is leaving. */
+const OWNER_RESTORABLE_STATUSES = Object.freeze([
+  "awaiting_user_direction", "codex_processing", "needs_user_data", "listing_preparation", "ready_to_list", "listed"
+]);
 
 const USER_FIELDS = [
   "targetStore",
@@ -880,6 +888,25 @@ async function reconcileSourceCaptureJobsAfterRestart() {
   });
 }
 
+/**
+ * "结果未知" is the one capture outcome the software may never resolve by itself: the extension claimed the job and the
+ * server then received nothing, so no result exists to read and a silent retry would be a guess. The record therefore
+ * blocks every later capture request for that product until a person settles it — which is only honest if a person can
+ * actually reach it. The owner had no route and no button for exactly that record on 2026-09-11, and the first product
+ * of the day became unusable. POST /api/candidates/:id/source-capture/review is that exit, and nothing else: it records
+ * the owner's own acknowledgement that no result arrived, and stamps reviewedAt so this guard stops refusing.
+ */
+const OWNER_CAPTURE_REVIEW_ACKNOWLEDGEMENTS = Object.freeze(["no_result_received"]);
+
+function sourceCaptureOutcomeUnknown(capture) {
+  return capture?.jobStatus === "unknown_outcome" || capture?.failureCode === "unknown_outcome";
+}
+
+/** Reviewed by the owner (reviewedAt) means the record is settled: it stays visible as history, it no longer blocks. */
+function sourceCaptureAwaitsOwnerReview(capture) {
+  return sourceCaptureOutcomeUnknown(capture) && !capture?.reviewedAt;
+}
+
 async function enqueueASupplierCaptureJob({ candidateId, requestRevision, requestedSourceUrl }) {
   const existing = captureSession(candidateId);
   if (existing?.mode === "a_supplier_capture" &&
@@ -932,9 +959,11 @@ async function enqueueASupplierCaptureJob({ candidateId, requestRevision, reques
       if (!sourceCaptureAllowed(current, session.mode)) {
         throw httpError(409, "当前商品状态不能建立A阶段供应采集作业", { code: "business_state_rejected" });
       }
+      // A live record (still waiting, still running) blocks whatever the owner has reviewed; an unknown-outcome record
+      // blocks only until the owner has settled it through source-capture/review.
       if (["waiting_extension", "capturing", "extension_version_mismatch"].includes(current.sourceCapture?.status) ||
-          ["queued", "claimed", "unknown_outcome"].includes(current.sourceCapture?.jobStatus) ||
-          current.sourceCapture?.failureCode === "unknown_outcome") {
+          ["queued", "claimed"].includes(current.sourceCapture?.jobStatus) ||
+          sourceCaptureAwaitsOwnerReview(current.sourceCapture)) {
         throw httpError(409, "该商品仍有未核实的历史采集记录，请先处理这条记录", { code: "previous_capture_requires_review" });
       }
       if (activeDispatchForCandidate(data, current.id)) {
@@ -1969,6 +1998,16 @@ function capturedSkuLabel(sku) {
 function markSourceCaptureFailure(current, session, code, detail = "", observedAt = now(), failureDiagnostics = null) {
   const failureDestinationLabel = sourceCaptureFailureDestinationLabel(failureDiagnostics, code);
   const reason = sourceCaptureFailureMessage(code, failureDestinationLabel || detail);
+  // This rewrites sourceCapture whole, so a late closure on the record the owner already reviewed would erase that
+  // review and let previous_capture_requires_review block the product again — the very dead end of 2026-09-11. Only a
+  // rewrite of the same captureId can concern that record, and the owner's own acknowledgement survives it.
+  const ownerReview = current.sourceCapture?.captureId === session.captureId && current.sourceCapture?.reviewedAt
+    ? {
+      reviewedAt: current.sourceCapture.reviewedAt,
+      reviewedBy: current.sourceCapture.reviewedBy,
+      acknowledgement: current.sourceCapture.acknowledgement
+    }
+    : {};
   current.sourceCapture = {
     captureId: session.captureId,
     status: "failed",
@@ -1987,7 +2026,8 @@ function markSourceCaptureFailure(current, session, code, detail = "", observedA
     technicalStatus: code === "unknown_outcome" ? "unknown_outcome" : "failed",
     attempt: Number(session.attempt || 0),
     requiredExtensionVersion: session.requiredExtensionVersion || null,
-    writeOccurred: false
+    writeOccurred: false,
+    ...ownerReview
   };
   if (session.mode === "a_supplier_capture") {
     current.dataRevision = Number(current.dataRevision || 0) + 1;
@@ -2279,8 +2319,11 @@ async function supplierDraftEstimate(document, candidate, draft) {
     await supplierDraftEstimateInputs.resolveFreightRows()];
   const commission = await supplierDraftEstimateInputs.resolveCommission(
     { categoryPath: marketProduct?.categoryPath ?? null, price: draft.targetSalePriceRub }, at);
+  // Pricing guidance needs every band of the same official table, not only the band this one price falls in.
+  const commissionTiers = await supplierDraftEstimateInputs.resolveCommissionTiers(
+    { categoryPath: marketProduct?.categoryPath ?? null }, at);
   return buildSupplierDraftEstimate({
-    draft, storeRule, fx, commission, tariffRows: freight.rows,
+    draft, storeRule, fx, commission, commissionTiers, tariffRows: freight.rows,
     assumptions: supplierDraftEstimateInputs.assumptions, estimatedAt: at, marketProduct,
     inputs: { fxSourceRef: fx?.sourceRef ?? null, fxRateDate: fx?.rateDate ?? null,
       commissionSourceRef: commission.sourceRef, tariffRuleVersion: freight.ruleVersion,
@@ -3763,6 +3806,61 @@ async function handleApi(req, res, pathname) {
     return json(res, 200, { candidate, dispatch: null }, chromeExtensionCors(req));
   }
 
+  /**
+   * The owner settles one capture record whose outcome this server never learned. It records exactly that — his own
+   * acknowledgement that no result arrived — and nothing else: no capture evidence is invented, writeOccurred is not
+   * touched, and workflowStatus, the lifecycle and every dispatch stay exactly as they were. The original failureCode
+   * and reason stay on the record as history; jobStatus reaches a terminal value and reviewedAt lifts the
+   * previous_capture_requires_review guard, so the owner can request a fresh capture for this product.
+   */
+  const sourceCaptureReviewRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/source-capture\/review$/);
+  if (req.method === "POST" && sourceCaptureReviewRoute) {
+    const input = await readJsonRequestBody(req, { maxBytes: 4096, requireJsonContentType: true });
+    // Closed input: one revision, one fixed acknowledgement from a list. No free text ever reaches a saved record.
+    if (!input || typeof input !== "object" || Array.isArray(input) || !Number.isInteger(input.dataRevision) ||
+        Object.keys(input).some(field => !["dataRevision", "acknowledgement"].includes(field)) ||
+        (Object.hasOwn(input, "acknowledgement") && !OWNER_CAPTURE_REVIEW_ACKNOWLEDGEMENTS.includes(input.acknowledgement))) {
+      throw httpError(400, "核实历史采集记录只接受当前数据修订号和一个固定的确认选项", { code: "source_capture_review_input_invalid" });
+    }
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      throw httpError(403, "请先登录主人身份后核实这条采集记录。", { code: "source_capture_review_owner_required" });
+    }
+    const acknowledgement = input.acknowledgement ?? "no_result_received";
+    const reviewedCandidate = await mutateData((data) => {
+      const current = data.candidates.find((item) => item.id === sourceCaptureReviewRoute[1]);
+      if (!current) throw httpError(404, "候选不存在", { code: "candidate_not_found" });
+      if (Number(current.dataRevision) !== input.dataRevision) {
+        throw httpError(409, "商品资料已变化，请刷新后再核实这条采集记录", { code: "revision_conflict" });
+      }
+      const capture = current.sourceCapture;
+      if (!sourceCaptureOutcomeUnknown(capture)) {
+        throw httpError(409, capture
+          ? `这条采集记录的结果不是“未知”，不需要核实；当前采集状态：${capture.status || "未取得"}／作业状态：${capture.jobStatus || "未取得"}`
+          : "这件商品没有需要核实的历史采集记录", { code: "source_capture_review_not_applicable" });
+      }
+      if (capture.reviewedAt) {
+        throw httpError(409, "这条采集记录已经核实过，可以直接重新申请采集", { code: "source_capture_already_reviewed" });
+      }
+      const timestamp = now();
+      current.sourceCapture = {
+        ...capture,
+        jobStatus: "failed",
+        reviewedAt: timestamp,
+        reviewedBy: "owner",
+        acknowledgement
+      };
+      current.dataRevision = Number(current.dataRevision || 0) + 1;
+      current.updatedAt = timestamp;
+      current.lastModifiedBy = "user";
+      addHistory(current, "user", "aSupplierCaptureReviewed",
+        "主人确认这次1688采集没有可用结果：服务端没有收到任何采集证据，业务状态没有改变，也没有派发任务；现在可以重新申请一次采集",
+        timestamp);
+      return publicCandidate(current, data.rules);
+    });
+    return json(res, 200, { candidate: reviewedCandidate, sourceCapture: reviewedCandidate.sourceCapture, dispatch: null });
+  }
+
   const sourceCaptureStartRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/source-capture\/start$/);
   if (req.method === "POST" && sourceCaptureStartRoute) {
     const input = await requestBody(req);
@@ -4014,6 +4112,77 @@ async function handleApi(req, res, pathname) {
   if (req.method === "POST" && listingPreparationStartRoute) {
     await requestBody(req);
     throw httpError(409, "旧“开始上架准备”入口已停用：awaiting_user_start只作为历史状态读取；新版商品必须由B通过后自动进入C1，调用本接口不会改变商品状态");
+  }
+
+  /**
+   * The owner drops one product from wherever it is, and takes it back when that was a mistake.
+   * Owner rule 2026-09-11: every list must offer this, so the desk, the board, the inbox and the product page all send
+   * the same request. It is deliberately the smallest possible write: the status the existing queues already know
+   * ("eliminated"), the instant, one optional reason from the same five words the desk already offers, and one history
+   * line. No dispatch is created, no platform is touched, and no other saved record is rewritten — which is why
+   * restoring can put the product back exactly where it was, from the status kept beside the elimination.
+   */
+  const workflowEliminationRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/workflow\/(eliminate|restore)$/);
+  if (req.method === "POST" && workflowEliminationRoute) {
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      throw httpError(403, "请先登录主人身份后淘汰或恢复商品。");
+    }
+    const candidateId = decodeURIComponent(workflowEliminationRoute[1]);
+    const eliminating = workflowEliminationRoute[2] === "eliminate";
+    const input = await readJsonRequestBody(req, { maxBytes: 2048, requireJsonContentType: true });
+    const allowedKeys = eliminating ? ["dataRevision", "reason"] : ["dataRevision"];
+    if (input === null || typeof input !== "object" || Array.isArray(input) ||
+        Object.keys(input).some((key) => !allowedKeys.includes(key))) {
+      throw httpError(400, eliminating ? "淘汰只接受当前数据修订号和一个理由" : "恢复只接受当前数据修订号");
+    }
+    if (!Number.isInteger(input.dataRevision) || input.dataRevision < 0) {
+      throw httpError(400, eliminating ? "淘汰商品必须提供当前数据修订号" : "恢复商品必须提供当前数据修订号");
+    }
+    // The same five words the desk already offers; free text is not accepted anywhere in this flow.
+    const reason = input.reason === undefined || input.reason === null ? null : input.reason;
+    if (reason !== null && !A_DISCOVERY_DECLINE_REASONS.includes(reason)) {
+      throw httpError(400, "淘汰理由必须是给定的几个选项之一");
+    }
+    const result = await mutateData((data) => {
+      const current = data.candidates.find((item) => item.id === candidateId);
+      if (!current) throw httpError(404, "候选不存在");
+      if (Number(current.dataRevision) !== input.dataRevision) {
+        throw httpError(409, eliminating ? "商品资料已变化，请刷新后重新淘汰" : "商品资料已变化，请刷新后重新恢复",
+          { currentRevision: current.dataRevision });
+      }
+      const timestamp = now();
+      if (eliminating) {
+        if (current.workflowStatus === "eliminated") throw httpError(409, "这件商品已经在已淘汰里了");
+        current.eliminatedFromStatus = current.workflowStatus;
+        current.workflowStatus = "eliminated";
+        current.eliminatedAt = timestamp;
+        current.eliminationReason = reason === null ? "主人淘汰" : `主人淘汰：${reason}`;
+        // Idle plus manual hold is how the A card's own 淘汰 leaves a product: nothing is queued, nothing resumes by itself.
+        current.processing = { ...queuedProcessing(current.processing), state: "idle", manualHold: true };
+        addHistory(current, "user", "ownerEliminated",
+          `主人在列表里淘汰当前商品${reason === null ? "" : `：${reason}`}；未派发任务、未访问平台，可随时恢复`, timestamp);
+      } else {
+        if (current.workflowStatus !== "eliminated") throw httpError(409, "这件商品不在已淘汰里，不需要恢复");
+        const previous = typeof current.eliminatedFromStatus === "string" &&
+          OWNER_RESTORABLE_STATUSES.includes(current.eliminatedFromStatus) ? current.eliminatedFromStatus : null;
+        current.workflowStatus = previous ?? "needs_user_data";
+        current.eliminatedAt = null;
+        current.eliminationReason = "";
+        current.eliminatedFromStatus = null;
+        current.processing = { ...queuedProcessing(current.processing), state: "idle", manualHold: true };
+        addHistory(current, "user", "ownerRestored",
+          previous === null
+            ? "主人恢复当前商品；淘汰前的状态没有可靠记录，已放回「需你补资料」，没有自动继续任何步骤"
+            : "主人恢复当前商品，回到淘汰前的状态；没有自动继续任何步骤", timestamp);
+      }
+      current.dataRevision = Number(current.dataRevision || 0) + 1;
+      current.updatedAt = timestamp;
+      current.lastModifiedBy = "user";
+      assertSafeBusinessMutationCandidate(current, "businessMutation.candidate");
+      return { candidate: publicCandidate(current, data.rules), dispatch: null };
+    });
+    return json(res, 200, result);
   }
 
   const supplierDraftRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/supplier-draft$/);
