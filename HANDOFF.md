@@ -111,12 +111,21 @@
 - 主人 2026-09-11 凌晨提出（**未实施**，应并入"反算接入"）：从 1688 链接起步时，Ozon 目标售价不应由主人填，应由软件反查；玲珑 AI 只负责由中文标题生成俄文检索词并挑同类，价格数字必须来自 Seerfar 真实查询或平台读数，不能由模型估。现状：Seerfar 来的商品价格自动带入；纯 1688 起步目前需主人填目标价，这一点主人已否定。
 - 集成结果（Opus 子代理，02:2x）：提交 `206a906`（查询过滤器）与 `a2b5672`（找货页 + 快照 644 项 + CI 分类修复），已推送 origin。全量自含套件 **1934/1934**（`run-ci-tests.mjs` 在 HEAD 上原本跑不起来：28f42ce 给 three-store-map.test.mjs 加了 `server.mjs` 字面量却未分类，已在 a2b5672 归入 SOURCE_CONTRACT_TESTS）。隔离 API 套件按 `run-ci-api-tests.mjs` 同款方式直接 `node --test` 跑 51 文件：**236/238**，`supplier-draft-api` 通过；两项失败为既有问题（clean HEAD 复现）：`collaboration-api.test.mjs:272` 旧派发 claim 期望 200 实得 409、`phase-2a-api-guards.test.mjs:184` 拒绝文案与正则不符，均属 28f42ce 退役旧派发通道后的测试期望未更新，未改动，待裁决改路由还是改期望。另：`run-local-api-tests.mjs` 在本机跑不了 51 个隔离测试中的 31 个（要求源码含 `SELECTION_REVIEW_TEST_PORT` 字面量），既有缺口。vite 构建通过。r12 运行包 `~/.local/share/wb-ozon-engineering/runtime-packages/20260911-product-page-r12`（5437 文件、233 MB，node 与 r11 同一二进制）隔离启动（端口 4611、临时数据目录、无密钥无店铺 ID）：health 200、首页 200、资源 200、stderr 空。**未部署，待主人批准。**
 
+### 部署记录 r12（2026-09-11 09:35，主人"选这个，然后再部署r12"，Opus 子代理执行、主会话审查）
+
+- 冷备：`~/.local/share/wb-ozon-engineering/cold-backups/20260911-092823/`（data 13 个文件 + 原 plist；candidates.json `b88b404d…`、workflow-map.json `1457a37b…` 与线上一致；LATEST 已指向它）。注：`data/c2-final-uploads/` 目录从未创建过，环境变量指向它但不存在，未改。
+- 安装：`~/Library/Application Support/今日选品评审台-versions/20260911-product-page-r12/`（5437 文件，server.mjs 与 dist 资源与运行包逐字节一致；launch-server.sh 与 r11 完全相同）。旧版本目录全部保留。
+- plist 只改了三处：ProgramArguments、WorkingDirectory 指向 r12；`SELECTION_REVIEW_A_DISCOVERY_PLANS_JSON` / `…_EVIDENCE_RECORDS_JSON` 换成新文件的紧凑 JSON（2 个计划，宠物服装在首位且带 priceRub.min=800、weightGrams.max=1000；2 条证据）。其余 35 个变量逐字节不变，plutil -lint 通过。
+- 重启：pid 63300 → 73041，bootout/bootstrap 均成功，7 秒后 health ok。核对：`launchctl print` running 且程序路径为 r12、环境里含 pet-clothing；首页 200 引用 `index-CSWhb80i.js`；`/api/product-discovery` 未登录 401；无 r11 残留进程；4318 与 4173 未动；stderr 日志字节数与 mtime 不变；线上 candidates.json 校验和与冷备一致。插件心跳重启后约 70 秒内为 not_seen，随后恢复 connected/v1.2.7。
+- 安装目录里的 `runtime-package.json` 仍是 `status: prepared`（与 r11 的做法一致，未改）。回退：plist 换回冷备里的副本并 bootout/bootstrap，r11 目录完整。
+
 ### 下一步（需主人）
 
-1. 批准部署 r12：冷备数据与 plist → 安装到版本目录 → plist 指向 r12（环境变量不变，计划文件已在原路径更新）→ 重启 4317 → 核对健康、登录、选品台显示"宠物服装"方向。
-2. r12 上线后再在选品台点"找一轮新品"（约 10 分）；上线前不要点。
-3. 从 20 条里挑品 → 商品页"找货"填 1688 资料 → 看是否过线 → 申请插件采集。
-4. 待裁决：1688 起步的反查机制（AI 生成俄文词 + Seerfar 关键词查询，每次查询扣点需主人同意）排在本轮之后立即做，还是先做 AI 选品层。
+1. 主人在选品台点"找一轮新品"：方向"宠物服装 · 售价 ≥ 800 卢布 · 重量 ≤ 1000 克 · 跨境 RFBS"，约 10 分。结果 20 条带图和中文标题。
+2. 挑品 → 点进商品页 → "找货"填 1688 链接、货价、国内运费、打包重量、长宽高（目标价默认取 Seerfar 快照价）→ 保存看是否过线 → 申请插件采集。
+3. 待裁决：1688 起步的反查路线（主人建议的 Ozon 以图搜款 + 插件采集结果页 → 自动价格带；Seerfar 关键词/详情查询作销量补充）排在本轮之后。
+4. 待裁决：两项既有隔离测试失败（旧派发 claim 路由 409 vs 期望 200；拒绝文案正则）改路由还是改期望。
+5. 未做：插件状态文案改为"插件已连接 · 等待采集任务"；全店能力地图挪到顶栏叫"小地图"；AI 选品层；C1/C2 首跑；D 上架（先 /v1/roles 只读核验）；E 回读；Codex 残留清理；WB 联动。
 
 ## 当前接班入口（2026-09-10 上午，Claude Code：PR #4 已合并；Seerfar 会员网页路线严格合同落地；旧"自动选品"来源已核实，路线待主人拍板）
 
