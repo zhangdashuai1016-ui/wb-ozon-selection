@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { errorMessage } from "../formState.js";
-import { DECLINE_REASONS, FEED_SORTS, boardColumns, feedRows, inboxItems, newRoundPlan, pointsLine } from "../selectionDeskView.js";
+import { DECLINE_REASONS, FEED_SORTS, boardColumns, deskErrorMessage, feedRows, inboxItems,
+  myProductRows, newRoundPlan, pointsLine } from "../selectionDeskView.js";
 
 const fact = value => (value === null || value === undefined || value === "unknown" ? "未知" : value);
 const money = value => (typeof value === "number" && Number.isFinite(value) ? `¥${value.toFixed(2)}` : null);
 const percent = value => (typeof value === "number" && Number.isFinite(value) ? `${Math.round(value * 100)}%` : null);
+/** The block stays one glance tall; everything beyond it lives on 进行中. */
+const MY_PRODUCT_PREVIEW = 6;
 
 function ProfitBox({ row }) {
   const { estimate } = row;
@@ -83,6 +85,8 @@ export default function SelectionDesk({
   const rows = useMemo(() => feed.rows.filter(row => !skippedKeys.has(row.key)), [feed, skippedKeys]);
   const history = useMemo(() => feed.history.filter(row => !skippedKeys.has(row.key)), [feed, skippedKeys]);
   const board = useMemo(() => boardColumns(candidates, store), [candidates, store]);
+  // The fixed way back into a product the owner already took: it never depends on which round the feed is showing.
+  const mine = useMemo(() => myProductRows(candidates, discoveryView, store), [candidates, discoveryView, store]);
   const inbox = useMemo(() => inboxItems(candidates, store), [candidates, store]);
   const points = pointsLine(discoveryView, store);
   // What the next click would query, read before anything is created: the rail names that direction, not the last one.
@@ -96,7 +100,7 @@ export default function SelectionDesk({
       const result = await action(payload);
       setDeclining(null);
       return result;
-    } catch (cause) { setError(errorMessage(cause)); return null; }
+    } catch (cause) { setError(deskErrorMessage(cause)); return null; }
     finally { setSaving(false); }
   }
   async function select(row) {
@@ -160,6 +164,30 @@ export default function SelectionDesk({
   if (discoveryView === null) return <div className="page-panel"><p role="status">{loadingLabel}</p></div>;
 
   return <div className="page-panel desk-page">
+    <section className="desk-mine" aria-label="我选的商品">
+      <header className="desk-mine-header">
+        <h2>我选的商品（{mine.length}）</h2>
+        {mine.length > MY_PRODUCT_PREVIEW
+          ? <button type="button" className="button secondary" onClick={onOpenBoard}>查看全部 {mine.length} 件</button> : null}
+      </header>
+      {mine.length === 0 ? <p className="desk-mine-empty" role="status">还没有选定的商品。在下面的列表里点"选这个"。</p>
+        : <ul className="desk-mine-list">
+          {mine.slice(0, MY_PRODUCT_PREVIEW).map(row => <li key={row.id} className="desk-mine-row">
+            <button type="button" className="desk-mine-open" onClick={() => onOpenCandidate(row.id)}>
+              {row.imageUrl
+                ? <img className="desk-mine-thumb" src={row.imageUrl} alt="" width="52" height="52" loading="lazy" referrerPolicy="no-referrer" />
+                : <span className="desk-mine-thumb desk-mine-thumb-empty">主图</span>}
+              <span className="desk-mine-body">
+                <b>{row.title}</b>
+                <span className="desk-mine-price">{row.priceLine}</span>
+              </span>
+              <span className="desk-chip desk-mine-chip">{row.chip}</span>
+            </button>
+            <button type="button" className="button secondary desk-mine-action"
+              onClick={() => onOpenCandidate(row.id)}>{row.action}</button>
+          </li>)}
+        </ul>}
+    </section>
     <div className="desk-layout">
       <section className="desk-feed" aria-label="待你决定">
         <header className="desk-feed-header">

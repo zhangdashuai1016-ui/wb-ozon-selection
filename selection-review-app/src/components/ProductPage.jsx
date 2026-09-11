@@ -102,6 +102,22 @@ function estimateLines(estimateRecord) {
   return { headline, detail: profit === null ? null : detail, warning };
 }
 
+/**
+ * After a save the owner must see one next thing, not three boxes of equal weight. Owner feedback 2026-09-11: the form
+ * was filled, the page was left and the product could not be found again — so the page stays put and says, from the
+ * saved estimate alone, whether the next move is 申请插件采集 or the form itself.
+ */
+export function nextProductAction(view) {
+  if (!isObject(view?.supplierDraftV1)) return { key: "form", hint: null };
+  const record = view.supplierDraftEstimateV1 ?? null;
+  if (!isObject(record) || record.estimate?.status !== "ok") {
+    return { key: "form", hint: "下一步：把上面缺的资料补齐，再保存一次。" };
+  }
+  return record.profitAtDeclaredPurchase?.passes === true
+    ? { key: "capture", hint: "下一步：点下面的「申请插件采集」，让插件去读这个1688页面。" }
+    : { key: "form", hint: "下一步：这件没到本店利润门槛，改上面的货价或目标成交价再保存一次。" };
+}
+
 function draftFormState({ draft, candidate, marketSnapshot }) {
   if (isObject(draft)) {
     return {
@@ -193,6 +209,7 @@ export default function ProductPage({
   const errors = useMemo(() => supplierDraftFormErrors(form), [form]);
   const invalid = Object.keys(errors).length > 0;
   const step = currentProductStep(candidate);
+  const next = nextProductAction(view);
   const estimate = estimateLines(view?.supplierDraftEstimateV1 ?? null);
   const snapshotLine = marketSnapshotLine(marketSnapshot);
   const change = key => value => { setForm(current => ({ ...current, [key]: value })); setNotice(null); };
@@ -212,6 +229,16 @@ export default function ProductPage({
   const title = textOf(titleZh) || textOf(candidate.productName) || candidate.id;
 
   return <div className="page-panel product-page">
+    {/* Where this page sits: both earlier steps go back to the desk, where 我选的商品 lists this product again. */}
+    <nav className="product-breadcrumb" aria-label="位置">
+      {typeof onBack === "function"
+        ? <><button type="button" className="product-breadcrumb-link" onClick={onBack}>选品台</button>
+          <span aria-hidden="true">›</span>
+          <button type="button" className="product-breadcrumb-link" onClick={onBack}>我选的商品</button></>
+        : <><span>选品台</span><span aria-hidden="true">›</span><span>我选的商品</span></>}
+      <span aria-hidden="true">›</span>
+      <span className="product-breadcrumb-current">{title}</span>
+    </nav>
     <header className="product-header">
       {textOf(candidate.imageUrl)
         ? <img className="product-thumb" src={candidate.imageUrl} alt="" width="88" height="88" loading="lazy" referrerPolicy="no-referrer" />
@@ -240,7 +267,7 @@ export default function ProductPage({
       <p className="product-section-hint">把1688上找到的这件货填进来。下面每个数字都算你自己填的，软件只按它们算钱，不会替你猜。</p>
       {error ? <p role="alert">{error}</p> : null}
       {notice ? <p role="status" className="product-notice">{notice}</p> : null}
-      <div className="product-form">
+      <div className={`product-form${next.key === "form" ? " product-next" : ""}`}>
         <Field id="supply-source-url" label="1688 商品链接" value={form.sourceUrl} error={errors.sourceUrl}
           hint="详情页链接或分享短链都可以" placeholder="https://detail.1688.com/offer/…" onChange={change("sourceUrl")} />
         <Field id="supply-goods-price" label="货价（元）" value={form.goodsPriceRmb} error={errors.goodsPriceRmb} type="number" onChange={change("goodsPriceRmb")} />
@@ -267,14 +294,15 @@ export default function ProductPage({
         {estimate.warning ? <p role="alert" className="product-result-warning">{estimate.warning.message}
           {estimate.warning.routes.map(route => <span key={route.route} className="product-result-route">{route.route}：{route.detail}</span>)}
         </p> : null}
+        {next.hint ? <p className="product-next-hint">{next.hint}</p> : null}
       </div>
 
-      <div className="product-capture" aria-label="插件采集">
+      <div className={`product-capture${next.key === "capture" ? " product-next" : ""}`} aria-label="插件采集">
         <h4>1688 采集</h4>
         <p className="product-capture-extension">插件状态：{extensionStatus?.label ?? "插件未安装或未连接"}</p>
         {extensionConnected ? null : <p className="product-capture-hint">还没连上插件：打开 Chrome 的 chrome://extensions，开启开发者模式，点「加载已解压的扩展程序」，选择本项目的 extension/1688-capture 目录。</p>}
         <p className="product-capture-status">{captureStatusLine(candidate)}</p>
-        <button type="button" className="button secondary" disabled={saving || draft === null}
+        <button type="button" className={`button ${next.key === "capture" ? "primary" : "secondary"}`} disabled={saving || draft === null}
           onClick={() => run(onRequestCapture, captureSubmissionFromDraft({ candidate, draft, marketSnapshot }), "已申请插件采集，采到后这里会显示结果。")}>申请插件采集</button>
         {draft === null ? <span className="product-actions-note">先保存上面的找货方案，才能申请采集。</span> : null}
       </div>

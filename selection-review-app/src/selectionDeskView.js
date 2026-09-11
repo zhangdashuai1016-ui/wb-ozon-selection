@@ -1,6 +1,6 @@
 import { STORE_LABELS, STATUS_LABELS } from "./constants.js";
 import { orderCandidates } from "./candidateViews.js";
-import { safeImageUrl, safeWebUrl } from "./formState.js";
+import { errorMessage, safeImageUrl, safeWebUrl } from "./formState.js";
 
 /** The owner only makes judgment calls here, so every label below is a plain business word. */
 export const DESK_STORES = Object.freeze(["dandanshu", "miska", "wb"]);
@@ -211,6 +211,78 @@ export function discoveredTitleZh(discoveryView, candidate) {
   return null;
 }
 
+/** The saved capture job in the owner's words. A job that failed or was never asked for is not a step of its own. */
+function captureStage(candidate) {
+  const capture = candidate.sourceCapture;
+  if (!isObject(capture)) return null;
+  if (["captured_waiting_owner_selection", "verified"].includes(capture.status)) return "done";
+  if (capture.jobStatus === "claimed" || ["capturing", "extension_running"].includes(capture.status)) return "running";
+  if (capture.jobStatus === "queued" || capture.status === "waiting_extension") return "queued";
+  return null;
+}
+
+const CAPTURE_CHIPS = Object.freeze({ queued: "待采集", running: "采集中", done: "已采到" });
+
+/**
+ * The one thing that still has to happen to this product, read from its own saved records: the 找货 declaration, the
+ * estimate that was saved beside it and the capture job it already carries. Nothing is computed and nothing is guessed;
+ * a missing estimate says so instead of turning into "没过线".
+ */
+function myProductStep(candidate) {
+  const capture = captureStage(candidate);
+  if (capture !== null) return { step: `capture_${capture}`, chip: CAPTURE_CHIPS[capture], action: "查看" };
+  if (!isObject(candidate.supplierDraftV1)) return { step: "draft_missing", chip: "找货未填", action: "填找货" };
+  const record = isObject(candidate.supplierDraftEstimateV1) ? candidate.supplierDraftEstimateV1 : null;
+  if (record?.estimate?.status !== "ok") return { step: "draft_incomplete", chip: "找货已填 · 缺数据", action: "补资料" };
+  const profit = isObject(record.profitAtDeclaredPurchase) ? record.profitAtDeclaredPurchase : null;
+  if (profit?.passes !== true) return { step: "draft_blocked", chip: "找货已填 · 未过线", action: "改找货" };
+  const unit = finite(profit.unitProfitRmb);
+  return { step: "draft_passes", action: "申请插件采集",
+    chip: `找货已填 · 过线 单件利润 ${unit === null ? "未取得" : `¥${unit.toFixed(2)}`}` };
+}
+
+/** The Ozon price this product carried when the round returned it; the unit is only named when the record names it. */
+function marketPriceLine(candidate) {
+  const observed = (candidate.aDiscoveryEvidenceV2 ?? candidate.aDiscoveryEvidenceV1)?.observedMarketPrice;
+  const price = finite(observed?.value);
+  if (price === null) return "售价未取得";
+  const currency = text(observed.currency);
+  if (currency === null) return `售价 ${price}`;
+  return ["₽", "RUB"].includes(currency) ? `售价 ${price} 卢布` : `售价 ${price} ${currency}`;
+}
+
+const fromDiscovery = candidate => isObject(candidate.aDiscoveryEvidenceV2) || isObject(candidate.aDiscoveryEvidenceV1);
+
+/**
+ * The owner's own shelf, newest first: every product this store took out of a query round — picked by hand or imported
+ * by the plan — with the next thing to do to it. Owner feedback 2026-09-11: a filled 找货 form became unfindable once
+ * the page was left, so this block is the fixed way back into any product, and every row opens that product's page.
+ * Products the owner already dropped are not on the shelf any more, exactly as they leave 进行中.
+ */
+export function myProductRows(candidates, discoveryView, store) {
+  return list(candidates)
+    .filter(candidate => isObject(candidate) && candidate.workflowStatus !== "eliminated" &&
+      (store === null || candidate.targetStore === store) && fromDiscovery(candidate))
+    .sort((a, b) => ((Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0)) || String(a.id).localeCompare(String(b.id)))
+    .map(candidate => ({
+      id: candidate.id,
+      // The Chinese title only shows when the round actually translated it; otherwise the provider's own title stands.
+      title: discoveredTitleZh(discoveryView, candidate) ?? text(candidate.productName) ?? candidate.id,
+      imageUrl: safeImageUrl(candidate.imageUrl),
+      priceLine: marketPriceLine(candidate),
+      ...myProductStep(candidate)
+    }));
+}
+
+/**
+ * The name the top bar shows while the owner is on one product page: the translated title when the round saved one,
+ * then the provider's own product name, then the saved id — short enough to sit on one line beside the way back.
+ */
+export function shortProductTitle(candidate, titleZh) {
+  const name = [titleZh, candidate?.productName, candidate?.id].map(value => (text(value) ?? "").trim()).find(value => value !== "") ?? "未取得名称";
+  return name.length > 16 ? `${name.slice(0, 16)}…` : name;
+}
+
 export function boardColumnKey(candidate) {
   if (candidate.workflowStatus === "listed") return "live";
   const phase = typeof candidate.executionRuntime?.businessPhase === "string" ? candidate.executionRuntime.businessPhase : "";
@@ -280,6 +352,22 @@ export function deskCounts({ discoveryView, candidates, store }) {
 
 const RUNNING_JOB_STATUSES = ["queued", "claimed", "waiting_platform"];
 const DAY_MS = 24 * 60 * 60 * 1000;
+/**
+ * One sentence for "this store is already querying this direction", wherever the answer comes from: the saved rounds
+ * the rail reads before a click, and the server's own ROUND_ALREADY_RUNNING refusal after one.
+ */
+export const ROUND_ALREADY_RUNNING_MESSAGE = "本店已有一轮查询在进行，等它完成后再找。";
+
+/**
+ * What the desk shows when a write comes back refused. The server answers ROUND_ALREADY_RUNNING when this store is
+ * already asking this question — a job still running, or a round that was created and never started — so the answer
+ * names both and points at the button that continues the saved round instead of opening a second, paid one.
+ */
+export function deskErrorMessage(cause) {
+  return cause?.body?.code === "ROUND_ALREADY_RUNNING"
+    ? `${ROUND_ALREADY_RUNNING_MESSAGE}上一次点了却没真的开始的那一轮也算，用「找一轮新品」继续它。`
+    : errorMessage(cause);
+}
 const notReady = (reason, extra = {}) =>
   ({ ready: false, reason, plan: null, binding: null, warning: null, estimatedPoints: null, maxCredits: null, direction: null, resume: null, ...extra });
 
@@ -298,7 +386,7 @@ export function newRoundPlan(discoveryView, store, now = Date.now()) {
   for (const entry of entries) {
     for (const { job } of list(entry.jobs)) {
       if (RUNNING_JOB_STATUSES.includes(job?.status)) {
-        return notReady("本店已有一轮查询在进行，等它完成后再找。", { plan, binding, direction: text(plan.direction) });
+        return notReady(ROUND_ALREADY_RUNNING_MESSAGE, { plan, binding, direction: text(plan.direction) });
       }
       const at = Date.parse(job?.completedAt ?? "");
       if (Number.isFinite(at) && (latestCompleted === null || at > latestCompleted.at)) latestCompleted = { at, entry };

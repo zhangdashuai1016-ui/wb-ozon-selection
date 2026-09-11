@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-11T02:48:18.014Z",
+  "frozenAt": "2026-09-11T06:34:21.776Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 644,
-      "sha256": "e13ce287cd93315dfef3d95db7f41d45ddc3e21788b4f1859e4badf87499eb1e",
+      "sha256": "35c3433357ee53bbd90dd5f29a2b855bfebd1cab53a9810357f9b3e5efcfc4bb",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -88,7 +88,7 @@
       },
       {
         "path": "lib/a-discovery-runtime-services.mjs",
-        "sha256": "e2378dc016a21f8ab6149bc7cabd4419003c2302ed892a1ab733f30f3be9300a"
+        "sha256": "e03253c85f60a36c9175d7fbbec01556a6800fa10966678b2b807797f0292f18"
       },
       {
         "path": "lib/a-discovery-software-runner.mjs",
@@ -1176,11 +1176,11 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "356dad5da0a153531388147694c0de7fe8c557a6a3c9469e8e138a8a94d02eeb"
+        "sha256": "2ffb53c55451d27b0c4c5831b7e930f2f45f42d249fc82fa77a0a2334888d255"
       },
       {
         "path": "src/App.jsx",
-        "sha256": "b25a3503ba13dc0c7c25144e64511851b1068e01bc006c558fa517f560a68df3"
+        "sha256": "b2e296aae7ba0691b706c7fa88c7914e836c5c6b35ab1b74a1495072b509852f"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1320,7 +1320,7 @@
       },
       {
         "path": "src/components/ProductPage.jsx",
-        "sha256": "58b06043ea165b44d09a6fed81b6e40942614196aee3028de6a1bb276917d246"
+        "sha256": "42fc8759cb72e4b05f21c54a8bcb8d937b0a072ae40dcaabe8f73d9e3613d819"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1340,7 +1340,7 @@
       },
       {
         "path": "src/components/SelectionDesk.jsx",
-        "sha256": "20b4d02452b73aef57a4cac4fdcf152d18708fdbf3c3b0d73432cd5eb07ae58d"
+        "sha256": "7a9575492224567755a7483ba5143b916b7859164ab81af8480cda90ba458b94"
       },
       {
         "path": "src/components/StatusBadge.jsx",
@@ -1416,11 +1416,11 @@
       },
       {
         "path": "src/selectionDeskView.js",
-        "sha256": "1367af6a2d163673e15f678262cf92f89cb7c43c1fc932c36c620aec4bcb7d8b"
+        "sha256": "3256c62fe17ec66061ef9175b5ee692d3232eaf4881c699f40a29361c4a632fe"
       },
       {
         "path": "src/styles.css",
-        "sha256": "6158a4c90a511ca6dae127ed0a1431bc53facefe709bc2d6abb6732af359d8bd"
+        "sha256": "ae499adb5bf1d8a13934d4d09e66295e1b8b07681c9f304e32589e8ac706d886"
       },
       {
         "path": "src/wbPresentation.js",
@@ -1452,7 +1452,7 @@
       },
       {
         "path": "tests/a-discovery-runtime-services.test.mjs",
-        "sha256": "0ed1141d2966fd2f4160c704ed96eca0e96f863daf3f3d360d49b4e6ea088672"
+        "sha256": "273784ab37ab4bc222c365025a9bad0a674d5f41b410ff7a1084da7185c8f34e"
       },
       {
         "path": "tests/a-discovery-software-job-store.test.mjs",
@@ -2396,7 +2396,7 @@
       },
       {
         "path": "tests/product-page-ui.test.mjs",
-        "sha256": "e6f52ee202eb9c71fa1763f2ab38b162a23ad3491eb6091b1906f4b0d9dadfab"
+        "sha256": "ce0cdd3e7be008fd04c975683d1f40f481233d9d3796bc9f7e70850083ebe019"
       },
       {
         "path": "tests/production-owner-decision-api.test.mjs",
@@ -2484,7 +2484,7 @@
       },
       {
         "path": "tests/seerfar-discovery-integration.test.mjs",
-        "sha256": "e037b9ab86263f22110dc32d81a75565cc9516dbedeaf1c3e6ecfc71d38efa57"
+        "sha256": "440b287b96e838d98616fd0e949dbd47fb3bfd5cc805961e5d5c96ce1b8de0fb"
       },
       {
         "path": "tests/seerfar-open-api-transport.test.mjs",
@@ -2508,11 +2508,11 @@
       },
       {
         "path": "tests/selection-desk-ui.test.mjs",
-        "sha256": "236142ae1e75e12feb5159d907e8a2273cecc011214e4d7e7d06797a41039494"
+        "sha256": "9a2abe894097a25b052d06479bacd2c691e142c6b0b92c5060948e4c1171d892"
       },
       {
         "path": "tests/selection-desk-view.test.mjs",
-        "sha256": "6ed5cdf5240576f831d3bd1061b20a81f1b13ae092f353c623833dfec0c84a66"
+        "sha256": "c59c0c60b2d7e40f293c7c0900aaa17d57ddb5944fe8cd46f5beb9875de7c808"
       },
       {
         "path": "tests/software-execution-state.test.mjs",

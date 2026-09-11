@@ -24,7 +24,7 @@ import SelectionDesk from "./components/SelectionDesk.jsx";
 import PipelineBoard from "./components/PipelineBoard.jsx";
 import OwnerInbox from "./components/OwnerInbox.jsx";
 import ProductPage from "./components/ProductPage.jsx";
-import { DESK_STORES, deskCounts, discoveredTitleZh, storeLabel } from "./selectionDeskView.js";
+import { DESK_STORES, deskCounts, discoveredTitleZh, shortProductTitle, storeLabel } from "./selectionDeskView.js";
 import {
   EXTENSION_STATUS_PING,
   EXTENSION_STATUS_RESPONSE,
@@ -785,6 +785,9 @@ export default function App() {
   }
 
   const counts = deskCounts({ discoveryView, candidates: state.candidates, store: deskStore });
+  // The product page is read twice: once by the top bar, which names it and keeps the way back, once by the page itself.
+  const productCandidate = view === "product" ? state.candidates.find(item => item.id === selectedId) ?? null : null;
+  const productTitleZh = view === "product" ? discoveredTitleZh(discoveryView, productCandidate) : null;
   const deskNav = [
     { view: "desk", label: "选品台", count: counts.desk },
     { view: "board", label: "进行中", count: counts.board },
@@ -797,7 +800,10 @@ export default function App() {
       <header className="app-header">
         <div className="app-brand">
           <h1>选品台</h1>
-          <p>{VIEW_TITLES[view] ?? "今日选品评审"}</p>
+          {view === "product"
+            ? <p className="app-brand-product">商品 · {shortProductTitle(productCandidate, productTitleZh)}
+              <button type="button" className="app-brand-back" onClick={() => setView("desk")}>← 选品台</button></p>
+            : <p>{VIEW_TITLES[view] ?? "今日选品评审"}</p>}
         </div>
         <nav className="desk-nav" aria-label="主要页面">
           {deskNav.map(item => <button key={item.view} type="button" className={`button ${view === item.view ? "primary" : "secondary"}`}
@@ -871,9 +877,9 @@ export default function App() {
         )
       ) : view === "product" ? (
         !accountOwner ? <div className="page-panel"><p role="status">请先登录主人身份后查看这件商品。</p></div> : <ProductPage
-          candidate={state.candidates.find(item => item.id === selectedId) ?? null}
+          candidate={productCandidate}
           view={productDraftView}
-          titleZh={discoveredTitleZh(discoveryView, state.candidates.find(item => item.id === selectedId))}
+          titleZh={productTitleZh}
           extensionStatus={effectiveExtensionStatus}
           loadingLabel={productDraftError ? `读取这件商品的找货资料失败：${productDraftError}` : "正在读取这件商品的找货资料…"}
           onSaveDraft={payload => runProductStep(api.saveSupplierDraft, payload)}

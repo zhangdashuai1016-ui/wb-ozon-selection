@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BOARD_COLUMNS, DECLINE_REASONS, FEED_SORTS, boardColumnKey, boardColumns, deskCounts, feedRows,
-  formatInstant, freightShare, inboxItems, newRoundPlan, pointsLine, sortFeedRows, storeLabel } from '../src/selectionDeskView.js';
+import { BOARD_COLUMNS, DECLINE_REASONS, FEED_SORTS, ROUND_ALREADY_RUNNING_MESSAGE, boardColumnKey, boardColumns, deskCounts,
+  deskErrorMessage, feedRows, formatInstant, freightShare, inboxItems, myProductRows, newRoundPlan, pointsLine,
+  shortProductTitle, sortFeedRows, storeLabel } from '../src/selectionDeskView.js';
 
 // Everything below is synthetic display data written in this file: no saved records, no services, no requests.
 const product = (productId, extra = {}) => ({ productId, title: `Explicitly synthetic ${productId}`,
@@ -239,4 +240,106 @@ test('上一次点了却没开始的那一轮可以直接续上，两种"刚查�
   assert.match(different, /这一轮是「宠物服装」/u);
   assert.match(different, /会再扣一次点数/u);
   assert.equal(newRoundPlan(round(previous), 'miska', Date.parse('2026-09-13T00:00:00Z')).warning, null);
+});
+
+// 我选的商品 rows: synthetic candidates that carry the same saved shapes the server returns for a discovered product.
+const evidence = (marketProductId = '2107989735', observedMarketPrice = { value: 297, currency: '₽' }) =>
+  ({ schemaVersion: 'a-discovery-candidate-evidence-v2', provider: 'seerfar', platform: 'ozon',
+    batchId: 'a-discovery-batch:synthetic', marketProductId, observedMarketPrice });
+const mine = (id, extra = {}) => candidate(id, { aDiscoveryEvidenceV2: evidence(),
+  imageUrl: 'https://ir.ozone.ru/s3/synthetic/2107989735.jpg', ...extra });
+const savedDraft = { schemaVersion: 'supplier-draft-v1', sourceUrl: 'https://detail.1688.com/offer/876240928352.html',
+  goodsPriceRmb: 15.9, domesticShippingRmb: 2.96, allInPurchaseRmb: 18.86 };
+const savedEstimate = (status, profit) => ({ schemaVersion: 'supplier-draft-estimate-v1',
+  estimate: { status }, profitAtDeclaredPurchase: profit });
+const translated = viewOf(batchEntry({ products: [product('2107989735', { titleZh: '合成收纳盒' })] }));
+
+test('我选的商品把本店选下的商品按最新在前列出，标题、售价和图片只来自已保存记录', () => {
+  const rows = myProductRows([
+    mine('candidate:older', { createdAt: '2026-09-09T04:00:00.000Z' }),
+    mine('candidate:newer', { createdAt: '2026-09-11T04:00:00.000Z' })
+  ], translated, 'miska');
+  assert.deepEqual(rows.map(row => row.id), ['candidate:newer', 'candidate:older']);
+  assert.equal(rows[0].title, '合成收纳盒', '本轮翻译过的中文标题优先');
+  assert.equal(rows[0].priceLine, '售价 297 卢布');
+  assert.equal(rows[0].imageUrl, 'https://ir.ozone.ru/s3/synthetic/2107989735.jpg');
+  // No translation saved for this product: the provider's own title stands, and a blocked image host is dropped.
+  const plain = myProductRows([mine('candidate:plain', { imageUrl: 'https://images.example.test/blocked.png' })], viewOf(), 'miska');
+  assert.equal(plain[0].title, '合成商品 candidate:plain');
+  assert.equal(plain[0].imageUrl, '');
+  // A record without a market price never invents one, and a currency the record does not name is never guessed.
+  assert.equal(myProductRows([mine('candidate:x', { aDiscoveryEvidenceV2: evidence('2107989735', null) })], viewOf(), 'miska')[0].priceLine, '售价未取得');
+  assert.equal(myProductRows([mine('candidate:x', { aDiscoveryEvidenceV2: evidence('2107989735', { value: 297, currency: null }) })], viewOf(), 'miska')[0].priceLine, '售价 297');
+  assert.equal(myProductRows([mine('candidate:x', { aDiscoveryEvidenceV2: evidence('2107989735', { value: 12, currency: 'CNY' }) })], viewOf(), 'miska')[0].priceLine, '售价 12 CNY');
+});
+
+test('我选的商品的每种下一步都来自这件商品自己保存的找货方案、估算和采集作业', () => {
+  const branches = [
+    [{}, 'draft_missing', '找货未填', '填找货'],
+    [{ supplierDraftV1: savedDraft }, 'draft_incomplete', '找货已填 · 缺数据', '补资料'],
+    [{ supplierDraftV1: savedDraft, supplierDraftEstimateV1: savedEstimate('incomplete', null) },
+      'draft_incomplete', '找货已填 · 缺数据', '补资料'],
+    [{ supplierDraftV1: savedDraft, supplierDraftEstimateV1: savedEstimate('ok', { passes: false, unitProfitRmb: 1.2 }) },
+      'draft_blocked', '找货已填 · 未过线', '改找货'],
+    [{ supplierDraftV1: savedDraft, supplierDraftEstimateV1: savedEstimate('ok', { passes: true, unitProfitRmb: 41.26 }) },
+      'draft_passes', '找货已填 · 过线 单件利润 ¥41.26', '申请插件采集'],
+    [{ supplierDraftV1: savedDraft, supplierDraftEstimateV1: savedEstimate('ok', { passes: true, unitProfitRmb: null }) },
+      'draft_passes', '找货已填 · 过线 单件利润 未取得', '申请插件采集'],
+    [{ supplierDraftV1: savedDraft, sourceCapture: { status: 'waiting_extension', jobStatus: 'queued' } }, 'capture_queued', '待采集', '查看'],
+    [{ supplierDraftV1: savedDraft, sourceCapture: { status: 'capturing', jobStatus: 'claimed' } }, 'capture_running', '采集中', '查看'],
+    [{ supplierDraftV1: savedDraft, sourceCapture: { status: 'captured_waiting_owner_selection' } }, 'capture_done', '已采到', '查看'],
+    [{ supplierDraftV1: savedDraft, sourceCapture: { status: 'verified' } }, 'capture_done', '已采到', '查看'],
+    // A capture that already stopped is not a step: the owner is sent back to the declaration the estimate judged.
+    [{ supplierDraftV1: savedDraft, supplierDraftEstimateV1: savedEstimate('ok', { passes: false, unitProfitRmb: 1.2 }),
+      sourceCapture: { status: 'failed', jobStatus: 'failed', failureCode: 'extension_timeout' } }, 'draft_blocked', '找货已填 · 未过线', '改找货']
+  ];
+  for (const [saved, step, chip, action] of branches) {
+    const [row] = myProductRows([mine('candidate:one', saved)], viewOf(), 'miska');
+    assert.deepEqual([row.step, row.chip, row.action], [step, chip, action], JSON.stringify(saved));
+  }
+});
+
+test('我选的商品只列本店、真的来自查询、还没淘汰的商品，没有就说没有', () => {
+  const candidates = [
+    mine('candidate:miska'),
+    mine('candidate:dandanshu', { targetStore: 'dandanshu' }),
+    mine('candidate:gone', { workflowStatus: 'eliminated' }),
+    // Older rounds wrote the v1 evidence shape; those products are the owner's too.
+    candidate('candidate:legacy', { aDiscoveryEvidenceV1: { schemaVersion: 'a-discovery-candidate-evidence-v1',
+      batchId: 'a-discovery-batch:legacy', marketProductId: '2107989740', observedMarketPrice: { value: 500, currency: '₽' } } }),
+    // Added by hand, never from a query round.
+    candidate('candidate:manual')
+  ];
+  assert.deepEqual(myProductRows(candidates, viewOf(), 'miska').map(row => row.id), ['candidate:legacy', 'candidate:miska']);
+  assert.deepEqual(myProductRows(candidates, viewOf(), 'dandanshu').map(row => row.id), ['candidate:dandanshu']);
+  assert.deepEqual(myProductRows(candidates, viewOf(), 'wb'), []);
+  assert.deepEqual(myProductRows([], null, 'miska'), []);
+  assert.deepEqual(myProductRows(null, null, 'miska'), []);
+  assert.equal(myProductRows(candidates, viewOf(), null).length, 3, '不选店铺时三家店的都在，淘汰和手工添加的仍不在');
+});
+
+test('"本店已有一轮查询在进行"是一句话，点之前的判断和服务端的拒绝都用它', () => {
+  const plan = { planId: 'plan:x', version: 'version:1', direction: '宠物躺床', budget: { maxCredits: 20, estimatedPointsByStep: { category_detail: 13 } } };
+  const running = { canPrepare: true, plans: [plan], bindings: [{ bindingId: 'binding:x', configurationVersion: 'version:1' }],
+    batches: [{ batch: { targetStore: 'miska', createdAt: '2026-09-11T00:00:00Z', batchId: 'b', revision: 0, plan },
+      jobs: [{ job: { status: 'claimed', completedAt: null, scopeBinding: { request: { method: 'category_detail' } } }, receipt: null }] }] };
+  assert.equal(newRoundPlan(running, 'miska').reason, ROUND_ALREADY_RUNNING_MESSAGE);
+  assert.match(ROUND_ALREADY_RUNNING_MESSAGE, /本店已有一轮查询在进行/u);
+  // The server's own refusal reaches the desk as the same sentence, plus where the saved round is continued.
+  const refused = deskErrorMessage({ message: '本店已有一轮查询在进行，等它完成后再找；没有新建批次，也没有再扣点数。',
+    status: 409, body: { code: 'ROUND_ALREADY_RUNNING' } });
+  assert.ok(refused.startsWith(ROUND_ALREADY_RUNNING_MESSAGE));
+  assert.match(refused, /用「找一轮新品」继续它/u);
+  // Anything else keeps the server's own words.
+  assert.equal(deskErrorMessage({ message: '商品资料已变化，请刷新后重新保存找货资料', status: 409, body: { code: 'OTHER' } }),
+    '商品资料已变化，请刷新后重新保存找货资料');
+});
+
+test('顶栏用的商品名先用翻译过的中文标题，再用原标题，最后用编号，长了就截断', () => {
+  assert.equal(shortProductTitle({ productName: 'Explicitly synthetic organizer', id: 'candidate:one' }, '合成收纳盒'), '合成收纳盒');
+  assert.equal(shortProductTitle({ productName: '合成收纳盒', id: 'candidate:one' }, null), '合成收纳盒');
+  assert.equal(shortProductTitle({ productName: '  ', id: 'candidate:one' }, ''), 'candidate:one');
+  assert.equal(shortProductTitle(null, null), '未取得名称');
+  assert.equal(shortProductTitle({ productName: '合'.repeat(40) }, null), `${'合'.repeat(16)}…`);
+  assert.equal(shortProductTitle({ productName: '合'.repeat(16) }, null), '合'.repeat(16));
 });

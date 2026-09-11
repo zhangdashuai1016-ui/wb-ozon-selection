@@ -127,3 +127,38 @@ test('没有找货方案时不能申请采集，也不显示假的市场快照�
   assert.match(html, /<button[^>]*disabled[^>]*>申请插件采集<\/button>/);
   assert.match(html, /保存只记录你填的方案，不会确认供货，也不会开始采购。/);
 });
+
+test('商品页顶上写明自己在哪一层，选品台和我选的商品都能点回去，返回按钮还在', async () => {
+  const html = await render(props({ titleZh: '合成收纳盒' }));
+  assert.match(html, /<nav class="product-breadcrumb" aria-label="位置">/u);
+  assert.match(html, /<button[^>]*class="product-breadcrumb-link"[^>]*>选品台<\/button>/u);
+  assert.match(html, /<button[^>]*class="product-breadcrumb-link"[^>]*>我选的商品<\/button>/u);
+  assert.match(html, /<span class="product-breadcrumb-current">合成收纳盒<\/span>/u);
+  assert.match(html, /›/u);
+  assert.match(html, />返回<\/button>/u);
+  // Without a way back the breadcrumb still says where the page sits, but offers no dead link.
+  const noBack = await render({ ...props({ titleZh: '合成收纳盒' }), onBack: undefined });
+  assert.match(noBack, /product-breadcrumb/u);
+  assert.doesNotMatch(noBack, /product-breadcrumb-link/u);
+  assert.doesNotMatch(noBack, />返回<\/button>/u);
+});
+
+test('保存之后留在本页，并且只强调下一步：过线强调申请采集，没过线或缺资料强调表单', async () => {
+  const passing = await render(props({ view: { supplierDraftV1: draft, supplierDraftEstimateV1: okEstimate, marketSnapshot } }));
+  assert.match(passing, /<div class="product-capture product-next" aria-label="插件采集">/u);
+  assert.match(passing, /下一步：点下面的「申请插件采集」，让插件去读这个1688页面。/u);
+  assert.match(passing, /<button[^>]*class="button primary"[^>]*>申请插件采集<\/button>/u);
+  assert.doesNotMatch(passing, /<div class="product-form product-next">/u);
+  const blocked = await render(props({ view: { supplierDraftV1: draft, supplierDraftEstimateV1: blockedEstimate, marketSnapshot } }));
+  assert.match(blocked, /<div class="product-form product-next">/u);
+  assert.match(blocked, /下一步：把上面缺的资料补齐，再保存一次。/u);
+  assert.doesNotMatch(blocked, /product-capture product-next/u);
+  const thin = await render(props({ view: { supplierDraftV1: draft, marketSnapshot,
+    supplierDraftEstimateV1: { ...okEstimate, profitAtDeclaredPurchase: { ...okEstimate.profitAtDeclaredPurchase, passes: false } } } }));
+  assert.match(thin, /<div class="product-form product-next">/u);
+  assert.match(thin, /下一步：这件没到本店利润门槛，改上面的货价或目标成交价再保存一次。/u);
+  // Before anything is saved there is no "next step" to shout about, only the form itself.
+  const fresh = await render(props());
+  assert.match(fresh, /<div class="product-form product-next">/u);
+  assert.doesNotMatch(fresh, /下一步：/u);
+});

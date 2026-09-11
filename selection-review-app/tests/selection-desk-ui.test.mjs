@@ -169,3 +169,65 @@ test('历史轮次没处理的商品默认藏在一个折叠里，最新一轮�
   assert.ok(html.indexOf('历史轮次未处理的') < html.indexOf('去年的收纳盒'), '历史商品只出现在折叠里');
   assert.doesNotMatch(html, /<details class="desk-folded" open/u);
 });
+
+// The candidate shapes the server returns for a product that came out of a query round.
+const picked = (id, extra = {}) => ({ id, productName: `合成商品 ${id}`, targetStore: 'miska',
+  workflowStatus: 'codex_processing', displayStatus: 'codex_processing', needsFromUser: [],
+  imageUrl: 'https://ir.ozone.ru/s3/synthetic/2107989735.jpg', createdAt: '2026-09-09T04:00:00.000Z',
+  updatedAt: '2026-09-09T04:00:00.000Z',
+  aDiscoveryEvidenceV2: { schemaVersion: 'a-discovery-candidate-evidence-v2', provider: 'seerfar', platform: 'ozon',
+    batchId: 'a-discovery-batch:synthetic', marketProductId: '2107989735', observedMarketPrice: { value: 297, currency: '₽' } },
+  ...extra });
+const draft = { schemaVersion: 'supplier-draft-v1', sourceUrl: 'https://detail.1688.com/offer/876240928352.html', allInPurchaseRmb: 18.86 };
+
+test('选品台最上面固定一块"我选的商品"，每行给出这件商品的下一步和入口', async () => {
+  const html = await render(props(view({ products: [product('2107989735', { titleZh: '合成收纳盒' })] }), {
+    candidates: [picked('candidate:filled', { supplierDraftV1: draft, createdAt: '2026-09-11T04:00:00.000Z',
+      supplierDraftEstimateV1: { estimate: { status: 'ok' }, profitAtDeclaredPurchase: { passes: true, unitProfitRmb: 41.26 } } }),
+      picked('candidate:empty')]
+  }));
+  assert.match(html, /我选的商品（2）/u);
+  assert.match(html, /找货已填 · 过线 单件利润 ¥41\.26/u);
+  assert.match(html, /申请插件采集/u);
+  assert.match(html, /找货未填/u);
+  assert.match(html, />填找货</u);
+  assert.match(html, /售价 297 卢布/u);
+  assert.match(html, /合成收纳盒/u);
+  assert.match(html, /<img[^>]*class="desk-mine-thumb"[^>]*src="https:\/\/ir\.ozone\.ru\/s3\/synthetic\/2107989735\.jpg"/u);
+  // The block heads the page: it is read before the feed, whichever round the feed happens to be showing.
+  assert.ok(html.indexOf('我选的商品') < html.indexOf('待你决定'), '我选的商品排在待你决定之前');
+  assert.doesNotMatch(html, /查看全部 2 件/u, '两件还装得下，不给全部入口');
+  assert.doesNotMatch(html, /还没有选定的商品/u);
+});
+
+test('还没选过商品时"我选的商品"直说没有，并指回下面的列表', async () => {
+  const html = await render(props(view({ products: [product('2107989735')] })));
+  assert.match(html, /我选的商品（0）/u);
+  assert.match(html, /还没有选定的商品。在下面的列表里点&quot;选这个&quot;。/u);
+  assert.doesNotMatch(html, /找货未填/u);
+});
+
+test('选的商品超过六件时只显示六行，其余交给进行中', async () => {
+  const candidates = Array.from({ length: 8 }, (value, index) => picked(`candidate:${index}`,
+    { productName: `合成商品第${index}件`, createdAt: `2026-09-0${index + 1}T04:00:00.000Z` }));
+  const html = await render(props(view({ products: [] }), { candidates }));
+  assert.match(html, /我选的商品（8）/u);
+  assert.match(html, /查看全部 8 件/u);
+  assert.equal((html.match(/desk-mine-row/gu) ?? []).length, 6);
+  // Newest first: the two oldest are the ones left out.
+  assert.match(html, /合成商品第7件/u);
+  assert.doesNotMatch(html, /合成商品第1件/u);
+  assert.doesNotMatch(html, /合成商品第0件/u);
+});
+
+test('顶栏在商品页写明是哪件商品，并留一条回选品台的路', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const app = await readFile(fileURLToPath(new URL('../src/App.jsx', import.meta.url)), 'utf8');
+  assert.match(app, /商品 · \{shortProductTitle\(productCandidate, productTitleZh\)\}/u);
+  assert.match(app, /className="app-brand-back" onClick=\{\(\) => setView\("desk"\)\}>← 选品台/u);
+  // The product page and the top bar read the same candidate and the same translated title.
+  assert.match(app, /const productCandidate = view === "product" \? state\.candidates\.find\(item => item\.id === selectedId\) \?\? null : null;/u);
+  assert.match(app, /candidate=\{productCandidate\}/u);
+  assert.match(app, /titleZh=\{productTitleZh\}/u);
+  assert.match(app, /onBack=\{\(\) => setView\("desk"\)\}/u);
+});

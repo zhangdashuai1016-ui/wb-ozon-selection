@@ -34,6 +34,8 @@ a svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-widt
 .app-header h1 { margin: 0; color: var(--green); font-size: clamp(25px, 2.2vw, 34px); line-height: 1; letter-spacing: -.04em; }
 .app-brand { display: grid; gap: 7px; flex-shrink: 0; }
 .app-brand p { margin: 0; color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .04em; }
+.app-brand-product { display: inline-flex; align-items: center; gap: 8px; }
+.app-brand-back { padding: 0; border: 0; background: none; color: var(--green); font: inherit; text-decoration: underline; cursor: pointer; }
 .header-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; min-width: 0; max-width: 100%; margin-left: auto; }
 .header-actions > * { flex-shrink: 0; }
 .extension-status, .capture-control-status, .runtime-architecture-status {
@@ -1028,6 +1030,22 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 
 .desk-page, .board-page, .inbox-page { max-width: 1280px; }
 .desk-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 22px; align-items: start; }
+
+/* 我选的商品：固定在选品台最上面的一块，任何时候都能回到自己已经选下的商品。 */
+.desk-mine { display: grid; gap: 9px; margin-bottom: 18px; padding: 13px 15px; border: 1px solid var(--line); border-radius: var(--radius); background: #fbfdfc; }
+.desk-mine-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.desk-mine-header h2 { margin: 0; font-size: 16px; color: var(--green); }
+.desk-mine-empty { margin: 0; color: var(--muted); font-size: 12px; }
+.desk-mine-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 7px; }
+.desk-mine-row { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 11px; background: #fff; }
+.desk-mine-open { flex: 1 1 320px; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; font: inherit; }
+.desk-mine-thumb { width: 52px; height: 52px; flex-shrink: 0; object-fit: cover; border-radius: 9px; border: 1px solid var(--line); background: #f6f8f7; }
+.desk-mine-thumb-empty { display: grid; place-items: center; color: var(--muted); font-size: 10px; }
+.desk-mine-body { min-width: 0; flex: 1 1 auto; display: grid; gap: 2px; }
+.desk-mine-body b { font-size: 13px; overflow-wrap: anywhere; }
+.desk-mine-price { color: var(--muted); font-size: 11px; }
+.desk-mine-chip { flex-shrink: 0; }
+.desk-mine-action { flex-shrink: 0; }
 .desk-feed { display: grid; gap: 12px; align-content: start; }
 .desk-feed-header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .desk-feed-header h2 { margin: 0 0 4px; font-size: 22px; color: var(--green); }
@@ -1120,6 +1138,9 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 
 /* 商品页：主人按六步看一件商品，当前一步展开，其余折叠。 */
 .product-page { max-width: 1000px; }
+.product-breadcrumb { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; color: var(--muted); font-size: 11px; }
+.product-breadcrumb-link { padding: 0; border: 0; background: none; color: var(--green); font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.product-breadcrumb-current { color: #1f2b26; font-weight: 700; overflow-wrap: anywhere; }
 .product-header { display: grid; grid-template-columns: 88px minmax(0, 1fr) auto; gap: 14px; align-items: start; }
 .product-thumb { width: 88px; height: 88px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); background: #f6f8f7; }
 .product-thumb-empty { display: grid; place-items: center; color: var(--muted); font-size: 12px; }
@@ -1154,6 +1175,10 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 .product-capture p { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
 .product-capture-hint { color: var(--muted); }
 .product-capture button { justify-self: start; }
+/* 保存之后只强调一件事：下一步要做的那一块。 */
+.product-next { border: 1px solid #b9d7ca; border-radius: 12px; background: var(--green-soft); box-shadow: 0 0 0 2px var(--green-soft); }
+.product-form.product-next { padding: 12px; }
+.product-next-hint { color: var(--green); font-size: 12px; font-weight: 700; }
 .product-folded { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; background: #fff; }
 .product-folded summary { display: flex; justify-content: space-between; gap: 10px; cursor: pointer; font-size: 13px; font-weight: 700; }
 .product-folded-state { color: var(--muted); font-size: 11px; font-weight: 500; }
