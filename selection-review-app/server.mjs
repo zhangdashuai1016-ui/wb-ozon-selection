@@ -3017,7 +3017,9 @@ async function handleApi(req, res, pathname) {
   }
 
   // decline saves one fixed owner reason for a market product; it creates nothing, spends nothing and writes no platform.
-  const aDiscoveryRoute = pathname.match(/^\/api\/product-discovery\/(create|authorize|continue|select|decline)$/);
+  // start is the desk's single click: it creates, authorizes and enqueues one round in one saved transaction, so a
+  // dropped second request can no longer leave a paid batch that never ran. create and authorize stay for the old card.
+  const aDiscoveryRoute = pathname.match(/^\/api\/product-discovery\/(create|start|authorize|continue|select|decline)$/);
   if (req.method === 'GET' && pathname === '/api/product-discovery' || req.method === 'POST' && aDiscoveryRoute) {
     const actor = runtimeIdentityProvider.resolveActor({request:req});
     if (actor.source !== 'authenticated_identity_provider' || actor.actorType !== 'human' || !actor.roles.includes('owner')) {
@@ -3027,7 +3029,7 @@ async function handleApi(req, res, pathname) {
       let operationResult = null;
       if (req.method === 'POST') {
         const input = await readJsonRequestBody(req, {maxBytes:8192,requireJsonContentType:true});
-        const actions = {create:'createBatch',authorize:'authorizeAndRun',continue:'continueSavedCurrent',select:'importSelected',decline:'declineProduct'};
+        const actions = {create:'createBatch',start:'startRound',authorize:'authorizeAndRun',continue:'continueSavedCurrent',select:'importSelected',decline:'declineProduct'};
         operationResult = await aDiscoveryRuntime[actions[aDiscoveryRoute[1]]]({actor,input});
       }
       const document = await readData();

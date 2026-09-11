@@ -162,6 +162,63 @@ export function createADiscoveryRuntimeServices({repository,softwareJobStore,run
     }
     return {status:'idle',externalRequests:0};
   });}
+  /** The plan and service one round would use. Reading configuration creates nothing and spends nothing. */
+  function plannedRound(input){
+    const service=serviceFor(input.bindingId,input.configurationVersion),plan=savedPlans.find(value=>value.planId===input.planId&&value.version===input.planVersion);
+    requireValue(plan!==undefined&&supportsPlan(service,plan),'PLAN_NOT_CONFIGURED');
+    const blocker=evidenceBlocker(plan);requireValue(blocker===null,blocker);
+    return {service,plan};
+  }
+  /**
+   * One saved batch per idempotency key, written into the caller's transaction. The same key always names the same
+   * batch, so a repeated click resumes the round it already paid for instead of opening a second one.
+   */
+  function saveBatchInDocument({document,actor,input,plan,service}){
+    const batchId=`a-discovery-batch:${fingerprintCanonicalRecord({ownerUserId:actor.userId,idempotencyKey:input.idempotencyKey})}`;
+    const batches=collection(document,'aDiscoveryBatches'),exists=Object.hasOwn(batches,batchId),existing=exists?assertADiscoveryBatch(batches[batchId]):null;
+    collection(document,'aDiscoveryReceipts');
+    const batch=assertADiscoveryBatch({schemaVersion:plan.provider==='seerfar'?'a-discovery-batch-v2':'a-discovery-batch-v1',batchId,revision:0,ownerUserId:actor.userId,
+      createdAt:exists?existing.createdAt:serverClock(),plan:clone(plan),targetStore:input.targetStore,bindingId:service.connector.bindingId,
+      configurationVersion:service.connector.configurationVersion,credentialAlias:service.connector.credentialAlias,budgetPolicyRef:service.connector.budgetPolicyRef});
+    if(exists){requireValue(isDeepStrictEqual(existing,batch),'IDEMPOTENCY_CONFLICT');return {batch:existing,created:false};}
+    batches[batchId]=batch;return {batch,created:true};
+  }
+  /**
+   * The one-use permits, credential bindings and first job of one saved batch, written into the caller's transaction.
+   * The two-step card and the desk's single click share this function, so a round carries the same saved records
+   * whichever way it was authorized; an already authorized batch returns its saved job and authorizes nothing again.
+   */
+  function authorizeBatchInDocument({document,batch,actor,expiresAt,idempotencyKey}){
+    const service=serviceFor(batch.bindingId,batch.configurationVersion),at=serverClock();requireValue(Date.parse(expiresAt)>Date.parse(at),'AUTHORIZATION_EXPIRED');
+    const authorizations=collection(document,'softwareJobAuthorizationRecords',true),credentials=collection(document,'softwareJobCredentialBindings',true);
+    const scoped=authorizations.filter(value=>value.action===A_DISCOVERY_JOB_TYPE&&value.scopeBinding.batchId===batch.batchId&&value.scopeBinding.sourceRevision===batch.revision);
+    const records=batch.plan.requests.map((request,requestIndex)=>{
+      const authorizationRef=`a-discovery-permit:${fingerprintCanonicalRecord({batchId:batch.batchId,revision:batch.revision,requestIndex,idempotencyKey,ownerUserId:actor.userId})}`;
+      const scope=assertADiscoveryScope({schemaVersion:batch.plan.provider==='seerfar'?'a-discovery-scope-v2':'a-discovery-scope-v1',
+        ...(batch.plan.provider==='seerfar'?{provider:'seerfar',contractVersion:batch.plan.contractVersion,budget:clone(batch.plan.budget)}:{}),batchId:batch.batchId,sourceRevision:batch.revision,resultRevision:batch.revision,
+        planId:batch.plan.planId,planVersion:batch.plan.version,requestIndex,request:clone(request),bindingId:batch.bindingId,configurationVersion:batch.configurationVersion,
+        credentialAlias:batch.credentialAlias,budgetPolicyRef:batch.budgetPolicyRef,targetStore:batch.targetStore,authorizationRef,expiresAt});
+      return {scope,authorization:assertADiscoveryAuthorization({schemaVersion:'software-job-authorization-record-v3',authorizationId:authorizationRef,
+        authorizationType:batch.plan.provider==='seerfar'?'a_seerfar_discovery_once':'a_discovery_once',status:'active',action:A_DISCOVERY_JOB_TYPE,scopeBinding:scope,authorizedByUserId:actor.userId,authorizedAt:at,expiresAt,
+        maxUses:1,useCount:0,consumedByJobId:null,consumedAt:null}),credential:assertADiscoveryCredential({schemaVersion:'software-job-credential-binding-v3',
+        bindingId:`a-discovery-credential:${authorizationRef.slice('a-discovery-permit:'.length)}`,credentialAlias:batch.credentialAlias,status:'active',provider:batch.plan.provider,
+        sideEffectScope:A_DISCOVERY_JOB_TYPE,scopeBinding:scope,allowedWorkerIds:[service.worker.workerId],redaction:'credential_alias_only',boundAt:at,expiresAt})};
+    });
+    if(scoped.length){
+      requireValue(scoped.length===records.length&&records.every(record=>scoped.some(value=>value.authorizationId===record.scope.authorizationRef&&isDeepStrictEqual(value.scopeBinding,record.scope))),'ALREADY_AUTHORIZED');
+      const first=document.runtime.softwareJobs.find(job=>job.jobType===A_DISCOVERY_JOB_TYPE&&job.scopeBinding.authorizationRef===records[0].scope.authorizationRef);
+      requireValue(first!==undefined,'JOB_SOURCE_CONFLICT');return {changed:false,job:clone(first),serviceBindingId:service.binding.serviceId};
+    }
+    const blocker=batchConfigurationBlocker(batch);requireValue(blocker===null,blocker);
+    for(const record of records){authorizations.push(record.authorization);credentials.push(record.credential);}
+    const job=softwareJobStore.enqueueADiscoveryInDocument({document,job:createADiscoveryJobForScope({scope:records[0].scope,ownerUserId:actor.userId,createdAt:at}),observedAt:at});
+    return {changed:true,job:clone(job),serviceBindingId:service.binding.serviceId};
+  }
+  /** Runs the job this call just authorized, exactly as the pump would; a busy service leaves it queued. */
+  function runAuthorized({job,serviceBindingId}){
+    if(active&&activeExecution?.jobId!==job.jobId)return null;
+    return singleflight(()=>runSelected(services.find(value=>value.binding.serviceId===serviceBindingId),job));
+  }
   function schedule(){
     if(!started)return;
     timer=setTimeout(async()=>{
@@ -217,51 +274,46 @@ export function createADiscoveryRuntimeServices({repository,softwareJobStore,run
     async createBatch({actor,input}){
       owner(actor);requireValue(closed(input,['planId','planVersion','targetStore','bindingId','configurationVersion','idempotencyKey'])&&
         ['planId','planVersion','bindingId','configurationVersion','idempotencyKey'].every(key=>isCanonicalFrozenRef(input[key]))&&['miska','dandanshu'].includes(input.targetStore),'INPUT_INVALID');
-      const service=serviceFor(input.bindingId,input.configurationVersion),plan=savedPlans.find(value=>value.planId===input.planId&&value.version===input.planVersion);
-      requireValue(plan!==undefined&&supportsPlan(service,plan),'PLAN_NOT_CONFIGURED');
-      const blocker=evidenceBlocker(plan);requireValue(blocker===null,blocker);
-      const batchId=`a-discovery-batch:${fingerprintCanonicalRecord({ownerUserId:actor.userId,idempotencyKey:input.idempotencyKey})}`;
+      const {service,plan}=plannedRound(input);
       return repository.transact(document=>{
-        const batches=collection(document,'aDiscoveryBatches'),exists=Object.hasOwn(batches,batchId),existing=exists?assertADiscoveryBatch(batches[batchId]):null;collection(document,'aDiscoveryReceipts');
-        const batch=assertADiscoveryBatch({schemaVersion:plan.provider==='seerfar'?'a-discovery-batch-v2':'a-discovery-batch-v1',batchId,revision:0,ownerUserId:actor.userId,createdAt:exists?existing.createdAt:serverClock(),
-          plan:clone(plan),targetStore:input.targetStore,bindingId:service.connector.bindingId,configurationVersion:service.connector.configurationVersion,
-          credentialAlias:service.connector.credentialAlias,budgetPolicyRef:service.connector.budgetPolicyRef});
-        if(exists){requireValue(isDeepStrictEqual(existing,batch),'IDEMPOTENCY_CONFLICT');return {changed:false,result:{batch:clone(existing),idempotentReplay:true,externalRequests:0}};}
-        batches[batchId]=batch;return {changed:true,document,result:{batch:clone(batch),idempotentReplay:false,externalRequests:0}};
+        const {batch,created}=saveBatchInDocument({document,actor,input,plan,service});
+        const result={batch:clone(batch),idempotentReplay:!created,externalRequests:0};
+        return created?{changed:true,document,result}:{changed:false,result};
       });
+    },
+    /**
+     * One click on the desk. The round is created, authorized and enqueued in a single saved transaction, so the owner
+     * can never be left holding a batch that was never started, and the same idempotency key always resumes that one
+     * round: an existing batch without a permit is authorized, an already authorized one returns its saved job.
+     */
+    async startRound({actor,input}){
+      owner(actor);requireValue(closed(input,['planId','planVersion','targetStore','bindingId','configurationVersion','expiresAt','idempotencyKey'])&&
+        ['planId','planVersion','bindingId','configurationVersion','idempotencyKey'].every(key=>isCanonicalFrozenRef(input[key]))&&['miska','dandanshu'].includes(input.targetStore)&&
+        typeof input.expiresAt==='string'&&Number.isFinite(Date.parse(input.expiresAt)),'INPUT_INVALID');
+      const {service,plan}=plannedRound(input);
+      const started=await repository.transact(document=>{
+        const {batch,created}=saveBatchInDocument({document,actor,input,plan,service});
+        const authorized=authorizeBatchInDocument({document,batch,actor,expiresAt:input.expiresAt,idempotencyKey:input.idempotencyKey});
+        const result={batch:clone(batch),job:authorized.job,resumed:!created,serviceBindingId:authorized.serviceBindingId};
+        return created||authorized.changed?{changed:true,document,result}:{changed:false,result};
+      });
+      const {serviceBindingId,...round}=started;
+      // The batch and its one-use permit are already saved. A failure while running must not be reported as "nothing
+      // happened": the owner's next click would open a second batch and spend a second time. The saved job, its receipt
+      // and runtimeStatus carry the failure, and the round stays resumable from the saved permit.
+      try{await runAuthorized({job:round.job,serviceBindingId});}catch{/* reported by the saved job and runtimeStatus */}
+      return round;
     },
     async authorizeAndRun({actor,input}){
       owner(actor);requireValue(closed(input,['batchId','expectedRevision','expiresAt','idempotencyKey'])&&isCanonicalFrozenRef(input.batchId)&&isCanonicalFrozenRef(input.idempotencyKey)&&
         Number.isSafeInteger(input.expectedRevision)&&input.expectedRevision>=0&&typeof input.expiresAt==='string'&&Number.isFinite(Date.parse(input.expiresAt)),'INPUT_INVALID');
       const authorized=await repository.transact(document=>{
         const batch=batchFor(document,input.batchId,actor);requireValue(batch.revision===input.expectedRevision,'BATCH_CHANGED');
-        const service=serviceFor(batch.bindingId,batch.configurationVersion),at=serverClock();requireValue(Date.parse(input.expiresAt)>Date.parse(at),'AUTHORIZATION_EXPIRED');
-        const authorizations=collection(document,'softwareJobAuthorizationRecords',true),credentials=collection(document,'softwareJobCredentialBindings',true);
-        const scoped=authorizations.filter(value=>value.action===A_DISCOVERY_JOB_TYPE&&value.scopeBinding.batchId===batch.batchId&&value.scopeBinding.sourceRevision===batch.revision);
-        const records=batch.plan.requests.map((request,requestIndex)=>{
-          const authorizationRef=`a-discovery-permit:${fingerprintCanonicalRecord({batchId:batch.batchId,revision:batch.revision,requestIndex,idempotencyKey:input.idempotencyKey,ownerUserId:actor.userId})}`;
-          const scope=assertADiscoveryScope({schemaVersion:batch.plan.provider==='seerfar'?'a-discovery-scope-v2':'a-discovery-scope-v1',
-            ...(batch.plan.provider==='seerfar'?{provider:'seerfar',contractVersion:batch.plan.contractVersion,budget:clone(batch.plan.budget)}:{}),batchId:batch.batchId,sourceRevision:batch.revision,resultRevision:batch.revision,
-            planId:batch.plan.planId,planVersion:batch.plan.version,requestIndex,request:clone(request),bindingId:batch.bindingId,configurationVersion:batch.configurationVersion,
-            credentialAlias:batch.credentialAlias,budgetPolicyRef:batch.budgetPolicyRef,targetStore:batch.targetStore,authorizationRef,expiresAt:input.expiresAt});
-          return {scope,authorization:assertADiscoveryAuthorization({schemaVersion:'software-job-authorization-record-v3',authorizationId:authorizationRef,
-            authorizationType:batch.plan.provider==='seerfar'?'a_seerfar_discovery_once':'a_discovery_once',status:'active',action:A_DISCOVERY_JOB_TYPE,scopeBinding:scope,authorizedByUserId:actor.userId,authorizedAt:at,expiresAt:input.expiresAt,
-            maxUses:1,useCount:0,consumedByJobId:null,consumedAt:null}),credential:assertADiscoveryCredential({schemaVersion:'software-job-credential-binding-v3',
-            bindingId:`a-discovery-credential:${authorizationRef.slice('a-discovery-permit:'.length)}`,credentialAlias:batch.credentialAlias,status:'active',provider:batch.plan.provider,
-            sideEffectScope:A_DISCOVERY_JOB_TYPE,scopeBinding:scope,allowedWorkerIds:[service.worker.workerId],redaction:'credential_alias_only',boundAt:at,expiresAt:input.expiresAt})};
-        });
-        if(scoped.length){
-          requireValue(scoped.length===records.length&&records.every(record=>scoped.some(value=>value.authorizationId===record.scope.authorizationRef&&isDeepStrictEqual(value.scopeBinding,record.scope))),'ALREADY_AUTHORIZED');
-          const first=document.runtime.softwareJobs.find(job=>job.jobType===A_DISCOVERY_JOB_TYPE&&job.scopeBinding.authorizationRef===records[0].scope.authorizationRef);
-          requireValue(first!==undefined,'JOB_SOURCE_CONFLICT');return {changed:false,result:{job:clone(first),serviceBindingId:service.binding.serviceId}};
-        }
-        const blocker=batchConfigurationBlocker(batch);requireValue(blocker===null,blocker);
-        for(const record of records){authorizations.push(record.authorization);credentials.push(record.credential);}
-        const job=softwareJobStore.enqueueADiscoveryInDocument({document,job:createADiscoveryJobForScope({scope:records[0].scope,ownerUserId:actor.userId,createdAt:at}),observedAt:at});
-        return {changed:true,document,result:{job:clone(job),serviceBindingId:service.binding.serviceId}};
+        const result=authorizeBatchInDocument({document,batch,actor,expiresAt:input.expiresAt,idempotencyKey:input.idempotencyKey});
+        return result.changed?{changed:true,document,result}:{changed:false,result};
       });
-      if(active&&activeExecution?.jobId!==authorized.job.jobId)return {status:'queued',jobId:authorized.job.jobId,externalRequests:0};
-      return singleflight(()=>runSelected(services.find(value=>value.binding.serviceId===authorized.serviceBindingId),authorized.job));
+      const run=runAuthorized(authorized);
+      return run===null?{status:'queued',jobId:authorized.job.jobId,externalRequests:0}:run;
     },
     async importSelected({actor,input}){
       owner(actor);requireValue(closed(input,['batchId','expectedRevision','marketProductId'])&&isCanonicalFrozenRef(input.batchId)&&

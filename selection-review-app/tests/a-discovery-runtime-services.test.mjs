@@ -163,3 +163,67 @@ test('an owner turning one product down saves one fixed reason, replays the same
   assert.throws(()=>service.view({document:damaged,actor:f.owner}),/DECLINE_RECORD_INVALID/);
   await service.stop();
 });
+
+const startInput=(f,overrides={})=>({planId:f.batch.plan.planId,planVersion:f.batch.plan.version,targetStore:f.batch.targetStore,
+  bindingId:f.batch.bindingId,configurationVersion:f.batch.configurationVersion,expiresAt:'2026-09-08T13:00:00.000Z',
+  idempotencyKey:'desk-round:one',...overrides});
+
+test('一次点击把这一轮建好、许可并开始；同一个幂等键只续这一轮，不会再建第二个批次',async()=>{
+  const f=createADiscoveryRuntimeFixture(),{service}=f.create();
+  const input=startInput(f);
+  const first=await service.startRound({actor:f.owner,input});
+  assert.deepEqual(Object.keys(first).sort(),['batch','job','resumed']);
+  assert.equal(first.resumed,false);assert.equal(first.batch.ownerUserId,f.owner.userId);assert.equal(first.batch.targetStore,f.batch.targetStore);
+  assert.equal(first.job.subject.batchId,first.batch.batchId);assert.equal(first.job.revision,first.batch.revision);
+  let saved=await f.repository.readSnapshot();
+  assert.deepEqual(Object.keys(saved.runtime.aDiscoveryBatches),[first.batch.batchId]);
+  assert.equal(saved.runtime.softwareJobAuthorizationRecords.length,f.batch.plan.requests.length);
+  assert.equal(saved.runtime.softwareJobCredentialBindings.length,f.batch.plan.requests.length);
+  assert.deepEqual(saved.runtime.softwareJobAuthorizationRecords.map(value=>value.scopeBinding.batchId),
+    saved.runtime.softwareJobAuthorizationRecords.map(()=>first.batch.batchId));
+  // The one click really started the round: exactly one saved query was performed for it.
+  assert.equal(f.counts().requests,1);
+  const again=await service.startRound({actor:f.owner,input});
+  assert.equal(again.resumed,true);assert.deepEqual(again.batch,first.batch);assert.equal(again.job.jobId,first.job.jobId);
+  saved=await f.repository.readSnapshot();
+  assert.deepEqual(Object.keys(saved.runtime.aDiscoveryBatches),[first.batch.batchId]);
+  assert.equal(saved.runtime.softwareJobAuthorizationRecords.length,f.batch.plan.requests.length);
+  assert.equal(f.counts().requests,1);
+  const {expiresAt,...withoutExpiry}=input;
+  await assert.rejects(()=>service.startRound({actor:f.owner,input:withoutExpiry}),/INPUT_INVALID/);
+  await assert.rejects(()=>service.startRound({actor:f.owner,input:{...input,verified:true}}),/INPUT_INVALID/);
+  await assert.rejects(()=>service.startRound({actor:f.owner,input:{...input,expiresAt:'not-a-time'}}),/INPUT_INVALID/);
+  await assert.rejects(()=>service.startRound({actor:f.owner,input:{...input,targetStore:'wb'}}),/INPUT_INVALID/);
+  await assert.rejects(()=>service.startRound({actor:f.owner,input:{...input,planId:'plan:not-configured'}}),/PLAN_NOT_CONFIGURED/);
+  await assert.rejects(()=>service.startRound({actor:{...f.owner,roles:['reviewer']},input}),/AUTHORIZATION|FORBIDDEN|ROLE/i);
+  assert.equal(f.counts().requests,1);
+  await service.stop();
+});
+
+test('开始这一轮是一次保存：许可被拒时不会留下一个已扣过钱却没有许可的批次',async()=>{
+  const f=createADiscoveryRuntimeFixture(),{service}=f.create();
+  await assert.rejects(()=>service.startRound({actor:f.owner,input:startInput(f,{expiresAt:'2026-09-08T11:00:00.000Z',
+    idempotencyKey:'desk-round:expired'})}),/AUTHORIZATION_EXPIRED/);
+  const saved=await f.repository.readSnapshot();
+  assert.deepEqual(Object.keys(saved.runtime.aDiscoveryBatches??{}),[]);
+  assert.deepEqual(saved.runtime.softwareJobs,[]);assert.deepEqual(saved.runtime.softwareJobAuthorizationRecords,[]);
+  assert.deepEqual(f.counts(),{secrets:0,requests:0});
+  await service.stop();
+});
+
+test('上一次只建好却没开始的这一轮，用同一个幂等键续上而不是再建一个',async()=>{
+  const f=createADiscoveryRuntimeFixture(),{service}=f.create();
+  const created=await f.prepare(service);
+  let saved=await f.repository.readSnapshot();
+  assert.deepEqual(saved.runtime.softwareJobs,[]);assert.deepEqual(saved.runtime.softwareJobAuthorizationRecords,[]);
+  // resumed means "this call did not open a new batch": the saved batch is authorized and started instead.
+  const resumed=await service.startRound({actor:f.owner,input:startInput(f,{idempotencyKey:'create:discovery'})});
+  assert.equal(resumed.resumed,true);assert.equal(resumed.batch.batchId,created.batch.batchId);
+  assert.deepEqual(resumed.batch,created.batch);
+  saved=await f.repository.readSnapshot();
+  assert.deepEqual(Object.keys(saved.runtime.aDiscoveryBatches),[created.batch.batchId]);
+  assert.equal(saved.runtime.softwareJobAuthorizationRecords.length,f.batch.plan.requests.length);
+  assert.equal(saved.runtime.softwareJobs.filter(job=>job.subject.batchId===created.batch.batchId&&job.scopeBinding.requestIndex===0).length,1);
+  assert.equal(f.counts().requests,1);
+  await service.stop();
+});
