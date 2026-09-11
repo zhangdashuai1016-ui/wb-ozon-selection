@@ -163,9 +163,16 @@
 - 已知残余：若 `start` 响应在传输中丢失，下次点击会用新 uuid 开第二个批次（非孤儿，续跑逻辑不覆盖）；可在 r14 用"每店同方向 10 分钟内一个进行中批次"的服务端守卫补上。
 - 建议部署方式：与 GUOO 资费表环境变量一次重启同时上（plist 三处：ProgramArguments、WorkingDirectory、新增 `SELECTION_REVIEW_GUOO_TARIFF_FILE`）。
 
+### 部署记录 r13 + GUOO 资费表变量（2026-09-11 13:02，主人"批准"，Opus 子代理执行、主会话审查）
+
+- 冷备：`cold-backups/20260911-125617/`（candidates.json `7bd77d6f…`、workflow-map.json `1457a37b…` 与线上一致，13 文件；LATEST 已指向）。
+- 安装：`今日选品评审台-versions/20260911-desk-start-round-r13/`（5437 文件，server.mjs `356dad5d…`、runtime-services `e2378dc0…`、transport 第 103 行含 `[x×]`、`server.mjs:3032` 含 `start:'startRound'`，前端包 `index-B9JMyaDe.js`）。
+- plist 三处：ProgramArguments、WorkingDirectory 指向 r13；新增 `SELECTION_REVIEW_GUOO_TARIFF_FILE=~/.local/share/wb-ozon-engineering/first-sku-runtime-config/logistics/GUOO产品资费测算表【2026.8.19更新】.xlsx`；原 37 个变量逐字节不变（现 38 个）。
+- 重启：pid 83413 → **4160**，7 秒内 health ok；launchctl 环境块含资费表变量；首页 200 引用新包；`GET /api/product-discovery` 401；`POST /api/product-discovery/start` 401（OWNER_LOGIN_REQUIRED，路由存在）；无 r12.1 残留进程；4318 未动；stderr 无新增；数据与冷备一致；插件约 30 秒后重连。r12.1/r12/r11 目录完整可回退。
+
 ### 下一步（需主人）
 
-1. 批准：一次重启同时部署 r13 并在 plist 加 `SELECTION_REVIEW_GUOO_TARIFF_FILE`（指向本地配置目录里的 GUOO 表）；上线后主人强制刷新页面，对 3321582481 进商品页 → "找货"填 1688 链接、货价、国内运费、打包重量、长宽高 → 保存看是否过线 → 申请插件采集。
+1. ~~部署 r13~~（已上线）：主人强制刷新页面（Cmd+Shift+R），对 3321582481 进商品页 → "找货"填 1688 链接、货价、国内运费、打包重量、长宽高 → 保存看是否过线（现在能算出线路与上限）→ 申请插件采集。
 2. ~~r13 施工~~（已完成，见上，待部署）。
 3. r14 待办：回执保存原始响应体（脱敏、限长）；估算时从原始体重读尺寸。
 4. 待裁决：1688 起步的反查路线（Ozon 以图搜款 + 插件采集结果页 → 自动价格带）排在本轮之后。
