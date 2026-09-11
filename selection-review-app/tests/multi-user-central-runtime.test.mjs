@@ -162,6 +162,8 @@ test("生产源码新增本机假设必须进入明确审计文件，不能静�
     ["lib/ozon-de-http-transport.mjs", ["local_adapter", { loopback_address: 2 }]],
     ["lib/runtime-configuration.mjs", ["local_adapter", { loopback_address: 8 }]],
     ["lib/runtime-identity-provider.mjs", ["local_adapter", { loopback_address: 4 }]],
+    // 采集开始信号只被内容脚本在 http://127.0.0.1:4317 这一个来源上接受，所以给主人的那两句话必须写出这个地址。
+    ["src/captureStart.js", ["local_adapter", { loopback_address: 3 }]],
     ["lib/workflow-map.mjs", ["local_adapter", { personal_home_path: 3 }]]
   ]);
   const checked = [];

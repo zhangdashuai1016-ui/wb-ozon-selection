@@ -204,6 +204,8 @@ export function sourceCaptureFailureMessage(code, detail = "") {
     extension_version_mismatch: "1688采集扩展版本与当前作业要求不一致",
     extension_job_unclaimed: "1688采集作业等待插件领取超时",
     service_restarted_before_claim: "评审台服务重启前，1688采集作业尚未被插件领取",
+    // Capture sessions live only in the process that created them, so a restart ends any job that had not answered yet.
+    capture_job_lost: "服务已重启，这次采集不会再有结果，请重新申请采集",
     unknown_outcome: "插件领取作业后中断，当前采集结果未知",
     request_origin_invalid: "1688采集请求不是来自本机评审台",
     request_payload_missing: "1688采集请求缺少必要字段",

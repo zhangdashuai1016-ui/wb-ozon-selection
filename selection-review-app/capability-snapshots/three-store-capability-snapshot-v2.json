@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-11T06:34:21.776Z",
+  "frozenAt": "2026-09-11T08:40:56.183Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 644,
-      "sha256": "35c3433357ee53bbd90dd5f29a2b855bfebd1cab53a9810357f9b3e5efcfc4bb",
+      "sha256": "b96ff22fe448d65be0854c87501ea6ae6ed4376f08d979aa93a05e57aa13679f",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -824,7 +824,7 @@
       },
       {
         "path": "lib/source-capture.mjs",
-        "sha256": "85179f07862b32bad1abc099cae47aaed4d7bb7286d926b07df71adcab07dea1"
+        "sha256": "ef687d01b0c8f48495a3dcf547f21ecfbb5e696d5cbb03a68b7a20b7f4335c12"
       },
       {
         "path": "lib/store-binding.mjs",
@@ -1176,11 +1176,11 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "2ffb53c55451d27b0c4c5831b7e930f2f45f42d249fc82fa77a0a2334888d255"
+        "sha256": "4b01793224bc23efa0ea8b16e8f0cd17e5bead0e31b27b202b0e3768b261ce3a"
       },
       {
         "path": "src/App.jsx",
-        "sha256": "b2e296aae7ba0691b706c7fa88c7914e836c5c6b35ab1b74a1495072b509852f"
+        "sha256": "987842afcc1d107141caa020d3e4405a14a778d7d6fe0bc188a6ca1ea5defce5"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1216,7 +1216,7 @@
       },
       {
         "path": "src/captureStart.js",
-        "sha256": "c43271c7b0386ca9f111693fc5ccb84da4924d28594fa8c04bd17f2dd467d9ac"
+        "sha256": "96704c04439a3e155e71bde39e04aaa75b8f492fbf3e7139029e06c3820f2335"
       },
       {
         "path": "src/commentInput.js",
@@ -1320,7 +1320,7 @@
       },
       {
         "path": "src/components/ProductPage.jsx",
-        "sha256": "42fc8759cb72e4b05f21c54a8bcb8d937b0a072ae40dcaabe8f73d9e3613d819"
+        "sha256": "f2dabf548128c37a768126c6e72296986c0284ccbac72bd764d770d7cd3b4344"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1916,7 +1916,7 @@
       },
       {
         "path": "tests/extension-capture-request.test.mjs",
-        "sha256": "5d89d3a745dcddf7dec45f9c712066ecb7e7f001f96c39ff167c51c2539634c7"
+        "sha256": "cd8e94e7ad285a42d70112f351b6c48b19f3b00c59fa1e2277c9b17b68222781"
       },
       {
         "path": "tests/extension-heartbeat-api.test.mjs",
@@ -2256,7 +2256,7 @@
       },
       {
         "path": "tests/multi-user-central-runtime.test.mjs",
-        "sha256": "a221eab8a681e70ea1b71627e8bf315c733c32f5294420cba56b37eb811cee63"
+        "sha256": "f3610c7fd1ec8a0f972a182d389b111c31ce934074ddfaecfb004b6f7857266c"
       },
       {
         "path": "tests/ozon-account-discovery-configuration.test.mjs",
@@ -2396,7 +2396,7 @@
       },
       {
         "path": "tests/product-page-ui.test.mjs",
-        "sha256": "ce0cdd3e7be008fd04c975683d1f40f481233d9d3796bc9f7e70850083ebe019"
+        "sha256": "f5d18c4cbe12f6fe0f2ce898487dc1acc5be3eed10eca8e58b07e8b1e9448ceb"
       },
       {
         "path": "tests/production-owner-decision-api.test.mjs",
@@ -2532,11 +2532,11 @@
       },
       {
         "path": "tests/source-capture-job-api.test.mjs",
-        "sha256": "812606af3268aff1faef9895bbfedb941d45dfb36e3f747ebf50f216c5a7676a"
+        "sha256": "056849bdfb5427fa7c1041a1d71eac791225372ae2f4fa7b6eb77fc32f58f7be"
       },
       {
         "path": "tests/source-capture-restart-reconciliation.test.mjs",
-        "sha256": "1f40ba38be5fc65140db2486f8eb219449d2ac36468ff36e61f1ec6db118d1f8"
+        "sha256": "d4159e999ee9901d37cfd2dc40a24f8ef7f15564ba21e313b419e90044840e92"
       },
       {
         "path": "tests/source-capture.test.mjs",

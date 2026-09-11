@@ -813,8 +813,11 @@ async function expireSourceCaptureJob(captureId, expectedStatus) {
   const failureCode = expectedStatus === "claimed" ? "unknown_outcome" : "extension_job_unclaimed";
   await mutateDataWhenChanged((data) => {
     const current = data.candidates.find((item) => item.id === session.candidateId);
+    // The captureId is what identifies the record this job owns; a newer capture replaced it and is protected by that
+    // test alone. Also demanding an unchanged dataRevision made any unrelated edit during the wait — saving 找货资料,
+    // for example — abandon the closure, leaving the candidate at waiting_extension for good and, through the
+    // previous_capture_requires_review guard, refusing every later capture request (owner, blocked 2026-09-11).
     if (!current || current.sourceCapture?.captureId !== captureId) return { changed: false };
-    if (Number(current.dataRevision) !== Number(session.dataRevision)) return { changed: false };
     markSourceCaptureFailure(current, session, failureCode, expectedStatus === "claimed"
       ? "插件已领取一次，但在执行期限内没有回传可验证结果"
       : "插件在作业等待期限内没有领取本候选");
@@ -835,6 +838,46 @@ function scheduleSourceCaptureJobExpiry(session, expectedStatus, timeoutMs) {
   }, timeoutMs);
   timer.unref?.();
   sourceCaptureJobTimers.set(session.captureId, timer);
+}
+
+/** A capture record whose session this process does not hold: no result can ever arrive for it any more. */
+const RESTART_LOST_CAPTURE_STATUSES = ["waiting_extension", "capturing", "extension_version_mismatch"];
+const RESTART_LOST_CAPTURE_JOB_STATUSES = ["queued", "claimed"];
+
+function sourceCaptureLostOnRestart(capture) {
+  if (!capture || typeof capture !== "object" || typeof capture.captureId !== "string" || capture.captureId === "") return false;
+  if (sourceCaptureSessions.has(capture.captureId)) return false;
+  return RESTART_LOST_CAPTURE_STATUSES.includes(capture.status) ||
+    RESTART_LOST_CAPTURE_JOB_STATUSES.includes(capture.jobStatus);
+}
+
+/**
+ * Capture sessions live only in the memory of the process that created them, so every queued, claimed or capturing
+ * record found at startup belongs to a process that is gone and can never produce a result. Left open, such a record
+ * also trips the previous_capture_requires_review guard and refuses every later capture request for that product.
+ * This closes each one exactly once, as a failure we never received a result for: writeOccurred stays false, no
+ * business state moves, and a run that finds nothing writes nothing at all.
+ */
+async function reconcileSourceCaptureJobsAfterRestart() {
+  return mutateDataWhenChanged((data) => {
+    const closed = [];
+    for (const current of data.candidates) {
+      const capture = current.sourceCapture;
+      if (!sourceCaptureLostOnRestart(capture)) continue;
+      markSourceCaptureFailure(current, {
+        captureId: capture.captureId,
+        expectedOfferId: capture.offerId ?? "",
+        sourceUrl: capture.sourceUrl ?? "",
+        originalSourceUrl: capture.originalSourceUrl ?? capture.sourceUrl ?? "",
+        mode: capture.mode ?? "a_supplier_capture",
+        jobStatus: capture.jobStatus ?? null,
+        attempt: capture.attempt ?? 0,
+        requiredExtensionVersion: capture.requiredExtensionVersion ?? null
+      }, "capture_job_lost");
+      closed.push(current.id);
+    }
+    return { changed: closed.length > 0, result: closed };
+  });
 }
 
 async function enqueueASupplierCaptureJob({ candidateId, requestRevision, requestedSourceUrl }) {
@@ -6765,6 +6808,11 @@ const server = http.createServer(async (req, res) => {
 
 // Explicit consumers handle only persisted jobs. No configuration grants an external action.
 await softwareJobStore.reconcileAfterRestart({jobTypes:['a_product_discovery','a_product_detail_read']});
+// Before the first request is served, so no other write competes with it and no page can read a job that is already lost.
+const lostCaptureJobs = await reconcileSourceCaptureJobsAfterRestart();
+if (lostCaptureJobs?.length) {
+  console.log(`1688采集作业已随服务重启收口为失败（不会再有结果，需要重新申请）：${lostCaptureJobs.join("、")}`);
+}
 server.listen(port, host, () => {
   if (runtimeConfiguration.dPlatformObservation.pumpIntervalMs !== null ||
       (runtimeConfiguration.eReadbackPumpIntervalMs !== null && runtimeConfiguration.deServiceBindings.length > 0)) deRuntimeServices.start();

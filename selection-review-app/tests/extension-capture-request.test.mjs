@@ -1,9 +1,131 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import {
   captureRequestErrorMessage,
   validateSupplierCaptureRequest
 } from "../extension/1688-capture/capture-request.js";
+import {
+  CAPTURE_START_ACCEPTED_MESSAGE,
+  CAPTURE_START_REJECTION_MESSAGES,
+  CAPTURE_START_TIMEOUT_MS,
+  captureStartMessage,
+  needsCaptureStartSignal,
+  requestSupplierCaptureStart,
+  startQueuedSupplierCapture
+} from "../src/captureStart.js";
+
+/** A stand-in for the review page's own window: no DOM, no timers, nothing beyond what the start signal touches. */
+function capturePage(origin = "http://127.0.0.1:4317") {
+  const listeners = new Set();
+  const timers = new Map();
+  let nextTimerId = 1;
+  const page = {
+    location: { origin },
+    posted: [],
+    addEventListener(type, listener) { if (type === "message") listeners.add(listener); },
+    removeEventListener(type, listener) { if (type === "message") listeners.delete(listener); },
+    setTimeout(callback, delayMs) { const id = nextTimerId += 1; timers.set(id, { callback, delayMs }); return id; },
+    clearTimeout(id) { timers.delete(id); },
+    postMessage(message, targetOrigin) { page.posted.push({ message, targetOrigin }); },
+    deliver(data, { source = page, origin: eventOrigin = origin } = {}) {
+      for (const listener of [...listeners]) listener({ source, origin: eventOrigin, data });
+    },
+    runTimers() { for (const [id, timer] of [...timers]) { timers.delete(id); timer.callback(); } },
+    get pendingTimers() { return [...timers.values()]; },
+    get listenerCount() { return listeners.size; }
+  };
+  return page;
+}
+
+const ACK = "SELECTION_REVIEW_1688_CAPTURE_ACK";
+
+test("开始信号把插件的拒绝码原样带回，超时按没有内容脚本收口，并只清理自己的监听器", async () => {
+  const page = capturePage();
+  const accepted = requestSupplierCaptureStart("SCJ-1", page);
+  assert.deepEqual(page.posted, [{ message: { type: "SELECTION_REVIEW_1688_CAPTURE_REQUEST", captureId: "SCJ-1" },
+    targetOrigin: "http://127.0.0.1:4317" }], "开始提示不得带凭据，且只发给本页来源");
+  assert.equal(page.pendingTimers[0].delayMs, CAPTURE_START_TIMEOUT_MS);
+  // Anything that is not this page's own ACK for this exact job is ignored and leaves the wait running.
+  page.deliver({ type: ACK, captureId: "SCJ-1", accepted: true }, { origin: "https://evil.invalid" });
+  page.deliver({ type: ACK, captureId: "SCJ-1", accepted: true }, { source: { other: true } });
+  page.deliver({ type: ACK, captureId: "SCJ-OTHER", accepted: false, code: "capture_busy" });
+  page.deliver({ type: "SELECTION_REVIEW_EXTENSION_STATUS_RESPONSE", captureId: "SCJ-1", accepted: true });
+  assert.equal(page.listenerCount, 1);
+  page.deliver({ type: ACK, captureId: "SCJ-1", accepted: true, code: "" });
+  assert.deepEqual(await accepted, { accepted: true, code: "" });
+  assert.equal(page.listenerCount, 0);
+  assert.deepEqual(page.pendingTimers, []);
+
+  const busyPage = capturePage();
+  const busy = requestSupplierCaptureStart("SCJ-2", busyPage);
+  busyPage.deliver({ type: ACK, captureId: "SCJ-2", accepted: false, code: "capture_busy", error: "插件未确认领取作业" });
+  assert.deepEqual(await busy, { accepted: false, code: "capture_busy" }, "拒绝码必须保留，否则界面只能说一句未收到确认");
+
+  const codelessPage = capturePage();
+  const codeless = requestSupplierCaptureStart("SCJ-3", codelessPage);
+  codelessPage.deliver({ type: ACK, captureId: "SCJ-3", accepted: false, code: 17 });
+  assert.deepEqual(await codeless, { accepted: false, code: "" });
+
+  const silentPage = capturePage();
+  const silent = requestSupplierCaptureStart("SCJ-4", silentPage);
+  silentPage.runTimers();
+  assert.deepEqual(await silent, { accepted: false, code: "no_bridge" }, "12秒无人应答只能说明这个标签页没有内容脚本");
+  assert.equal(silentPage.listenerCount, 0);
+
+  assert.throws(() => requestSupplierCaptureStart("SCJ 5", capturePage()), /作业编号无效/);
+  assert.throws(() => requestSupplierCaptureStart(null, capturePage()), /作业编号无效/);
+});
+
+test("每个插件回执码都有一句给主人的话，且覆盖桥接脚本能发出的全部码", async () => {
+  assert.equal(captureStartMessage({ accepted: true, code: "" }), CAPTURE_START_ACCEPTED_MESSAGE);
+  assert.match(captureStartMessage({ accepted: false, code: "no_bridge" }), /127\.0\.0\.1:4317/);
+  assert.match(captureStartMessage({ accepted: false, code: "capture_busy" }), /另一件商品/);
+  assert.match(captureStartMessage({ accepted: false, code: "extension_identity_rejected" }), /白名单/);
+  assert.match(captureStartMessage({ accepted: false, code: "background_unavailable" }), /重新加载插件/);
+  for (const code of ["request_origin_invalid", "start_signal_invalid", "capture_job_invalid", "capture_job_not_claimed"]) {
+    assert.match(captureStartMessage({ accepted: false, code }), /不会自动重试/, `${code} 必须说明软件不会自动重试`);
+  }
+  const unknown = captureStartMessage({ accepted: false, code: "something_new" });
+  assert.equal(unknown, captureStartMessage({ accepted: false }));
+  assert.equal(unknown, captureStartMessage(null));
+  assert.match(unknown, /没有说明原因/, "未知码只能说观察到的事实");
+  const sentences = Object.values(CAPTURE_START_REJECTION_MESSAGES);
+  assert.equal(new Set(sentences).size, sentences.length);
+  for (const sentence of sentences) assert.equal(sentence.trim().length > 10, true);
+
+  const bridge = await readFile(fileURLToPath(new URL("../extension/1688-capture/bridge.js", import.meta.url)), "utf8");
+  const allowList = bridge.match(/\[([^[\]]*)\]\.includes\(response\?\.code\)/);
+  assert.ok(allowList, "桥接脚本的回执码白名单形状已变化，这条契约需要重新对齐");
+  const bridgeCodes = [...allowList[1].matchAll(/"([a-z_]+)"/g)].map(match => match[1]);
+  assert.equal(bridgeCodes.length > 0, true);
+  for (const code of bridgeCodes) {
+    assert.equal(Object.hasOwn(CAPTURE_START_REJECTION_MESSAGES, code), true, `插件可能回 ${code}，但界面没有对应的话`);
+  }
+});
+
+test("只有新建的采集作业才发开始信号，重复回执和其他状态都不发", async () => {
+  const calls = [];
+  const signal = async jobId => { calls.push(jobId); return { accepted: true, code: "" }; };
+  const queued = { status: "supplier_capture_job_queued", duplicate: false, captureJob: { jobId: "SCJ-new" } };
+  assert.equal(needsCaptureStartSignal(queued), true);
+  assert.deepEqual(await startQueuedSupplierCapture(queued, { signal }),
+    { accepted: true, code: "", message: CAPTURE_START_ACCEPTED_MESSAGE });
+  assert.deepEqual(calls, ["SCJ-new"]);
+
+  const duplicate = { status: "supplier_capture_job_queued", duplicate: true, captureJob: { jobId: "SCJ-old" } };
+  assert.equal(needsCaptureStartSignal(duplicate), false);
+  assert.equal(await startQueuedSupplierCapture(duplicate, { signal }), null);
+  assert.equal(await startQueuedSupplierCapture({ status: "a_confirmed" }, { signal }), null);
+  assert.equal(await startQueuedSupplierCapture(null, { signal }), null);
+  assert.deepEqual(calls, ["SCJ-new"], "重复回执或非排队回执都不得再次触发插件");
+
+  const rejected = await startQueuedSupplierCapture(queued, { signal: async () => ({ accepted: false, code: "no_bridge" }) });
+  assert.equal(rejected.accepted, false);
+  assert.equal(rejected.code, "no_bridge");
+  assert.equal(rejected.message, CAPTURE_START_REJECTION_MESSAGES.no_bridge);
+});
 
 function validPayload(overrides = {}) {
   return {

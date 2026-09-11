@@ -180,6 +180,15 @@ export function supplierDraftPayload(form, dataRevision) {
   };
 }
 
+/**
+ * A step that has something specific to report — which extension rejection was observed, and what the owner can do
+ * next — returns that sentence, and it becomes this page's notice. Anything else keeps the step's generic sentence.
+ * The page never invents a second place to speak: this is the same 找货 notice slot that was already there.
+ */
+export function stepNotice(outcome, successNotice) {
+  return typeof outcome === "string" && outcome.trim() !== "" ? outcome : successNotice;
+}
+
 function Field({ id, label, hint, value, error, onChange, type = "text", placeholder = "" }) {
   return <label className="product-field" htmlFor={id}>
     <span className="product-field-label">{label}</span>
@@ -217,7 +226,7 @@ export default function ProductPage({
   async function run(action, payload, successNotice) {
     if (saving || typeof action !== "function") return;
     setSaving(true); setError(null); setNotice(null);
-    try { await action(payload); setNotice(successNotice); }
+    try { setNotice(stepNotice(await action(payload), successNotice)); }
     catch (cause) { setError(errorMessage(cause)); }
     finally { setSaving(false); }
   }

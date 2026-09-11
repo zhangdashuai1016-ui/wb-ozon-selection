@@ -6,20 +6,23 @@ import react from '@vitejs/plugin-react';
 
 // The product page renders synthetic display data only: no saved records, no services, no requests.
 let renderer;
-async function render(props) {
+async function pageModule() {
   if (!renderer) {
     const entry = fileURLToPath(new URL('./product-page-ui-entry.jsx', import.meta.url));
     const component = fileURLToPath(new URL('../src/components/ProductPage.jsx', import.meta.url));
     const output = await build({ configFile: false, logLevel: 'warn', plugins: [react(), { name: 'product-page-ui-test',
       resolveId: id => id === entry ? entry : null,
       load: id => id === entry ? `import React from 'react';import {renderToStaticMarkup} from 'react-dom/server';
-      import Page from ${JSON.stringify(component)};export const render=props=>renderToStaticMarkup(<Page {...props}/>);` : null }],
+      import Page, {stepNotice} from ${JSON.stringify(component)};export {stepNotice};export const render=props=>renderToStaticMarkup(<Page {...props}/>);` : null }],
       ssr: { noExternal: true }, build: { ssr: true, write: false, rollupOptions: { input: entry, output: { format: 'es' } } } });
     const chunk = output.output.find(value => value.type === 'chunk' && value.isEntry);
     assert.ok(chunk);
     renderer = await import(`data:text/javascript;base64,${Buffer.from(chunk.code).toString('base64')}`);
   }
-  return renderer.render(props);
+  return renderer;
+}
+async function render(props) {
+  return (await pageModule()).render(props);
 }
 
 const forbidden = () => { throw new Error('RENDER_MUST_NOT_START_WORK'); };
@@ -161,4 +164,37 @@ test('保存之后留在本页，并且只强调下一步：过线强调申请�
   const fresh = await render(props());
   assert.match(fresh, /<div class="product-form product-next">/u);
   assert.doesNotMatch(fresh, /下一步：/u);
+});
+
+test('采集这一步自己说出来的那句话占用本页原有的提示位，没有具体的话才回落到通用句', async () => {
+  const { stepNotice } = await pageModule();
+  const rejected = '这个标签页里没有采集插件：请用 http://127.0.0.1:4317 打开页面（不是 localhost）';
+  assert.equal(stepNotice(rejected, '已申请插件采集，采到后这里会显示结果。'), rejected);
+  // 保存找货方案返回的是视图对象，不是话；这类步骤仍旧显示它自己的通用句。
+  assert.equal(stepNotice({ supplierDraftV1: draft }, '已保存你填的找货方案'), '已保存你填的找货方案');
+  assert.equal(stepNotice(undefined, '已保存你填的找货方案'), '已保存你填的找货方案');
+  assert.equal(stepNotice('   ', '已申请插件采集'), '已申请插件采集');
+  // 提示位就是找货这一节里已有的那一个，没有新增第二处说话的地方。
+  const html = await render(props({ view: { supplierDraftV1: draft, supplierDraftEstimateV1: okEstimate, marketSnapshot } }));
+  assert.equal(html.match(/class="product-notice"/gu), null, '没有提示时不占位');
+  assert.equal((html.match(/role="status"/gu) ?? []).length, 0);
+});
+
+test('商品页的申请插件采集走专用处理：写操作不经读取守卫，排队回执后必须发开始信号', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const app = await readFile(fileURLToPath(new URL('../src/App.jsx', import.meta.url)), 'utf8');
+  assert.match(app, /onRequestCapture=\{payload => requestProductCapture\(payload\)\}/u);
+  assert.doesNotMatch(app, /onRequestCapture=\{payload => runProductStep\(/u,
+    '走 runProductStep 就只调接口、永远不发开始信号，插件后台不轮询作业，主人只会空等到超时');
+  const handler = app.match(/async function requestProductCapture\(payload\)\{[\s\S]*?\n  \}/u);
+  assert.ok(handler, '商品页采集必须有自己的处理函数');
+  assert.match(handler[0], /runMutation\(\(\)=>api\.confirmRealAStage\(candidateId,payload\)/u);
+  assert.doesNotMatch(handler[0], /productDraftReads\.current\.run\(/u,
+    '写操作经过“只保留最新读取”的守卫会把服务端的真实回答丢成 null');
+  assert.match(handler[0], /startQueuedSupplierCapture\(result\)/u);
+  assert.match(handler[0], /await load\(true\);setProductDraftRefresh\(value=>value\+1\);/u);
+  // 旧 A 卡仍然自己调用同一个信号与同一套文案映射，没有被改成另一条路径。
+  assert.match(app, /const captureStart = await startQueuedSupplierCapture\(result\);/u);
+  assert.match(app, /\$\{captureStart\.message\}/u);
+  assert.match(app, /import \{ startQueuedSupplierCapture \} from "\.\/captureStart\.js";/u);
 });

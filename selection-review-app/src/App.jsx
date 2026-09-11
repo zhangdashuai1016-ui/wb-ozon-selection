@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { createLatestRead, createSelectionGuard, runMutation, shouldContinuePolling, errorMessage, candidatePlatform } from "./formState.js";
 import { validateCandidateCommentReceipt } from "./commentInput.js";
-import { requestSupplierCaptureStart } from "./captureStart.js";
+import { startQueuedSupplierCapture } from "./captureStart.js";
 import { firstInQueue, matchesQueue } from "./candidateViews";
 import AddCandidateModal from "./components/AddCandidateModal";
 import CandidateDetail, { CandidateReview } from "./components/CandidateDetail";
@@ -155,6 +155,30 @@ export default function App() {
     await load(true);
     setProductDraftRefresh(value=>value+1);
     return result;
+  }
+  /**
+   * 申请插件采集 on the product page. Two things separate it from runProductStep: the write never passes through the
+   * read guard (a cancelled read would hide the server's real answer — the same class of error r13 fixed), and the
+   * queued receipt is followed by the page→content-script start signal. The extension background only keeps a
+   * heartbeat and never polls for jobs, so without that signal the job can only sit until it expires, which is exactly
+   * what the owner saw four times on 2026-09-11. The returned sentence is what the page shows in its own notice slot.
+   */
+  async function requestProductCapture(payload){
+    const ownerId=accountOwnerId,candidateId=selectedId;
+    const current=()=>accountContext.current.ownerId===ownerId&&accountContext.current.view==='product';
+    try{
+      const result=await runMutation(()=>api.confirmRealAStage(candidateId,payload),{
+        reads:productDraftReads.current,isCurrent:current,
+        publish(next){if(next?.supplierDraftV1!==undefined)setProductDraftView(next);}
+      });
+      const start=await startQueuedSupplierCapture(result);
+      if(start)return start.message;
+      return result?.status==="supplier_capture_job_queued"
+        ? "这件商品已经有一个还在等待的采集作业，这次没有重新创建；等它结束后再申请，软件不会自动重试"
+        : "已提交A阶段确认，这次没有创建采集作业；请看上面的采集状态";
+    // Whatever happened — accepted, refused by the extension, or refused by the server — the page then shows the state
+    // the server actually holds, so a rejection is never read off a stale card.
+    }finally{await load(true);setProductDraftRefresh(value=>value+1);}
   }
   const [extensionStatus, setExtensionStatus] = useState(() => extensionConnectionStatus({
     cachedVersion: readCachedExtensionVersion()
@@ -425,18 +449,17 @@ export default function App() {
         ...payload,
         dataRevision: payload.dataRevision ?? selected.dataRevision
       });
-      const captureStart = result.status === "supplier_capture_job_queued" && result.duplicate !== true
-        ? await requestSupplierCaptureStart(result.captureJob.jobId)
-        : null;
+      // Same receipt, same start signal as before; only the sentence now comes from the shared ACK-code mapping.
+      const captureStart = await startQueuedSupplierCapture(result);
       navigateResult(result.candidate, navigationToken);
       setNotice({
         type: "success",
         message: payload.decision === "reject"
           ? "A阶段已淘汰当前商品；未启动B或任何平台操作"
           : result.status === "supplier_capture_job_queued"
-            ? captureStart?.accepted === true
-              ? "A阶段供应链接已保存；插件已领取本次明确创建的单商品采集作业"
-              : "A阶段供应链接已保存；本次采集未收到新的领取确认，请查看作业状态，系统不会自动重试"
+            ? captureStart
+              ? `A阶段供应链接已保存；${captureStart.message}`
+              : "A阶段供应链接已保存；这件商品已经有一个还在等待的采集作业，这次没有重新创建，系统不会自动重试"
           : result.candidate.lifecycleV11?.skuPackage?.businessPhase === "C1"
             ? "A确认已原子保存，B已自动通过并创建C1；无需再次点击开始上架准备"
             : "A确认已原子保存，B已自动计算；当前商品未进入C1"
@@ -883,7 +906,7 @@ export default function App() {
           extensionStatus={effectiveExtensionStatus}
           loadingLabel={productDraftError ? `读取这件商品的找货资料失败：${productDraftError}` : "正在读取这件商品的找货资料…"}
           onSaveDraft={payload => runProductStep(api.saveSupplierDraft, payload)}
-          onRequestCapture={payload => runProductStep(api.confirmRealAStage, payload)}
+          onRequestCapture={payload => requestProductCapture(payload)}
           onOpenLegacyCard={() => setView("review")}
           onBack={() => setView("desk")}
         />
