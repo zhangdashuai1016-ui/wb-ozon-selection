@@ -28,6 +28,8 @@ import { harness, idle, message, startCapture, supplierJob, SUPPLIER_URL, PING, 
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
+// A real querySelectorAll("script") returns typed scripts too, so the fixture answers the broad selector and
+// lets the collector read each node's own type attribute, exactly as it must on the page.
 function fakeDocument(json = null) {
   return {
     title: "机械发条木质火车",
@@ -36,7 +38,9 @@ function fakeDocument(json = null) {
       return selector === "h1" ? { textContent: "机械发条木质火车" } : null;
     },
     querySelectorAll(selector) {
-      if (selector === 'script[type="application/json"]' && json) return [{ textContent: JSON.stringify(json) }];
+      if (selector === "script" && json) {
+        return [{ textContent: JSON.stringify(json), getAttribute: (name) => (name === "type" ? "application/json" : null) }];
+      }
       return [];
     }
   };

@@ -598,13 +598,15 @@ export const CAPABILITY_NODES = Object.freeze([
       capabilityRef("lib/a-supplier-image-search-runtime-services.mjs", "supplierImageSearchAvailability", "图搜未配置门禁")],
     uiRefs: [capabilityRef("src/App.jsx", "startSourceCapture", "评审台采集桥接")],
     testRefs: [capabilityRef("tests/source-capture-job-api.test.mjs", "test(", "1688 作业 API 测试"),
+      capabilityRef("tests/source-capture-inline-context.test.mjs", "test(", "1688 内联 context 页面采集回归测试"),
       capabilityRef("tests/source-capture-review-api.test.mjs", "test(", "结果未知记录的主人核实出口测试"),
       capabilityRef("tests/a-supplier-image-search-contract.test.mjs", "test(", "图搜合同测试"),
       capabilityRef("tests/a-supplier-image-search-runner.test.mjs", "test(", "图搜执行边界测试"),
       capabilityRef("tests/a-supplier-image-search-runtime-services.test.mjs", "test(", "图搜配置门禁测试"),
       capabilityRef("tests/a-supplier-image-search-api.test.mjs", "test(", "图搜未配置API测试")],
     artifactRefs: ["extension/1688-capture/collector.js", "extension/1688-capture/capture-request.js", "extension/1688-capture/source-routing.js", "extension/1688-capture/manifest.json",
-      "schema/a-supplier-image-search-v1.schema.json", "tests/a-supplier-image-search-store.test.mjs", "tests/helpers/a-supplier-image-search-fixture.mjs"]
+      "schema/a-supplier-image-search-v1.schema.json", "tests/a-supplier-image-search-store.test.mjs", "tests/helpers/a-supplier-image-search-fixture.mjs",
+      "tests/fixtures/a-supplier-1688-inline-context-fixture.mjs"]
   }),
   capability({
     id: "2.4", capabilityId: "selection.a.evidence-assembly", areaId: "2",

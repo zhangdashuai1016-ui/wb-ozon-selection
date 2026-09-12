@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-11T12:12:54.576Z",
+  "frozenAt": "2026-09-12T11:17:17.764Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 647,
-      "sha256": "e97b1a0cf401da308ccdd75f282887b897a7bc2d2a0f92d7ca8265e0cda615ef",
+      "artifactCount": 649,
+      "sha256": "8a83b3a34e0d997bf171d0168b270f0c5caee9e5f6b09ec58907a559b08ffe80",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -40,7 +40,7 @@
       },
       {
         "path": "extension/1688-capture/background.js",
-        "sha256": "89912ce1ba3ceaae2964c2a3c5da7709df586d7fdc7f1669a6c5f7991284d967"
+        "sha256": "f24c2a117145ef203f9f5bc353f9e27887cd95d5ec74318f76b20d1c3fe01c60"
       },
       {
         "path": "extension/1688-capture/bridge.js",
@@ -48,7 +48,7 @@
       },
       {
         "path": "extension/1688-capture/capture-request.js",
-        "sha256": "71057f798aa0d0d27b1e77cee8ff533e7f66143197ad0247948675e7afbdbaeb"
+        "sha256": "fb7d573e76e9f2df8a1f032a837a4907a047e28d5cd55ca455ba5fa8e957a008"
       },
       {
         "path": "extension/1688-capture/collector-ozon.js",
@@ -56,7 +56,7 @@
       },
       {
         "path": "extension/1688-capture/collector.js",
-        "sha256": "be0f0dc54e14e03f130e7fa64ebbdc28fd375ca5b7aeeca0346eebe7c5a00c5a"
+        "sha256": "2cfef52e82ff5a2a3c4df5506ac7a9df7c3cb5e42ab930ff66b6cb26e17f4735"
       },
       {
         "path": "extension/1688-capture/manifest.json",
@@ -328,7 +328,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "f0fb95abdb81058907fbc652fddf49970706f098bcb74f2f237869761c946724"
+        "sha256": "f23e677f5e1dc3c6b185096e12d7193d6a1be617c841ca5d63bd74ce1322fe8c"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -1920,7 +1920,7 @@
       },
       {
         "path": "tests/extension-capture-request.test.mjs",
-        "sha256": "cd8e94e7ad285a42d70112f351b6c48b19f3b00c59fa1e2277c9b17b68222781"
+        "sha256": "e8baf3502416eb5caf3ee68f6e472eb3bb66051ce668de4cf07df213d0337af9"
       },
       {
         "path": "tests/extension-heartbeat-api.test.mjs",
@@ -1969,6 +1969,10 @@
       {
         "path": "tests/fixtures/a-product-detail-runtime-fixture.mjs",
         "sha256": "b1257cffc79119eed310e6db7b67f58f23e57f9dd3847b6cae46bd4c892f6772"
+      },
+      {
+        "path": "tests/fixtures/a-supplier-1688-inline-context-fixture.mjs",
+        "sha256": "12bc5b5ebe4e81d67b3b3e9befb3196129f90c5b628e2f4afe0b12dcf63f0b5c"
       },
       {
         "path": "tests/fixtures/b-cost-policy-fixture.mjs",
@@ -2539,6 +2543,10 @@
         "sha256": "fd74f606374e9213717efd8f539967d11c634819f6ac21dc19f87e614dd801ae"
       },
       {
+        "path": "tests/source-capture-inline-context.test.mjs",
+        "sha256": "4f36b741828c1ea64d2483d413aab22f0864df385d2a994c1645c93a3bdaa095"
+      },
+      {
         "path": "tests/source-capture-job-api.test.mjs",
         "sha256": "056849bdfb5427fa7c1041a1d71eac791225372ae2f4fa7b6eb77fc32f58f7be"
       },
@@ -2552,7 +2560,7 @@
       },
       {
         "path": "tests/source-capture.test.mjs",
-        "sha256": "7a37ce5c21a618bab798460ab61cf4e41afe4f3719acb98b0f162fe835999d0e"
+        "sha256": "14fca62f7d762b2bbff524e763d7adca84e6f5c63c231a61c9e21382d74f230b"
       },
       {
         "path": "tests/store-binding-api.test.mjs",
@@ -2951,7 +2959,15 @@
           "status": "present_in_integration_source"
         },
         {
+          "path": "tests/fixtures/a-supplier-1688-inline-context-fixture.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
           "path": "tests/helpers/a-supplier-image-search-fixture.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/source-capture-inline-context.test.mjs",
           "status": "present_in_integration_source"
         },
         {
