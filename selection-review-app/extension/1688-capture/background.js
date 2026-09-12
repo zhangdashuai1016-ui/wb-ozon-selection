@@ -39,7 +39,12 @@ function inspectCaptureTab(tab, payload) {
   const address = observed1688TabAddress(tab).value;
   if (!address) return null;
   const resolved = validateResolved1688Source(payload.sourceUrl, address, payload.expectedOfferId);
-  if (resolved && tab.status === "complete" && !tab.pendingUrl) return resolved;
+  // The offer document has committed — tab.url is this offer and nothing else is pending — so the collector can start.
+  // Waiting for the whole page to reach complete is what actually stopped the first real captures: a 1688 detail page
+  // loads in a background tab that Chrome throttles, and its load event did not arrive inside 15s or 25s. The collector
+  // polls the page for its own data and carries its own deadline, so an early start costs nothing, and the identity of
+  // what was read is re-checked against the browser's own address after extraction (2026-09-12).
+  if (resolved && !tab.pendingUrl) return resolved;
   const diagnostics = classify1688NavigationOutcome(address, {
     expectedOfferId: payload.expectedOfferId,
     navigationStage: tab.status === "complete" ? "page_complete" : "redirect_observed"

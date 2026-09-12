@@ -6,6 +6,7 @@ import {
   captureRequestErrorMessage,
   validateSupplierCaptureRequest
 } from "../extension/1688-capture/capture-request.js";
+import { waitForCaptureTab } from "../extension/1688-capture/background.js";
 import {
   CAPTURE_START_ACCEPTED_MESSAGE,
   CAPTURE_START_REJECTION_MESSAGES,
@@ -143,6 +144,25 @@ function validPayload(overrides = {}) {
     ...overrides
   };
 }
+
+const captureTab = overrides => ({ id: 7, url: "https://detail.1688.com/offer/943009939489.html", status: "complete", ...overrides });
+const captureJob = () => ({ captureId: "SCJ-t", candidateId: "candidate:x", token: "t", dataRevision: 1, attempt: 1,
+  mode: "a_supplier_capture", sourceUrl: "https://detail.1688.com/offer/943009939489.html", expectedOfferId: "943009939489",
+  requiredExtensionVersion: "1.2.7" });
+const fakeChrome = tab => ({ tabs: { onUpdated: { addListener() {}, removeListener() {} }, get: async () => tab } });
+
+test("目标页面一落地就可以开始采集，不必等整页加载完", async () => {
+  // 2026-09-12：前三次真实采集都停在「等待1688页面加载超时」。1688 详情页在被 Chrome 限速的后台标签里，15 秒、
+  // 25 秒都等不到 load 事件；而采集脚本本来就是在页面里边等边读的，所以只要这个商品页已经落地就该让它进去。
+  const loading = await waitForCaptureTab(fakeChrome(captureTab({ status: "loading" })), 7, captureJob(), { timeoutMs: 50 });
+  assert.equal(loading.sourceUrl, "https://detail.1688.com/offer/943009939489.html");
+  assert.equal(loading.offerId, "943009939489");
+  // 还在跳转途中（地址未定）时不能进去，那时候的文档还不是这个商品页。
+  await assert.rejects(
+    waitForCaptureTab(fakeChrome(captureTab({ status: "loading", pendingUrl: "https://detail.1688.com/offer/943009939489.html" })),
+      7, captureJob(), { timeoutMs: 50 }),
+    error => error?.code === "timeout");
+});
 
 test("采集用的定时器必须绑在全局上：Chrome 不允许把 setTimeout 当成对象方法调用", async () => {
   // 2026-09-12 主人的 Service Worker 控制台：Uncaught (in promise) TypeError: Illegal invocation at executeCapture。

@@ -55,7 +55,8 @@ export async function collect1688Page(expectedOfferId) {
   };
   const skuRowsPresent = () => document.querySelectorAll?.("#skuSelection .ant-table-tbody tr[data-row-key]")?.length > 0;
 
-  const deadline = Date.now() + 12000;
+  // 20s of in-page polling: the model JSON on a throttled background tab arrives well after the first paint.
+  const deadline = Date.now() + 20000;
   while (Date.now() < deadline && !pageBlocker() && !readPageData() && !skuRowsPresent()) await sleep(250);
 
   const blocker = pageBlocker();
