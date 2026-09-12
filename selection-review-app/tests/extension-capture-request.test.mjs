@@ -131,7 +131,8 @@ function validPayload(overrides = {}) {
   return {
     captureId: "SCJ-test",
     token: "one-time-token",
-    candidateId: "CANDIDATE-1",
+    // The real shape the service sends, colon and all; a synthetic id without it hid this contract for weeks.
+    candidateId: "candidate:2e417eaf-7207-4e89-b0d3-5f2c4d9eade3",
     dataRevision: 3,
     mode: "a_supplier_capture",
     sourceUrl: "https://qr.1688.com/s/Abc_123",
@@ -142,6 +143,20 @@ function validPayload(overrides = {}) {
     ...overrides
   };
 }
+
+test("服务端真实作业里的候选编号带冒号，插件必须接受它，不能因此丢弃作业", () => {
+  // 2026-09-12：主人连续四次申请采集全部失败，插件的结论码是 capture_job_invalid，插件一次页面都没打开。
+  // 根因就是这条身份校验：候选编号是 `candidate:<uuid>`，而当时的正则不许冒号，于是每一份真实作业都无效。
+  const real = validPayload({ candidateId: "candidate:2e417eaf-7207-4e89-b0d3-5f2c4d9eade3" });
+  assert.deepEqual(validateSupplierCaptureRequest({ payload: real, manifestVersion: "1.2.7" }).ok, true);
+  // 采集作业编号自己仍然是严格的那一套，冒号不属于它。
+  assert.equal(validateSupplierCaptureRequest({ payload: validPayload({ captureId: "SCJ:test" }), manifestVersion: "1.2.7" }).code, "request_payload_missing");
+  // 放宽只加了冒号和点：空格、斜杠、问号这些能改变请求含义的字符仍然被拒。
+  for (const bad of ["candidate:2e417 eaf", "candidate:../other", "candidate:2e417eaf?x=1", ""]) {
+    assert.equal(validateSupplierCaptureRequest({ payload: validPayload({ candidateId: bad }), manifestVersion: "1.2.7" }).code,
+      "request_payload_missing", `候选编号「${bad}」必须被拒`);
+  }
+});
 
 test("页面桥接请求按来源、字段、模式、revision和版本返回精确错误码", () => {
   assert.deepEqual(validateSupplierCaptureRequest({
