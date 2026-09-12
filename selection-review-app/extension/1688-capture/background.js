@@ -109,7 +109,12 @@ function validatedCollectedResult(collected, resolved, payload) {
  * Server authentication, durable lease/revision validation and no-replay remain mandatory.
  */
 export function createCaptureRuntime({ chromeApi, fetchImpl, clock = () => new Date().toISOString(), waitOptions,
-  jobTimerOptions = { setTimer: setTimeout, clearTimer: clearTimeout } } = {}) {
+  // Chrome's global timer functions refuse to run with anything but the global as their receiver: held as plain
+  // properties and then called as jobTimerOptions.setTimer(…), they throw TypeError: Illegal invocation. That threw
+  // where the capture deadline was created and again in the finally that cleared it, so the deadline never existed,
+  // the opened 1688 tab was never closed, no result was ever sent, and the worker stayed "capturing" for good — four
+  // captures the owner watched time out on 2026-09-11/12. The wrappers keep the calls on the global.
+  jobTimerOptions = { setTimer: (handler, delay) => setTimeout(handler, delay), clearTimer: timer => clearTimeout(timer) } } = {}) {
   let heartbeatPending = null;
   let alarmPending = null;
   let activeCapture = null;

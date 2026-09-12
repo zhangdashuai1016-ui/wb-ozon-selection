@@ -144,6 +144,19 @@ function validPayload(overrides = {}) {
   };
 }
 
+test("采集用的定时器必须绑在全局上：Chrome 不允许把 setTimeout 当成对象方法调用", async () => {
+  // 2026-09-12 主人的 Service Worker 控制台：Uncaught (in promise) TypeError: Illegal invocation at executeCapture。
+  // 默认值写成 { setTimer: setTimeout } 后，jobTimerOptions.setTimer(…) 的 this 是那个对象，Chrome 直接抛错：
+  // 超时没建起来、打开的 1688 标签没人关、结果从未回传、插件永远停在"采集中"。Node 不受这条限制，所以只能盯源码。
+  const source = await readFile(fileURLToPath(new URL("../extension/1688-capture/background.js", import.meta.url)), "utf8");
+  const defaults = source.match(/jobTimerOptions\s*=\s*\{[^}]*\}/);
+  assert.ok(defaults, "默认定时器选项的形状变了，这条契约需要重新对齐");
+  assert.doesNotMatch(defaults[0], /setTimer:\s*setTimeout\b/, "setTimer 不能直接持有全局 setTimeout");
+  assert.doesNotMatch(defaults[0], /clearTimer:\s*clearTimeout\b/, "clearTimer 不能直接持有全局 clearTimeout");
+  assert.match(defaults[0], /setTimer:\s*\(/, "setTimer 必须是包一层的函数，调用时留在全局上");
+  assert.match(defaults[0], /clearTimer:\s*(\(|\w+\s*=>)/, "clearTimer 必须是包一层的函数");
+});
+
 test("服务端真实作业里的候选编号带冒号，插件必须接受它，不能因此丢弃作业", () => {
   // 2026-09-12：主人连续四次申请采集全部失败，插件的结论码是 capture_job_invalid，插件一次页面都没打开。
   // 根因就是这条身份校验：候选编号是 `candidate:<uuid>`，而当时的正则不许冒号，于是每一份真实作业都无效。
