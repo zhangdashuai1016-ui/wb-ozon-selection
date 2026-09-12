@@ -52,7 +52,7 @@ function inspectCaptureTab(tab, payload) {
 }
 
 // Listen before reading the tab: a completion event between those steps must not be lost.
-export function waitForCaptureTab(chromeApi, tabId, payload, { timeoutMs = 15000, setTimer = setTimeout, clearTimer = clearTimeout, signal } = {}) {
+export function waitForCaptureTab(chromeApi, tabId, payload, { timeoutMs = 25000, setTimer = setTimeout, clearTimer = clearTimeout, signal } = {}) {
   return new Promise((resolve, reject) => {
     let settled = false;
     let timer;
@@ -167,14 +167,16 @@ export function createCaptureRuntime({ chromeApi, fetchImpl, clock = () => new D
       } catch { cleanupBlocked = "tab_cleanup_failed"; lastCaptureCode = "tab_cleanup_failed"; }
       finally { jobTimerOptions.clearTimer(closeTimer); }
     };
-    // 30s includes tab creation, navigation, extraction and final browser identity readback.
-    // With one 10s result POST this leaves room inside the existing 60s server lease.
+    // 40s includes tab creation, navigation, extraction and final browser identity readback. A 1688 detail page is
+    // heavy and Chrome throttles the background tab it loads in, so the first real capture (2026-09-12) ran out of the
+    // earlier 30s budget with the page still loading. With a 3s tab close and one 10s result POST this still finishes
+    // inside the server's 60s execution lease.
     let deadlineTimer;
     const deadline = new Promise((_resolve, reject) => {
       deadlineTimer = jobTimerOptions.setTimer(() => {
         cancellation.abort();
         reject(failure("timeout"));
-      }, 30000);
+      }, 40000);
     });
     const capture = async () => {
       const url = isOzonCaptureJob(payload)
