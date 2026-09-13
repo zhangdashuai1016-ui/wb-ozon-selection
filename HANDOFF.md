@@ -295,6 +295,24 @@
 - **绕行并验证（主人选 A）**：改用第二件 `candidate:f2e447df…`（3605840795 反光雨衣，1688 offer 772180461018，从未采过）。**14:07:21 领取 → 14:07:27 完成，6 秒**，拿到 **32 个规格、32 个全部带重量**（对比上午的 24 个 0 带重量）。这是整条链路第一次从头到尾无人工介入跑通：找货 → 采集 → 每个规格按自己的重量算运费与利润 → 等主人勾选。
 - 该件的真实规格表（目标售价 1455 卢布 → 佣金 12% 档、国内运费 ¥6、打包 25×35×2cm、GUOO Economy Extra Small）：最赚 黄色/黑色/米白 XL（货价 ¥23、0.103kg、运费 ¥6.26）**单件利润 ¥48.24、42%**；最少 反光迷彩色 8XL（¥46、0.24kg、运费 ¥10.11）**¥21.39、18%**。四色中反光迷彩色贵 ¥2。**注意：1455 卢布压在 1500 佣金档下沿，卖到 1501 就跳 14%。**
 
+### 2026-09-13 全天：四次部署，首件推进到 B 门前（r16 → r19）
+
+- **r17（13:57）选规格**：商品页「选定」展开成规格表（按单件利润排序、表头三态全选），每个规格按**自己的重量**算运费与利润（`lib/sku-choice-estimate.mjs`，与找货估算共用同一份官方输入）；`sanitize1688Evidence` 保住每规格重量；保存走新路由 `/lifecycle/sku-choice`（冻结 `sourceCapture.skuSelection`，刻意不写 `supplierOptionsV11`，否则堵死付费详情链路）。部署后发现**首件的 24 个规格是修复前采的、全部无重量**，且**无法重采**（a-confirm 的 `captureReadyForSameSource` 跳过建作业）。
+- **绕行验证（主人选 A）**：改用第二件 `candidate:f2e447df…`（3605840795 反光雨衣）→ **14:07:21 领取、14:07:27 完成，6 秒，32 个规格全部带重量**。整条链路第一次无人工介入跑通。真实数字：目标 1455₽ → 佣金 12% 档，最赚 黄色/黑色/米白 XL ¥48.33（42%），最少 反光迷彩色 8XL ¥21.48（18%）；各尺码保本价 658→1069₽、达标最低售价 820→1331₽。
+- **r18（22:00）三合一**：① 「重新采集」（`/source-capture/recapture`，复用同一套 enqueue/租约/开始信号；作废旧规格与已选定在同一次写入里）；② **新顶栏**（四个入口 + 店铺 + 一个状态指示器；三条状态合一但**任何异常都必须说出后果**；删掉跳旧工程页的「找一轮新品」；刷新数据/退出登录进「维护」；添加商品移到选品台）；③ 「算利润」步骤（整套核线 → 指定首个 → 其余排队，两项主人判断做成勾选，**以页面价为准并标出与找货填写的差额**）。
+- **r19（23:49）运输属性声明**：`lib/cargo-facts-declaration.mjs` 按真实证据提议 `batteryType/generalCargo/personalUse/irregularShape`，**判不定就不提议**（词表刻意偏宽，命中只让软件闭嘴）；新路由 `/lifecycle/cargo-facts`；把 `real-a-b-evidence-orchestration.mjs` 里写死的 `cargoFacts: null` 接成读候选声明。**主人口径：软件可以提议、不能替他签。**
+- **实测纠正**：真表第 12 行 `GUOO Economy Extra Small` 挂的是**受限线路**条款（异形件不收、只能走个人用品、配套电池禁运），不是"只接普货"（那是第 10 行 Express）。所以该线路要四项齐全才判 eligible。
+- 全天验证：全量 1997 → 2022 → 2036 → 2053 → **2070/2070**；快照 649 → **658**。五次部署的冷备、plist 逐键比对、重启核对都在各自小节。**`bootstrap` 在 bootout 之后普遍要重试 4–6 次**，已在脚本里按循环处理。
+
+### 首件卡在 B 的最后一道门：Ozon 页面取证从未接通（2026-09-14 00:0x 发现）
+
+- 主人在「算利润」点确认 → 服务端 **`B_EVIDENCE_CONTEXT_INCOMPLETE: 当前类目`**。
+- 根因：`lib/lifecycle-b-evidence-context.mjs` 的 `newestCategorySnapshot()` 只认 **`collectorMode === "real_page_read_only"`** 的销售快照。本候选有类目（`宠物用品 > 宠物服装和靴子 > 宠物服装`），但快照来自 Seerfar 接口（`collectorMode: provider_category_result_read_only`，`source: seerfar_category_detail`），B 不认。
+- 而 Ozon 页面采集**发起那一半从未接通**：`POST /api/candidates/:id/sales-capture/start` 现在是一行写死的 409 `sales_capture_claim_protocol_required`。**结果回传那一半（`/sales-capture/result`）是写好的**，插件侧 `collector-ozon.js`、`SELECTION_REVIEW_OZON_CAPTURE_REQUEST`、`isOzonCaptureJob` 也都在——缺的是服务端发起 + claim 路由认领销售采集会话。
+- 这是本项目第五次"软件要求一个前提，却没有任何地方能达成它"（前四次：waiting_extension 卡死、unknown_outcome 无出口、已采到无法重采、运输属性无处填，均已修）。
+- **1688 那条链路今天全部修通，可作为骨架复用**：作业、租约、开始信号、ACK 文案映射、启动对账、过期收口都是现成的形状。
+- 约束：`www.ozon.ru` 只能由**主人自己的浏览器**通过插件读取，遇到验证码/登录墙必须如实报 `site_verification_required` 停下，**不做任何绕过**。
+
 ### 下一步（需主人）
 
 1. **首件解封（只差主人一次点击）**：r16 已上线。主人 Cmd+Shift+R → 首件雨衣商品页 →「1688 采集」块 → 点「这次采集没有结果，我确认并重新申请」（一次点击完成 确认 → 重新建作业 → 给插件发开始信号）。若再失败，**先读插件自己的结论码**：在页面控制台 postMessage 一个 `SELECTION_REVIEW_EXTENSION_STATUS_PING`，回应里的 `lastCaptureCode` 就是插件的结论（空字符串 = 插件后台被 Chrome 回收，方向完全不同）。备选验证对象 `candidate:f2e447df…`（1457 卢布反光雨衣，无采集记录，不受守卫影响）。
