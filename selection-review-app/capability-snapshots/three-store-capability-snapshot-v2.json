@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-12T11:17:17.764Z",
+  "frozenAt": "2026-09-13T05:05:00.519Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 649,
-      "sha256": "8a83b3a34e0d997bf171d0168b270f0c5caee9e5f6b09ec58907a559b08ffe80",
+      "artifactCount": 651,
+      "sha256": "aed4c8484889c5a51e3beb4a31223e65c3fa2a9857a2980e9187084ecc21b0eb",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -328,7 +328,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "f23e677f5e1dc3c6b185096e12d7193d6a1be617c841ca5d63bd74ce1322fe8c"
+        "sha256": "6394c2f3eff8a8626596fb42d1ef7674315b27378efe8bfaac13bf43d4b046a7"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -807,6 +807,10 @@
         "sha256": "24bbde5214cc241c9cb799367d9cfacda861950759f77df92448a655b0931f20"
       },
       {
+        "path": "lib/sku-choice-estimate.mjs",
+        "sha256": "9f9c0620e1ca45159cafa9e722e04b91392dabe1268bcf8fe63d91fa516860f2"
+      },
+      {
         "path": "lib/software-execution-state.mjs",
         "sha256": "3158fd24e021221b8f064350aff7f7e719595fd585ce1ee4b290be6f2c72e32c"
       },
@@ -824,7 +828,7 @@
       },
       {
         "path": "lib/source-capture.mjs",
-        "sha256": "ef687d01b0c8f48495a3dcf547f21ecfbb5e696d5cbb03a68b7a20b7f4335c12"
+        "sha256": "c28daf8f6ebcb8027f02533b39208880ca7b86a76d1ab2a6d5c9274d3a6b5aa6"
       },
       {
         "path": "lib/store-binding.mjs",
@@ -832,7 +836,7 @@
       },
       {
         "path": "lib/supplier-draft.mjs",
-        "sha256": "0ed3967605b8e947a3fd482540dd5718cb7468247e6646ae983fc75300d2ce1f"
+        "sha256": "a261bed5b5de1a1ff4c1e20218405ac928f9feef51904ce65bee4b028f8861ed"
       },
       {
         "path": "lib/supplier-option.mjs",
@@ -1176,11 +1180,11 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "d7d73c8161c6dbdbfb7a601b000a878fffc4c5f65da617a90a19e97b6cc91449"
+        "sha256": "30762eeb34d777cdfae0c4dba5c88809bb42d9a0186c9603fadc304a03b145e7"
       },
       {
         "path": "src/App.jsx",
-        "sha256": "adec3549895b5e4543cf16791a620725f9c8e81a4cefbdba853ed9fea4d5c84d"
+        "sha256": "0ab6b1295064995f4b807d8a642feb4b7e0adcdb20a2338b9d50b8564c5e20cb"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1192,7 +1196,7 @@
       },
       {
         "path": "src/api.js",
-        "sha256": "20738c8933cf587e790b4bc037aecd2919738fd56af82608326e67a402ccf93b"
+        "sha256": "cd663ace03b6cf273d4e917a934b2e6e92f85eeb77150cdf4de75a0bc2c117ff"
       },
       {
         "path": "src/bExactCommissionInput.js",
@@ -1292,7 +1296,7 @@
       },
       {
         "path": "src/components/OwnerInbox.jsx",
-        "sha256": "d639949214701dfb7ea7f91c3782f6a6384e72d724bfa50e826b50edd018e64d"
+        "sha256": "a3117ff24d21bf9329bf466bb18382739aa15d6492c80d6a97405731fb649635"
       },
       {
         "path": "src/components/OzonAccountPreparationCard.jsx",
@@ -1324,7 +1328,7 @@
       },
       {
         "path": "src/components/ProductPage.jsx",
-        "sha256": "9f65dc5b9597c390bc0a4574bcdd894fcbe6dee59a7861c284a6a71df4a99ed3"
+        "sha256": "5789df06b1bb8af32440afa9789dea1ea6192da68634965d3e8c9dfc789716a2"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1420,11 +1424,11 @@
       },
       {
         "path": "src/selectionDeskView.js",
-        "sha256": "848d4bbd9399edf5daa94ee95440c4dc8e84f376b30f860390aea1401d6a3ff0"
+        "sha256": "605b4a1a0792e8ac98544e48e99f8a74824e18ce7a4ed683c5965ca5fce80664"
       },
       {
         "path": "src/styles.css",
-        "sha256": "f5fd31de27a78aa50bccc157f78cc2aa8c953d5916d0114d05337e9b199dd107"
+        "sha256": "68459bc54354deb2c11ec026b2ab17168f1a8cb60c954bd7f352375fccaf4976"
       },
       {
         "path": "src/wbPresentation.js",
@@ -2268,7 +2272,7 @@
       },
       {
         "path": "tests/owner-inbox-board-ui.test.mjs",
-        "sha256": "fb995ecb2d3e5022d4f701371a3e6c34f2eb32468cf8e568262cfeb91cd40eb8"
+        "sha256": "71f895d22e82c50421449cbcd37c0570792ab2096446ef9a4c53362bf8cc6615"
       },
       {
         "path": "tests/ozon-account-discovery-configuration.test.mjs",
@@ -2408,7 +2412,7 @@
       },
       {
         "path": "tests/product-page-ui.test.mjs",
-        "sha256": "4726087108a7c33f6e336c28fcd9ddd94d8e657622ea95aaa30e6e99ea62cbec"
+        "sha256": "01f48b9f42d86b51cdd614827619d99c0060a61d0214d1bfe4c12555876532be"
       },
       {
         "path": "tests/production-owner-decision-api.test.mjs",
@@ -2524,7 +2528,11 @@
       },
       {
         "path": "tests/selection-desk-view.test.mjs",
-        "sha256": "4bc0accbd0c6f2cb4f95dd6bcd5f32fcfb0d51c5d0f7a838df318c85472957e8"
+        "sha256": "f4480115eee03832f9adbb6d8ee508ef1887a098332fcd4f5ca4a43d3861c030"
+      },
+      {
+        "path": "tests/sku-choice-estimate.test.mjs",
+        "sha256": "ff1519c9e2165874fdec1ef413b65ac53929a726109e029b438739cb8b78cbba"
       },
       {
         "path": "tests/software-execution-state.test.mjs",
@@ -2560,7 +2568,7 @@
       },
       {
         "path": "tests/source-capture.test.mjs",
-        "sha256": "14fca62f7d762b2bbff524e763d7adca84e6f5c63c231a61c9e21382d74f230b"
+        "sha256": "48f27bce228b18017fb912b1b2aa766cab6aa4de187ea6b46270e9045c1997b1"
       },
       {
         "path": "tests/store-binding-api.test.mjs",
@@ -2576,7 +2584,7 @@
       },
       {
         "path": "tests/supplier-draft-api.test.mjs",
-        "sha256": "8136a566576f4d98e151da8374db765b980fed302de6ec582017ad2eac01fe95"
+        "sha256": "a367ab5900cae6d112af9499061812cd977764dcc4e62a7df02864aa2e2c0729"
       },
       {
         "path": "tests/supplier-draft.test.mjs",
@@ -2927,6 +2935,10 @@
           "status": "present_in_integration_source"
         },
         {
+          "path": "lib/sku-choice-estimate.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
           "path": "lib/source-capture.mjs",
           "status": "present_in_integration_source"
         },
@@ -2936,6 +2948,10 @@
         },
         {
           "path": "src/App.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/ProductPage.jsx",
           "status": "present_in_integration_source"
         },
         {
@@ -2964,6 +2980,10 @@
         },
         {
           "path": "tests/helpers/a-supplier-image-search-fixture.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/sku-choice-estimate.test.mjs",
           "status": "present_in_integration_source"
         },
         {
@@ -4714,6 +4734,7 @@
         "lib/a-discovery-estimate-store.mjs",
         "lib/discovery-market-snapshot.mjs",
         "lib/supplier-draft.mjs",
+        "lib/sku-choice-estimate.mjs",
         "src/selectionDeskView.js",
         "lib/discovery-title-translation.mjs",
         "lib/discovery-title-translation-store.mjs",
@@ -4742,6 +4763,7 @@
         "tests/discovery-market-snapshot.test.mjs",
         "tests/supplier-draft.test.mjs",
         "tests/supplier-draft-api.test.mjs",
+        "tests/sku-choice-estimate.test.mjs",
         "tests/product-page-ui.test.mjs",
         "tests/selection-desk-view.test.mjs",
         "tests/selection-desk-ui.test.mjs",

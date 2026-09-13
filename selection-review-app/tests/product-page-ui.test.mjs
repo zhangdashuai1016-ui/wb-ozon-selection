@@ -13,8 +13,13 @@ async function pageModule() {
     const output = await build({ configFile: false, logLevel: 'warn', plugins: [react(), { name: 'product-page-ui-test',
       resolveId: id => id === entry ? entry : null,
       load: id => id === entry ? `import React from 'react';import {renderToStaticMarkup} from 'react-dom/server';
-      import Page, {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload} from ${JSON.stringify(component)};
-      export {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload};export const render=props=>renderToStaticMarkup(<Page {...props}/>);` : null }],
+      import Page, {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload,
+        currentProductStep, skuChoiceReady, skuChoiceSaved, showsSkuChoice, skuChoiceHeadline, skuChoiceSwing,
+        skuChoiceSummary, selectAllState, skuChoicePayload, foldedStepLine, foldedStepState} from ${JSON.stringify(component)};
+      export {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload,
+        currentProductStep, skuChoiceReady, skuChoiceSaved, showsSkuChoice, skuChoiceHeadline, skuChoiceSwing,
+        skuChoiceSummary, selectAllState, skuChoicePayload, foldedStepLine, foldedStepState};
+      export const render=props=>renderToStaticMarkup(<Page {...props}/>);` : null }],
       ssr: { noExternal: true }, build: { ssr: true, write: false, rollupOptions: { input: entry, output: { format: 'es' } } } });
     const chunk = output.output.find(value => value.type === 'chunk' && value.isEntry);
     assert.ok(chunk);
@@ -320,4 +325,240 @@ test('商品页头部也能淘汰这件商品，已经淘汰的只说明在哪�
   const dropped = await render(props({ candidate: candidate({ workflowStatus: 'eliminated' }), onEliminateCandidate: forbidden }));
   assert.match(dropped, /已淘汰 · 在选品台的「已淘汰」里可以恢复/u);
   assert.doesNotMatch(dropped, /eliminate-button/u);
+});
+
+/* ── 选规格 ───────────────────────────────────────────────────────────────────────────────────────────────────────
+ * Synthetic display data only. The numbers below are the shape the server sends, not a second calculation: the money
+ * itself is proved against the saved GUOO table in tests/sku-choice-estimate.test.mjs.
+ */
+const choiceRow = (id, colour, size, priceCny, freightRmb, unitProfitRmb, marginRate, weightKg, stock, extra = {}) => ({
+  order: 0, sourceSkuId: id, propPath: null, attributes: { 颜色: colour, 尺码: size }, values: [colour, size],
+  label: `${colour} · ${size}`, imageUrl: null, priceCny, stock, inStock: stock > 0, weightKg,
+  weightSource: weightKg === null ? null : 'detailDescription.freightInfo.skuWeight',
+  chargeableKg: weightKg, route: weightKg === null ? null : 'GUOO Economy Extra Small', freightRmb,
+  allInPurchaseRmb: priceCny === null ? null : priceCny + 3.5, unitProfitRmb, marginRate,
+  passes: unitProfitRmb !== null, status: weightKg === null ? 'weight_missing' : 'ok',
+  missing: weightKg === null ? ['规格重量'] : [], ...extra
+});
+const choiceTable = (extra = {}) => ({
+  schemaVersion: 'sku-choice-table-v1', builtAt: '2026-09-13T01:00:01.000Z', columns: ['颜色', '尺码'],
+  rows: [
+    choiceRow('sku-xl-yellow', '黄色', 'XL（背长35cm）', 20.5, 6.26, 59.47, 0.467, 0.103, 494),
+    choiceRow('sku-8xl-yellow', '黄色', '8XL（背长72cm）', 41.5, 10.11, 34.62, 0.2718, 0.24, 468),
+    choiceRow('sku-8xl-beige', '米色', '8XL（背长72cm）', 41.5, null, null, null, null, 479)
+  ],
+  total: 3, pricedCount: 2, weightMissingCount: 1,
+  best: choiceRow('sku-xl-yellow', '黄色', 'XL（背长35cm）', 20.5, 6.26, 59.47, 0.467, 0.103, 494),
+  worst: choiceRow('sku-8xl-yellow', '黄色', '8XL（背长72cm）', 41.5, 10.11, 34.62, 0.2718, 0.24, 468),
+  profitDropRate: 0.4179, selectedSkuIds: [],
+  sources: {
+    targetSalePriceRub: 1600, rubPerCny: 12.5637, fxRateDate: '2026-09-12', fxSourceRef: 'cbr-xml-daily:R01375:2026-09-12',
+    commissionRate: 0.14, commissionTier: '1500_5000', commissionSourceRef: 'ozon-official-commission:2026-09-01:sha256:synthetic',
+    routes: ['GUOO Economy Extra Small'], tariffRuleVersion: 'guoo-2026-08-19', domesticShippingRmb: 3.5,
+    packagingRmbDefault: 3, labelCostRmb: 1.5,
+    reserveParts: { advertisingReserveRate: 0, returnOpsReserveRate: 0.05, damageLossReserveRate: 0.05, withdrawalFeeRate: 0.02 },
+    reserveRate: 0.12, dimensionsCm: { length: 25, width: 22, height: 2.5 }
+  },
+  ...extra
+});
+const waitingCapture = (extra = {}) => ({
+  captureId: 'SCJ-synthetic-choice', status: 'captured_waiting_owner_selection', mode: 'a_supplier_capture',
+  jobStatus: 'completed', offerId: '943009939489', sourceUrl: 'https://detail.1688.com/offer/943009939489.html',
+  observedAt: '2026-09-13T00:30:00.000Z', selectedSkuIds: [], writeOccurred: false,
+  skuChoices: [{ sourceSkuId: 'sku-xl-yellow' }, { sourceSkuId: 'sku-8xl-yellow' }, { sourceSkuId: 'sku-8xl-beige' }], ...extra
+});
+const choosingProps = (extra = {}, captureExtra = {}, tableExtra = {}) => props({
+  candidate: candidate({ sourceCapture: waitingCapture(captureExtra) }),
+  view: { supplierDraftV1: draft, supplierDraftEstimateV1: okEstimate, marketSnapshot, skuChoiceTableV1: choiceTable(tableExtra) },
+  onChooseSkus: forbidden, ...extra
+});
+
+test('插件采回来之后，商品页停在「选定」，这一步展开成规格选择表', async () => {
+  const { currentProductStep, skuChoiceReady, skuChoiceSaved, showsSkuChoice } = await pageModule();
+  const waiting = candidate({ sourceCapture: waitingCapture() });
+  assert.equal(skuChoiceReady(waiting), true);
+  assert.equal(skuChoiceSaved(waiting), false);
+  assert.equal(currentProductStep(waiting), 'select');
+  assert.equal(showsSkuChoice(waiting), true);
+  // 没采过、采失败、或者根本没有规格，这一步都不该打开。
+  assert.equal(skuChoiceReady(candidate()), false);
+  assert.equal(currentProductStep(candidate()), 'find');
+  assert.equal(skuChoiceReady(candidate({ sourceCapture: waitingCapture({ skuChoices: [] }) })), false);
+  assert.equal(skuChoiceReady(candidate({ sourceCapture: { status: 'waiting_extension', jobStatus: 'queued' } })), false);
+
+  const html = await render(choosingProps());
+  assert.match(html, /aria-current="step"[^>]*>[^<]*<span class="product-step-index">1<\/span>选定/u);
+  assert.match(html, /<section class="product-section product-sku-choice" aria-label="选规格">/u);
+  assert.match(html, /<h3>选哪个规格上架<\/h3>/u);
+  assert.match(html, /插件已经把这件1688货源的 3 个规格采回来了/u);
+  assert.match(html, /货源 1688 \/ 943009939489 · 目标售价 1600 卢布 · 2026-09-13 采到/u);
+  // 找货 folds away below it, complete, because those inputs still drive every row.
+  assert.match(html, /<details class="product-folded" aria-label="找货"><summary>找货<span class="product-folded-state">已保存<\/span><\/summary>/u);
+  assert.match(html, /id="supply-target-price"[^>]*value="1850"/u);
+  // 选定 is no longer one of the folded "未开始" steps.
+  assert.doesNotMatch(html, /<summary>选定/u);
+  assert.equal((html.match(/未开始/gu) ?? []).length, 4);
+  // 采回来之后，找货里那句「去申请采集」已经过去了：不再出现，也不再是被高亮的下一步。
+  assert.doesNotMatch(html, /下一步：/u);
+  assert.doesNotMatch(html, /product-capture product-next/u);
+  assert.doesNotMatch(html, /product-form product-next/u);
+});
+
+test('顶上一行结论用表里自己的两个数字：最赚和最少各自的单件利润', async () => {
+  const { skuChoiceHeadline, skuChoiceSwing } = await pageModule();
+  assert.equal(skuChoiceHeadline(choiceTable()), '同一件货，选错规格少赚 42%');
+  assert.equal(skuChoiceHeadline({ profitDropRate: null }), '同一件货，不同规格赚的不一样');
+  assert.equal(skuChoiceHeadline({ profitDropRate: 0 }), '同一件货，不同规格赚的不一样');
+  assert.deepEqual(skuChoiceSwing(choiceTable()).best, { label: '黄色 · XL（背长35cm）', unitProfitRmb: 59.47 });
+  assert.deepEqual(skuChoiceSwing(choiceTable()).worst, { label: '黄色 · 8XL（背长72cm）', unitProfitRmb: 34.62 });
+  assert.deepEqual(skuChoiceSwing({ best: null, worst: null }), { best: null, worst: null });
+
+  const html = await render(choosingProps());
+  assert.match(html, /<h4>同一件货，选错规格少赚 42%<\/h4>/u);
+  assert.match(html, /最赚 · 黄色 · XL（背长35cm）<\/span><strong>¥59\.47<\/strong>/u);
+  assert.match(html, /最少 · 黄色 · 8XL（背长72cm）<\/span><strong>¥34\.62<\/strong>/u);
+});
+
+test('表按单件利润从高到低列出九列，页面没给重量的那一行运费和利润写待补', async () => {
+  const html = await render(choosingProps());
+  assert.match(html, /<h4>3 个规格 · 按单件利润从高到低<\/h4>/u);
+  assert.match(html, /可以多选：同一件货源的不同尺码可以一起上架 · 表头方框是全选/u);
+  for (const header of ['颜色', '尺码', '货价', '计费重', '运费', '单件利润', '利润率', '库存']) {
+    assert.match(html, new RegExp(`<th scope="col">${header}</th>`, 'u'));
+  }
+  assert.match(html, /<td>黄色<\/td><td>XL（背长35cm）<\/td><td>¥20\.50<\/td><td>0\.103 公斤<\/td><td>¥6\.26<\/td><td class="product-sku-profit">¥59\.47<\/td><td>47%<\/td><td>494<\/td>/u);
+  assert.match(html, /<td>黄色<\/td><td>8XL（背长72cm）<\/td><td>¥41\.50<\/td><td>0\.24 公斤<\/td><td>¥10\.11<\/td><td class="product-sku-profit">¥34\.62<\/td><td>27%<\/td><td>468<\/td>/u);
+  // 页面没给重量：运费和利润留空写「待补」，绝不借另一条尺码的重量。
+  assert.match(html, /<td>米色<\/td><td>8XL（背长72cm）<\/td><td>¥41\.50<\/td><td>待补<\/td><td>待补<\/td><td class="product-sku-pending">待补<\/td><td>待补<\/td><td>479<\/td>/u);
+  assert.equal((html.match(/aria-label="选 /gu) ?? []).length, 3);
+});
+
+test('表头第一个方框是全选，全选、全不选、半选三种状态都如实写出来', async () => {
+  const { selectAllState } = await pageModule();
+  const rows = choiceTable().rows;
+  assert.equal(selectAllState([], rows), 'none');
+  assert.equal(selectAllState(['sku-xl-yellow'], rows), 'some');
+  assert.equal(selectAllState(rows.map(row => row.sourceSkuId), rows), 'all');
+  assert.equal(selectAllState(['sku-xl-yellow'], []), 'none');
+
+  const html = await render(choosingProps());
+  assert.match(html, /<input type="checkbox" id="sku-choice-all"[^>]*aria-checked="false"[^>]*aria-label="全选这 3 个规格"/u);
+  const saved = await render(choosingProps({}, { selectedSkuIds: ['sku-xl-yellow'] }, { selectedSkuIds: ['sku-xl-yellow'] }));
+  assert.match(saved, /id="sku-choice-all"[^>]*aria-checked="mixed"/u);
+  const all = await render(choosingProps({},
+    { selectedSkuIds: ['sku-xl-yellow', 'sku-8xl-yellow', 'sku-8xl-beige'] },
+    { selectedSkuIds: ['sku-xl-yellow', 'sku-8xl-yellow', 'sku-8xl-beige'] }));
+  assert.match(all, /id="sku-choice-all"[^>]*aria-checked="true"[^>]*checked=""/u);
+});
+
+test('底下一行说清已选几个、单件利润多少，没选时按钮点不动', async () => {
+  const { skuChoiceSummary, skuChoicePayload } = await pageModule();
+  const table = choiceTable();
+  assert.equal(skuChoiceSummary(table, []), '还没选。点一行前面的方框就行。');
+  assert.equal(skuChoiceSummary(table, ['sku-xl-yellow']), '已选 1 个规格 · 单件利润 ¥59.47 · 按 1600 卢布售价算');
+  assert.equal(skuChoiceSummary(table, ['sku-xl-yellow', 'sku-8xl-yellow']),
+    '已选 2 个规格 · 单件利润 ¥34.62 – ¥59.47 · 按 1600 卢布售价算');
+  assert.equal(skuChoiceSummary(table, ['sku-xl-yellow', 'sku-8xl-yellow', 'sku-8xl-beige']),
+    '已选 全部 3 个规格 · 单件利润 ¥34.62 – ¥59.47（其中 1 个待补） · 按 1600 卢布售价算');
+  assert.equal(skuChoiceSummary(table, ['sku-8xl-beige']), '已选 1 个规格 · 单件利润待补 · 按 1600 卢布售价算');
+  // 提交的是封闭输入：当前修订号，加上按表里顺序排好的规格。
+  assert.deepEqual(skuChoicePayload(table, ['sku-8xl-yellow', 'sku-xl-yellow'], 4),
+    { dataRevision: 4, sourceSkuIds: ['sku-xl-yellow', 'sku-8xl-yellow'] });
+  assert.deepEqual(skuChoicePayload(table, ['sku-not-here'], 4), { dataRevision: 4, sourceSkuIds: [] });
+
+  const html = await render(choosingProps());
+  assert.match(html, /<p class="product-sku-summary">还没选。点一行前面的方框就行。<\/p>/u);
+  assert.match(html, /<button[^>]*disabled[^>]*>选定这些规格<\/button>/u);
+  const picked = await render(choosingProps({}, { selectedSkuIds: ['sku-xl-yellow'] }, { selectedSkuIds: ['sku-xl-yellow'] }));
+  assert.match(picked, /已选 1 个规格 · 单件利润 ¥59\.47 · 按 1600 卢布售价算/u);
+  assert.match(picked, /<button[^>]*class="button primary"[^>]*>选定这些规格<\/button>/u);
+  assert.doesNotMatch(picked, /<button[^>]*disabled[^>]*>选定这些规格<\/button>/u);
+  assert.match(picked, /已经选定过 1 个规格，它们在这件商品的供货方案里/u);
+});
+
+test('数字来源那一栏照实给出这一轮真正用到的输入，没有写死的值', async () => {
+  const html = await render(choosingProps());
+  assert.match(html, /<dl class="product-pricing-facts product-sku-sources" aria-label="数字来源">/u);
+  assert.match(html, /<dt>目标售价<\/dt><dd>1600 卢布 · 你填的<\/dd>/u);
+  assert.match(html, /<dt>央行汇率<\/dt><dd>1 元 ≈ 12\.5637 卢布 · 2026-09-12<\/dd>/u);
+  assert.match(html, /<dt>Ozon 官方佣金<\/dt><dd>14% · 按你填的售价所在档<\/dd>/u);
+  assert.match(html, /<dt>物流线路<\/dt><dd>GUOO Economy Extra Small · guoo-2026-08-19 资费<\/dd>/u);
+  assert.match(html, /<dt>国内运费<\/dt><dd>¥3\.50 · 你填的<\/dd>/u);
+  assert.match(html, /<dt>包装 \+ 贴标<\/dt><dd>¥3\.00 \+ ¥1\.50<\/dd>/u);
+  assert.match(html, /<dt>店铺预留<\/dt><dd>12% · 退货5% 破损5% 提现2%<\/dd>/u);
+  assert.match(html, /<dt>规格重量<\/dt><dd>来自采集到的页面 · 每个规格各自的重量（有 1 个规格页面没给，运费和利润留空）<\/dd>/u);
+  // 官方输入缺一样就直说未取得，不给一个猜出来的数。
+  const bare = await render(choosingProps({}, {}, { sources: { ...choiceTable().sources, rubPerCny: null, commissionRate: null, routes: [] } }));
+  assert.match(bare, /<dt>央行汇率<\/dt><dd>未取得<\/dd>/u);
+  assert.match(bare, /<dt>Ozon 官方佣金<\/dt><dd>未取得 · 按你填的售价所在档<\/dd>/u);
+  assert.match(bare, /<dt>物流线路<\/dt><dd>未取得<\/dd>/u);
+});
+
+test('「选完会发生什么」把边界说全：锁进供货方案、进度条前进，不下单、不联系供应商、不写 Ozon', async () => {
+  const html = await render(choosingProps());
+  assert.match(html, /<strong>选完之后会发生什么：<\/strong>软件把你选中的规格锁进这件商品的供货方案，商品页的进度条从「选定」走到「算利润」。/u);
+  assert.match(html, /这一步<strong>不会<\/strong>下单、不会联系供应商、也不会向 Ozon 写任何东西。/u);
+  assert.match(html, /货价与库存来自这次采到的1688页面，运费按各规格自己的重量查国欧资费表，佣金取自 Ozon 官方表，汇率取自央行。/u);
+  // 内部词不出现在主人看的界面上。
+  for (const word of ['SKU', '批次', '修订', '作业', 'dataRevision']) assert.doesNotMatch(html, new RegExp(word, 'u'));
+});
+
+test('选定之后进度条走到「算利润」，选定这一步记成已完成', async () => {
+  const { currentProductStep, skuChoiceSaved, foldedStepLine, foldedStepState } = await pageModule();
+  const chosen = candidate({ sourceCapture: waitingCapture({ selectedSkuIds: ['sku-xl-yellow', 'sku-8xl-yellow'] }) });
+  assert.equal(skuChoiceSaved(chosen), true);
+  assert.equal(currentProductStep(chosen), 'profit');
+  assert.equal(foldedStepState('select', 'profit', chosen), '已完成');
+  assert.equal(foldedStepLine('select', 'profit', chosen), '已选定 2 个规格，已经锁进这件商品的供货方案。');
+  assert.equal(foldedStepState('copy', 'profit', chosen), '未开始');
+  assert.equal(foldedStepLine('copy', 'profit', chosen), '等前面的步骤完成后再开始。');
+  assert.equal(foldedStepLine('profit', 'profit', chosen), '这一步的详细界面还在旧版页面里，先用「打开旧版A卡」查看。');
+
+  const html = await render(choosingProps({ candidate: chosen }, {}, { selectedSkuIds: ['sku-xl-yellow', 'sku-8xl-yellow'] }));
+  assert.match(html, /aria-current="step"[^>]*>[^<]*<span class="product-step-index">3<\/span>算利润/u);
+  // 表还在，主人随时能改主意；A确认之后才收起来。
+  assert.match(html, /<section class="product-section product-sku-choice" aria-label="选规格">/u);
+  const confirmed = candidate({ sourceCapture: waitingCapture({ selectedSkuIds: ['sku-xl-yellow'] }),
+    lifecycleV11: { aConfirmationReceipt: { decision: 'confirm' } } });
+  assert.equal(currentProductStep(confirmed), 'profit');
+  const after = await render(choosingProps({ candidate: confirmed }, {}, { selectedSkuIds: ['sku-xl-yellow'] }));
+  assert.doesNotMatch(after, /选哪个规格上架/u);
+  assert.match(after, /<summary>选定<span class="product-folded-state">已完成<\/span><\/summary>/u);
+  assert.match(after, /已选定 1 个规格，已经锁进这件商品的供货方案。/u);
+});
+
+test('还没保存找货资料就采回来了：直说算不出来该先做什么，不给一张假的表', async () => {
+  const html = await render(props({ candidate: candidate({ sourceCapture: waitingCapture() }),
+    view: { supplierDraftV1: null, supplierDraftEstimateV1: null, marketSnapshot, skuChoiceTableV1: null } }));
+  assert.match(html, /<h3>选哪个规格上架<\/h3>/u);
+  assert.match(html, /但现在还算不出每个规格的运费和利润：/u);
+  assert.match(html, /先把下面「找货」里的资料填好保存一次，这里就会按每个规格自己的重量算给你看。/u);
+  assert.doesNotMatch(html, /按单件利润从高到低/u);
+  assert.doesNotMatch(html, /选定这些规格/u);
+  // 找货已经填过、但官方输入还缺一样：说的是缺哪一类，不是让主人再填一次表。
+  const saved = await render(props({ candidate: candidate({ sourceCapture: waitingCapture() }),
+    view: { supplierDraftV1: draft, supplierDraftEstimateV1: okEstimate, marketSnapshot, skuChoiceTableV1: null } }));
+  assert.match(saved, /汇率、佣金、资费表或本店成本规则里还缺东西/u);
+  assert.doesNotMatch(saved, /先把下面「找货」里的资料填好保存一次/u);
+});
+
+test('采集刚刚回来时商品页会自己重读这一步，不停在「还没有规格」上', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const app = await readFile(fileURLToPath(new URL('../src/App.jsx', import.meta.url)), 'utf8');
+  assert.match(app, /const productRevision=view==='product'/u);
+  assert.match(app, /\[view,accountOwnerId,selectedId,productDraftRefresh,productRevision\]/u,
+    '保存记录的修订号一变，这一步就重读一次服务端');
+});
+
+test('选规格走商品页原有的那条保存通道，只发规格和当前修订号，不触发任何派发', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const app = await readFile(fileURLToPath(new URL('../src/App.jsx', import.meta.url)), 'utf8');
+  const apiClient = await readFile(fileURLToPath(new URL('../src/api.js', import.meta.url)), 'utf8');
+  assert.match(apiClient, /chooseSourceSkus: \(candidateId, payload\) =>/u);
+  assert.match(apiClient, /lifecycle\/sku-choice/u);
+  assert.match(app, /onChooseSkus=\{payload => runProductStep\(api\.chooseSourceSkus, payload\)\}/u);
+  // 旧的 select-sku 接口（它会派发C阶段）没有被商品页接上。
+  assert.doesNotMatch(app, /onChooseSkus=\{payload => runProductStep\(api\.selectSourceCaptureSku/u);
+  // 保存走的是商品页原有的那条通道：保存完留在本页，本页的提示位说结果。
+  assert.match(app, /async function runProductStep\(action,payload\)\{/u);
 });

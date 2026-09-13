@@ -135,6 +135,14 @@ export default function App() {
   const [productDraftError,setProductDraftError]=useState(null);
   const [productDraftRefresh,setProductDraftRefresh]=useState(0);
   const productDraftReads=useRef(createLatestRead());
+  /**
+   * The step data follows the saved record. When the poll sees a newer revision for the product on screen — the
+   * capture the owner was waiting for just came back with its specifications — the step is read again, instead of
+   * leaving the page saying it has nothing to show while the server already holds the answer.
+   */
+  const productRevision=view==='product'
+    ? state.candidates.find(item=>item.id===selectedId)?.dataRevision??null
+    : null;
   // Switching products clears the previous product's draft; a refresh of the same product keeps what is on screen.
   useEffect(()=>{setProductDraftView(null);},[selectedId]);
   useEffect(()=>{
@@ -144,7 +152,7 @@ export default function App() {
     productDraftReads.current.run(signal=>api.getSupplierDraft(selectedId,signal),setProductDraftView,{signal:controller.signal})
       .catch(error=>{if(!controller.signal.aborted)setProductDraftError(errorMessage(error));});
     return ()=>{controller.abort();productDraftReads.current.cancel();};
-  },[view,accountOwnerId,selectedId,productDraftRefresh]);
+  },[view,accountOwnerId,selectedId,productDraftRefresh,productRevision]);
   async function runProductStep(action,payload){
     const ownerId=accountOwnerId,candidateId=selectedId;
     const result=await productDraftReads.current.run(()=>action(candidateId,payload),next=>{
@@ -405,20 +413,6 @@ export default function App() {
     currentView.current={queue:candidate.workflowStatus,sourceFilter:'all'};
     // The desk, the board and the inbox all open the owner-facing product page; the old A card stays under 维护.
     setQueue(candidate.workflowStatus);setSourceFilter('all');setSelectedId(candidateId);setView('product');
-  }
-  /** Choosing a captured 1688 size still lives on the old A card, so that one inbox row goes straight there. */
-  async function openLegacyCandidate(candidateId){
-    const ownerId=accountOwnerId;
-    const next=await load(true);
-    if(accountContext.current.ownerId!==ownerId||!CANDIDATE_LINK_VIEWS.includes(accountContext.current.view))return;
-    const candidate=next?.candidates.find(value=>value.id===candidateId);
-    if(!candidate){
-      setNotice({type:'error',message:'这件商品没能从当前保存记录里读出来，请刷新数据后再打开。'});
-      return;
-    }
-    selectionGuard.current.changed();
-    currentView.current={queue:candidate.workflowStatus,sourceFilter:'all'};
-    setQueue(candidate.workflowStatus);setSourceFilter('all');setSelectedId(candidateId);setView('review');
   }
   /**
    * 淘汰 / 恢复 from any list. The write carries the revision the list rendered, so a stale page is refused with 409
@@ -945,7 +939,6 @@ export default function App() {
             onEliminateCandidate={eliminateCandidate} onRestoreCandidate={restoreCandidate} />
         ) : view === "inbox" ? (
           <OwnerInbox candidates={state.candidates} store={deskStore} onOpenCandidate={openDiscoveredCandidate}
-            onOpenLegacyCandidate={openLegacyCandidate}
             onEliminateCandidate={eliminateCandidate} onRestoreCandidate={restoreCandidate} />
         ) : (
           <div className="page-panel">
@@ -964,6 +957,7 @@ export default function App() {
           extensionStatus={effectiveExtensionStatus}
           loadingLabel={productDraftError ? `读取这件商品的找货资料失败：${productDraftError}` : "正在读取这件商品的找货资料…"}
           onSaveDraft={payload => runProductStep(api.saveSupplierDraft, payload)}
+          onChooseSkus={payload => runProductStep(api.chooseSourceSkus, payload)}
           onRequestCapture={payload => requestProductCapture(payload)}
           onReviewCaptureAndRequest={payload => reviewCaptureAndRequest(payload)}
           onOpenLegacyCard={() => setView("review")}

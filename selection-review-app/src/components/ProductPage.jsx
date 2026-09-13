@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { errorMessage } from "../formState.js";
 import { storeLabel } from "../selectionDeskView.js";
+import { toggleLocalSupplierSkuSelection } from "../aSupplierCaptureSelection.js";
 import EliminateControl from "./EliminateControl.jsx";
 
 /**
@@ -26,6 +27,22 @@ const dayOf = value => (typeof value === "string" && Number.isFinite(Date.parse(
 const textOf = value => (typeof value === "string" && value.trim() !== "" ? value.trim() : "");
 const numberField = value => (finite(value) === null ? "" : String(value));
 
+/**
+ * 选定 is open exactly while the extension has left a set of specifications on this product and the owner has not
+ * chosen from it yet. Nothing else opens it: a product with no capture, or a capture that failed, has nothing to pick.
+ */
+export function skuChoiceReady(candidate) {
+  const capture = candidate?.sourceCapture;
+  return isObject(capture) && capture.status === "captured_waiting_owner_selection" &&
+    Array.isArray(capture.skuChoices) && capture.skuChoices.length > 0;
+}
+
+/** The owner already chose, and the chosen specifications are frozen into this product's supply plan. */
+export function skuChoiceSaved(candidate) {
+  const ids = candidate?.sourceCapture?.selectedSkuIds;
+  return skuChoiceReady(candidate) && Array.isArray(ids) && ids.length > 0;
+}
+
 /** The step the owner is actually on. Supply is confirmed only once the lifecycle froze an A confirmation. */
 export function currentProductStep(candidate) {
   if (candidate?.workflowStatus === "listed") return "readback";
@@ -35,7 +52,16 @@ export function currentProductStep(candidate) {
   if (phase.startsWith("C")) return "copy";
   if (phase.startsWith("B")) return "profit";
   if (candidate?.lifecycleV11?.aConfirmationReceipt?.decision === "confirm") return "profit";
+  // 插件采回来了就轮到主人挑规格；挑完这一步就做完，页面接着往下走。
+  if (skuChoiceReady(candidate)) return skuChoiceSaved(candidate) ? "profit" : "select";
   return "find";
+}
+
+/** 选定 stays on screen while the chosen specifications are still the owner's to change. */
+export function showsSkuChoice(candidate) {
+  if (!skuChoiceReady(candidate)) return false;
+  if (candidate?.lifecycleV11?.aConfirmationReceipt?.decision === "confirm") return false;
+  return ["select", "profit"].includes(currentProductStep(candidate));
 }
 
 /**
@@ -243,6 +269,191 @@ function PricingGuidance({ guidance }) {
   </div>;
 }
 
+/* ── 选规格 ───────────────────────────────────────────────────────────────────────────────────────────────────────
+ * The table the owner picks from. Every number in it was worked out on the server, by the same engine and the same
+ * official inputs as the 找货 estimate above; this file only decides how to say it. 待补 means the captured page never
+ * declared that specification's weight — the software leaves the freight and the profit empty instead of borrowing
+ * another specification's weight.
+ */
+const PENDING = "待补";
+const yuanOr = value => money(value) ?? PENDING;
+
+/** The one-line conclusion, in the table's own two numbers. */
+export function skuChoiceHeadline(table) {
+  const drop = finite(table?.profitDropRate);
+  return drop === null || drop <= 0
+    ? "同一件货，不同规格赚的不一样"
+    : `同一件货，选错规格少赚 ${Math.round(drop * 100)}%`;
+}
+
+/** 最赚 / 最少, each named by its own specification. */
+export function skuChoiceSwing(table) {
+  const point = row => (isObject(row) && finite(row.unitProfitRmb) !== null
+    ? { label: textOf(row.label) || String(row.sourceSkuId ?? ""), unitProfitRmb: row.unitProfitRmb } : null);
+  return { best: point(table?.best), worst: point(table?.worst) };
+}
+
+/** 全选 is a three-state box: all, none, or part of the list. */
+export function selectAllState(chosen, rows) {
+  const ids = (Array.isArray(rows) ? rows : []).map(row => String(row.sourceSkuId));
+  const picked = ids.filter(id => (Array.isArray(chosen) ? chosen : []).map(String).includes(id)).length;
+  if (picked === 0 || ids.length === 0) return "none";
+  return picked === ids.length ? "all" : "some";
+}
+
+/** What is chosen right now, and what that earns per item. */
+export function skuChoiceSummary(table, chosen) {
+  const rows = Array.isArray(table?.rows) ? table.rows : [];
+  const ids = (Array.isArray(chosen) ? chosen : []).map(String);
+  const picked = rows.filter(row => ids.includes(String(row.sourceSkuId)));
+  if (picked.length === 0) return "还没选。点一行前面的方框就行。";
+  const head = `已选 ${picked.length === rows.length && rows.length > 1 ? "全部 " : ""}${picked.length} 个规格`;
+  const price = finite(table?.sources?.targetSalePriceRub) === null ? "" : ` · 按 ${table.sources.targetSalePriceRub} 卢布售价算`;
+  const profits = picked.map(row => finite(row.unitProfitRmb)).filter(value => value !== null);
+  if (profits.length === 0) return `${head} · 单件利润${PENDING}${price}`;
+  const low = Math.min(...profits);
+  const high = Math.max(...profits);
+  const range = low === high ? money(low) : `${money(low)} – ${money(high)}`;
+  const pending = picked.length - profits.length;
+  return `${head} · 单件利润 ${range}${pending > 0 ? `（其中 ${pending} 个${PENDING}）` : ""}${price}`;
+}
+
+/** Closed submission: the current revision and the specifications the owner ticked, in the order they are listed. */
+export function skuChoicePayload(table, chosen, dataRevision) {
+  const ids = (Array.isArray(chosen) ? chosen : []).map(String);
+  const rows = Array.isArray(table?.rows) ? table.rows : [];
+  return { dataRevision, sourceSkuIds: rows.map(row => String(row.sourceSkuId)).filter(id => ids.includes(id)) };
+}
+
+/** The sentence a finished step shows once it is folded away. */
+export function foldedStepLine(stepKey, step, candidate) {
+  if (stepKey === "select" && skuChoiceSaved(candidate)) {
+    return `已选定 ${candidate.sourceCapture.selectedSkuIds.length} 个规格，已经锁进这件商品的供货方案。`;
+  }
+  return stepKey === step
+    ? "这一步的详细界面还在旧版页面里，先用「打开旧版A卡」查看。"
+    : "等前面的步骤完成后再开始。";
+}
+
+export function foldedStepState(stepKey, step, candidate) {
+  if (stepKey === "select" && skuChoiceSaved(candidate)) return "已完成";
+  return stepKey === step ? "进行中" : "未开始";
+}
+
+/** Where every number in the table came from, in the owner's words and the records' own values. */
+function SkuChoiceSources({ table }) {
+  const source = table.sources;
+  const parts = source.reserveParts;
+  return <dl className="product-pricing-facts product-sku-sources" aria-label="数字来源">
+    <div><dt>目标售价</dt><dd>{RUB(source.targetSalePriceRub)} · 你填的</dd></div>
+    <div><dt>央行汇率</dt><dd>{finite(source.rubPerCny) === null ? "未取得"
+      : `1 元 ≈ ${source.rubPerCny} 卢布${textOf(source.fxRateDate) ? ` · ${source.fxRateDate}` : ""}`}</dd></div>
+    <div><dt>Ozon 官方佣金</dt><dd>{percent(source.commissionRate) ?? "未取得"} · 按你填的售价所在档</dd></div>
+    <div><dt>物流线路</dt><dd>{source.routes.length === 0 ? "未取得"
+      : `${source.routes.join(" / ")}${textOf(source.tariffRuleVersion) ? ` · ${source.tariffRuleVersion} 资费` : ""}`}</dd></div>
+    <div><dt>国内运费</dt><dd>{money(source.domesticShippingRmb) ?? "未取得"} · 你填的</dd></div>
+    <div><dt>包装 + 贴标</dt><dd>{money(source.packagingRmbDefault) ?? "未取得"} + {money(source.labelCostRmb) ?? "未取得"}</dd></div>
+    <div><dt>店铺预留</dt><dd>{percent(source.reserveRate) ?? "未取得"} · 退货{percent(parts.returnOpsReserveRate)}
+      {" "}破损{percent(parts.damageLossReserveRate)} 提现{percent(parts.withdrawalFeeRate)}</dd></div>
+    <div><dt>规格重量</dt><dd>来自采集到的页面 · 每个规格各自的重量{table.weightMissingCount > 0
+      ? `（有 ${table.weightMissingCount} 个规格页面没给，运费和利润留空）` : ""}</dd></div>
+  </dl>;
+}
+
+/**
+ * The 选定 step itself.
+ * The owner ticks specifications and presses one button. Nothing here starts work, contacts anyone, or reaches a
+ * platform; the checkboxes are local until that button is pressed.
+ */
+function SkuChoiceSection({ candidate, table, chosen, saving, onToggle, onToggleAll, onSubmit }) {
+  const capture = candidate.sourceCapture;
+  const swing = skuChoiceSwing(table);
+  const allState = selectAllState(chosen, table.rows);
+  const columns = table.columns.length > 0 ? table.columns : ["规格"];
+  const savedIds = Array.isArray(capture.selectedSkuIds) ? capture.selectedSkuIds : [];
+  return <section className="product-section product-sku-choice" aria-label="选规格">
+    <h3>选哪个规格上架</h3>
+    <p className="product-section-hint">{`插件已经把这件1688货源的 ${table.total} 个规格采回来了。它们货价不同、重量不同，所以运费和利润也不同——这一步就是让你按利润挑，而不是自己去1688页面上对着表格数。`}</p>
+    <p className="product-sku-offer">货源 1688 / {textOf(capture.offerId) || "未取得"}
+      {` · 目标售价 ${RUB(table.sources.targetSalePriceRub)}`}
+      {dayOf(capture.observedAt) ? ` · ${dayOf(capture.observedAt)} 采到` : ""}</p>
+
+    <div className="product-sku-verdict">
+      <div className="product-sku-verdict-lede">
+        <h4>{skuChoiceHeadline(table)}</h4>
+        <p>每个规格的货价和重量都不一样，运费按各自的重量算，落到手里的利润也就不一样。</p>
+      </div>
+      <div className="product-sku-swing">
+        <div className="product-sku-swing-high"><span>最赚 · {swing.best === null ? "未取得" : swing.best.label}</span>
+          <strong>{swing.best === null ? PENDING : money(swing.best.unitProfitRmb)}</strong></div>
+        <div className="product-sku-swing-low"><span>最少 · {swing.worst === null ? "未取得" : swing.worst.label}</span>
+          <strong>{swing.worst === null ? PENDING : money(swing.worst.unitProfitRmb)}</strong></div>
+      </div>
+    </div>
+
+    <div className="product-sku-table-head">
+      <h4>{table.total} 个规格 · 按单件利润从高到低</h4>
+      <span>可以多选：同一件货源的不同尺码可以一起上架 · 表头方框是全选</span>
+    </div>
+    <div className="product-pricing-scroll">
+      <table className="product-pricing-ladder product-sku-table">
+        <thead>
+          <tr>
+            <th scope="col">
+              <input type="checkbox" id="sku-choice-all" checked={allState === "all"} disabled={saving}
+                aria-checked={allState === "all" ? "true" : allState === "some" ? "mixed" : "false"}
+                aria-label={`全选这 ${table.total} 个规格`}
+                ref={node => { if (node) node.indeterminate = allState === "some"; }}
+                onChange={event => onToggleAll(event.target.checked)} />
+            </th>
+            {columns.map(key => <th scope="col" key={key}>{key}</th>)}
+            <th scope="col">货价</th><th scope="col">计费重</th><th scope="col">运费</th>
+            <th scope="col">单件利润</th><th scope="col">利润率</th><th scope="col">库存</th>
+          </tr>
+        </thead>
+        <tbody>
+          {table.rows.map(row => {
+            const picked = chosen.includes(String(row.sourceSkuId));
+            return <tr key={row.sourceSkuId} className={picked ? "product-sku-row product-sku-row-on" : "product-sku-row"}>
+              <td>
+                <input type="checkbox" checked={picked} disabled={saving} aria-label={`选 ${row.label}`}
+                  onChange={event => onToggle(row.sourceSkuId, event.target.checked)} />
+              </td>
+              {table.columns.length > 0
+                ? table.columns.map((key, index) => <td key={key}>{textOf(row.values[index]) || "—"}</td>)
+                : <td>{row.label}</td>}
+              <td>{yuanOr(row.priceCny)}</td>
+              <td>{finite(row.chargeableKg) === null ? PENDING : `${row.chargeableKg} 公斤`}</td>
+              <td>{yuanOr(row.freightRmb)}</td>
+              {/* 待补 is not a profit, so it never wears the profit's colour. */}
+              <td className={row.unitProfitRmb === null ? "product-sku-pending" : "product-sku-profit"}>{yuanOr(row.unitProfitRmb)}</td>
+              <td>{percent(row.marginRate) ?? PENDING}</td>
+              <td>{row.stock === null ? "未取得" : String(row.stock)}</td>
+            </tr>;
+          })}
+        </tbody>
+      </table>
+    </div>
+
+    <div className="product-sku-chosen">
+      <p className="product-sku-summary">{skuChoiceSummary(table, chosen)}</p>
+      <button type="button" className="button primary" disabled={saving || chosen.length === 0}
+        onClick={onSubmit}>选定这些规格</button>
+    </div>
+    {savedIds.length > 0
+      ? <p className="product-sku-saved">已经选定过 {savedIds.length} 个规格，它们在这件商品的供货方案里；再点一次「选定这些规格」就按你现在勾的改。</p>
+      : null}
+
+    <SkuChoiceSources table={table} />
+
+    <p className="product-sku-foot">
+      <strong>选完之后会发生什么：</strong>{"软件把你选中的规格锁进这件商品的供货方案，商品页的进度条从「选定」走到「算利润」。这一步"}
+      <strong>不会</strong>{"下单、不会联系供应商、也不会向 Ozon 写任何东西。"}
+    </p>
+    <p className="product-result-provenance">{"表里每个数字都能追到来源：货价与库存来自这次采到的1688页面，运费按各规格自己的重量查国欧资费表，佣金取自 Ozon 官方表，汇率取自央行。"}</p>
+  </section>;
+}
+
 const NUMBER_PATTERN = /^\d+(?:\.\d+)?$/;
 const positiveInput = value => NUMBER_PATTERN.test(String(value).trim()) && Number(value) > 0;
 const nonNegativeInput = value => NUMBER_PATTERN.test(String(value).trim()) && Number(value) >= 0;
@@ -294,18 +505,22 @@ function Field({ id, label, hint, value, error, onChange, type = "text", placeho
 
 export default function ProductPage({
   candidate, view = null, titleZh = null, extensionStatus = null,
-  onSaveDraft, onRequestCapture, onReviewCaptureAndRequest, onOpenLegacyCard, onBack, onEliminateCandidate,
+  onSaveDraft, onChooseSkus, onRequestCapture, onReviewCaptureAndRequest, onOpenLegacyCard, onBack, onEliminateCandidate,
   loadingLabel = "正在读取这件商品的找货资料…"
 }) {
   const draft = view?.supplierDraftV1 ?? null;
   const marketSnapshot = view?.marketSnapshot ?? null;
+  const skuTable = view?.skuChoiceTableV1 ?? null;
   // The form follows the saved draft: when the server returns a newer declaration, the fields show that declaration.
   const prefillKey = `${candidate?.id ?? ""}:${candidate?.dataRevision ?? ""}:${draft?.declaredAt ?? "none"}`;
   const [form, setForm] = useState(() => draftFormState({ draft, candidate, marketSnapshot }));
+  // The ticks follow the saved choice the same way: a newer revision shows what the server actually holds.
+  const [chosen, setChosen] = useState(() => (skuTable?.selectedSkuIds ?? []).map(String));
   const [prefilled, setPrefilled] = useState(prefillKey);
   if (prefilled !== prefillKey) {
     setPrefilled(prefillKey);
     setForm(draftFormState({ draft, candidate, marketSnapshot }));
+    setChosen((skuTable?.selectedSkuIds ?? []).map(String));
   }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -314,12 +529,15 @@ export default function ProductPage({
   const invalid = Object.keys(errors).length > 0;
   const step = currentProductStep(candidate);
   const next = nextProductAction(view);
+  const choosing = showsSkuChoice(candidate);
   const estimate = estimateLines(view?.supplierDraftEstimateV1 ?? null);
   const reviewRequired = captureNeedsOwnerReview(candidate);
-  // 被挡住的时候，「下一步」不能再指向一个点不动的按钮。
-  const nextHint = reviewRequired && next.key === "capture"
-    ? "下一步：先确认下面那条「结果未知」的采集记录，才能重新申请采集。"
-    : next.hint;
+  // 采回来之后，下一步就是上面那张表；找货里那句「去申请采集」已经过去了，不能再高亮，也不能再说。
+  const highlight = choosing ? null : next.key;
+  const nextHint = choosing ? null
+    : reviewRequired && next.key === "capture"
+      ? "下一步：先确认下面那条「结果未知」的采集记录，才能重新申请采集。"
+      : next.hint;
   const snapshotLine = marketSnapshotLine(marketSnapshot);
   const change = key => value => { setForm(current => ({ ...current, [key]: value })); setNotice(null); };
 
@@ -336,6 +554,68 @@ export default function ProductPage({
   const extensionCode = extensionStatus?.code ?? "disconnected";
   const extensionConnected = extensionCode === "connected";
   const title = textOf(titleZh) || textOf(candidate.productName) || candidate.id;
+
+  /**
+   * 找货 — unchanged. It is the open step until the extension comes back with specifications; after that it folds away
+   * below 选规格, still complete, because changing the target price or the packing size changes every row of that table.
+   */
+  const findBody = <>
+    <p className="product-section-hint">把1688上找到的这件货填进来。下面每个数字都算你自己填的，软件只按它们算钱，不会替你猜。</p>
+    <div className={`product-form${highlight === "form" ? " product-next" : ""}`}>
+      <Field id="supply-source-url" label="1688 商品链接" value={form.sourceUrl} error={errors.sourceUrl}
+        hint="详情页链接或分享短链都可以" placeholder="https://detail.1688.com/offer/…" onChange={change("sourceUrl")} />
+      <Field id="supply-goods-price" label="货价（元）" value={form.goodsPriceRmb} error={errors.goodsPriceRmb} type="number" onChange={change("goodsPriceRmb")} />
+      <Field id="supply-domestic-shipping" label="国内运费（元）" value={form.domesticShippingRmb} error={errors.domesticShippingRmb}
+        hint="包邮填 0" type="number" onChange={change("domesticShippingRmb")} />
+      <Field id="supply-weight" label="打包重量（公斤）" value={form.packedWeightKg} error={errors.packedWeightKg} type="number" onChange={change("packedWeightKg")} />
+      <Field id="supply-length" label="包装长（厘米）" value={form.length} error={errors.length} type="number" onChange={change("length")} />
+      <Field id="supply-width" label="包装宽（厘米）" value={form.width} error={errors.width} type="number" onChange={change("width")} />
+      <Field id="supply-height" label="包装高（厘米）" value={form.height} error={errors.height} type="number" onChange={change("height")} />
+      <Field id="supply-target-price" label="目标成交价（卢布）" value={form.targetSalePriceRub} error={errors.targetSalePriceRub}
+        hint="默认就是同款现在的市场价；它也是以后上架时的起价，保存后下面会给出保本价和达标价"
+        type="number" onChange={change("targetSalePriceRub")} />
+      <Field id="supply-note" label="备注（可不填）" value={form.note} onChange={change("note")} />
+    </div>
+    <div className="product-actions">
+      <button type="button" className="button primary" disabled={saving || invalid}
+        onClick={() => run(onSaveDraft, supplierDraftPayload(form, candidate.dataRevision), "已保存你填的找货方案，下面的数字按它重新算过了。")}>保存</button>
+      <span className="product-actions-note">保存只记录你填的方案，不会确认供货，也不会开始采购。</span>
+    </div>
+
+    <div className="product-result" aria-label="找货结果">
+      <p className="product-result-market">{snapshotLine ?? "市场快照：还没有本商品的查询结果快照。"}</p>
+      {snapshotLine ? <p className="product-result-provenance">销量、评价来自本轮 Seerfar 查询结果原样数值，未再独立回读平台。</p> : null}
+      <p className="product-result-estimate">{estimate.headline}</p>
+      {estimate.detail ? <p className="product-result-detail">{estimate.detail}</p> : null}
+      {estimate.warning ? <p role="alert" className="product-result-warning">{estimate.warning.message}
+        {estimate.warning.routes.map(route => <span key={route.route} className="product-result-route">{route.route}：{route.detail}</span>)}
+      </p> : null}
+      {nextHint ? <p className="product-next-hint">{nextHint}</p> : null}
+    </div>
+
+    {draft === null ? null : <PricingGuidance guidance={view?.supplierDraftEstimateV1?.pricingGuidance ?? null} />}
+
+    <div className={`product-capture${highlight === "capture" ? " product-next" : ""}`} aria-label="插件采集">
+      <h4>1688 采集</h4>
+      <p className="product-capture-extension">插件状态：{extensionStatus?.label ?? "插件未安装或未连接"}</p>
+      {extensionConnected ? null : <p className="product-capture-hint">还没连上插件：打开 Chrome 的 chrome://extensions，开启开发者模式，点「加载已解压的扩展程序」，选择本项目的 extension/1688-capture 目录。</p>}
+      <p className="product-capture-status">{captureStatusLine(candidate)}</p>
+      {/* 被挡住的时候必须先说清楚「为什么不能再申请」，再给出唯一的出路，而不是等主人点了才收到一个 409。 */}
+      {reviewRequired ? <p className="product-capture-blocked" role="alert">{CAPTURE_REVIEW_BLOCKED_MESSAGE}</p> : null}
+      <button type="button" className={`button ${highlight === "capture" && !reviewRequired ? "primary" : "secondary"}`}
+        disabled={saving || draft === null || reviewRequired}
+        onClick={() => run(onRequestCapture, captureSubmissionFromDraft({ candidate, draft, marketSnapshot }), "已申请插件采集，采到后这里会显示结果。")}>申请插件采集</button>
+      {reviewRequired ? <button type="button" className="button primary" disabled={saving || draft === null}
+        onClick={() => run(onReviewCaptureAndRequest, {
+          review: captureReviewPayload(candidate),
+          capture: captureSubmissionFromDraft({ candidate, draft, marketSnapshot })
+        }, "已记下你的确认，并重新申请了一次采集。")}>{CAPTURE_REVIEW_ACTION_LABEL}</button> : null}
+      {draft === null ? <span className="product-actions-note">先保存上面的找货方案，才能申请采集。</span> : null}
+      {reviewRequired ? <span className="product-actions-note">
+        在你确认这条「结果未知」的记录之前，「申请插件采集」不可用；确认只是记下你的判断，不会替你补一份采集结果。
+      </span> : null}
+    </div>
+  </>;
 
   return <div className="page-panel product-page">
     {/* Where this page sits: both earlier steps go back to the desk, where 我选的商品 lists this product again. */}
@@ -376,70 +656,38 @@ export default function ProductPage({
       </li>)}
     </ol>
 
+    {error ? <p role="alert">{error}</p> : null}
+    {notice ? <p role="status" className="product-notice">{notice}</p> : null}
+
+    {/* 选规格：插件采回来的每个规格，按它自己的重量算出来的运费和利润。这里只勾选，不开始任何工作。 */}
+    {choosing ? (skuTable === null
+      ? <section className="product-section product-sku-choice" aria-label="选规格">
+        <h3>选哪个规格上架</h3>
+        <p className="product-section-hint">{`插件已经把这件1688货源的 ${candidate.sourceCapture.skuChoices.length} 个规格采回来了，但现在还算不出每个规格的运费和利润：${
+          draft === null
+            ? "先把下面「找货」里的资料填好保存一次，这里就会按每个规格自己的重量算给你看。"
+            : "汇率、佣金、资费表或本店成本规则里还缺东西，补齐之后这里就会按每个规格自己的重量算给你看。"}`}</p>
+      </section>
+      : <SkuChoiceSection candidate={candidate} table={skuTable} chosen={chosen} saving={saving}
+        onToggle={(id, checked) => { setChosen(current => toggleLocalSupplierSkuSelection(current, id, checked)); setNotice(null); }}
+        onToggleAll={checked => { setChosen(checked ? skuTable.rows.map(row => String(row.sourceSkuId)) : []); setNotice(null); }}
+        onSubmit={() => run(onChooseSkus, skuChoicePayload(skuTable, chosen, candidate.dataRevision),
+          `已选定 ${chosen.length} 个规格，它们已经锁进这件商品的供货方案；没有下单、没有联系供应商、也没有向 Ozon 写任何东西。`)} />)
+      : null}
+
     {step === "find" ? <section className="product-section" aria-label="找货">
       <h3>找货</h3>
-      <p className="product-section-hint">把1688上找到的这件货填进来。下面每个数字都算你自己填的，软件只按它们算钱，不会替你猜。</p>
-      {error ? <p role="alert">{error}</p> : null}
-      {notice ? <p role="status" className="product-notice">{notice}</p> : null}
-      <div className={`product-form${next.key === "form" ? " product-next" : ""}`}>
-        <Field id="supply-source-url" label="1688 商品链接" value={form.sourceUrl} error={errors.sourceUrl}
-          hint="详情页链接或分享短链都可以" placeholder="https://detail.1688.com/offer/…" onChange={change("sourceUrl")} />
-        <Field id="supply-goods-price" label="货价（元）" value={form.goodsPriceRmb} error={errors.goodsPriceRmb} type="number" onChange={change("goodsPriceRmb")} />
-        <Field id="supply-domestic-shipping" label="国内运费（元）" value={form.domesticShippingRmb} error={errors.domesticShippingRmb}
-          hint="包邮填 0" type="number" onChange={change("domesticShippingRmb")} />
-        <Field id="supply-weight" label="打包重量（公斤）" value={form.packedWeightKg} error={errors.packedWeightKg} type="number" onChange={change("packedWeightKg")} />
-        <Field id="supply-length" label="包装长（厘米）" value={form.length} error={errors.length} type="number" onChange={change("length")} />
-        <Field id="supply-width" label="包装宽（厘米）" value={form.width} error={errors.width} type="number" onChange={change("width")} />
-        <Field id="supply-height" label="包装高（厘米）" value={form.height} error={errors.height} type="number" onChange={change("height")} />
-        <Field id="supply-target-price" label="目标成交价（卢布）" value={form.targetSalePriceRub} error={errors.targetSalePriceRub}
-          hint="默认就是同款现在的市场价；它也是以后上架时的起价，保存后下面会给出保本价和达标价"
-          type="number" onChange={change("targetSalePriceRub")} />
-        <Field id="supply-note" label="备注（可不填）" value={form.note} onChange={change("note")} />
-      </div>
-      <div className="product-actions">
-        <button type="button" className="button primary" disabled={saving || invalid}
-          onClick={() => run(onSaveDraft, supplierDraftPayload(form, candidate.dataRevision), "已保存你填的找货方案，下面的数字按它重新算过了。")}>保存</button>
-        <span className="product-actions-note">保存只记录你填的方案，不会确认供货，也不会开始采购。</span>
-      </div>
-
-      <div className="product-result" aria-label="找货结果">
-        <p className="product-result-market">{snapshotLine ?? "市场快照：还没有本商品的查询结果快照。"}</p>
-        {snapshotLine ? <p className="product-result-provenance">销量、评价来自本轮 Seerfar 查询结果原样数值，未再独立回读平台。</p> : null}
-        <p className="product-result-estimate">{estimate.headline}</p>
-        {estimate.detail ? <p className="product-result-detail">{estimate.detail}</p> : null}
-        {estimate.warning ? <p role="alert" className="product-result-warning">{estimate.warning.message}
-          {estimate.warning.routes.map(route => <span key={route.route} className="product-result-route">{route.route}：{route.detail}</span>)}
-        </p> : null}
-        {nextHint ? <p className="product-next-hint">{nextHint}</p> : null}
-      </div>
-
-      {draft === null ? null : <PricingGuidance guidance={view?.supplierDraftEstimateV1?.pricingGuidance ?? null} />}
-
-      <div className={`product-capture${next.key === "capture" ? " product-next" : ""}`} aria-label="插件采集">
-        <h4>1688 采集</h4>
-        <p className="product-capture-extension">插件状态：{extensionStatus?.label ?? "插件未安装或未连接"}</p>
-        {extensionConnected ? null : <p className="product-capture-hint">还没连上插件：打开 Chrome 的 chrome://extensions，开启开发者模式，点「加载已解压的扩展程序」，选择本项目的 extension/1688-capture 目录。</p>}
-        <p className="product-capture-status">{captureStatusLine(candidate)}</p>
-        {/* 被挡住的时候必须先说清楚「为什么不能再申请」，再给出唯一的出路，而不是等主人点了才收到一个 409。 */}
-        {reviewRequired ? <p className="product-capture-blocked" role="alert">{CAPTURE_REVIEW_BLOCKED_MESSAGE}</p> : null}
-        <button type="button" className={`button ${next.key === "capture" && !reviewRequired ? "primary" : "secondary"}`}
-          disabled={saving || draft === null || reviewRequired}
-          onClick={() => run(onRequestCapture, captureSubmissionFromDraft({ candidate, draft, marketSnapshot }), "已申请插件采集，采到后这里会显示结果。")}>申请插件采集</button>
-        {reviewRequired ? <button type="button" className="button primary" disabled={saving || draft === null}
-          onClick={() => run(onReviewCaptureAndRequest, {
-            review: captureReviewPayload(candidate),
-            capture: captureSubmissionFromDraft({ candidate, draft, marketSnapshot })
-          }, "已记下你的确认，并重新申请了一次采集。")}>{CAPTURE_REVIEW_ACTION_LABEL}</button> : null}
-        {draft === null ? <span className="product-actions-note">先保存上面的找货方案，才能申请采集。</span> : null}
-        {reviewRequired ? <span className="product-actions-note">
-          在你确认这条「结果未知」的记录之前，「申请插件采集」不可用；确认只是记下你的判断，不会替你补一份采集结果。
-        </span> : null}
-      </div>
+      {findBody}
     </section> : null}
+    {choosing && step !== "find" ? <details className="product-folded" aria-label="找货">
+      <summary>找货<span className="product-folded-state">已保存</span></summary>
+      {findBody}
+    </details> : null}
 
-    {PRODUCT_STEPS.filter(item => item.key !== "find").map(item => <details key={item.key} className="product-folded">
-      <summary>{item.title}<span className="product-folded-state">{item.key === step ? "进行中" : "未开始"}</span></summary>
-      <p>{item.key === step ? "这一步的详细界面还在旧版页面里，先用「打开旧版A卡」查看。" : "等前面的步骤完成后再开始。"}</p>
-    </details>)}
+    {PRODUCT_STEPS.filter(item => item.key !== "find" && !(choosing && item.key === "select"))
+      .map(item => <details key={item.key} className="product-folded">
+        <summary>{item.title}<span className="product-folded-state">{foldedStepState(item.key, step, candidate)}</span></summary>
+        <p>{foldedStepLine(item.key, step, candidate)}</p>
+      </details>)}
   </div>;
 }

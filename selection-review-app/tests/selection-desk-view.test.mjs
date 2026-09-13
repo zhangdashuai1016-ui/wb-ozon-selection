@@ -431,6 +431,11 @@ test('每条需要你处理的商品都说出为什么等你，说不出就说�
     supplierDraftEstimateV1: { estimate: { status: 'ok' }, profitAtDeclaredPurchase: { passes: true, unitProfitRmb: 41.26 } } });
   assert.deepEqual(sku.reasons, ['插件已采到1688页面，等你选具体规格']);
   assert.deepEqual(sku.action, { key: 'sku', label: '去选规格' });
+  // 选完之后同一条记录不再催同一件事：「需要你处理」说过，处理完一条它会自己消失。
+  const chosen = reasonsOf({ supplierDraftV1: draft,
+    sourceCapture: { status: 'captured_waiting_owner_selection', selectedSkuIds: ['sku-xl-yellow'] },
+    supplierDraftEstimateV1: { estimate: { status: 'ok' }, profitAtDeclaredPurchase: { passes: true, unitProfitRmb: 41.26 } } });
+  assert.doesNotMatch(chosen.reasons.join('；'), /等你选具体规格/u);
   const failed = reasonsOf({ supplierDraftV1: draft, sourceCapture: { status: 'failed', failureCode: 'extension_timeout', reason: '插件没有在时限内回报' },
     supplierDraftEstimateV1: { estimate: { status: 'ok' }, profitAtDeclaredPurchase: { passes: true, unitProfitRmb: 41.26 } } });
   assert.deepEqual(failed.reasons, ['上一次采集已停止：插件没有在时限内回报']);
@@ -447,7 +452,10 @@ test('采到1688页面还没选规格、或采集已停止的商品，即使没�
   const waiting = candidate('candidate:sku', { sourceCapture: { status: 'captured_waiting_owner_selection' } });
   const stopped = candidate('candidate:failed', { sourceCapture: { status: 'failed', failureCode: 'extension_timeout' } });
   const running = candidate('candidate:running', { sourceCapture: { status: 'capturing', jobStatus: 'claimed' } });
-  const items = inboxItems([waiting, stopped, running, candidate('candidate:quiet')], 'miska');
+  // 同一页已经选过规格：这一条就不再等主人，自己从「需要你处理」里消失。
+  const chosen = candidate('candidate:chosen', { sourceCapture: { status: 'captured_waiting_owner_selection',
+    selectedSkuIds: ['sku-xl-yellow', 'sku-8xl-yellow'] } });
+  const items = inboxItems([waiting, stopped, running, chosen, candidate('candidate:quiet')], 'miska');
   assert.deepEqual(new Set(items.map(item => item.id)), new Set(['candidate:sku', 'candidate:failed']));
   assert.equal(items.find(item => item.id === 'candidate:sku').action.key, 'sku');
   assert.equal(items.find(item => item.id === 'candidate:failed').action.key, 'capture');

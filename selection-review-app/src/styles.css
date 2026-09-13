@@ -1219,6 +1219,37 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 .product-folded summary { display: flex; justify-content: space-between; gap: 10px; cursor: pointer; font-size: 13px; font-weight: 700; }
 .product-folded-state { color: var(--muted); font-size: 11px; font-weight: 500; }
 .product-folded p { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.product-folded[aria-label="找货"] > :not(summary) { margin-top: 10px; }
+
+/* 选规格：一张按单件利润排好的表，主人只在这里勾选，页面不替他决定。 */
+.product-sku-offer { margin: 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.product-sku-verdict {
+  display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: flex-end; justify-content: space-between;
+  padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--green); border-radius: 12px; background: #f8faf9;
+}
+.product-sku-verdict-lede { min-width: 0; flex: 1 1 250px; }
+.product-sku-verdict-lede h4 { margin: 0 0 3px; font-size: 14px; color: var(--green); }
+.product-sku-verdict-lede p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.product-sku-swing { display: flex; flex-wrap: wrap; gap: 12px 26px; }
+.product-sku-swing > div { display: grid; gap: 2px; }
+.product-sku-swing span { color: var(--muted); font-size: 11px; }
+.product-sku-swing strong { font-size: 19px; }
+.product-sku-swing-high strong { color: var(--green); }
+.product-sku-swing-low strong { color: var(--amber); }
+.product-sku-table-head { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; justify-content: space-between; }
+.product-sku-table-head h4 { margin: 0; font-size: 14px; }
+.product-sku-table-head span { color: var(--muted); font-size: 11px; }
+.product-sku-table th:first-child, .product-sku-table td:first-child { width: 34px; text-align: center; }
+.product-sku-table input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--green); cursor: pointer; }
+.product-sku-row-on { background: var(--green-soft); }
+.product-sku-profit { font-weight: 750; color: var(--green); }
+.product-sku-pending { color: var(--muted); }
+.product-sku-chosen { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; justify-content: space-between; }
+.product-sku-summary { margin: 0; font-size: 13px; }
+.product-sku-saved { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.product-sku-sources { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 4px 14px; }
+.product-sku-foot { margin: 0; font-size: 12px; line-height: 1.65; }
+.product-sku-foot strong { color: #1f2b26; }
 
 @media (max-width: 860px) {
   .product-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }

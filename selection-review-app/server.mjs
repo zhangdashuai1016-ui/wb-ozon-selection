@@ -10,6 +10,8 @@ import { createADiscoveryTitleTranslationUseCase } from './lib/discovery-title-t
 import { createADiscoveryEstimateInputs, createADiscoveryEstimateUseCase } from './lib/a-discovery-estimate-store.mjs';
 import { ensureDiscoveryMarketSalesSnapshot, readDiscoveryMarketRecord, currentSalesSnapshot } from './lib/discovery-market-snapshot.mjs';
 import { SupplierDraftError, buildSupplierDraftEstimate, buildSupplierDraftV1, normalizeSupplierDraftInput } from './lib/supplier-draft.mjs';
+import { buildSkuChoiceTable } from './lib/sku-choice-estimate.mjs';
+import { adapt1688CaptureToSupplierOption } from './lib/supplier-option.mjs';
 import { readOzonCommissionReference, readOzonCommissionReferenceTiers } from './lib/ozon-commission-reference-reader.mjs';
 import { readGuooTariffCatalog } from './lib/guoo-tariff-reader.mjs';
 import { readCurrentCbrExchangeRate } from './lib/official-fx-reader.mjs';
@@ -2304,11 +2306,11 @@ function effectiveNeededFields(candidate) {
 }
 
 /**
- * The purchase ceiling and the profit the owner's declared purchase price actually reaches, from the same official
- * commission, FX and GUOO inputs as the discovery batch estimate. An input that cannot be resolved keeps the estimate
- * incomplete; the draft is still saved, because the owner's declaration is a fact even when the pricing is not ready.
+ * Every official input one product's pricing needs, resolved once: the store's cost policy, the official FX, the
+ * official commission for the owner's target price, the whole official rate ladder, and the saved GUOO rows.
+ * 找货 and 选定 are both priced from this one resolution, so the two can never be looking at different money.
  */
-async function supplierDraftEstimate(document, candidate, draft) {
+async function supplierDraftPricingInputs(document, candidate, draft) {
   const at = now();
   const record = readDiscoveryMarketRecord({ document, candidate });
   const marketProduct = record.status === "available" ? record.product : null;
@@ -2322,25 +2324,65 @@ async function supplierDraftEstimate(document, candidate, draft) {
   // Pricing guidance needs every band of the same official table, not only the band this one price falls in.
   const commissionTiers = await supplierDraftEstimateInputs.resolveCommissionTiers(
     { categoryPath: marketProduct?.categoryPath ?? null }, at);
-  return buildSupplierDraftEstimate({
-    draft, storeRule, fx, commission, commissionTiers, tariffRows: freight.rows,
-    assumptions: supplierDraftEstimateInputs.assumptions, estimatedAt: at, marketProduct,
+  return {
+    at, marketProduct, storeRule, fx, freight, commission, commissionTiers,
+    assumptions: supplierDraftEstimateInputs.assumptions,
     inputs: { fxSourceRef: fx?.sourceRef ?? null, fxRateDate: fx?.rateDate ?? null,
       commissionSourceRef: commission.sourceRef, tariffRuleVersion: freight.ruleVersion,
       costPolicyVersion: typeof storeRule.pricingPolicyVersion === "string" ? storeRule.pricingPolicyVersion : null }
+  };
+}
+
+/**
+ * The purchase ceiling and the profit the owner's declared purchase price actually reaches. An input that cannot be
+ * resolved keeps the estimate incomplete; the draft is still saved, because the owner's declaration is a fact even
+ * when the pricing is not ready.
+ */
+function supplierDraftEstimateFrom(draft, resolved) {
+  return buildSupplierDraftEstimate({
+    draft, storeRule: resolved.storeRule, fx: resolved.fx, commission: resolved.commission,
+    commissionTiers: resolved.commissionTiers, tariffRows: resolved.freight.rows,
+    assumptions: resolved.assumptions, estimatedAt: resolved.at, marketProduct: resolved.marketProduct,
+    inputs: resolved.inputs
   });
 }
 
-/** What the 找货 step shows: the saved draft, the current market snapshot and a freshly recomputed estimate. */
+async function supplierDraftEstimate(document, candidate, draft) {
+  const resolved = await supplierDraftPricingInputs(document, candidate, draft);
+  return resolved === null ? null : supplierDraftEstimateFrom(draft, resolved);
+}
+
+/**
+ * 选规格 for one product: every captured specification priced on its own weight and its own goods price, through
+ * the same engine and the same resolved inputs as the 找货 estimate beside it. A product the extension has not left a
+ * set of specifications on has no table at all.
+ */
+function supplierSkuChoiceTableFrom(candidate, draft, resolved) {
+  const capture = candidate?.sourceCapture;
+  if (!capture || capture.status !== "captured_waiting_owner_selection") return null;
+  const choices = Array.isArray(capture.skuChoices) ? capture.skuChoices : [];
+  if (choices.length === 0) return null;
+  return buildSkuChoiceTable({
+    choices, draft, storeRule: resolved.storeRule, fx: resolved.fx, commission: resolved.commission,
+    tariffRows: resolved.freight.rows, assumptions: resolved.assumptions, marketProduct: resolved.marketProduct,
+    selectedSkuIds: Array.isArray(capture.selectedSkuIds) ? capture.selectedSkuIds : [],
+    builtAt: resolved.at, inputs: resolved.inputs
+  });
+}
+
+/** What the 找货 and 选定 steps show: the saved draft, the market snapshot, a fresh estimate and a fresh spec table. */
 async function supplierDraftView(document, candidate) {
   const draft = candidate.supplierDraftV1 ?? null;
   const snapshot = currentSalesSnapshot(candidate);
+  // One resolution of the official inputs for the whole view, so the two steps can never show different money.
+  const resolved = draft === null ? null : await supplierDraftPricingInputs(document, candidate, draft);
   return {
     schemaVersion: "supplier-draft-view-v1",
     candidateId: candidate.id,
     dataRevision: candidate.dataRevision,
     supplierDraftV1: draft === null ? null : structuredClone(draft),
-    supplierDraftEstimateV1: draft === null ? null : await supplierDraftEstimate(document, candidate, draft),
+    supplierDraftEstimateV1: resolved === null ? null : supplierDraftEstimateFrom(draft, resolved),
+    skuChoiceTableV1: resolved === null ? null : supplierSkuChoiceTableFrom(candidate, draft, resolved),
     marketSnapshot: snapshot === null ? null : structuredClone(snapshot),
     candidate: publicCandidate(candidate, document.rules, {}, document.evidencePacks || [], document.currentCommissionCatalogs ?? [])
   };
@@ -4254,6 +4296,94 @@ async function handleApi(req, res, pathname) {
       if (error instanceof SupplierDraftError) throw httpError(error.status, error.message, { code: error.code });
       throw error;
     }
+  }
+
+  /**
+   * 选定 — the owner picks which of the captured specifications this product will be listed with.
+   *
+   * Why this is not the older /source-capture/select-sku route: that route carries a different business meaning. It
+   * only accepts a capture in `needs_sku_selection` + `listed_evidence_recovery`, it refuses `a_supplier_capture`
+   * outright, and its whole point is to verify the capture and hand a C-stage dispatch to the listing task. This step
+   * hands nothing to anyone. It records which specifications the owner chose and freezes them into this product's
+   * supply plan through the same `adapt1688CaptureToSupplierOption` the A card already uses — no dispatch, no
+   * supplier contact, no platform write, and the capture keeps the status the A confirmation still reads.
+   */
+  const skuChoiceRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/sku-choice$/);
+  if (req.method === "POST" && skuChoiceRoute) {
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      throw httpError(403, "请先登录主人身份后选规格。");
+    }
+    const candidateId = decodeURIComponent(skuChoiceRoute[1]);
+    const input = await readJsonRequestBody(req, { maxBytes: 16384, requireJsonContentType: true });
+    if (input === null || typeof input !== "object" || Array.isArray(input) ||
+        Object.keys(input).some(key => !["dataRevision", "sourceSkuIds"].includes(key))) {
+      throw httpError(400, "选规格只接受当前数据修订号和你勾选的规格");
+    }
+    if (!Number.isInteger(input.dataRevision) || input.dataRevision < 0) {
+      throw httpError(400, "选规格必须提供当前数据修订号");
+    }
+    if (!Array.isArray(input.sourceSkuIds) || input.sourceSkuIds.length === 0 || input.sourceSkuIds.length > 200 ||
+        input.sourceSkuIds.some(id => typeof id !== "string" || id.trim() === "" || id.length > 160)) {
+      throw httpError(400, "请至少勾选一个规格");
+    }
+    const requestedSkuIds = [...new Set(input.sourceSkuIds.map(id => id.trim()))];
+    const timestamp = now();
+    await mutateData((data) => {
+      const current = data.candidates.find((item) => item.id === candidateId);
+      if (!current) throw httpError(404, "候选不存在");
+      if (Number(current.dataRevision) !== input.dataRevision) {
+        throw httpError(409, "商品资料已变化，请刷新后重新选规格", { currentRevision: current.dataRevision });
+      }
+      const capture = current.sourceCapture;
+      if (!capture || capture.status !== "captured_waiting_owner_selection" ||
+          !Array.isArray(capture.skuChoices) || capture.skuChoices.length === 0) {
+        throw httpError(409, "这件商品现在没有等你挑的规格", { code: "sku_choice_not_available" });
+      }
+      if (activeDispatchForCandidate(data, current.id)) throw httpError(409, "当前商品已有任务正在等待或运行");
+      const resolution = resolveCapturedSkus({ skus: capture.skuChoices }, requestedSkuIds);
+      if (resolution.status !== "matched") {
+        throw httpError(422, "勾选的规格不在这次采到的结果里", { code: "sku_choice_invalid" });
+      }
+      let supplierOption;
+      try {
+        supplierOption = adapt1688CaptureToSupplierOption({ ...capture, skus: resolution.selected },
+          { evidenceRef: `source-capture:${capture.captureId}` });
+      } catch (error) {
+        throw httpError(422, `这些规格还不能锁进供货方案：${error instanceof Error ? error.message : String(error)}`,
+          { code: "sku_choice_supply_plan_invalid" });
+      }
+      const selectedSkuIds = resolution.selected.map((sku) => sku.sourceSkuId);
+      const missingWeightSkuIds = resolution.selected
+        .filter((sku) => !(Number(sku?.weight?.value) > 0)).map((sku) => sku.sourceSkuId);
+      current.sourceCapture = {
+        ...capture,
+        selectedSkuIds,
+        // The frozen supply plan for exactly the chosen specifications, beside the capture that evidenced them.
+        skuSelection: {
+          schemaVersion: "source-capture-sku-selection-v1",
+          selectedBy: "owner",
+          selectedAt: timestamp,
+          selectedSkuIds,
+          missingWeightSkuIds,
+          missingDirectPriceSkuIds: resolution.missingDirectPriceSkuIds || [],
+          supplierOption: structuredClone(supplierOption)
+        }
+      };
+      current.dataRevision = Number(current.dataRevision || 0) + 1;
+      current.updatedAt = timestamp;
+      current.lastModifiedBy = "user";
+      assertSafeBusinessMutationCandidate(current, "businessMutation.candidate");
+      const gapText = missingWeightSkuIds.length ? `；其中${missingWeightSkuIds.length}个规格页面没有给出重量，运费与利润留空未补` : "";
+      addHistory(current, "user", "aSupplierSkuChoiceSaved",
+        `主人选定了${selectedSkuIds.length}个1688规格并锁进本商品的供货方案：${resolution.selected.map(capturedSkuLabel).join("；")}${gapText}；未派发任务、未联系供应商、未向平台写入任何内容`,
+        timestamp);
+      return current.dataRevision;
+    });
+    const savedDocument = await readData();
+    const savedCandidate = savedDocument.candidates.find((item) => item.id === candidateId);
+    if (!savedCandidate) throw httpError(404, "候选不存在");
+    return json(res, 200, await supplierDraftView(savedDocument, savedCandidate));
   }
 
   const realAConfirmationRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/a-confirm$/);

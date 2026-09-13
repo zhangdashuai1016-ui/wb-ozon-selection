@@ -63,7 +63,7 @@ test('需要你处理每行直接写出为什么等你和下一步按钮，不�
       sourceCapture: { status: 'captured_waiting_owner_selection' },
       supplierDraftEstimateV1: { estimate: { status: 'ok' }, profitAtDeclaredPurchase: { passes: true, unitProfitRmb: 41.26 } } }),
     dropped('candidate:gone')
-  ], { onOpenLegacyCandidate: forbidden }));
+  ]));
   assert.match(html, /共 3 条等你/u);
   // Every reason is a sentence read from that product's own saved records, on its own line.
   assert.match(html, /找货还没填/u);
@@ -76,4 +76,15 @@ test('需要你处理每行直接写出为什么等你和下一步按钮，不�
   assert.match(html, /主人淘汰：品牌风险/u);
   const empty = (await pages()).inbox(props([]));
   assert.match(empty, /现在没有等你处理的商品/u);
+});
+
+test('需要你处理的每一行都开到那件商品自己的页面，「去选规格」不再把主人丢回旧版工程页', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const inbox = await readFile(fileURLToPath(new URL('../src/components/OwnerInbox.jsx', import.meta.url)), 'utf8');
+  const app = await readFile(fileURLToPath(new URL('../src/App.jsx', import.meta.url)), 'utf8');
+  assert.match(inbox, /const open = item => onOpenCandidate\(item\.id\);/u);
+  assert.doesNotMatch(inbox, /onOpenLegacyCandidate/u, '选规格已经是商品页自己的一步，收件箱不再有第二条出口');
+  assert.doesNotMatch(app, /openLegacyCandidate/u);
+  // 旧版A卡仍然进得去，只是要主人自己点，而不是收件箱替他决定。
+  assert.match(app, /view: "review", label: "今日选品评审"/u);
 });

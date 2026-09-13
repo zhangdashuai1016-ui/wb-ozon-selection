@@ -8,7 +8,7 @@ import EliminateControl, { EliminatedFold } from "./EliminateControl.jsx";
  * for and offers the one next thing to do. Owner feedback: "还有 5 条需要我处理，我不能直观看到它要处理什么，得挨个打开."
  * Every sentence comes from that product's own saved records; opening a row only shows it, it starts no work.
  */
-export default function OwnerInbox({ candidates, store, onOpenCandidate, onOpenLegacyCandidate,
+export default function OwnerInbox({ candidates, store, onOpenCandidate,
   onEliminateCandidate, onRestoreCandidate }) {
   const items = inboxItems(candidates, store);
   const dropped = eliminatedRows(candidates, store);
@@ -20,9 +20,9 @@ export default function OwnerInbox({ candidates, store, onOpenCandidate, onOpenL
     try { await action(payload); setNotice(done); }
     catch (cause) { setError(errorMessage(cause)); }
   }
-  // 去选规格 lives on the old A card; everything else lives on the product page. The row goes straight there.
-  const open = item => (item.action.key === "sku" && typeof onOpenLegacyCandidate === "function"
-    ? onOpenLegacyCandidate(item.id) : onOpenCandidate(item.id));
+  // Every row, 去选规格 included, opens that product's own page: since 2026-09-13 选规格 is a step of the page itself,
+  // so nothing sends the owner to the old engineering card any more.
+  const open = item => onOpenCandidate(item.id);
   return <div className="page-panel inbox-page">
     <header className="inbox-header">
       <h2>需要你处理</h2>

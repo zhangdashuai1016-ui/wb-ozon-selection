@@ -202,3 +202,152 @@ test('淘汰与恢复是主人自己的软删除：封闭输入、认修订号�
   assert.equal((await api.readDocument()).dispatches?.length ?? 0, 0, '恢复也不派发任何任务');
   await api.assertClean();
 });
+
+/**
+ * 选规格 — the owner picks which captured specifications this product will be listed with.
+ * The route only records that choice and freezes it into this product's supply plan: owner-only, closed input, the
+ * current revision, one history line, and no dispatch, no supplier contact and no platform write.
+ */
+const capturedSku = (id, colour, size, priceCny, stock, weightKg) => ({
+  sourceSkuId: id, propPath: `1627207:${id}`,
+  attributes: { 颜色: colour, 尺码: size },
+  priceCny, priceSource: 'tradeModel.skuMap.price', stock, stockSource: 'tradeModel.skuMap.canBookCount',
+  inStock: stock > 0, weight: weightKg === null ? null : { value: weightKg, unit: 'kg' },
+  weightSource: weightKg === null ? null : 'detailDescription.freightInfo.skuWeight', imageUrl: null
+});
+const waitingSourceCapture = () => ({
+  captureId: 'SCJ-synthetic-sku-choice', status: 'captured_waiting_owner_selection', mode: 'a_supplier_capture',
+  jobStatus: 'completed', attempt: 1, offerId: '876240928352',
+  sourceUrl: 'https://detail.1688.com/offer/876240928352.html',
+  originalSourceUrl: 'https://detail.1688.com/offer/876240928352.html',
+  title: '合成雨衣', offerStatus: null, observedAt: '2026-09-13T00:30:00.000Z',
+  collectionMethod: 'chrome_extension_structured_page_v1', titleSource: 'page.h1', offerIdSource: 'page.url',
+  pageSelectedSkuId: null, priceRanges: [],
+  pageFields: { unitProductPriceCny: null, unitProductPriceSource: null, unitDomesticFreightCny: null, unitDomesticFreightSource: null },
+  supplierAttributes: {},
+  skuChoices: [
+    capturedSku('sku-xl-yellow', '黄色', 'XL（背长35cm）', 20.5, 494, 0.103),
+    capturedSku('sku-8xl-yellow', '黄色', '8XL（背长72cm）', 41.5, 468, 0.24),
+    capturedSku('sku-8xl-beige', '米色', '8XL（背长72cm）', 41.5, 479, null)
+  ],
+  selectedSkuIds: [], ownerSupplyConfirmed: false, suggestedSkuIds: [], matchTerms: [],
+  writeOccurred: false, businessStateEffect: 'unchanged'
+});
+
+test('选规格只接受已登录主人的封闭输入和当前修订号，保存后把选中的规格锁进供货方案，不派发也不碰平台', async t => {
+  const fixture = await productionOwnerDecisionHttpFixture();
+  const candidate = createMusicBoxCandidate();
+  delete candidate.lifecycleV11;
+  candidate.workflowStatus = 'needs_user_data';
+  candidate.storeRef = structuredClone(fixture.binding.storeRef);
+  candidate.targetStore = fixture.binding.storeRef.stableStoreId;
+  candidate.sourceUrl = 'https://detail.1688.com/offer/876240928352.html';
+  candidate.sourceCapture = waitingSourceCapture();
+  const document = { ...fixture.document, candidates: [candidate], evidencePacks: [structuredClone(FX_PACK)],
+    runtime: { softwareJobs: [], softwareJobAuthorizationRecords: [], softwareJobCredentialBindings: [], operationAudit: [], idempotencyRecords: [] } };
+  const directory = await mkdtemp(path.join(tmpdir(), 'sku-choice-api-'));
+  const port = await freePort();
+  let dependencyPort = await freePort();
+  while (port === dependencyPort) dependencyPort = await freePort();
+  const closedPort = await freePort();
+  const env = { SELECTION_REVIEW_TEST_GATEWAY_PORT: String(dependencyPort),
+    SELECTION_REVIEW_GUOO_TARIFF_FILE: path.join(directory, 'GUOO-2026.8.19-absent.xlsx'),
+    SELECTION_REVIEW_CBR_FX_URL: `http://127.0.0.1:${closedPort}/scripts/XML_daily.asp`,
+    SELECTION_REVIEW_A_DISCOVERY_SERVICE_BINDINGS_JSON: '[]', SELECTION_REVIEW_A_DISCOVERY_CONNECTOR_BINDINGS_JSON: '[]',
+    SELECTION_REVIEW_A_DISCOVERY_CREDENTIAL_BINDINGS_JSON: '[]', SELECTION_REVIEW_A_DISCOVERY_PLANS_JSON: '[]',
+    SELECTION_REVIEW_A_PRODUCT_DETAIL_SERVICE_BINDINGS_JSON: '[]', SELECTION_REVIEW_A_PRODUCT_DETAIL_CONNECTOR_BINDINGS_JSON: '[]',
+    SELECTION_REVIEW_A_PRODUCT_DETAIL_CREDENTIAL_BINDINGS_JSON: '[]' };
+  const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
+  let api;
+  try { Object.assign(process.env, env); api = await startSavedDEApi(t, { directory, port, document, binding: fixture.binding }); }
+  finally { for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } }
+  const draftRoute = `/api/candidates/${candidate.id}/lifecycle/supplier-draft`;
+  const route = `/api/candidates/${candidate.id}/lifecycle/sku-choice`;
+
+  assert.equal((await api.post(route, { dataRevision: candidate.dataRevision, sourceSkuIds: ['sku-xl-yellow'] }, { authenticated: false })).status, 401);
+  await api.authenticate();
+
+  // Before the owner's own 找货 declaration exists there is nothing to price the specifications against.
+  const withoutDraft = await api.get(draftRoute);
+  assert.equal(withoutDraft.status, 200);
+  assert.equal(withoutDraft.body.skuChoiceTableV1, null);
+
+  const saved = await api.post(draftRoute, draftInput(candidate.dataRevision,
+    { sourceUrl: 'https://detail.1688.com/offer/876240928352.html', goodsPriceRmb: 20.5, domesticShippingRmb: 3.5,
+      packedWeightKg: 0.2, dimensionsCm: { length: 25, width: 22, height: 2.5 }, targetSalePriceRub: 1600 }));
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  const revision = saved.body.dataRevision;
+  // The table is there, one row per captured specification, each carrying that specification's own captured facts.
+  const table = saved.body.skuChoiceTableV1;
+  assert.equal(table.schemaVersion, 'sku-choice-table-v1');
+  assert.equal(table.total, 3);
+  assert.deepEqual(table.columns, ['颜色', '尺码']);
+  assert.deepEqual(table.rows.map(row => row.sourceSkuId).sort(), ['sku-8xl-beige', 'sku-8xl-yellow', 'sku-xl-yellow']);
+  assert.deepEqual(table.rows.map(row => row.weightKg).sort(), [0.103, 0.24, null]);
+  assert.equal(table.sources.targetSalePriceRub, 1600);
+  assert.equal(table.sources.domesticShippingRmb, 3.5);
+  assert.equal(table.sources.rubPerCny, 12.7373);
+  // This isolated run has no tariff table and no commission catalogue, so no row is priced and none is guessed.
+  assert.deepEqual(table.rows.map(row => row.unitProfitRmb), [null, null, null]);
+  assert.equal(table.weightMissingCount, 1);
+  assert.deepEqual(table.selectedSkuIds, []);
+
+  const bytesBeforeRejects = await api.readBytes();
+  assert.equal((await api.post(route, { dataRevision: revision })).status, 400);
+  assert.equal((await api.post(route, { dataRevision: revision, sourceSkuIds: [] })).status, 400);
+  assert.equal((await api.post(route, { dataRevision: revision, sourceSkuIds: ['sku-xl-yellow'], ownerSupplyConfirmed: true })).status, 400);
+  assert.equal((await api.post(route, { dataRevision: revision + 1, sourceSkuIds: ['sku-xl-yellow'] })).status, 409);
+  const unknown = await api.post(route, { dataRevision: revision, sourceSkuIds: ['sku-not-captured'] });
+  assert.equal(unknown.status, 422);
+  assert.equal(unknown.body.code, 'sku_choice_invalid');
+  assert.equal((await api.post(route, { dataRevision: revision, sourceSkuIds: ['sku-xl-yellow'] },
+    { headers: { 'Content-Type': 'text/plain' } })).status, 415);
+  assert.equal((await api.post(route, { dataRevision: revision, sourceSkuIds: ['sku-xl-yellow'] },
+    { headers: { Origin: 'https://untrusted.invalid', 'Sec-Fetch-Site': 'cross-site' } })).status, 403);
+  assert.deepEqual(await api.readBytes(), bytesBeforeRejects, '被拒绝的选规格不得写入任何数据');
+
+  const chosen = await api.post(route, { dataRevision: revision, sourceSkuIds: ['sku-8xl-yellow', 'sku-xl-yellow'] });
+  assert.equal(chosen.status, 200, JSON.stringify(chosen.body));
+  assert.equal(chosen.body.schemaVersion, 'supplier-draft-view-v1');
+  assert.equal(chosen.body.dataRevision, revision + 1);
+  assert.deepEqual(chosen.body.skuChoiceTableV1.selectedSkuIds, ['sku-8xl-yellow', 'sku-xl-yellow']);
+
+  const persisted = (await api.readDocument()).candidates[0];
+  assert.equal(persisted.dataRevision, revision + 1);
+  // The capture keeps the status the A confirmation still reads, so nothing downstream is re-queued by this step.
+  assert.equal(persisted.sourceCapture.status, 'captured_waiting_owner_selection');
+  assert.deepEqual(persisted.sourceCapture.selectedSkuIds, ['sku-8xl-yellow', 'sku-xl-yellow']);
+  assert.equal(persisted.sourceCapture.skuChoices.length, 3, '没被选中的规格仍然留着，随时可以改');
+  const selection = persisted.sourceCapture.skuSelection;
+  assert.equal(selection.schemaVersion, 'source-capture-sku-selection-v1');
+  assert.equal(selection.selectedBy, 'owner');
+  assert.ok(Number.isFinite(Date.parse(selection.selectedAt)));
+  assert.deepEqual(selection.missingWeightSkuIds, []);
+  // 供货方案走既有适配器：规格标识、直接货价和采到的重量原样冻结，页面没给的照旧是 unknown。
+  assert.equal(selection.supplierOption.supplierOptionId, 'supplier-option:1688:876240928352');
+  assert.equal(selection.supplierOption.sourcePlatform, '1688');
+  assert.equal(selection.supplierOption.productUrl, 'https://detail.1688.com/offer/876240928352.html');
+  assert.equal(selection.supplierOption.evidenceRef, 'source-capture:SCJ-synthetic-sku-choice');
+  assert.deepEqual(selection.supplierOption.supplierSkus.map(sku => sku.supplierSkuId), ['sku-8xl-yellow', 'sku-xl-yellow']);
+  assert.deepEqual(selection.supplierOption.supplierSkus.map(sku => sku.unitProductPrice), [41.5, 20.5]);
+  assert.deepEqual(selection.supplierOption.supplierSkus.map(sku => sku.weight), [{ value: 0.24, unit: 'kg' }, { value: 0.103, unit: 'kg' }]);
+  assert.deepEqual(selection.supplierOption.supplierSkus.map(sku => sku.unitDomesticFreight), ['unknown', 'unknown']);
+  const history = persisted.history.filter(entry => entry.action === 'aSupplierSkuChoiceSaved');
+  assert.equal(history.length, 1);
+  assert.match(history[0].detail, /主人选定了2个1688规格并锁进本商品的供货方案/u);
+  assert.match(history[0].detail, /未派发任务、未联系供应商、未向平台写入任何内容/u);
+  // 没有派发、没有生命周期、没有平台写入。
+  assert.deepEqual((await api.readDocument()).dispatches ?? [], []);
+  assert.equal(persisted.lifecycleV11 ?? null, null);
+  assert.equal(persisted.listingHandoff ?? null, null);
+
+  // 改主意就是再选一次：同一条路由，认新的修订号，把页面没给重量的那一个也记成缺口。
+  const changed = await api.post(route, { dataRevision: revision + 1, sourceSkuIds: ['sku-8xl-beige'] });
+  assert.equal(changed.status, 200, JSON.stringify(changed.body));
+  const rechosen = (await api.readDocument()).candidates[0];
+  assert.deepEqual(rechosen.sourceCapture.selectedSkuIds, ['sku-8xl-beige']);
+  assert.deepEqual(rechosen.sourceCapture.skuSelection.missingWeightSkuIds, ['sku-8xl-beige']);
+  assert.equal(rechosen.sourceCapture.skuSelection.supplierOption.supplierSkus[0].weight, 'unknown');
+  assert.match(rechosen.history.at(-1).detail, /其中1个规格页面没有给出重量，运费与利润留空未补/u);
+  await api.assertClean();
+});

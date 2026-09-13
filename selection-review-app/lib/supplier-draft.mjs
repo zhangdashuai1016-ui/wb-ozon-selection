@@ -170,10 +170,43 @@ export function supplierDraftRouteBlock({ estimate, tariffRows }) {
 }
 
 /**
- * The purchase ceiling for the declared package plus the profit the declared purchase price actually reaches.
+ * What one all-in purchase price actually earns against one finished estimate.
  * `passes` follows the store's own thresholdPolicy: 'either' passes on the ¥ minimum or on the margin, 'both'
- * requires the two together. An input the software could not evidence keeps the estimate incomplete and the profit
- * null; it never becomes a guessed number.
+ * requires the two together. An estimate the software could not complete earns nothing here — it returns null rather
+ * than a guessed number. This is the single profit formula in the A stage: the 找货 declaration and the per-variant
+ * table both call it, so the two can never drift into different money for the same product.
+ */
+export function profitAtPurchase({ estimate, allInPurchaseRmb }) {
+  if (!isObject(estimate) || estimate.status === 'incomplete' || !isObject(estimate.ceiling)) return null;
+  if (typeof allInPurchaseRmb !== 'number' || !Number.isFinite(allInPurchaseRmb) || allInPurchaseRmb < 0) return null;
+  const policy = estimate.costPolicy;
+  const reserveRate = estimate.commission.rate + policy.advertisingReserveRate + policy.returnOpsReserveRate +
+    policy.damageLossReserveRate + policy.withdrawalFeeRate;
+  const unitProfitRmb = roundDownCents(estimate.revenueCny * (1 - reserveRate) - estimate.ceiling.nonPurchaseFixedRmb - allInPurchaseRmb);
+  const marginRate = estimate.revenueCny > 0 ? Math.round(unitProfitRmb / estimate.revenueCny * 10000) / 10000 : null;
+  const meetsMinimumUnitProfit = unitProfitRmb >= policy.minimumUnitProfitRmb;
+  const meetsTargetMargin = marginRate !== null && marginRate >= policy.targetMarginRate;
+  return {
+    allInPurchaseRmb,
+    revenueCny: estimate.revenueCny,
+    unitProfitRmb,
+    marginRate,
+    thresholdPolicy: policy.thresholdPolicy,
+    minimumUnitProfitRmb: policy.minimumUnitProfitRmb,
+    targetMarginRate: policy.targetMarginRate,
+    meetsMinimumUnitProfit,
+    meetsTargetMargin,
+    passes: policy.thresholdPolicy === 'both'
+      ? meetsMinimumUnitProfit && meetsTargetMargin
+      : meetsMinimumUnitProfit || meetsTargetMargin,
+    withinPurchaseCeiling: allInPurchaseRmb <= estimate.ceiling.maximumAllInPurchaseRmb
+  };
+}
+
+/**
+ * The purchase ceiling for the declared package plus the profit the declared purchase price actually reaches.
+ * An input the software could not evidence keeps the estimate incomplete and the profit null; it never becomes a
+ * guessed number.
  */
 export function buildSupplierDraftEstimate({ draft, storeRule, fx, commission, commissionTiers = null, tariffRows, assumptions, estimatedAt, inputs = {}, marketProduct = null }) {
   if (!isObject(draft)) throw new SupplierDraftError(500, '找货资料无效', 'supplier_draft_invalid');
@@ -182,31 +215,7 @@ export function buildSupplierDraftEstimate({ draft, storeRule, fx, commission, c
     categoryPath: marketProduct?.categoryPath ?? null
   });
   const estimate = estimateDiscoveredProduct({ product, storeRule, fx, commission, tariffRows, assumptions });
-  let profit = null;
-  if (estimate.status !== 'incomplete') {
-    const policy = estimate.costPolicy;
-    const reserveRate = estimate.commission.rate + policy.advertisingReserveRate + policy.returnOpsReserveRate +
-      policy.damageLossReserveRate + policy.withdrawalFeeRate;
-    const unitProfitRmb = roundDownCents(estimate.revenueCny * (1 - reserveRate) - estimate.ceiling.nonPurchaseFixedRmb - draft.allInPurchaseRmb);
-    const marginRate = estimate.revenueCny > 0 ? Math.round(unitProfitRmb / estimate.revenueCny * 10000) / 10000 : null;
-    const meetsMinimumUnitProfit = unitProfitRmb >= policy.minimumUnitProfitRmb;
-    const meetsTargetMargin = marginRate !== null && marginRate >= policy.targetMarginRate;
-    profit = {
-      allInPurchaseRmb: draft.allInPurchaseRmb,
-      revenueCny: estimate.revenueCny,
-      unitProfitRmb,
-      marginRate,
-      thresholdPolicy: policy.thresholdPolicy,
-      minimumUnitProfitRmb: policy.minimumUnitProfitRmb,
-      targetMarginRate: policy.targetMarginRate,
-      meetsMinimumUnitProfit,
-      meetsTargetMargin,
-      passes: policy.thresholdPolicy === 'both'
-        ? meetsMinimumUnitProfit && meetsTargetMargin
-        : meetsMinimumUnitProfit || meetsTargetMargin,
-      withinPurchaseCeiling: draft.allInPurchaseRmb <= estimate.ceiling.maximumAllInPurchaseRmb
-    };
-  }
+  const profit = profitAtPurchase({ estimate, allInPurchaseRmb: draft.allInPurchaseRmb });
   // Owner question 2026-09-11: "目标成交价应该平台算给我看". Same FX, same reserves, same freight and the same official
   // rate ladder as the estimate above, read backwards into the prices that break even and that clear the threshold.
   // Without a usable rate ladder there is no guidance at all; a guessed rate would be worse than an empty panel.

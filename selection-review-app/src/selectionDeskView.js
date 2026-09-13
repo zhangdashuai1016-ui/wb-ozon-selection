@@ -227,15 +227,25 @@ const money = value => (finite(value) === null ? "未取得" : `¥${value.toFixe
 const percent = value => (finite(value) === null ? "未取得" : `${Math.round(value * 100)}%`);
 
 /**
+ * A captured page is waiting on the owner only until he has actually chosen from it. Once 选定 is saved the list must
+ * stop asking for the same thing — 需要你处理 promises that a finished row disappears by itself.
+ */
+function skuChoicePending(capture) {
+  return capture.status === "captured_waiting_owner_selection" &&
+    !(Array.isArray(capture.selectedSkuIds) && capture.selectedSkuIds.length > 0);
+}
+
+/**
  * Why the capture job of this product is waiting on the owner, in his own words, read from the saved job alone.
  * A job nobody ever asked for is not a reason for anything, so it answers null.
  */
 function captureAttention(candidate) {
   const capture = candidate.sourceCapture;
   if (!isObject(capture)) return null;
-  if (capture.status === "captured_waiting_owner_selection") {
+  if (skuChoicePending(capture)) {
     return { reason: "插件已采到1688页面，等你选具体规格", action: { key: "sku", label: "去选规格" } };
   }
+  if (capture.status === "captured_waiting_owner_selection") return null;
   if (["verified"].includes(capture.status)) return null;
   if (capture.jobStatus === "claimed" || ["capturing", "extension_running"].includes(capture.status)) {
     return { reason: "插件正在读这个1688页面，先等它读完", action: { key: "open", label: "查看" } };
@@ -404,7 +414,7 @@ function waitsOnOwner(candidate) {
   if (list(candidate.needsFromUser).some(need => text(need) !== null)) return true;
   const capture = candidate.sourceCapture;
   if (!isObject(capture)) return false;
-  return capture.status === "captured_waiting_owner_selection" || text(capture.failureCode) !== null;
+  return skuChoicePending(capture) || text(capture.failureCode) !== null;
 }
 
 export function inboxItems(candidates, store) {

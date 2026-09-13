@@ -107,6 +107,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  // 选定 the captured specifications of one product. It only records the owner's choice and freezes it into this
+  // product's supply plan: no dispatch, no supplier contact, no platform write.
+  chooseSourceSkus: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/sku-choice`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   // 淘汰 / 恢复 are the owner's own soft delete: one status, one instant, one history line, no dispatch, no platform.
   eliminateCandidate: (candidateId, payload) =>
     request(`/api/candidates/${encodeURIComponent(candidateId)}/workflow/eliminate`, {
