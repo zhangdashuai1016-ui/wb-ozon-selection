@@ -14,9 +14,11 @@ async function pageModule() {
       resolveId: id => id === entry ? entry : null,
       load: id => id === entry ? `import React from 'react';import {renderToStaticMarkup} from 'react-dom/server';
       import Page, {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload,
+        captureRecaptureReady, captureRecaptureConfirmLine, captureRecapturePayload, CAPTURE_RECAPTURE_REASONS,
         currentProductStep, skuChoiceReady, skuChoiceSaved, showsSkuChoice, skuChoiceHeadline, skuChoiceSwing,
         skuChoiceSummary, selectAllState, skuChoicePayload, foldedStepLine, foldedStepState} from ${JSON.stringify(component)};
       export {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload,
+        captureRecaptureReady, captureRecaptureConfirmLine, captureRecapturePayload, CAPTURE_RECAPTURE_REASONS,
         currentProductStep, skuChoiceReady, skuChoiceSaved, showsSkuChoice, skuChoiceHeadline, skuChoiceSwing,
         skuChoiceSummary, selectAllState, skuChoicePayload, foldedStepLine, foldedStepState};
       export const render=props=>renderToStaticMarkup(<Page {...props}/>);` : null }],
@@ -561,4 +563,71 @@ test('选规格走商品页原有的那条保存通道，只发规格和当前�
   assert.doesNotMatch(app, /onChooseSkus=\{payload => runProductStep\(api\.selectSourceCaptureSku/u);
   // 保存走的是商品页原有的那条通道：保存完留在本页，本页的提示位说结果。
   assert.match(app, /async function runProductStep\(action,payload\)\{/u);
+});
+
+/* ── 重新采集 ─────────────────────────────────────────────────────────────────────────────────────────────────────
+ * 采到之后，「申请插件采集」不会再建新的采集（服务端认得同一个链接已经采过），所以重读同一个1688页面必须自己有一个入口。
+ * 2026-09-13 第一件商品正是因为没有这个入口，被钉死在一次没有重量的采集结果上，整列运费和利润只能显示「待补」。
+ */
+test('只有已采到、等你选规格时才有「重新采集」，点之前先说清楚会作废哪几样', async () => {
+  const { captureRecaptureReady, captureRecaptureConfirmLine, captureRecapturePayload,
+    CAPTURE_RECAPTURE_REASONS } = await pageModule();
+  const waiting = candidate({ sourceCapture: waitingCapture() });
+  const picked = candidate({ sourceCapture: waitingCapture({ selectedSkuIds: ['sku-xl-yellow', 'sku-8xl-yellow'],
+    skuSelection: { schemaVersion: 'source-capture-sku-selection-v1', selectedSkuIds: ['sku-xl-yellow', 'sku-8xl-yellow'] } }) });
+  assert.equal(captureRecaptureReady(waiting), true);
+  // 还在排队、正在读、读失败、根本没采过：都没有可以作废的东西，也就没有这个按钮。
+  assert.equal(captureRecaptureReady(candidate()), false);
+  assert.equal(captureRecaptureReady(candidate({ sourceCapture: { status: 'waiting_extension', jobStatus: 'queued' } })), false);
+  assert.equal(captureRecaptureReady(candidate({ sourceCapture: { status: 'capturing', jobStatus: 'claimed' } })), false);
+  assert.equal(captureRecaptureReady(candidate({ sourceCapture: unknownOutcomeCapture })), false);
+  assert.equal(captureRecaptureConfirmLine(candidate()), null);
+  assert.equal(captureRecapturePayload(candidate()), null);
+
+  // 确认这句话用的是记录里真实的条数，不是「一些规格」。
+  assert.equal(captureRecaptureConfirmLine(waiting),
+    '确定重新去读一次这个1688页面？现在这 3 个规格会作废。重新读一次不会下单、不会联系供应商、也不会向 Ozon 写任何东西。');
+  assert.equal(captureRecaptureConfirmLine(picked),
+    '确定重新去读一次这个1688页面？现在这 3 个规格会作废，连你已经选定的那 2 个也一起作废，要重新选一次。重新读一次不会下单、不会联系供应商、也不会向 Ozon 写任何东西。');
+  // 封闭输入：当前修订号，外加一个只能来自这张表的理由；自由文本永远不会被发出去。
+  assert.deepEqual(captureRecapturePayload(waiting), { dataRevision: 4 });
+  assert.deepEqual(captureRecapturePayload(waiting, 'weight_missing'), { dataRevision: 4, reason: 'weight_missing' });
+  assert.deepEqual(captureRecapturePayload(waiting, '因为重量没采到'), { dataRevision: 4 });
+  assert.deepEqual(CAPTURE_RECAPTURE_REASONS.map(item => item.code),
+    ['weight_missing', 'page_changed', 'wrong_specifications']);
+});
+
+test('「重新采集」是次要按钮，一次点击只是打开确认，主按钮仍旧是那张选规格表', async () => {
+  const html = await render(choosingProps({ onRecaptureSource: forbidden }));
+  assert.match(html, /<button[^>]*class="button secondary product-recapture-button"[^>]*>重新采集<\/button>/u);
+  // 确认要等主人点了才出现：它不能一点就把这次采到的规格作废掉。
+  assert.doesNotMatch(html, /product-recapture-confirm/u);
+  assert.doesNotMatch(html, /确定重新去读一次这个1688页面/u);
+  assert.match(html, /上面这些规格是上一次读到的。页面改了、规格不对，或者这次没采到重量，就点「重新采集」让软件把这个1688页面再读一遍。/u);
+  // 主按钮仍旧是选规格；重读只是采得不对时的退路。
+  assert.match(html, /<button type="button" class="button primary"[^>]*>选定这些规格<\/button>/u);
+  // 还没采到过的商品不给这个按钮。
+  const fresh = await render(props({ view: savedFind, onRecaptureSource: forbidden }));
+  assert.doesNotMatch(fresh, /重新采集/u);
+  assert.doesNotMatch(fresh, /product-recapture-button/u);
+});
+
+test('重新采集有自己的处理函数：写操作不经读取守卫，拿到回执后复用今天那条开始信号', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const app = await readFile(fileURLToPath(new URL('../src/App.jsx', import.meta.url)), 'utf8');
+  const apiClient = await readFile(fileURLToPath(new URL('../src/api.js', import.meta.url)), 'utf8');
+  assert.match(apiClient, /recaptureSourceCapture: \(candidateId, payload\) =>/u);
+  assert.match(apiClient, /source-capture\/recapture/u);
+  assert.match(app, /onRecaptureSource=\{payload => recaptureProductSource\(payload\)\}/u);
+  assert.doesNotMatch(app, /onRecaptureSource=\{payload => runProductStep\(/u,
+    '走 runProductStep 就只调接口、永远不发开始信号，插件后台不轮询作业，主人只会空等到超时');
+  const handler = app.match(/async function recaptureProductSource\(payload\)\{[\s\S]*?\n  \}/u);
+  assert.ok(handler, '重新采集必须有自己的处理函数');
+  assert.match(handler[0], /runMutation\(\(\)=>api\.recaptureSourceCapture\(candidateId,payload\)/u);
+  assert.doesNotMatch(handler[0], /productDraftReads\.current\.run\(/u,
+    '写操作经过“只保留最新读取”的守卫会把服务端的真实回答丢成 null');
+  // 开始信号只有 captureStart.js 里那一个，重新采集没有另写一套。
+  assert.match(handler[0], /const start=await startQueuedSupplierCapture\(result\);/u);
+  assert.doesNotMatch(handler[0], /postMessage|CAPTURE_REQUEST|addEventListener/u);
+  assert.match(handler[0], /await load\(true\);setProductDraftRefresh\(value=>value\+1\);/u);
 });

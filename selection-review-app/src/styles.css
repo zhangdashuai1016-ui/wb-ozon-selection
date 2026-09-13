@@ -1211,6 +1211,12 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 /* 结果未知且还没核实：这件商品此刻申请不了采集，颜色和位置都要让主人先看见这句话。 */
 .product-capture-blocked { color: #a86a12; font-weight: 700; }
 .product-capture button { justify-self: start; }
+/* 重新采集：打开之后先把会作废的东西说出来，再给按钮——和「淘汰」同一个形状。 */
+.product-recapture-confirm { display: flex; flex-direction: column; gap: 5px; padding: 7px 9px; border: 1px solid var(--line-dark); border-radius: 10px; background: #fffdf5; }
+.product-recapture-line { font-size: 11px; font-weight: 700; line-height: 1.5; }
+.product-recapture-reasons { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.product-recapture-hint { color: var(--muted); font-size: 10px; }
+.product-recapture-confirm .button { padding: 4px 8px; font-size: 11px; }
 /* 保存之后只强调一件事：下一步要做的那一块。 */
 .product-next { border: 1px solid #b9d7ca; border-radius: 12px; background: var(--green-soft); box-shadow: 0 0 0 2px var(--green-soft); }
 .product-form.product-next { padding: 12px; }

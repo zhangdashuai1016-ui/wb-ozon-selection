@@ -603,6 +603,7 @@ export const CAPABILITY_NODES = Object.freeze([
       capabilityRef("tests/source-capture-job-api.test.mjs", "test(", "1688 作业 API 测试"),
       capabilityRef("tests/source-capture-inline-context.test.mjs", "test(", "1688 内联 context 页面采集回归测试"),
       capabilityRef("tests/source-capture-review-api.test.mjs", "test(", "结果未知记录的主人核实出口测试"),
+      capabilityRef("tests/source-capture-recapture-api.test.mjs", "test(", "已采到之后重新读一次同一个1688页面的出口测试"),
       capabilityRef("tests/a-supplier-image-search-contract.test.mjs", "test(", "图搜合同测试"),
       capabilityRef("tests/a-supplier-image-search-runner.test.mjs", "test(", "图搜执行边界测试"),
       capabilityRef("tests/a-supplier-image-search-runtime-services.test.mjs", "test(", "图搜配置门禁测试"),

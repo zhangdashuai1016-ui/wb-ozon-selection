@@ -100,6 +100,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  // 重新去读一次同一个1688页面。回执与申请采集时一模一样，所以页面接着走同一条开始信号；这次采到的规格会被作废。
+  recaptureSourceCapture: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/source-capture/recapture`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   getSupplierDraft: (candidateId, signal) =>
     request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/supplier-draft`, { signal }),
   saveSupplierDraft: (candidateId, payload) =>

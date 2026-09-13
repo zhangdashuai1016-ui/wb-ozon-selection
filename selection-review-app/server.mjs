@@ -909,7 +909,47 @@ function sourceCaptureAwaitsOwnerReview(capture) {
   return sourceCaptureOutcomeUnknown(capture) && !capture?.reviewedAt;
 }
 
-async function enqueueASupplierCaptureJob({ candidateId, requestRevision, requestedSourceUrl }) {
+/**
+ * 重新采集 — reading the same 1688 page a second time.
+ *
+ * A capture that came back with specifications closes the door behind it: /lifecycle/a-confirm sees
+ * captureReadyForSameSource and stops creating capture jobs for that product, so the product is frozen on whatever that
+ * one read happened to contain. On 2026-09-13 the first real product of the day was captured while the server still
+ * dropped every per-specification weight, and the owner's 选规格 table could only show 待补 for every freight and every
+ * profit, with no way anywhere in the application to ask for a second read. This vocabulary and
+ * POST /api/candidates/:id/source-capture/recapture are that way out, and nothing else.
+ *
+ * The reason is optional and can only be one of these words; no free text ever reaches a saved record.
+ */
+const OWNER_CAPTURE_RECAPTURE_REASONS = Object.freeze(["weight_missing", "page_changed", "wrong_specifications"]);
+const OWNER_CAPTURE_RECAPTURE_REASON_WORDS = Object.freeze({
+  weight_missing: "上一次没采到重量",
+  page_changed: "1688页面已经改了",
+  wrong_specifications: "采到的规格不对"
+});
+
+/**
+ * What a second read costs, said out loud. A capture job replaces the whole sourceCapture record, so the specifications
+ * this product was showing — and any choice the owner had already frozen out of them — are gone the moment the new job
+ * is queued. That must never be a silent side effect: the owner is told the count that was voided, in the same write.
+ */
+function aSupplierRecaptureHistoryDetail(superseded, reason) {
+  const choices = Array.isArray(superseded?.skuChoices) ? superseded.skuChoices.length : 0;
+  const selected = Array.isArray(superseded?.selectedSkuIds) ? superseded.selectedSkuIds.length : 0;
+  const because = OWNER_CAPTURE_RECAPTURE_REASON_WORDS[reason] ? `（主人给的理由：${OWNER_CAPTURE_RECAPTURE_REASON_WORDS[reason]}）` : "";
+  const voidedSelection = selected > 0
+    ? `；之前选定的${selected}个规格已随重新采集作废，需要重新选`
+    : "";
+  return `主人要求重新读一次这个1688页面${because}：上一次采到的${choices}个规格已经作废${voidedSelection}；` +
+    "重新采集不下单、不联系供应商、不向平台写入任何内容";
+}
+
+/**
+ * `ownerRecapture` is the only thing that separates a second read from the first one: the same candidate, the same
+ * saved 1688 link, the same guards and the same lease, plus one extra history line written inside this same mutation
+ * so the voided specifications and the queued job can never be recorded apart from each other.
+ */
+async function enqueueASupplierCaptureJob({ candidateId, requestRevision, requestedSourceUrl, ownerRecapture = null }) {
   const existing = captureSession(candidateId);
   if (existing?.mode === "a_supplier_capture" &&
     [existing.requestRevision, existing.dataRevision].includes(requestRevision) &&
@@ -972,6 +1012,9 @@ async function enqueueASupplierCaptureJob({ candidateId, requestRevision, reques
         throw httpError(409, "当前SKU已有任务等待或运行，不能建立供应采集作业", { code: "candidate_busy" });
       }
       const timestamp = now();
+      // Read before the replacement below drops it: a queued job replaces the whole record, so whatever this product
+      // was showing — captured specifications, selectedSkuIds, the frozen skuSelection — stops existing right here.
+      const superseded = current.sourceCapture;
       current.sourceUrl = source.sourceUrl;
       current.sourceCapture = {
         captureId: session.captureId,
@@ -993,6 +1036,10 @@ async function enqueueASupplierCaptureJob({ candidateId, requestRevision, reques
       current.updatedAt = timestamp;
       current.lastModifiedBy = "user";
       addHistory(current, "user", "aSupplierCaptureJobQueued", "主人在新版A确认动作中保存供应链接；系统已建立一个受控采集作业，等待插件后台领取，不自动选择SKU、运行B/C1或派发任务", timestamp);
+      if (ownerRecapture) {
+        addHistory(current, "user", "aSupplierCaptureRecaptureRequested",
+          aSupplierRecaptureHistoryDetail(superseded, ownerRecapture.reason ?? null), timestamp);
+      }
       return publicCandidate(current, data.rules);
     });
   } catch (error) {
@@ -3901,6 +3948,71 @@ async function handleApi(req, res, pathname) {
       return publicCandidate(current, data.rules);
     });
     return json(res, 200, { candidate: reviewedCandidate, sourceCapture: reviewedCandidate.sourceCapture, dispatch: null });
+  }
+
+  /**
+   * 重新采集 — the owner asks for this same 1688 page to be read once more.
+   *
+   * This is the third time this project has demanded a precondition the application itself could not reach: after
+   * `waiting_extension` deadlock and `unknown_outcome` with no exit, a capture that succeeded became its own dead end.
+   * 申请插件采集 goes through /lifecycle/a-confirm, which stops creating jobs once a capture for the same link is
+   * waiting on the owner's choice, so the only product captured before r17 kept its weightless specifications forever.
+   *
+   * The route is deliberately narrow: it accepts only a capture that is 已采到、等你选规格, it re-queues through
+   * enqueueASupplierCaptureJob (same candidate, same saved 1688 link, same guards, same lease — there is no second
+   * capture path), and it is honest about the price of a second read: the specifications this product is showing, and
+   * any supply plan the owner had already frozen out of them, are voided in the same write that queues the new job.
+   * It orders nothing, contacts no supplier and writes nothing to any platform.
+   */
+  const sourceCaptureRecaptureRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/source-capture\/recapture$/);
+  if (req.method === "POST" && sourceCaptureRecaptureRoute) {
+    const input = await readJsonRequestBody(req, { maxBytes: 4096, requireJsonContentType: true });
+    // Closed input: one revision, and at most one fixed reason from a list. No free text ever reaches a saved record.
+    if (!input || typeof input !== "object" || Array.isArray(input) || !Number.isInteger(input.dataRevision) ||
+        Object.keys(input).some(field => !["dataRevision", "reason"].includes(field)) ||
+        (Object.hasOwn(input, "reason") && !OWNER_CAPTURE_RECAPTURE_REASONS.includes(input.reason))) {
+      throw httpError(400, "重新采集只接受当前数据修订号和一个固定的理由选项", { code: "source_capture_recapture_input_invalid" });
+    }
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      throw httpError(403, "请先登录主人身份后重新采集这个1688页面。", { code: "source_capture_recapture_owner_required" });
+    }
+    const candidateId = decodeURIComponent(sourceCaptureRecaptureRoute[1]);
+    const snapshot = await readData();
+    const snapshotCandidate = snapshot.candidates.find((item) => item.id === candidateId);
+    if (!snapshotCandidate) throw httpError(404, "候选不存在", { code: "candidate_not_found" });
+    if (Number(snapshotCandidate.dataRevision) !== input.dataRevision) {
+      throw httpError(409, "商品资料已变化，请刷新后再重新采集", { code: "revision_conflict" });
+    }
+    const capture = snapshotCandidate.sourceCapture;
+    // Only a finished capture waiting on the owner can be read again. A job still queued or running would be replaced
+    // mid-flight, and a failed or unknown record has its own exits (申请插件采集 / source-capture/review).
+    if (capture?.status !== "captured_waiting_owner_selection") {
+      throw httpError(409, capture
+        ? `只有已经采到、正等你选规格的商品才能重新采集；当前采集状态：${capture.status || "未取得"}／作业状态：${capture.jobStatus || "未取得"}`
+        : "这件商品还没有采到过这个1688页面，请先申请一次插件采集", { code: "source_capture_recapture_not_applicable" });
+    }
+    if (activeDispatchForCandidate(snapshot, snapshotCandidate.id)) {
+      throw httpError(409, "当前商品已有任务等待或运行，不能重新采集", { code: "candidate_busy" });
+    }
+    // The page this capture actually read, not a link the owner may have edited afterwards: a changed link already has
+    // its own route, because a-confirm stops matching captureReadyForSameSource and queues a fresh job on its own.
+    const queued = await enqueueASupplierCaptureJob({
+      candidateId: snapshotCandidate.id,
+      requestRevision: input.dataRevision,
+      requestedSourceUrl: capture.sourceUrl || snapshotCandidate.sourceUrl || "",
+      ownerRecapture: { reason: input.reason ?? null }
+    });
+    // The same receipt shape the capture request already returns, so the page reuses its one start-signal path.
+    return json(res, queued.duplicate ? 200 : 202, {
+      status: "supplier_capture_job_queued",
+      candidate: queued.candidate,
+      captureJob: queued.captureJob,
+      duplicate: queued.duplicate,
+      dispatch: null,
+      bStarted: false,
+      c1Created: false
+    });
   }
 
   const sourceCaptureStartRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/source-capture\/start$/);

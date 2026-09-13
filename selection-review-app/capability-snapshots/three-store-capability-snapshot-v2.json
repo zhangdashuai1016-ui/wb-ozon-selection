@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-13T05:05:00.519Z",
+  "frozenAt": "2026-09-13T06:43:42.603Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 651,
-      "sha256": "aed4c8484889c5a51e3beb4a31223e65c3fa2a9857a2980e9187084ecc21b0eb",
+      "artifactCount": 652,
+      "sha256": "97d701677e941d2c16351f40a22bc4edd5d4c44d27296f35cbbeeecd88d9d400",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -328,7 +328,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "6394c2f3eff8a8626596fb42d1ef7674315b27378efe8bfaac13bf43d4b046a7"
+        "sha256": "b71e9a3774c6e7b320d130133ae5002758efc2c7d075e18975449b5f1bf87a37"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -1132,7 +1132,7 @@
       },
       {
         "path": "scripts/ci-test-suites.mjs",
-        "sha256": "5d9d38af41147c073f8a16b416ddc858402762b66f702d2ffc875287345229b4"
+        "sha256": "6377167f0dde7cc6dec005fc19a136927d2c1ee991e15ac6b5fbf8dc9a9656ef"
       },
       {
         "path": "scripts/deploy-local-runtime.sh",
@@ -1180,11 +1180,11 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "30762eeb34d777cdfae0c4dba5c88809bb42d9a0186c9603fadc304a03b145e7"
+        "sha256": "b712c9bd78c203ad2eab2843a94b4d320291d6e0a38ecf53b881650512165a80"
       },
       {
         "path": "src/App.jsx",
-        "sha256": "0ab6b1295064995f4b807d8a642feb4b7e0adcdb20a2338b9d50b8564c5e20cb"
+        "sha256": "2e9c59a12158b35ca8615f2677f470ffb786f1411c896bc6c7898f367ecac322"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1196,7 +1196,7 @@
       },
       {
         "path": "src/api.js",
-        "sha256": "cd663ace03b6cf273d4e917a934b2e6e92f85eeb77150cdf4de75a0bc2c117ff"
+        "sha256": "fde1280facc07c15d78329e200640885e2d9e19e0734d4b7e8f0ef3685e36dc9"
       },
       {
         "path": "src/bExactCommissionInput.js",
@@ -1328,7 +1328,7 @@
       },
       {
         "path": "src/components/ProductPage.jsx",
-        "sha256": "5789df06b1bb8af32440afa9789dea1ea6192da68634965d3e8c9dfc789716a2"
+        "sha256": "a33fd17f711cf563ff7e905b1f9a6b4c19b3a9cf497e7ae610a6c681aaebd951"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1428,7 +1428,7 @@
       },
       {
         "path": "src/styles.css",
-        "sha256": "68459bc54354deb2c11ec026b2ab17168f1a8cb60c954bd7f352375fccaf4976"
+        "sha256": "6ad943c1102a5605fc8d58bfb0c79a54c32c8190a4f6c40b409a85b2176aa71c"
       },
       {
         "path": "src/wbPresentation.js",
@@ -1772,7 +1772,7 @@
       },
       {
         "path": "tests/ci-api-boundary.test.mjs",
-        "sha256": "ed4171f2ea917b0cfae8bb37d6d055bd44d1382c6afe11b7103b02f551d32740"
+        "sha256": "d2ac3ab73bdad1dd7948cdf2598bcb4aaa62519326ebb3da867901f3bc62c383"
       },
       {
         "path": "tests/ci-test-policy.test.mjs",
@@ -2412,7 +2412,7 @@
       },
       {
         "path": "tests/product-page-ui.test.mjs",
-        "sha256": "01f48b9f42d86b51cdd614827619d99c0060a61d0214d1bfe4c12555876532be"
+        "sha256": "feadae2c5d49fb0d3b48e7d3f2c8827296737f50bbff4bc7eadab9221136f8f6"
       },
       {
         "path": "tests/production-owner-decision-api.test.mjs",
@@ -2557,6 +2557,10 @@
       {
         "path": "tests/source-capture-job-api.test.mjs",
         "sha256": "056849bdfb5427fa7c1041a1d71eac791225372ae2f4fa7b6eb77fc32f58f7be"
+      },
+      {
+        "path": "tests/source-capture-recapture-api.test.mjs",
+        "sha256": "0b03c76775a6dc2749da6c1f7c2dd1b7237048952b6abfacc1550005cb97228e"
       },
       {
         "path": "tests/source-capture-restart-reconciliation.test.mjs",
@@ -2992,6 +2996,10 @@
         },
         {
           "path": "tests/source-capture-job-api.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/source-capture-recapture-api.test.mjs",
           "status": "present_in_integration_source"
         },
         {

@@ -110,6 +110,44 @@ export function captureReviewPayload(candidate) {
     : null;
 }
 
+/**
+ * 重新采集 — 让软件再去读一次同一个1688页面。
+ *
+ * 为什么非有这个按钮不可：采到了之后，「申请插件采集」就不会再建新的采集了（服务端认得同一个链接已经采过），所以这件商品
+ * 会被永远钉在那一次读到的内容上。2026-09-13 当天第一件商品就是这样——采到 24 个规格，但那时服务端还在丢掉每个规格的
+ * 重量，选规格表里整列运费和利润都是「待补」，而页面上没有任何地方能让主人重读一次。
+ *
+ * 只有「已采到、等你选规格」这一种状态才给这个按钮：还在排队或正在读的时候没有东西可以作废，读失败的记录走的是另外两条路。
+ */
+export function captureRecaptureReady(candidate) {
+  return candidate?.sourceCapture?.status === "captured_waiting_owner_selection";
+}
+
+/** 重新采集会丢掉的东西，按记录里真实的条数说出来。含糊其辞的确认等于没有确认。 */
+export function captureRecaptureConfirmLine(candidate) {
+  if (!captureRecaptureReady(candidate)) return null;
+  const capture = candidate.sourceCapture;
+  const choices = Array.isArray(capture.skuChoices) ? capture.skuChoices.length : 0;
+  const selected = Array.isArray(capture.selectedSkuIds) ? capture.selectedSkuIds.length : 0;
+  const chosen = selected > 0 ? `，连你已经选定的那 ${selected} 个也一起作废，要重新选一次` : "";
+  return `确定重新去读一次这个1688页面？现在这 ${choices} 个规格会作废${chosen}。重新读一次不会下单、不会联系供应商、也不会向 Ozon 写任何东西。`;
+}
+
+/** 可以顺手记下的理由，只有这几个词；页面从不把自由文本发给服务端。 */
+export const CAPTURE_RECAPTURE_REASONS = Object.freeze([
+  { code: "weight_missing", label: "没采到重量" },
+  { code: "page_changed", label: "页面改了" },
+  { code: "wrong_specifications", label: "规格不对" }
+]);
+
+/** 提交的全部内容：当前修订号，外加一个可选的固定理由。 */
+export function captureRecapturePayload(candidate, reason = null) {
+  if (!captureRecaptureReady(candidate)) return null;
+  return CAPTURE_RECAPTURE_REASONS.some(item => item.code === reason)
+    ? { dataRevision: candidate.dataRevision, reason }
+    : { dataRevision: candidate.dataRevision };
+}
+
 export const CAPTURE_REVIEW_BLOCKED_MESSAGE =
   "插件领走了上一次采集，但一直没有把结果传回来，服务端只能记成「结果未知」。软件不会替你猜这次采到了什么，所以在你确认之前，这件商品不能再申请采集。";
 export const CAPTURE_REVIEW_ACTION_LABEL = "这次采集没有结果，我确认并重新申请";
@@ -494,6 +532,37 @@ export function stepNotice(outcome, successNotice) {
   return typeof outcome === "string" && outcome.trim() !== "" ? outcome : successNotice;
 }
 
+/**
+ * 重新采集 的按钮本身。一次点击把它打开，一行字说清楚会丢掉什么，第二次点击才真的重读——和「淘汰」同一个形状，永远不是
+ * 弹窗套弹窗。它始终是次要按钮：采回来之后该做的事是从里面挑规格，重读是那条采得不对时的退路。
+ */
+function RecaptureControl({ candidate, disabled = false, onRecapture }) {
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  async function submit(reason) {
+    if (busy || typeof onRecapture !== "function") return;
+    setBusy(true);
+    // 成败都由本页原有的那一个提示位来说；这里只是别让一次点击变成未处理的 rejection，控件两种情况下都收起来。
+    try { await onRecapture(reason); }
+    catch { /* reported by the page's own notice slot */ }
+    finally { setArmed(false); setBusy(false); }
+  }
+  if (!armed) {
+    return <button type="button" className="button secondary product-recapture-button" disabled={disabled}
+      onClick={() => setArmed(true)}>重新采集</button>;
+  }
+  return <span className="product-recapture-confirm" role="group" aria-label="确认重新采集">
+    <span className="product-recapture-line">{captureRecaptureConfirmLine(candidate)}</span>
+    <span className="product-recapture-reasons">
+      <span className="product-recapture-hint">顺便记个理由（可不选）：</span>
+      {CAPTURE_RECAPTURE_REASONS.map(reason => <button key={reason.code} type="button" className="button secondary"
+        disabled={busy} onClick={() => submit(reason.code)}>{reason.label}</button>)}
+      <button type="button" className="button primary" disabled={busy} onClick={() => submit(null)}>重新读一次</button>
+      <button type="button" className="button secondary" disabled={busy} onClick={() => setArmed(false)}>取消</button>
+    </span>
+  </span>;
+}
+
 function Field({ id, label, hint, value, error, onChange, type = "text", placeholder = "" }) {
   return <label className="product-field" htmlFor={id}>
     <span className="product-field-label">{label}</span>
@@ -505,7 +574,8 @@ function Field({ id, label, hint, value, error, onChange, type = "text", placeho
 
 export default function ProductPage({
   candidate, view = null, titleZh = null, extensionStatus = null,
-  onSaveDraft, onChooseSkus, onRequestCapture, onReviewCaptureAndRequest, onOpenLegacyCard, onBack, onEliminateCandidate,
+  onSaveDraft, onChooseSkus, onRequestCapture, onReviewCaptureAndRequest, onRecaptureSource,
+  onOpenLegacyCard, onBack, onEliminateCandidate,
   loadingLabel = "正在读取这件商品的找货资料…"
 }) {
   const draft = view?.supplierDraftV1 ?? null;
@@ -532,6 +602,7 @@ export default function ProductPage({
   const choosing = showsSkuChoice(candidate);
   const estimate = estimateLines(view?.supplierDraftEstimateV1 ?? null);
   const reviewRequired = captureNeedsOwnerReview(candidate);
+  const recapturable = captureRecaptureReady(candidate);
   // 采回来之后，下一步就是上面那张表；找货里那句「去申请采集」已经过去了，不能再高亮，也不能再说。
   const highlight = choosing ? null : next.key;
   const nextHint = choosing ? null
@@ -610,7 +681,14 @@ export default function ProductPage({
           review: captureReviewPayload(candidate),
           capture: captureSubmissionFromDraft({ candidate, draft, marketSnapshot })
         }, "已记下你的确认，并重新申请了一次采集。")}>{CAPTURE_REVIEW_ACTION_LABEL}</button> : null}
+      {/* 采到了之后「申请插件采集」不会再建新的采集，所以重读这个页面必须自己有一个入口，否则这件商品就钉死在那一次读到的内容上。 */}
+      {recapturable ? <RecaptureControl candidate={candidate} disabled={saving}
+        onRecapture={reason => run(onRecaptureSource, captureRecapturePayload(candidate, reason),
+          "已经让软件重新去读一次这个1688页面，读完这里会显示结果。")} /> : null}
       {draft === null ? <span className="product-actions-note">先保存上面的找货方案，才能申请采集。</span> : null}
+      {recapturable ? <span className="product-actions-note">
+        上面这些规格是上一次读到的。页面改了、规格不对，或者这次没采到重量，就点「重新采集」让软件把这个1688页面再读一遍。
+      </span> : null}
       {reviewRequired ? <span className="product-actions-note">
         在你确认这条「结果未知」的记录之前，「申请插件采集」不可用；确认只是记下你的判断，不会替你补一份采集结果。
       </span> : null}

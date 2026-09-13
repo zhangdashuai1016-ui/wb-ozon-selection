@@ -203,6 +203,26 @@ export default function App() {
     try{return await requestProductCapture({...capture,dataRevision:reviewed.candidate.dataRevision,sourceDataRevision:reviewed.candidate.dataRevision});}
     catch(cause){throw new Error(`已记下你的确认（这条记录不再挡路），但这次重新申请采集没有成功：${errorMessage(cause)}`);}
   }
+  /**
+   * 重新采集 — read the same 1688 page again. It is the same two moves as 申请插件采集, for the same reasons: the write
+   * stays out of the read guard so the server's real answer cannot be cancelled into null, and the queued receipt is
+   * followed by the one start signal in captureStart.js, because the extension background never polls for jobs. Only
+   * the request differs: this one goes to the recapture route, which is the single place that re-queues a capture whose
+   * specifications are already waiting on the owner.
+   */
+  async function recaptureProductSource(payload){
+    const ownerId=accountOwnerId,candidateId=selectedId;
+    const current=()=>accountContext.current.ownerId===ownerId&&accountContext.current.view==='product';
+    try{
+      const result=await runMutation(()=>api.recaptureSourceCapture(candidateId,payload),{
+        reads:productDraftReads.current,isCurrent:current,
+        publish(next){if(next?.supplierDraftV1!==undefined)setProductDraftView(next);}
+      });
+      const start=await startQueuedSupplierCapture(result);
+      if(start)return start.message;
+      return "这件商品已经有一次采集还在等插件，这次没有重新开始；等它结束后再试，软件不会自动重试";
+    }finally{await load(true);setProductDraftRefresh(value=>value+1);}
+  }
   const [extensionStatus, setExtensionStatus] = useState(() => extensionConnectionStatus({
     cachedVersion: readCachedExtensionVersion()
   }));
@@ -960,6 +980,7 @@ export default function App() {
           onChooseSkus={payload => runProductStep(api.chooseSourceSkus, payload)}
           onRequestCapture={payload => requestProductCapture(payload)}
           onReviewCaptureAndRequest={payload => reviewCaptureAndRequest(payload)}
+          onRecaptureSource={payload => recaptureProductSource(payload)}
           onOpenLegacyCard={() => setView("review")}
           onEliminateCandidate={eliminateCandidate}
           onBack={() => setView("desk")}

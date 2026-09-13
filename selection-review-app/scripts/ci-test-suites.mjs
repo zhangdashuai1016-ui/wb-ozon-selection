@@ -29,6 +29,7 @@ export const API_PROCESS_TESTS = Object.freeze([
   "seerfar-software-api-guard.test.mjs",
   "source-capture-api.test.mjs",
   "source-capture-job-api.test.mjs",
+  "source-capture-recapture-api.test.mjs",
   "source-capture-restart-reconciliation.test.mjs",
   "source-capture-review-api.test.mjs",
   "structured-dispatch-integration.test.mjs",
