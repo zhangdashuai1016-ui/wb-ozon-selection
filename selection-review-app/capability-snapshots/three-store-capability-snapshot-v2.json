@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-13T07:45:18.785Z",
+  "frozenAt": "2026-09-13T09:00:34.242Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 654,
-      "sha256": "6cf18f5be87df84ea5c9b69a43e6837d3964b3e8605528d93210d4790c8a76f7",
+      "artifactCount": 656,
+      "sha256": "a688edad020e5e7ebc68cca66308e93f9457555033d5d7f354baa98e7c390e95",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -328,7 +328,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "3b5a9d909ce21f176f7160cd0e608c0bdfae5dcac84f95fc96824ee3b247a7be"
+        "sha256": "a9cb9b3ce3d9af1935c548cd2110a9420064ef20571140b97a38d2fb284a555c"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -747,6 +747,10 @@
         "sha256": "7df67fa53212a5ea47b7ba07f470d39449e16c7735e30374707fd4dd1ca99b42"
       },
       {
+        "path": "lib/profit-step-review.mjs",
+        "sha256": "40491bdada3b43c648ae7313152ec81b1ecfdc3c365423775ce99148ab9229aa"
+      },
+      {
         "path": "lib/profit-threshold-policy.mjs",
         "sha256": "cc054bc7f31b8be85b018252c80ec494492480ed58e84e61bbb326b80dfec398"
       },
@@ -808,7 +812,7 @@
       },
       {
         "path": "lib/sku-choice-estimate.mjs",
-        "sha256": "9f9c0620e1ca45159cafa9e722e04b91392dabe1268bcf8fe63d91fa516860f2"
+        "sha256": "a5473efea76dd2d8ddae620c8c4734598a601eae93207eb748ab823edeeeb466"
       },
       {
         "path": "lib/software-execution-state.mjs",
@@ -1180,11 +1184,11 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "b712c9bd78c203ad2eab2843a94b4d320291d6e0a38ecf53b881650512165a80"
+        "sha256": "54810d9943c85c904196d6176e071dd30e82e377bd34525e0f346d29897610c2"
       },
       {
         "path": "src/App.jsx",
-        "sha256": "9da552b898685c7f12e3c60b08b1345830a59119cfd47589b762e07e4aab43a5"
+        "sha256": "0194059e523fd9df964a43977f928ec60bf7ef310c243f9ebf19c1e4a187688d"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1332,7 +1336,7 @@
       },
       {
         "path": "src/components/ProductPage.jsx",
-        "sha256": "b1b4ceffe7da33f594d57f5e300887afbc0e6a78bd20e87b3748623978fd6f9b"
+        "sha256": "c87444da2014125bf2dc2d32d05ac0e53024f7b2eb671f1e45d28b3c640682f8"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1432,7 +1436,7 @@
       },
       {
         "path": "src/styles.css",
-        "sha256": "af525e46d1ce638752e87df17d45a4126ed120c32e626d89171d5d3d3309e6d3"
+        "sha256": "05ea12dba31e0c25c3dcb0d91c1aaeb6cf7d4dfe60d88350d9573da9f263994d"
       },
       {
         "path": "src/wbPresentation.js",
@@ -2420,7 +2424,7 @@
       },
       {
         "path": "tests/product-page-ui.test.mjs",
-        "sha256": "86879abad239cfd2657f1a31dc780acda6709def4629beb18c54dcf35aa81b68"
+        "sha256": "ad343be0bedfdbf5d5e88ef67e2fe755d150dd101e38e15427d5c60a537e593e"
       },
       {
         "path": "tests/production-owner-decision-api.test.mjs",
@@ -2441,6 +2445,10 @@
       {
         "path": "tests/profit-model.test.mjs",
         "sha256": "6bc46fe2d0a8b276f60486c83a17e7eb17d6aa7db541192495e012e64800242f"
+      },
+      {
+        "path": "tests/profit-step-review.test.mjs",
+        "sha256": "6a78956002c3fc1cc7ff53286cf8f7eb3f30dba1dd4769cae1bc237d354f2b9a"
       },
       {
         "path": "tests/real-13c-final-assets.test.mjs",
@@ -3103,11 +3111,23 @@
       "verificationStatus": "test_files_present_not_run",
       "artifacts": [
         {
+          "path": "lib/profit-step-review.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
           "path": "lib/real-a-confirmation-card.mjs",
           "status": "present_in_integration_source"
         },
         {
+          "path": "src/components/ProductPage.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
           "path": "src/components/RealAConfirmationCard.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/profit-step-review.test.mjs",
           "status": "present_in_integration_source"
         },
         {
@@ -4759,6 +4779,7 @@
         "lib/discovery-market-snapshot.mjs",
         "lib/supplier-draft.mjs",
         "lib/sku-choice-estimate.mjs",
+        "lib/profit-step-review.mjs",
         "src/selectionDeskView.js",
         "lib/discovery-title-translation.mjs",
         "lib/discovery-title-translation-store.mjs",
@@ -4788,6 +4809,7 @@
         "tests/supplier-draft.test.mjs",
         "tests/supplier-draft-api.test.mjs",
         "tests/sku-choice-estimate.test.mjs",
+        "tests/profit-step-review.test.mjs",
         "tests/product-page-ui.test.mjs",
         "tests/selection-desk-view.test.mjs",
         "tests/selection-desk-ui.test.mjs",

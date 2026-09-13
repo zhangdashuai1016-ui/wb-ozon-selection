@@ -1263,6 +1263,27 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 .product-sku-foot { margin: 0; font-size: 12px; line-height: 1.65; }
 .product-sku-foot strong { color: #1f2b26; }
 
+/* 算利润 — the whole set against the line, one variant first, the rest queued, and the two owner judgments. */
+.product-profit-excluded { margin: 0; padding-left: 18px; display: grid; gap: 3px; color: var(--amber); font-size: 12px; line-height: 1.55; }
+.product-profit-first { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid #b9d7ca; border-radius: 12px; background: var(--green-soft); }
+.product-profit-pick { max-width: 520px; }
+.product-profit-pick select { min-height: 34px; border: 1px solid var(--line-dark); border-radius: 8px; padding: 0 8px; background: #fff; font: inherit; min-width: 0; }
+.product-profit-calc { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 4px 14px; }
+.product-profit-calc dt { min-width: 96px; }
+.product-profit-judge { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #f8faf9; }
+/* 这一页的根节点是 .page-panel，那里的 label 是 grid 且限宽 520px；这两个勾选要横着放，也要占满整行。 */
+.page-panel .product-profit-check { display: flex; flex-direction: row; gap: 10px; align-items: flex-start;
+  max-width: none; cursor: pointer; padding: 8px 0; border-top: 1px solid var(--line); }
+.product-profit-check input { width: 17px; height: 17px; margin: 2px 0 0; flex: none; accent-color: var(--green); cursor: pointer; }
+.product-profit-check b { display: block; font-size: 13px; margin-bottom: 3px; }
+.product-profit-check p { margin: 0 0 3px; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.product-profit-check p:last-child { margin-bottom: 0; }
+.product-profit-note { color: var(--muted); font-size: 11px; }
+.product-profit-delta { color: var(--amber); font-size: 12px; }
+.product-profit-gaps { display: grid; gap: 5px; padding: 10px 12px; border: 1px solid #e5c9a0; border-radius: 12px; background: var(--amber-soft); }
+.product-profit-gaps h4 { margin: 0; font-size: 13px; color: var(--amber); }
+.product-profit-gaps ul { margin: 0; padding-left: 18px; display: grid; gap: 3px; font-size: 12px; line-height: 1.55; }
+
 @media (max-width: 860px) {
   .product-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .product-header { grid-template-columns: 64px minmax(0, 1fr); }

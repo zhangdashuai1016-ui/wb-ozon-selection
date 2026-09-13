@@ -130,6 +130,13 @@ export function buildSkuChoiceTable({
       route: chosenRoute?.route ?? null,
       freightRmb: chosenRoute?.freightRmb ?? null,
       allInPurchaseRmb: priced.allInPurchaseRmb,
+      // 算利润 has to show this one specification's profit as a list of deductions, and it has to ask "what would this
+      // specification break even at". Both need the parts the row's own estimate already worked out, so the row carries
+      // them out rather than letting a second place re-derive them from a neighbouring specification's estimate.
+      revenueCny: priced.estimate?.revenueCny ?? null,
+      commissionRate: priced.estimate?.commission?.rate ?? null,
+      reserveRate: priced.estimate?.ceiling?.reserveRate ?? null,
+      nonPurchaseFixedRmb: priced.estimate?.ceiling?.nonPurchaseFixedRmb ?? null,
       unitProfitRmb: priced.profit?.unitProfitRmb ?? null,
       marginRate: priced.profit?.marginRate ?? null,
       passes: priced.profit?.passes ?? null,

@@ -222,6 +222,22 @@ export default function App() {
       return "这件商品已经有一次采集还在等插件，这次没有重新开始；等它结束后再试，软件不会自动重试";
     }finally{await load(true);setProductDraftRefresh(value=>value+1);}
   }
+  /**
+   * 算利润 的确认。它走的是既有的 A 阶段确认那条路（成功后服务端自己接着算 B），所以这里只做三件事：把写操作放在读取
+   * 守卫之外——被取消的读会把服务端真正的回答抹成 null，那正是 r13 修掉的那一类错误——把服务端的回执原样交回页面，让
+   * 页面照它实际保存成什么样说话，然后无论成败都按服务端实际保存的状态重读一次。服务端拒绝时把它自己那句话原样抛回
+   * 页面，不改写、不概括。
+   */
+  async function confirmProductProfitStep(payload){
+    const ownerId=accountOwnerId,candidateId=selectedId;
+    const current=()=>accountContext.current.ownerId===ownerId&&accountContext.current.view==='product';
+    try{
+      return await runMutation(()=>api.confirmRealAStage(candidateId,payload),{
+        reads:productDraftReads.current,isCurrent:current,
+        publish(next){if(next?.supplierDraftV1!==undefined)setProductDraftView(next);}
+      });
+    }finally{await load(true);setProductDraftRefresh(value=>value+1);}
+  }
   const [extensionStatus, setExtensionStatus] = useState(() => extensionConnectionStatus({
     cachedVersion: readCachedExtensionVersion()
   }));
@@ -983,6 +999,7 @@ export default function App() {
           onRequestCapture={payload => requestProductCapture(payload)}
           onReviewCaptureAndRequest={payload => reviewCaptureAndRequest(payload)}
           onRecaptureSource={payload => recaptureProductSource(payload)}
+          onConfirmProfitStep={payload => confirmProductProfitStep(payload)}
           onOpenLegacyCard={() => setView("review")}
           onEliminateCandidate={eliminateCandidate}
           onBack={() => setView("desk")}

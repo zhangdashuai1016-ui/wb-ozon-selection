@@ -11,6 +11,7 @@ import { createADiscoveryEstimateInputs, createADiscoveryEstimateUseCase } from 
 import { ensureDiscoveryMarketSalesSnapshot, readDiscoveryMarketRecord, currentSalesSnapshot } from './lib/discovery-market-snapshot.mjs';
 import { SupplierDraftError, buildSupplierDraftEstimate, buildSupplierDraftV1, normalizeSupplierDraftInput } from './lib/supplier-draft.mjs';
 import { buildSkuChoiceTable } from './lib/sku-choice-estimate.mjs';
+import { buildProfitStepReview } from './lib/profit-step-review.mjs';
 import { adapt1688CaptureToSupplierOption } from './lib/supplier-option.mjs';
 import { readOzonCommissionReference, readOzonCommissionReferenceTiers } from './lib/ozon-commission-reference-reader.mjs';
 import { readGuooTariffCatalog } from './lib/guoo-tariff-reader.mjs';
@@ -2423,15 +2424,24 @@ async function supplierDraftView(document, candidate) {
   const snapshot = currentSalesSnapshot(candidate);
   // One resolution of the official inputs for the whole view, so the two steps can never show different money.
   const resolved = draft === null ? null : await supplierDraftPricingInputs(document, candidate, draft);
+  const estimate = resolved === null ? null : supplierDraftEstimateFrom(draft, resolved);
+  const table = resolved === null ? null : supplierSkuChoiceTableFrom(candidate, draft, resolved);
+  const publicView = publicCandidate(candidate, document.rules, {}, document.evidencePacks || [], document.currentCommissionCatalogs ?? []);
   return {
     schemaVersion: "supplier-draft-view-v1",
     candidateId: candidate.id,
     dataRevision: candidate.dataRevision,
     supplierDraftV1: draft === null ? null : structuredClone(draft),
-    supplierDraftEstimateV1: resolved === null ? null : supplierDraftEstimateFrom(draft, resolved),
-    skuChoiceTableV1: resolved === null ? null : supplierSkuChoiceTableFrom(candidate, draft, resolved),
+    supplierDraftEstimateV1: estimate,
+    skuChoiceTableV1: table,
+    // 算利润 reads the very card the page is handed, so what the owner confirms and what the server validates are the
+    // same record. Nothing is computed a second time here: the specification table above already priced every row.
+    profitStepV1: table === null ? null : buildProfitStepReview({
+      candidate, draft, table, estimate, card: publicView.realAConfirmationCard ?? null,
+      commissionTiers: resolved.commissionTiers, builtAt: resolved.at
+    }),
     marketSnapshot: snapshot === null ? null : structuredClone(snapshot),
-    candidate: publicCandidate(candidate, document.rules, {}, document.evidencePacks || [], document.currentCommissionCatalogs ?? [])
+    candidate: publicView
   };
 }
 

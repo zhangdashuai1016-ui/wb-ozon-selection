@@ -669,9 +669,13 @@ export const CAPABILITY_NODES = Object.freeze([
     nextStep: "等待主人在 2.7 做最终供货决定。",
     position: { x: 980, y: 250 },
     aliases: ["旧 2.1"],
-    codeRefs: [capabilityRef("lib/real-a-confirmation-card.mjs", "buildRealAConfirmationCard", "A 确认卡")],
-    uiRefs: [capabilityRef("src/components/RealAConfirmationCard.jsx", "RealAConfirmationCard", "确认卡 UI")],
-    testRefs: [capabilityRef("tests/real-a-confirmation-card.test.mjs", "test(", "确认卡测试")]
+    codeRefs: [capabilityRef("lib/real-a-confirmation-card.mjs", "buildRealAConfirmationCard", "A 确认卡"),
+      capabilityRef("lib/profit-step-review.mjs", "buildProfitStepReview", "算利润：整套核线、指定先上的一个、其余排队"),
+      capabilityRef("lib/profit-step-review.mjs", "profitStepSubmission", "用已保存的资料把确认组装齐，缺一样就不组装")],
+    uiRefs: [capabilityRef("src/components/RealAConfirmationCard.jsx", "RealAConfirmationCard", "确认卡 UI"),
+      capabilityRef("src/components/ProductPage.jsx", "profitStepOpen", "商品页的算利润一步")],
+    testRefs: [capabilityRef("tests/real-a-confirmation-card.test.mjs", "test(", "确认卡测试"),
+      capabilityRef("tests/profit-step-review.test.mjs", "test(", "算利润这一步的校验基准")]
   }),
   capability({
     id: "2.7", capabilityId: "selection.a.owner-supply-confirmation", areaId: "2",
@@ -1656,6 +1660,7 @@ export const CAPABILITY_ARTIFACT_ASSIGNMENTS = Object.freeze([
       "lib/discovery-market-snapshot.mjs",
       "lib/supplier-draft.mjs",
       "lib/sku-choice-estimate.mjs",
+      "lib/profit-step-review.mjs",
       "src/selectionDeskView.js",
       "lib/discovery-title-translation.mjs",
       "lib/discovery-title-translation-store.mjs",
@@ -1685,6 +1690,7 @@ export const CAPABILITY_ARTIFACT_ASSIGNMENTS = Object.freeze([
       "tests/supplier-draft.test.mjs",
       "tests/supplier-draft-api.test.mjs",
       "tests/sku-choice-estimate.test.mjs",
+      "tests/profit-step-review.test.mjs",
       "tests/product-page-ui.test.mjs",
       "tests/selection-desk-view.test.mjs",
       "tests/selection-desk-ui.test.mjs",

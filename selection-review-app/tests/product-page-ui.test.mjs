@@ -16,11 +16,17 @@ async function pageModule() {
       import Page, {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload,
         captureRecaptureReady, captureRecaptureConfirmLine, captureRecapturePayload, CAPTURE_RECAPTURE_REASONS,
         currentProductStep, skuChoiceReady, skuChoiceSaved, showsSkuChoice, skuChoiceHeadline, skuChoiceSwing,
-        skuChoiceSummary, selectAllState, skuChoicePayload, skuWeightGapNotice, foldedStepLine, foldedStepState} from ${JSON.stringify(component)};
+        skuChoiceSummary, selectAllState, skuChoicePayload, skuWeightGapNotice, foldedStepLine, foldedStepState,
+        profitStepOpen, profitStepFirstSkuId, profitStepThresholdLine, profitStepCohortHeadline, profitStepExcludedLine,
+        profitStepSuggestionLine, profitStepPriceDeltaLine, profitStepCommissionLine, profitStepSubmitState,
+        profitStepOutcomeLine} from ${JSON.stringify(component)};
       export {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload,
         captureRecaptureReady, captureRecaptureConfirmLine, captureRecapturePayload, CAPTURE_RECAPTURE_REASONS,
         currentProductStep, skuChoiceReady, skuChoiceSaved, showsSkuChoice, skuChoiceHeadline, skuChoiceSwing,
-        skuChoiceSummary, selectAllState, skuChoicePayload, skuWeightGapNotice, foldedStepLine, foldedStepState};
+        skuChoiceSummary, selectAllState, skuChoicePayload, skuWeightGapNotice, foldedStepLine, foldedStepState,
+        profitStepOpen, profitStepFirstSkuId, profitStepThresholdLine, profitStepCohortHeadline, profitStepExcludedLine,
+        profitStepSuggestionLine, profitStepPriceDeltaLine, profitStepCommissionLine, profitStepSubmitState,
+        profitStepOutcomeLine};
       export const render=props=>renderToStaticMarkup(<Page {...props}/>);` : null }],
       ssr: { noExternal: true }, build: { ssr: true, write: false, rollupOptions: { input: entry, output: { format: 'es' } } } });
     const chunk = output.output.find(value => value.type === 'chunk' && value.isEntry);
@@ -725,4 +731,276 @@ test('重新采集有自己的处理函数：写操作不经读取守卫，拿�
   assert.match(handler[0], /const start=await startQueuedSupplierCapture\(result\);/u);
   assert.doesNotMatch(handler[0], /postMessage|CAPTURE_REQUEST|addEventListener/u);
   assert.match(handler[0], /await load\(true\);setProductDraftRefresh\(value=>value\+1\);/u);
+});
+
+/* ── 算利润 ───────────────────────────────────────────────────────────────────────────────────────────────────────
+ * 主人 2026-09-13 定的口径：凡是过利润线的规格他全都要上，所以这一步不挑「最赚的那一个」——整套一起核线，指定一个
+ * 变体先上架跑通，其余排队等同一张卡追加。页面自己不算钱，它只负责把服务端已经算好的那份东西说清楚，并且在资料
+ * 凑不齐的时候如实说缺什么、不许提交。
+ */
+const profitSpec = (id, label, values, priceCny, freightRmb, unitProfitRmb, marginRate, weightKg, extra = {}) => ({
+  sourceSkuId: id, label, values, attributes: { 尺码: values[0], 颜色: values[1] },
+  priceCny, weightKg, chargeableKg: weightKg, route: 'GUOO Economy Extra Small', freightRmb,
+  allInPurchaseRmb: priceCny + 3.5, unitProfitRmb, marginRate,
+  breakEvenRub: 1069, thresholdRub: 1331, thresholdBasis: 'margin',
+  breakdown: { revenueCny: 127.35, commissionRate: 0.14, commissionRmb: 17.82, storeReserveRate: 0.12,
+    storeReserveRmb: 15.28, freightRmb, packagingRmb: 3, labelCostRmb: 1.5, otherFixedRmb: 0,
+    allInPurchaseRmb: priceCny + 3.5, unitProfitRmb, marginRate, roundingRmb: 0.02 },
+  priceDelta: priceCny === 20.5 ? null : { pageRmb: priceCny, declaredRmb: 20.5, deltaRmb: Math.round((priceCny - 20.5) * 100) / 100 },
+  variantKey: `1627207:${id}`, unitProductPrice: priceCny, actualPurchaseCost: priceCny + 3.5,
+  quantityOneEvidenceSourceNote: '按 2026-09-13 采到的 1688 页面（商品 943009939489）核对：页面报的起订量是 1 件。',
+  isSuggested: false, gaps: [], ...extra
+});
+const profitReview = (extra = {}) => ({
+  schemaVersion: 'profit-step-review-v1', builtAt: '2026-09-13T01:00:02.000Z',
+  candidateId: 'candidate:synthetic-product-page', dataRevision: 4, columns: ['尺码', '颜色'],
+  total: 3, passCount: 2, excludedCount: 1,
+  unitProfitRange: { low: 34.62, high: 59.47 }, marginRange: { low: 0.2718, high: 0.467 },
+  excluded: [{ sourceSkuId: 'sku-8xl-navy', label: '8XL · 藏青色', kind: 'below_threshold', missing: [],
+    unitProfitRmb: 16.12, marginRate: 0.1266, unitProfitShortRmb: 3.88, marginShortRate: 0.0234 }],
+  threshold: { minimumUnitProfitRmb: 20, targetMarginRate: 0.15, thresholdPolicy: 'either', policyVersion: 'synthetic-pricing-v1' },
+  benchmark: { productNumber: '3605840795', productUrl: 'https://www.ozon.ru/product/3605840795',
+    title: 'Водонепроницаемый дождевик для собак, светоотражающий -8XL', currentPrice: 1457, currency: 'RUB',
+    collectedOn: '2026-09-11', snapshotId: marketSnapshot.snapshotId,
+    matchedAttributeKey: '尺码', matchedValue: '8XL', sameAttributeCount: 1 },
+  suggestedSkuId: 'sku-8xl-yellow',
+  specifications: [
+    profitSpec('sku-xl-yellow', 'XL · 黄色', ['XL', '黄色'], 20.5, 6.26, 59.47, 0.467, 0.103),
+    profitSpec('sku-8xl-yellow', '8XL · 黄色', ['8XL', '黄色'], 41.5, 10.11, 34.62, 0.2718, 0.24, { isSuggested: true })
+  ],
+  queue: [
+    { key: 'sku-xl-yellow', sourceSkuIds: ['sku-xl-yellow'], count: 1, label: 'XL · 黄色', values: [['XL'], ['黄色']],
+      priceCny: 20.5, weightKg: 0.103, chargeableKg: 0.103, freightRmb: 6.26, allInPurchaseRmb: 24,
+      unitProfitRmb: 59.47, marginRate: 0.467, breakEvenRub: 658, thresholdRub: 820, thresholdBasis: 'margin' },
+    { key: 'sku-8xl-yellow', sourceSkuIds: ['sku-8xl-yellow'], count: 1, label: '8XL · 黄色', values: [['8XL'], ['黄色']],
+      priceCny: 41.5, weightKg: 0.24, chargeableKg: 0.24, freightRmb: 10.11, allInPurchaseRmb: 45,
+      unitProfitRmb: 34.62, marginRate: 0.2718, breakEvenRub: 1069, thresholdRub: 1331, thresholdBasis: 'margin' }
+  ],
+  commission: { bands: [{ rate: 0.12, minRub: 0, maxRub: 1500, tier: 'le1500' },
+    { rate: 0.14, minRub: 1500.01, maxRub: 5000, tier: '1500_5000' }],
+    current: { rate: 0.12, minRub: 0, maxRub: 1500, tier: 'le1500' },
+    next: { rate: 0.14, minRub: 1500.01, maxRub: 5000, tier: '1500_5000' } },
+  supply: { productUrl: 'https://detail.1688.com/offer/943009939489.html', offerId: '943009939489',
+    observedOn: '2026-09-13', declaredGoodsPriceRmb: 20.5, unitDomesticFreight: 3.5, otherPurchaseCosts: 0,
+    dimensionsCm: { length: 25, width: 22, height: 2.5 }, targetSalePriceRub: 1600 },
+  submissionBase: { dataRevision: 4, sourceCandidateId: 'candidate:synthetic-product-page', sourceDataRevision: 4,
+    targetPlatform: 'ozon', storeRef: { stableStoreId: 'miska', platformStoreId: 'synthetic-seller', mappingVersion: 'synthetic-stores-v1' },
+    targetSalePriceRub: 1600, snapshotId: marketSnapshot.snapshotId, confidence: 'unknown',
+    captureId: 'SCJ-synthetic-choice', productUrl: 'https://detail.1688.com/offer/943009939489.html',
+    unitDomesticFreight: 3.5, otherPurchaseCosts: 0, dimensionsCm: { length: 25, width: 22, height: 2.5 } },
+  baseGaps: [], ...extra
+});
+const profitProps = (reviewExtra = {}, extra = {}) => props({
+  candidate: candidate({ sourceCapture: waitingCapture({ selectedSkuIds: ['sku-xl-yellow', 'sku-8xl-yellow'] }) }),
+  view: { supplierDraftV1: draft, supplierDraftEstimateV1: okEstimate, marketSnapshot,
+    skuChoiceTableV1: choiceTable({ selectedSkuIds: ['sku-xl-yellow', 'sku-8xl-yellow'] }),
+    profitStepV1: profitReview(reviewExtra) },
+  onChooseSkus: forbidden, onConfirmProfitStep: forbidden, ...extra
+});
+
+test('选定规格之后走到算利润：整套一起核线，不过线的自动排除并说明原因', async () => {
+  const { profitStepOpen, profitStepCohortHeadline, profitStepThresholdLine, profitStepExcludedLine } = await pageModule();
+  const chosen = candidate({ sourceCapture: waitingCapture({ selectedSkuIds: ['sku-xl-yellow'] }) });
+  assert.equal(profitStepOpen(chosen, { profitStepV1: profitReview() }), true);
+  // 还没选定规格、或者服务端还没算出这一步，都不显示。
+  assert.equal(profitStepOpen(candidate({ sourceCapture: waitingCapture() }), { profitStepV1: profitReview() }), false);
+  assert.equal(profitStepOpen(chosen, { profitStepV1: null }), false);
+
+  assert.equal(profitStepCohortHeadline(profitReview()), '这一套 3 个变体，2 个过线，1 个没到本店门槛');
+  assert.equal(profitStepCohortHeadline(profitReview({ total: 3, passCount: 3, excludedCount: 0 })), '这一套 3 个变体，全部过线');
+  // 门槛的两个数字取自本店成本政策，页面不写死。
+  assert.equal(profitStepThresholdLine(profitReview()), '本店门槛：单件利润 ≥ ¥20.00 或 利润率 ≥ 15%，先达者算过');
+  assert.equal(profitStepThresholdLine(profitReview({ threshold: { minimumUnitProfitRmb: 25, targetMarginRate: 0.3, thresholdPolicy: 'both' } })),
+    '本店门槛：单件利润 ≥ ¥25.00 且 利润率 ≥ 30%，两个都要到');
+  // 排除的理由说的是它自己的两个数字，以及各差多少。
+  assert.equal(profitStepExcludedLine(profitReview().excluded[0]),
+    '8XL · 藏青色：单件利润 ¥16.12 · 利润率 13%（差 ¥3.88，差 2.3 个百分点）');
+  assert.equal(profitStepExcludedLine({ label: '8XL · 灰色', kind: 'not_priced', missing: ['规格重量'] }),
+    '8XL · 灰色：算不出利润，缺规格重量');
+
+  const html = await render(profitProps());
+  assert.match(html, /<section class="product-section product-profit" aria-label="算利润">/u);
+  assert.match(html, /这一步不再让你挑哪个最赚/u);
+  assert.match(html, /<h4>这一套 3 个变体，2 个过线，1 个没到本店门槛<\/h4>/u);
+  assert.match(html, /本店门槛：单件利润 ≥ ¥20.00 或 利润率 ≥ 15%，先达者算过/u);
+  assert.match(html, /<ul class="product-profit-excluded" aria-label="不过线，已排除">/u);
+  assert.match(html, /8XL · 藏青色：单件利润 ¥16\.12 · 利润率 13%（差 ¥3\.88，差 2\.3 个百分点）/u);
+  // 区间和「不过线，已排除」的条数都照记录说。
+  assert.match(html, /¥34\.62 – ¥59\.47/u);
+  assert.match(html, /27% – 47%/u);
+  // 这一步在场时，下面就不再折一个空的「算利润」出来。
+  assert.doesNotMatch(html, /<summary>算利润<span/u);
+});
+
+test('先上这一个：默认建议同尺码那一个，算式摊开，其余排队', async () => {
+  const { profitStepFirstSkuId, profitStepSuggestionLine, profitStepCommissionLine } = await pageModule();
+  const review = profitReview();
+  // 主人没指定时用建议；他指定过的那一个只要还在表里就一直算他的。
+  assert.equal(profitStepFirstSkuId(review, null), 'sku-8xl-yellow');
+  assert.equal(profitStepFirstSkuId(review, 'sku-xl-yellow'), 'sku-xl-yellow');
+  // 指定的那一个已经不在表里（比如重新采过），就退回建议，绝不带着一个不存在的规格提交。
+  assert.equal(profitStepFirstSkuId(review, 'sku-gone'), 'sku-8xl-yellow');
+  assert.equal(profitStepFirstSkuId(profitReview({ suggestedSkuId: null }), null), null);
+  assert.match(profitStepSuggestionLine(review), /标题里写着 8XL/u);
+  // 对标标题里判断不出规格时，页面直说判断不出来，不瞎猜。
+  assert.match(profitStepSuggestionLine(profitReview({ benchmark: { matchedValue: null } })),
+    /标题里没写规格，软件判断不出该先上哪一个，你自己定/u);
+  // 档位分界线取自官方表，不是页面里写死的 1500。
+  assert.match(profitStepCommissionLine(review), /售价跨过 1500 卢布，官方佣金就从 12% 跳到 14%/u);
+  assert.match(profitStepCommissionLine(profitReview({ commission: { bands: [], current: null, next: null } })),
+    /售价跨过官方佣金的档位分界线，费率会换一档/u);
+
+  const html = await render(profitProps());
+  assert.match(html, /<h4>先上这一个，跑通上架通路<\/h4>/u);
+  assert.match(html, /其余 1 个在同一张卡上追加，内容不重做/u);
+  assert.match(html, /<select id="profit-first-variant"[^>]*>/u);
+  assert.match(html, /8XL · 黄色.*（建议）/u);
+  // 算式的每一项都在，并且是这一个规格自己的运费。
+  assert.match(html, /<dt>成交收入<\/dt><dd>¥127\.35<\/dd>/u);
+  assert.match(html, /<dt>官方佣金 14%<\/dt><dd>−¥17\.82<\/dd>/u);
+  assert.match(html, /<dt>国际运费<\/dt><dd>−¥10\.11 · GUOO Economy Extra Small · 计费 0\.24 公斤<\/dd>/u);
+  assert.match(html, /<dt>到手采购<\/dt><dd>−¥45\.00<\/dd>/u);
+  assert.match(html, /<dt>包装 \+ 贴标<\/dt><dd>−¥4\.50<\/dd>/u);
+  assert.match(html, /<dt>店铺预留 12%<\/dt><dd>−¥15\.28<\/dd>/u);
+  assert.match(html, /<dd class="product-sku-profit">¥34\.62 · 利润率 27%<\/dd>/u);
+  // 排队表给每个规格自己的保本价和达标最低售价，先上的那一行标出来。
+  assert.match(html, /<th scope="col">保本价<\/th><th scope="col">达标最低售价<\/th>/u);
+  assert.match(html, /658 卢布/u);
+  assert.match(html, /820 卢布/u);
+  assert.match(html, /1069 卢布/u);
+  assert.match(html, /1331 卢布/u);
+  assert.match(html, /<tr class="product-sku-row-on">/u);
+  assert.match(html, /<b> · 先上<\/b>/u);
+});
+
+test('两个勾选都勾上才能提交，页面价与找货价的差额就写在勾选旁边', async () => {
+  const { profitStepPriceDeltaLine, profitStepSubmitState } = await pageModule();
+  const review = profitReview();
+  const spec = review.specifications.find(item => item.sourceSkuId === 'sku-8xl-yellow');
+  assert.equal(profitStepPriceDeltaLine(spec),
+    '你在「找货」里填的货价是 ¥20.50；这一步按这个规格自己的页面价 ¥41.50 算，页面价比你填的贵 ¥21.00。');
+  // 页面价和找货填的一样时没有这句话。
+  assert.equal(profitStepPriceDeltaLine(review.specifications[0]), null);
+  assert.match(profitStepPriceDeltaLine({ priceDelta: { pageRmb: 20.2, declaredRmb: 20.5, deltaRmb: -0.3 } }),
+    /页面价比你填的便宜 ¥0\.30。$/u);
+
+  const base = { review, firstSkuId: 'sku-8xl-yellow', gaps: [] };
+  assert.equal(profitStepSubmitState({ ...base, comparabilityConfirmed: false, supplyConfirmed: false }).ready, false);
+  assert.equal(profitStepSubmitState({ ...base, comparabilityConfirmed: true, supplyConfirmed: false }).ready, false);
+  assert.equal(profitStepSubmitState({ ...base, comparabilityConfirmed: false, supplyConfirmed: true }).ready, false);
+  assert.equal(profitStepSubmitState({ ...base, comparabilityConfirmed: true, supplyConfirmed: false }).hint,
+    '两件都确认后才能进入下一步。');
+  const ready = profitStepSubmitState({ ...base, comparabilityConfirmed: true, supplyConfirmed: true });
+  assert.equal(ready.ready, true);
+  assert.equal(ready.hint, '8XL · 黄色 先上，其余 1 个变体排队等同一张卡追加。');
+  // 一个变体都没指定时也不能提交。
+  assert.equal(profitStepSubmitState({ review, firstSkuId: null, gaps: [], comparabilityConfirmed: true, supplyConfirmed: true }).ready, false);
+
+  const html = await render(profitProps());
+  assert.match(html, /<h4>只有你能确认的两件事<\/h4>/u);
+  assert.match(html, /<b>这两件商品是可比的同类<\/b>/u);
+  assert.match(html, /Ozon 3605840795/u);
+  assert.match(html, /Водонепроницаемый дождевик для собак, светоотражающий -8XL/u);
+  assert.match(html, /1457 卢布/u);
+  assert.match(html, /快照采于 2026-09-11/u);
+  assert.match(html, /<b>链接、规格、成本、包装是同一套采购方案<\/b>/u);
+  assert.match(html, /https:\/\/detail\.1688\.com\/offer\/943009939489\.html/u);
+  assert.match(html, /货价 ¥41\.50（这个规格在 1688 页面上自己的价） ＋ 国内运费 ¥3\.50（你填的） ＋ 其他采购费用 ¥0\.00 ＝ 到手 ¥45\.00/u);
+  assert.match(html, /打包 0\.24 公斤 · 25×22×2\.5 厘米/u);
+  assert.match(html, /<p class="product-profit-delta">你在「找货」里填的货价是 ¥20\.50；/u);
+  assert.match(html, /其他采购费用按 ¥0\.00 算：你在「找货」里只填了货价和国内运费/u);
+  // 两个勾选都还没勾，按钮就是不可点的。
+  assert.match(html, /<button type="button" class="button primary" disabled[^>]*>确认，进入文案素材<\/button>/u);
+  assert.match(html, /两件都确认后才能进入下一步。/u);
+  // 渲染这一步不会向服务端发任何东西。
+  assert.doesNotMatch(html, /RENDER_MUST_NOT_START_WORK/u);
+});
+
+test('资料凑不齐就如实列出来并禁用提交，页面不替主人补一个像样的数字', async () => {
+  const { profitStepSubmitState } = await pageModule();
+  const gaps = [{ field: 'unitDomesticFreight', label: '国内运费', why: '你在「找货」里还没有填国内运费，包邮请填 0。' }];
+  const blocked = profitStepSubmitState({ review: profitReview(), firstSkuId: 'sku-8xl-yellow',
+    comparabilityConfirmed: true, supplyConfirmed: true, gaps });
+  assert.equal(blocked.ready, false);
+  assert.equal(blocked.hint, '资料还缺东西，先补齐下面列出的这几项才能确认。');
+  assert.deepEqual(blocked.gaps, gaps);
+
+  const html = await render(profitProps({
+    baseGaps: [{ field: 'unitDomesticFreight', label: '国内运费', why: '你在「找货」里还没有填国内运费，包邮请填 0。' }],
+    submissionBase: null
+  }));
+  assert.match(html, /<div class="product-profit-gaps" role="alert">/u);
+  assert.match(html, /<h4>还差这些，现在不能确认<\/h4>/u);
+  assert.match(html, /<b>国内运费<\/b>：你在「找货」里还没有填国内运费，包邮请填 0。/u);
+  // 其他采购费用报不出来时，那句「按 ¥0.00 算」就不能出现——它是软件替主人报的一个数，不是随口的安慰。
+  const noFreight = await render(profitProps({
+    supply: { ...profitReview().supply, unitDomesticFreight: null, otherPurchaseCosts: null },
+    baseGaps: [{ field: 'unitDomesticFreight', label: '国内运费', why: '你在「找货」里还没有填国内运费，包邮请填 0。' }],
+    submissionBase: null
+  }));
+  assert.doesNotMatch(noFreight, /其他采购费用按 ¥0\.00 算/u);
+  assert.match(html, /其他采购费用按 ¥0\.00 算/u, '能报出来时这句话要在，主人才知道这个 0 是哪来的');
+  assert.match(html, /<button type="button" class="button primary" disabled[^>]*>确认，进入文案素材<\/button>/u);
+  assert.match(html, /资料还缺东西，先补齐下面列出的这几项才能确认。/u);
+
+  // 采集里缺「一件可买」的凭据时，缺的是那一条，说的也是那一条。
+  const missingEvidence = await render(profitProps({
+    specifications: profitReview().specifications.map(item => item.sourceSkuId === 'sku-8xl-yellow'
+      ? { ...item, quantityOneEvidenceSourceNote: null, gaps: [{ field: 'quantityOneEvidenceSourceNote',
+        label: '一件可买的凭据', why: '这一次采集没有读到「一件起订」的报价，软件不会替你写这句话；重新采集一次这个 1688 页面再来。' }] }
+      : item)
+  }));
+  assert.match(missingEvidence, /<b>一件可买的凭据<\/b>：这一次采集没有读到「一件起订」的报价/u);
+  assert.match(missingEvidence, /<button type="button" class="button primary" disabled[^>]*>确认，进入文案素材<\/button>/u);
+});
+
+test('算利润的确认走既有的 A 阶段确认接口，写操作不经读取守卫', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const app = await readFile(fileURLToPath(new URL('../src/App.jsx', import.meta.url)), 'utf8');
+  const page = await readFile(fileURLToPath(new URL('../src/components/ProductPage.jsx', import.meta.url)), 'utf8');
+  assert.match(app, /onConfirmProfitStep=\{payload => confirmProductProfitStep\(payload\)\}/u);
+  const handler = app.match(/async function confirmProductProfitStep\(payload\)\{[\s\S]*?\n  \}/u);
+  assert.ok(handler, '算利润的确认必须有自己的处理函数');
+  // 既有的那条路，不另开一个接口。
+  assert.match(handler[0], /runMutation\(\(\)=>api\.confirmRealAStage\(candidateId,payload\)/u);
+  assert.doesNotMatch(handler[0], /productDraftReads\.current\.run\(/u,
+    '写操作经过“只保留最新读取”的守卫会把服务端的真实回答丢成 null');
+  assert.match(handler[0], /await load\(true\);setProductDraftRefresh\(value=>value\+1\);/u);
+  // 组装那一份东西的是 lib 里那一个纯函数，页面自己不拼字段。
+  assert.match(page, /import \{ profitStepGaps, profitStepSubmission \} from "\.\.\/\.\.\/lib\/profit-step-review\.mjs";/u);
+  assert.match(page, /const payload = profitStepSubmission\(profitReview, firstSkuId, judgments\);/u);
+  assert.match(page, /if \(payload === null\) \{ setError\("这一份确认还凑不齐，没有提交；请看上面列出的缺项。"\); return undefined; \}/u);
+  // 这一页的根节点是 .page-panel，那里的 label 规则是 grid 且限宽；勾选那两条必须压过它，否则方框会掉到文字上面一行。
+  const css = await readFile(fileURLToPath(new URL('../src/styles.css', import.meta.url)), 'utf8');
+  assert.match(css, /\.page-panel \.product-profit-check \{[^}]*flex-direction: row;[^}]*max-width: none;/u);
+  assert.ok(css.indexOf('.page-panel .product-profit-check') > css.indexOf('.page-panel label'),
+    '同样特指度时靠先后顺序取胜，这条必须排在 .page-panel label 之后');
+});
+
+test('确认之后说的是服务端真的保存成什么样，同一个成功回执底下的四种结果各说各的', async () => {
+  const { profitStepOutcomeLine } = await pageModule();
+  // 服务端没有确认，而是又排了一次采集：不能报成「已确认」。
+  assert.equal(profitStepOutcomeLine({ status: 'supplier_capture_job_queued', candidate: {} }),
+    '没有确认成功：服务端认为这个1688链接还要重新读一次，已经排了一次采集。等它采完，再回到这一步。');
+  // 之前已经确认过的，说清楚这次没有重复确认。
+  assert.match(profitStepOutcomeLine({ idempotentReplay: true, candidate: {} }), /之前已经确认过了，服务端没有再确认一次/u);
+  // 确认之后利润过线：走到文案素材，并且把边界说全。
+  assert.match(profitStepOutcomeLine({ candidate: { workflowStatus: 'listing_preparation' } }),
+    /利润也算过了，这件商品走到了「文案素材」。没有下单、没有联系供应商、也没有向 Ozon 写任何东西。/u);
+  // 确认之后利润没过线：商品当场被淘汰，必须照服务端给的原因说，并且说清在哪恢复。
+  assert.match(profitStepOutcomeLine({ candidate: { workflowStatus: 'eliminated',
+    eliminationReason: 'B阶段利润未达到当前门槛：单件利润12元，利润率9.8%' } }),
+    /这件商品已经淘汰：B阶段利润未达到当前门槛：单件利润12元，利润率9\.8%。可以在选品台的「已淘汰」里恢复。/u);
+  // 确认了但缺精确佣金：不能说成算完了。
+  assert.match(profitStepOutcomeLine({ candidate: { workflowStatus: 'needs_user_data',
+    neededFields: ['系统待取得当前店铺、类目和销售模式的精确佣金；现有结果仅为条件测算，未通过正式B。'] } }),
+    /已确认，但利润还没有算完：系统待取得当前店铺、类目和销售模式的精确佣金/u);
+  assert.match(profitStepOutcomeLine({}), /已提交这一步的确认；下面显示的是服务端现在保存的状态。/u);
+
+  const { readFile } = await import('node:fs/promises');
+  const page = await readFile(fileURLToPath(new URL('../src/components/ProductPage.jsx', import.meta.url)), 'utf8');
+  const app = await readFile(fileURLToPath(new URL('../src/App.jsx', import.meta.url)), 'utf8');
+  // 页面读的是服务端那份回执本身，所以 App 里那条路必须把回执交回来，不能吞掉。
+  assert.match(page, /profitStepOutcomeLine\(await onConfirmProfitStep\(input\)\)/u);
+  assert.match(app, /return await runMutation\(\(\)=>api\.confirmRealAStage\(candidateId,payload\)/u);
 });

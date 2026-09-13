@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { errorMessage } from "../formState.js";
 import { storeLabel } from "../selectionDeskView.js";
 import { toggleLocalSupplierSkuSelection } from "../aSupplierCaptureSelection.js";
+import { profitStepGaps, profitStepSubmission } from "../../lib/profit-step-review.mjs";
 import EliminateControl from "./EliminateControl.jsx";
 
 /**
@@ -386,6 +387,150 @@ export function skuChoicePayload(table, chosen, dataRevision) {
   return { dataRevision, sourceSkuIds: rows.map(row => String(row.sourceSkuId)).filter(id => ids.includes(id)) };
 }
 
+/* ── 算利润 ───────────────────────────────────────────────────────────────────────────────────────────────────────
+ * The owner's rule, 2026-09-13: the software does not pick the one variant that earns most. Every variant over the
+ * line is one he intends to sell, so this step checks the whole chosen set at once, lets him name the one that goes
+ * up first to prove the route, and leaves the rest queued for the same Ozon card. Every number below was worked out
+ * on the server by the same engine as 找货 and 选定; this file only decides how to say it.
+ */
+
+/** 算利润 is open once the owner has chosen his specifications and the server could price them. */
+export function profitStepOpen(candidate, view) {
+  return currentProductStep(candidate) === "profit" && isObject(view?.profitStepV1);
+}
+
+/** The variant that goes up first: the owner's own pick while it is still one of the priced ones, else the suggestion. */
+export function profitStepFirstSkuId(review, picked) {
+  const ids = (review?.specifications ?? []).map(item => item.sourceSkuId);
+  const chosen = picked === null || picked === undefined ? null : String(picked);
+  if (chosen !== null && ids.includes(chosen)) return chosen;
+  return typeof review?.suggestedSkuId === "string" && ids.includes(review.suggestedSkuId) ? review.suggestedSkuId : null;
+}
+
+/** This store's own line, in the store rule's own two numbers — never a figure written into this page. */
+export function profitStepThresholdLine(review) {
+  const threshold = review?.threshold ?? null;
+  if (!isObject(threshold)) return "本店利润门槛还没取到。";
+  const unit = money(threshold.minimumUnitProfitRmb);
+  const margin = percent(threshold.targetMarginRate);
+  if (unit === null && margin === null) return "本店利润门槛还没取到。";
+  const both = threshold.thresholdPolicy === "both";
+  const parts = [unit === null ? null : `单件利润 ≥ ${unit}`, margin === null ? null : `利润率 ≥ ${margin}`].filter(Boolean);
+  return `本店门槛：${parts.join(both ? " 且 " : " 或 ")}${parts.length < 2 ? "" : both ? "，两个都要到" : "，先达者算过"}`;
+}
+
+/** 过线的有几个，说的是这一套里真实的两个数字。 */
+export function profitStepCohortHeadline(review) {
+  const total = finite(review?.total) ?? 0;
+  const pass = finite(review?.passCount) ?? 0;
+  return pass === total
+    ? `这一套 ${total} 个变体，全部过线`
+    : `这一套 ${total} 个变体，${pass} 个过线，${total - pass} 个没到本店门槛`;
+}
+
+/** Why a variant was left out, in its own numbers; a variant nobody could price says that instead. */
+export function profitStepExcludedLine(entry) {
+  const label = textOf(entry?.label) || "这个变体";
+  if (entry?.kind === "not_priced") {
+    return `${label}：算不出利润，缺${(entry.missing ?? []).join("、") || "必要资料"}`;
+  }
+  const profit = money(entry?.unitProfitRmb);
+  const margin = percent(entry?.marginRate);
+  const shortProfit = money(entry?.unitProfitShortRmb);
+  const shortMargin = finite(entry?.marginShortRate) === null ? null : `${Math.round(entry.marginShortRate * 1000) / 10} 个百分点`;
+  const gaps = [shortProfit === null ? null : `差 ${shortProfit}`, shortMargin === null ? null : `差 ${shortMargin}`].filter(Boolean);
+  return `${label}：单件利润 ${profit ?? "未取得"} · 利润率 ${margin ?? "未取得"}${gaps.length === 0 ? "" : `（${gaps.join("，")}）`}`;
+}
+
+/**
+ * Why the software suggests this one first. The benchmark product names a size in its own title, so the variant that
+ * proves the route is the one at that size. When the title names no size the page says so and suggests nothing —
+ * a guessed variant would be the software making the owner's decision for him.
+ */
+export function profitStepSuggestionLine(review) {
+  const benchmark = review?.benchmark ?? null;
+  if (!isObject(benchmark) || textOf(benchmark.matchedValue) === "") {
+    return "对标那款商品的标题里没写规格，软件判断不出该先上哪一个，你自己定。";
+  }
+  const price = finite(benchmark.currentPrice) === null ? "" : `，售价 ${benchmark.currentPrice} 卢布`;
+  const same = finite(benchmark.sameAttributeCount) ?? 0;
+  const rest = same > 1
+    ? `这一套里同规格的有 ${same} 个，建议里挑的是其中最赚的一个，具体哪个你自己定。`
+    : "这一套里同规格的只有这一个。";
+  return `对标那款 Ozon 商品的标题里写着 ${benchmark.matchedValue}${price}，所以先上同规格的这一个，可比性站得住。${rest}`;
+}
+
+/**
+ * Owner ruling 2026-09-13: 以采集到的页面价为准，但要把它和「找货」里填的货价的差额标出来。
+ * 两者相同就没有差额可说，这句话也就不出现。
+ */
+export function profitStepPriceDeltaLine(spec) {
+  const delta = spec?.priceDelta ?? null;
+  if (!isObject(delta)) return null;
+  const direction = delta.deltaRmb > 0 ? "贵" : "便宜";
+  return `你在「找货」里填的货价是 ${money(delta.declaredRmb)}；这一步按这个规格自己的页面价 ${money(delta.pageRmb)} 算，` +
+    `页面价比你填的${direction} ${money(Math.abs(delta.deltaRmb))}。`;
+}
+
+/** Where the official rate ladder changes gear, read from the official table itself. */
+export function profitStepCommissionLine(review) {
+  const current = review?.commission?.current ?? null;
+  const next = review?.commission?.next ?? null;
+  if (!isObject(current) || !isObject(next) || finite(current.maxRub) === null) {
+    return "售价跨过官方佣金的档位分界线，费率会换一档；分界线取自 Ozon 官方费率表。";
+  }
+  return `售价跨过 ${current.maxRub} 卢布，官方佣金就从 ${percent(current.rate) ?? "未取得"} 跳到 ${percent(next.rate) ?? "未取得"}，` +
+    `小尺码压在 ${current.maxRub} 卢布以下更划算。分界线和费率都取自 Ozon 官方表。`;
+}
+
+/**
+ * Whether this step can be submitted, and when it cannot, exactly what is missing.
+ * The two judgments are the owner's; everything else has to already exist in the saved records. A gap is reported as
+ * the fact it is — never filled in with a plausible number so the button can light up.
+ */
+export function profitStepSubmitState({ review, firstSkuId, comparabilityConfirmed, supplyConfirmed, gaps }) {
+  const list = Array.isArray(gaps) ? gaps : [];
+  const spec = (review?.specifications ?? []).find(item => item.sourceSkuId === firstSkuId) ?? null;
+  if (list.length > 0) {
+    return { ready: false, gaps: list, hint: "资料还缺东西，先补齐下面列出的这几项才能确认。" };
+  }
+  if (spec === null) return { ready: false, gaps: [], hint: "先在上面指定一个变体先上架。" };
+  if (!comparabilityConfirmed || !supplyConfirmed) {
+    return { ready: false, gaps: [], hint: "两件都确认后才能进入下一步。" };
+  }
+  const rest = (finite(review?.passCount) ?? 0) - 1;
+  return { ready: true, gaps: [],
+    hint: `${spec.label} 先上，其余 ${rest} 个变体排队等同一张卡追加。` };
+}
+
+/**
+ * What actually happened when this step was confirmed, read off the state the server saved.
+ *
+ * The route this step uses does four different things behind one 200: it queues a fresh capture instead of confirming
+ * when it cannot match the link, it replays a confirmation that already exists, it confirms and passes the profit
+ * calculation, and it confirms and then eliminates the product because the profit did not clear the line. Reporting
+ * all four as "已确认" would be the page telling the owner something the records do not say.
+ */
+export function profitStepOutcomeLine(result) {
+  if (result?.status === "supplier_capture_job_queued") {
+    return "没有确认成功：服务端认为这个1688链接还要重新读一次，已经排了一次采集。等它采完，再回到这一步。";
+  }
+  if (result?.idempotentReplay === true) {
+    return "这一步之前已经确认过了，服务端没有再确认一次；下面显示的是它现在保存的状态。";
+  }
+  const saved = isObject(result?.candidate) ? result.candidate : null;
+  if (saved === null) return "已提交这一步的确认；下面显示的是服务端现在保存的状态。";
+  if (saved.workflowStatus === "eliminated") {
+    return `已确认，但软件按这一套算完利润没有过本店门槛，这件商品已经淘汰：${
+      textOf(saved.eliminationReason) || "服务端没有给出原因"}。可以在选品台的「已淘汰」里恢复。`;
+  }
+  if (saved.workflowStatus === "listing_preparation") {
+    return "已确认，利润也算过了，这件商品走到了「文案素材」。没有下单、没有联系供应商、也没有向 Ozon 写任何东西。";
+  }
+  const needed = Array.isArray(saved.neededFields) ? textOf(saved.neededFields[0]) : "";
+  return `已确认，但利润还没有算完：${needed || "服务端保存了这一轮核算，但没有形成正式结论"}。`;
+}
+
 /** The sentence a finished step shows once it is folded away. */
 export function foldedStepLine(stepKey, step, candidate) {
   if (stepKey === "select" && skuChoiceSaved(candidate)) {
@@ -537,6 +682,200 @@ function SkuChoiceSection({ candidate, table, chosen, saving, recapturable = fal
   </section>;
 }
 
+/**
+ * 算利润 — the whole set against the line, one variant named to go up first, the rest queued.
+ *
+ * Only two things on this screen are the owner's to decide, and both are judgments no record can hold: whether the
+ * two products really are the same kind of thing, and whether the link, the specification, the cost and the packing
+ * are one purchase plan. Everything else is already saved and is shown beside the tick that relies on it. Nothing is
+ * confirmed until both are ticked, and a missing fact disables the button instead of being filled in.
+ */
+function ProfitStepSection({ review, saving, onConfirm }) {
+  const [firstPick, setFirstPick] = useState(null);
+  const [comparabilityConfirmed, setComparability] = useState(false);
+  const [supplyConfirmed, setSupply] = useState(false);
+  const firstSkuId = profitStepFirstSkuId(review, firstPick);
+  const spec = review.specifications.find(item => item.sourceSkuId === firstSkuId) ?? null;
+  const gaps = profitStepGaps(review, firstSkuId ?? "");
+  const state = profitStepSubmitState({ review, firstSkuId, comparabilityConfirmed, supplyConfirmed, gaps });
+  const benchmark = review.benchmark ?? {};
+  const supply = review.supply ?? {};
+  const breakdown = spec?.breakdown ?? null;
+  const queued = (finite(review.passCount) ?? 0) - (spec === null ? 0 : 1);
+  const deltaLine = profitStepPriceDeltaLine(spec);
+  const dimensions = supply.dimensionsCm ?? {};
+  const size = [dimensions.length, dimensions.width, dimensions.height].every(value => finite(value) !== null)
+    ? `${dimensions.length}×${dimensions.width}×${dimensions.height} 厘米` : "未取得";
+
+  return <section className="product-section product-profit" aria-label="算利润">
+    <h3>算利润</h3>
+    <p className="product-section-hint">
+      {`规格已经选定了 ${review.total} 个。这一步不再让你挑哪个最赚——它把整套一起核一遍利润，让你确认两件只有你能判断的事，然后指定一个变体先上架跑通，其余排队等同一张卡追加。`}
+    </p>
+
+    {/* 一、整套一起核线 */}
+    <div className="product-sku-verdict">
+      <div className="product-sku-verdict-lede">
+        <h4>{profitStepCohortHeadline(review)}</h4>
+        <p>{profitStepThresholdLine(review)}</p>
+      </div>
+      <div className="product-sku-swing">
+        <div className="product-sku-swing-high"><span>过线 / 总数</span>
+          <strong>{`${review.passCount} / ${review.total}`}</strong></div>
+        <div><span>单件利润区间</span><strong>{review.unitProfitRange === null ? PENDING
+          : `${money(review.unitProfitRange.low)} – ${money(review.unitProfitRange.high)}`}</strong></div>
+        <div><span>利润率区间</span><strong>{review.marginRange === null ? PENDING
+          : `${percent(review.marginRange.low)} – ${percent(review.marginRange.high)}`}</strong></div>
+        <div className={review.excludedCount > 0 ? "product-sku-swing-low" : undefined}>
+          <span>不过线，已排除</span><strong>{String(review.excludedCount)}</strong></div>
+      </div>
+    </div>
+    {review.excluded.length === 0 ? null : <ul className="product-profit-excluded" aria-label="不过线，已排除">
+      {review.excluded.map(entry => <li key={entry.sourceSkuId ?? entry.label}>{profitStepExcludedLine(entry)}</li>)}
+    </ul>}
+
+    {/* 二、先上这一个 */}
+    <div className="product-profit-first">
+      <div className="product-sku-table-head">
+        <h4>先上这一个，跑通上架通路</h4>
+        <span>{`其余 ${queued} 个在同一张卡上追加，内容不重做`}</span>
+      </div>
+      <p className="product-section-hint">{profitStepSuggestionLine(review)}</p>
+      <label className="product-field product-profit-pick" htmlFor="profit-first-variant">
+        <span className="product-field-label">先上哪一个</span>
+        <select id="profit-first-variant" name="profit-first-variant" value={firstSkuId ?? ""} disabled={saving}
+          onChange={event => setFirstPick(event.target.value)}>
+          {firstSkuId === null ? <option value="">请指定一个变体</option> : null}
+          {review.specifications.map(item => <option key={item.sourceSkuId} value={item.sourceSkuId}>
+            {`${item.label}　货价 ${money(item.priceCny) ?? PENDING} · 单件利润 ${money(item.unitProfitRmb) ?? PENDING}`}
+            {item.isSuggested ? "（建议）" : ""}
+          </option>)}
+        </select>
+      </label>
+      {breakdown === null
+        ? <p className="product-pricing-empty">选定一个变体后，这里把这一个的算式摊开给你看。</p>
+        : <dl className="product-pricing-facts product-profit-calc" aria-label="这一个变体的算式">
+          <div><dt>目标成交价</dt><dd>{RUB(supply.targetSalePriceRub)}</dd></div>
+          <div><dt>成交收入</dt><dd>{money(breakdown.revenueCny) ?? PENDING}</dd></div>
+          <div><dt>官方佣金 {percent(breakdown.commissionRate) ?? "未取得"}</dt>
+            <dd>−{money(breakdown.commissionRmb) ?? PENDING}</dd></div>
+          <div><dt>国际运费</dt><dd>−{money(breakdown.freightRmb) ?? PENDING}
+            {textOf(spec.route) ? ` · ${spec.route} · 计费 ${spec.chargeableKg} 公斤` : ""}</dd></div>
+          <div><dt>到手采购</dt><dd>−{money(breakdown.allInPurchaseRmb) ?? PENDING}</dd></div>
+          <div><dt>包装 + 贴标</dt><dd>−{money(breakdown.packagingRmb + breakdown.labelCostRmb) ?? PENDING}</dd></div>
+          {breakdown.otherFixedRmb === 0 ? null
+            : <div><dt>其他固定成本</dt><dd>−{money(breakdown.otherFixedRmb)}</dd></div>}
+          <div><dt>店铺预留 {percent(breakdown.storeReserveRate) ?? "未取得"}</dt>
+            <dd>−{money(breakdown.storeReserveRmb) ?? PENDING}</dd></div>
+          <div><dt>单件利润</dt><dd className="product-sku-profit">{money(breakdown.unitProfitRmb) ?? PENDING}
+            {` · 利润率 ${percent(breakdown.marginRate) ?? "未取得"}`}</dd></div>
+        </dl>}
+      {breakdown === null ? null : <p className="product-result-provenance">
+        {"上面每一项都是分开算到分的，最后一行的单件利润是软件按整条算式一次算出来的那个数，两者可能差一两分钱。"}
+      </p>}
+    </div>
+
+    {/* 三、其余变体排队 */}
+    <div className="product-sku-table-head">
+      <h4>{`其余 ${queued} 个变体 · 排队`}</h4>
+      <span>货价和重量一样的规格，运费和利润也一样，合成一行；先上的那一个也留在表里，标着「先上」</span>
+    </div>
+    <div className="product-pricing-scroll">
+      <table className="product-pricing-ladder product-sku-table">
+        <caption>每个规格自己的下探空间：保本价、达标最低售价，以及按当前目标价能落下多少</caption>
+        <thead><tr>
+          {(review.columns.length > 0 ? review.columns : ["规格"]).map(key => <th scope="col" key={key}>{key}</th>)}
+          <th scope="col">货价</th><th scope="col">计费重</th><th scope="col">运费</th>
+          <th scope="col">保本价</th><th scope="col">达标最低售价</th>
+          <th scope="col">{`按 ${RUB(supply.targetSalePriceRub)}的利润`}</th>
+        </tr></thead>
+        <tbody>
+          {review.queue.map(row => {
+            const isFirst = firstSkuId !== null && row.sourceSkuIds.includes(firstSkuId);
+            return <tr key={row.key} className={isFirst ? "product-sku-row-on" : undefined}>
+              {review.columns.length > 0
+                ? review.columns.map((key, index) => <td key={key}>
+                  {(row.values[index] ?? []).join(" / ") || "—"}
+                  {index === 0 && isFirst ? <b>{" · 先上"}</b> : null}
+                </td>)
+                : <td>{row.label}{isFirst ? <b>{" · 先上"}</b> : null}</td>}
+              <td>{yuanOr(row.priceCny)}</td>
+              <td>{finite(row.chargeableKg) === null ? PENDING : `${row.chargeableKg} 公斤`}</td>
+              <td>{yuanOr(row.freightRmb)}</td>
+              <td>{finite(row.breakEvenRub) === null ? PENDING : RUB(row.breakEvenRub)}</td>
+              <td>{finite(row.thresholdRub) === null ? PENDING : RUB(row.thresholdRub)}</td>
+              <td className={row.unitProfitRmb === null ? "product-sku-pending" : "product-sku-profit"}>
+                {`${yuanOr(row.unitProfitRmb)} · ${percent(row.marginRate) ?? PENDING}`}</td>
+            </tr>;
+          })}
+        </tbody>
+      </table>
+    </div>
+    <p className="product-result-provenance">{profitStepCommissionLine(review)}</p>
+
+    {/* 四、只有主人能确认的两件事 */}
+    <div className="product-profit-judge">
+      <div className="product-sku-table-head"><h4>只有你能确认的两件事</h4>
+        <span>软件不替你判断，也不替你签字</span></div>
+      <label className="product-profit-check" htmlFor="profit-comparable">
+        <input type="checkbox" id="profit-comparable" checked={comparabilityConfirmed} disabled={saving}
+          onChange={event => setComparability(event.target.checked)} />
+        <span>
+          <b>这两件商品是可比的同类</b>
+          <p>
+            {`对标：Ozon ${textOf(benchmark.productNumber) || "编号未取得"}「${textOf(benchmark.title) || "标题未取得"}」`}
+            {finite(benchmark.currentPrice) === null ? "" : ` ${benchmark.currentPrice} ${benchmark.currency === "RUB" ? "卢布" : benchmark.currency ?? ""}`}
+            {textOf(benchmark.collectedOn) ? `，快照采于 ${benchmark.collectedOn}` : ""}。
+          </p>
+          <p>{`你的货：1688 ${textOf(supply.offerId) || "编号未取得"}`}
+            {spec === null ? "，还没指定变体" : ` ${spec.label}，货价 ${money(spec.priceCny) ?? PENDING}，打包 ${spec.weightKg} 公斤 · ${size}`}。</p>
+        </span>
+      </label>
+      <label className="product-profit-check" htmlFor="profit-supply">
+        <input type="checkbox" id="profit-supply" checked={supplyConfirmed} disabled={saving}
+          onChange={event => setSupply(event.target.checked)} />
+        <span>
+          <b>链接、规格、成本、包装是同一套采购方案</b>
+          <p>{textOf(supply.productUrl) || "1688 链接未取得"}</p>
+          <p>
+            {`货价 ${spec === null ? PENDING : money(spec.priceCny)}（这个规格在 1688 页面上自己的价）`}
+            {` ＋ 国内运费 ${money(supply.unitDomesticFreight) ?? PENDING}（你填的）`}
+            {` ＋ 其他采购费用 ${money(supply.otherPurchaseCosts) ?? PENDING}`}
+            {` ＝ 到手 ${spec === null ? PENDING : money(spec.actualPurchaseCost)}`}
+            {`；打包 ${spec === null ? PENDING : `${spec.weightKg} 公斤`} · ${size}。`}
+          </p>
+          {/* 这句话说的是软件替你报了 ¥0；报不出来的时候它就不能说，缺什么由下面那张缺项单说。 */}
+          {supply.otherPurchaseCosts !== 0 ? null
+            : <p className="product-profit-note">{"其他采购费用按 ¥0.00 算：你在「找货」里只填了货价和国内运费，到手就是这两项相加。"}</p>}
+          {deltaLine === null ? null : <p className="product-profit-delta">{deltaLine}</p>}
+          {spec === null || textOf(spec.quantityOneEvidenceSourceNote) === "" ? null
+            : <p className="product-profit-note">{`会一起记下来的核对说明：${spec.quantityOneEvidenceSourceNote}`}</p>}
+        </span>
+      </label>
+    </div>
+
+    {/* 凑不齐的东西如实列出来，按钮就不给点；软件不会替主人补一个像样的数字上去。 */}
+    {state.gaps.length === 0 ? null : <div className="product-profit-gaps" role="alert">
+      <h4>还差这些，现在不能确认</h4>
+      <ul>{state.gaps.map(item => <li key={item.field}><b>{item.label}</b>：{item.why}</li>)}</ul>
+    </div>}
+
+    <div className="product-actions">
+      <button type="button" className="button primary" disabled={saving || !state.ready}
+        onClick={() => onConfirm(firstSkuId, { comparabilityConfirmed, supplyConfirmed })}>确认，进入文案素材</button>
+      <span className="product-actions-note">{state.hint}</span>
+    </div>
+
+    <p className="product-sku-foot">
+      <strong>确认之后会发生什么：</strong>{"软件把这一套的利润核算冻结下来，商品进入「文案素材」——生成俄文标题、卖点和图片方案给你过目。"}
+      <strong>不会</strong>{"下单、不会联系供应商、也不会向 Ozon 写任何东西；真正上架是后面「上架」那一步，另需你批准。"}
+    </p>
+    <p className="product-result-provenance">
+      {"这一步的每个数字都能追到来源：货价与重量来自这次采到的 1688 页面，运费按各规格自己的重量查国欧资费表，佣金与档位分界线取自 Ozon 官方表，汇率取自央行，门槛与预留取自本店成本规则。"}
+    </p>
+  </section>;
+}
+
 const NUMBER_PATTERN = /^\d+(?:\.\d+)?$/;
 const positiveInput = value => NUMBER_PATTERN.test(String(value).trim()) && Number(value) > 0;
 const nonNegativeInput = value => NUMBER_PATTERN.test(String(value).trim()) && Number(value) >= 0;
@@ -620,12 +959,13 @@ function Field({ id, label, hint, value, error, onChange, type = "text", placeho
 export default function ProductPage({
   candidate, view = null, titleZh = null, extensionStatus = null,
   onSaveDraft, onChooseSkus, onRequestCapture, onReviewCaptureAndRequest, onRecaptureSource,
-  onOpenLegacyCard, onBack, onEliminateCandidate,
+  onConfirmProfitStep, onOpenLegacyCard, onBack, onEliminateCandidate,
   loadingLabel = "正在读取这件商品的找货资料…"
 }) {
   const draft = view?.supplierDraftV1 ?? null;
   const marketSnapshot = view?.marketSnapshot ?? null;
   const skuTable = view?.skuChoiceTableV1 ?? null;
+  const profitReview = view?.profitStepV1 ?? null;
   // The form follows the saved draft: when the server returns a newer declaration, the fields show that declaration.
   const prefillKey = `${candidate?.id ?? ""}:${candidate?.dataRevision ?? ""}:${draft?.declaredAt ?? "none"}`;
   const [form, setForm] = useState(() => draftFormState({ draft, candidate, marketSnapshot }));
@@ -645,6 +985,7 @@ export default function ProductPage({
   const step = currentProductStep(candidate);
   const next = nextProductAction(view);
   const choosing = showsSkuChoice(candidate);
+  const profitOpen = profitStepOpen(candidate, view);
   const estimate = estimateLines(view?.supplierDraftEstimateV1 ?? null);
   const reviewRequired = captureNeedsOwnerReview(candidate);
   const recapturable = captureRecaptureReady(candidate);
@@ -669,6 +1010,17 @@ export default function ProductPage({
   /** 同一次重读，无论从规格表旁边点还是从「1688 采集」块里点，走的都是这一条路。 */
   const recapture = reason => run(onRecaptureSource, captureRecapturePayload(candidate, reason),
     "已经让软件重新去读一次这个1688页面，读完这里会显示结果。");
+  /**
+   * 算利润 的确认。提交的东西整份由已保存的记录组装，主人只补那两个判断；组装不出完整的一份就返回 null，这里也就不发。
+   * 回来之后说的是服务端实际保存成什么样，不是「已提交」——同一个 200 底下有四种结果。服务端说不行的时候，原样显示
+   * 服务端那句话，用的还是本页原有的那一个提示位。
+   */
+  function confirmProfitStep(firstSkuId, judgments) {
+    const payload = profitStepSubmission(profitReview, firstSkuId, judgments);
+    if (payload === null) { setError("这一份确认还凑不齐，没有提交；请看上面列出的缺项。"); return undefined; }
+    return run(async input => profitStepOutcomeLine(await onConfirmProfitStep(input)), payload,
+      "已提交这一步的确认；下面显示的是服务端现在保存的状态。");
+  }
 
   if (!candidate) return <div className="page-panel"><p role="status">{loadingLabel}</p></div>;
 
@@ -810,6 +1162,10 @@ export default function ProductPage({
           `已选定 ${chosen.length} 个规格，它们已经锁进这件商品的供货方案；没有下单、没有联系供应商、也没有向 Ozon 写任何东西。`)} />)
       : null}
 
+    {/* 算利润：整套一起核线、指定先上的那一个、其余排队，最后那两个只有主人能做的判断。 */}
+    {profitOpen ? <ProfitStepSection key={`${candidate.id}:${candidate.dataRevision}`}
+      review={profitReview} saving={saving} onConfirm={confirmProfitStep} /> : null}
+
     {step === "find" ? <section className="product-section" aria-label="找货">
       <h3>找货</h3>
       {findBody}
@@ -819,7 +1175,8 @@ export default function ProductPage({
       {findBody}
     </details> : null}
 
-    {PRODUCT_STEPS.filter(item => item.key !== "find" && !(choosing && item.key === "select"))
+    {PRODUCT_STEPS.filter(item => item.key !== "find" && !(choosing && item.key === "select") &&
+      !(profitOpen && item.key === "profit"))
       .map(item => <details key={item.key} className="product-folded">
         <summary>{item.title}<span className="product-folded-state">{foldedStepState(item.key, step, candidate)}</span></summary>
         <p>{foldedStepLine(item.key, step, candidate)}</p>
