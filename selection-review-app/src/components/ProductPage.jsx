@@ -529,6 +529,33 @@ export function cargoFactsStepGaps(step) {
     || "这件商品的运输属性还没有你的确认。软件要先知道它带不带电、是不是普货，才能核验线路收不收这件货。" }];
 }
 
+/* ── 类目从哪儿来 ──────────────────────────────────────────────────────────────────────────────────────────────────
+ * 算利润这一步要用的类目，服务端只认真实打开过的 Ozon 商品页读回来的那一份。Seerfar 接口给的那条类目它不认，
+ * 于是主人点下「确认，进入文案素材」只会收到一句 B_EVIDENCE_CONTEXT_INCOMPLETE: 当前类目 —— 2026-09-14 第一件
+ * 真货就卡在这里。所以判断提前到按钮之前：按钮不给点，旁边说清楚为什么，并且给出唯一的出路。
+ *
+ * 判断本身来自服务端那份记录（ozonCategoryReadStepV1），页面不自己算。
+ */
+
+/** 类目还不是真实页面读来的时候，算利润就不能确认；读不到这一块也按「没确认」算，宁可按钮不亮。 */
+export function ozonCategoryStepGaps(step) {
+  if (isObject(step) && step.ready === true) return [];
+  return [{ field: "ozonCategory", label: "当前类目", why: textOf(step?.why)
+    || "算利润要用的类目，必须来自真实打开过的 Ozon 商品页；这件商品现在还没有这样一条类目。" }];
+}
+
+/** 上一次读这个页面读成了什么，一句话。没读过就不说。 */
+export function ozonPageReadOutcomeLine(step) {
+  const record = isObject(step) ? step.lastRead : null;
+  if (!isObject(record)) return null;
+  if (step.inFlight === true) return "这次读页面已经交给插件，还没有结果；读完这里会显示读到了什么。";
+  if (record.status === "verified") return "上一次已经读到了这个页面。";
+  if (record.status === "failed") {
+    return `上一次没读成：${textOf(record.reason) || "软件没有收到可验证的结果"}。软件不会自动重试。`;
+  }
+  return null;
+}
+
 /** 一行人话：已经确认过就说存档的那句，还没确认就说软件提议的那句。两句都判断不出来时不说。 */
 export function cargoFactsHeadline(step) {
   if (step?.declared === true) return textOf(step.declaration?.headline) || null;
@@ -742,6 +769,40 @@ function SkuChoiceSection({ candidate, table, chosen, saving, recapturable = fal
  * choice with the reason it declined, because a guessed 「不带电」 would be the software signing for him. Every
  * value stays editable under 逐项修改, and once it is saved this block shows the sentence that went into the record.
  */
+/**
+ * 「这条类目是哪儿来的」这一小块，就放在确认按钮上面。
+ *
+ * 类目已经是真实读过的页面给的，这一块就不出现——没有事要主人做。不是的时候它说三件事：为什么不能用现在这条、
+ * 这一次读页面会做什么和不会做什么、以及那个唯一的按钮。点下去之后成败都按服务端和插件实际回的话显示，
+ * 包括插件自己的拒绝码；这里不替它们总结，也不承诺重试。
+ */
+function OzonCategoryReadBlock({ step, saving, onRead }) {
+  if (!isObject(step) || step.ready === true) return null;
+  const action = isObject(step.action) ? step.action : { label: "读一次这个 Ozon 页面", available: false, reason: "" };
+  const target = isObject(step.target) ? step.target : null;
+  const lastLine = ozonPageReadOutcomeLine(step);
+
+  return <div className="product-profit-category" role="group" aria-label="这条类目是哪儿来的">
+    <div className="product-sku-table-head">
+      <h4>这条类目还不是从 Ozon 页面上读来的</h4>
+      <span>读一次就能补上，这一步不改这件商品的任何别的东西</span>
+    </div>
+    <p className="product-profit-category-why">{textOf(step.why)}</p>
+    <p className="product-result-provenance">{textOf(step.scopeLine)}</p>
+    {target === null ? null : <p className="product-result-provenance">{`要读的页面：${target.productUrl}`}</p>}
+    {step.blocked === null || step.blocked === undefined ? null
+      : <p role="alert" className="product-result-warning">{textOf(step.blocked.reason)}</p>}
+    {lastLine === null ? null : <p className="product-capture-status">{lastLine}</p>}
+    <div className="product-actions">
+      {/* 成败都由页面上方那一个提示位说，说的是服务端和插件实际回的话（含插件自己的拒绝码）。这一块读完就会
+          随商品修订号重建，所以结果不能记在它自己身上，否则一刷新就没了。 */}
+      <button type="button" className="button primary" disabled={saving || action.available !== true}
+        onClick={() => onRead?.()}>{textOf(action.label) || "读一次这个 Ozon 页面"}</button>
+      {action.available === true ? null : <span className="product-actions-note">{textOf(action.reason)}</span>}
+    </div>
+  </div>;
+}
+
 function CargoFactsBlock({ step, dataRevision, saving, onDeclare }) {
   const [form, setForm] = useState(() => cargoFactsFormState(step));
   const [editing, setEditing] = useState(false);
@@ -842,13 +903,14 @@ function CargoFactsBlock({ step, dataRevision, saving, onDeclare }) {
  * with no declaration cannot be confirmed here — the button is disabled and says why, instead of letting the owner
  * click and collect the server's 422.
  */
-function ProfitStepSection({ review, cargoStep, dataRevision, saving, onConfirm, onDeclareCargoFacts }) {
+function ProfitStepSection({ review, cargoStep, categoryStep, dataRevision, saving, onConfirm, onDeclareCargoFacts, onReadOzonPage }) {
   const [firstPick, setFirstPick] = useState(null);
   const [comparabilityConfirmed, setComparability] = useState(false);
   const [supplyConfirmed, setSupply] = useState(false);
   const firstSkuId = profitStepFirstSkuId(review, firstPick);
   const spec = review.specifications.find(item => item.sourceSkuId === firstSkuId) ?? null;
-  const gaps = [...profitStepGaps(review, firstSkuId ?? ""), ...cargoFactsStepGaps(cargoStep)];
+  const gaps = [...profitStepGaps(review, firstSkuId ?? ""), ...cargoFactsStepGaps(cargoStep),
+    ...ozonCategoryStepGaps(categoryStep)];
   const state = profitStepSubmitState({ review, firstSkuId, comparabilityConfirmed, supplyConfirmed, gaps });
   const benchmark = review.benchmark ?? {};
   const supply = review.supply ?? {};
@@ -1006,7 +1068,10 @@ function ProfitStepSection({ review, cargoStep, dataRevision, saving, onConfirm,
       </label>
     </div>
 
-    {/* 五、这件货运输上是什么 — 这一块在确认按钮之前，因为不先说清楚，B 那边的线路核验就判不出适用性。 */}
+    {/* 五、这条类目是哪儿来的 — 也在确认按钮之前：类目不是从 Ozon 页面上读来的，这一步的确认服务端就不收。 */}
+    <OzonCategoryReadBlock step={categoryStep} saving={saving} onRead={onReadOzonPage} />
+
+    {/* 六、这件货运输上是什么 — 这一块在确认按钮之前，因为不先说清楚，B 那边的线路核验就判不出适用性。 */}
     {cargoStep === null || cargoStep === undefined ? null : <CargoFactsBlock step={cargoStep}
       dataRevision={dataRevision} saving={saving} onDeclare={onDeclareCargoFacts} />}
 
@@ -1115,7 +1180,7 @@ function Field({ id, label, hint, value, error, onChange, type = "text", placeho
 export default function ProductPage({
   candidate, view = null, titleZh = null, extensionStatus = null,
   onSaveDraft, onChooseSkus, onRequestCapture, onReviewCaptureAndRequest, onRecaptureSource,
-  onConfirmProfitStep, onDeclareCargoFacts, onOpenLegacyCard, onBack, onEliminateCandidate,
+  onConfirmProfitStep, onDeclareCargoFacts, onReadOzonPage, onOpenLegacyCard, onBack, onEliminateCandidate,
   loadingLabel = "正在读取这件商品的找货资料…"
 }) {
   const draft = view?.supplierDraftV1 ?? null;
@@ -1123,6 +1188,7 @@ export default function ProductPage({
   const skuTable = view?.skuChoiceTableV1 ?? null;
   const profitReview = view?.profitStepV1 ?? null;
   const cargoStep = view?.cargoFactsStepV1 ?? null;
+  const categoryStep = view?.ozonCategoryReadStepV1 ?? null;
   // The form follows the saved draft: when the server returns a newer declaration, the fields show that declaration.
   const prefillKey = `${candidate?.id ?? ""}:${candidate?.dataRevision ?? ""}:${draft?.declaredAt ?? "none"}`;
   const [form, setForm] = useState(() => draftFormState({ draft, candidate, marketSnapshot }));
@@ -1178,6 +1244,12 @@ export default function ProductPage({
    */
   const declareCargoFacts = payload => run(onDeclareCargoFacts, payload,
     "已记下你对这件货的说法：软件按它核验线路收不收，没有下单、没有联系供应商、也没有向 Ozon 写任何东西。");
+  /**
+   * 读一次这个 Ozon 商品页。目标地址不从这里传：服务端只认这件商品自己已经保存的那个地址。回来的那句话是服务端
+   * 和插件实际说的（含插件自己的拒绝码），页面原样显示，不改写、不概括，也不承诺重试。
+   */
+  const readOzonPage = () => run(onReadOzonPage, { dataRevision: candidate.dataRevision },
+    "已经让软件去读一次这个 Ozon 商品页；读完这里会显示读到了什么。");
   function confirmProfitStep(firstSkuId, judgments) {
     const payload = profitStepSubmission(profitReview, firstSkuId, judgments);
     if (payload === null) { setError("这一份确认还凑不齐，没有提交；请看上面列出的缺项。"); return undefined; }
@@ -1327,8 +1399,9 @@ export default function ProductPage({
 
     {/* 算利润：整套一起核线、指定先上的那一个、其余排队，这件货运输上是什么，最后那两个只有主人能做的判断。 */}
     {profitOpen ? <ProfitStepSection key={`${candidate.id}:${candidate.dataRevision}`}
-      review={profitReview} cargoStep={cargoStep} dataRevision={candidate.dataRevision} saving={saving}
-      onConfirm={confirmProfitStep} onDeclareCargoFacts={declareCargoFacts} /> : null}
+      review={profitReview} cargoStep={cargoStep} categoryStep={categoryStep}
+      dataRevision={candidate.dataRevision} saving={saving}
+      onConfirm={confirmProfitStep} onDeclareCargoFacts={declareCargoFacts} onReadOzonPage={readOzonPage} /> : null}
 
     {step === "find" ? <section className="product-section" aria-label="找货">
       <h3>找货</h3>

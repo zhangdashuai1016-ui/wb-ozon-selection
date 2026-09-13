@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-13T14:57:07.652Z",
+  "frozenAt": "2026-09-13T16:47:24.200Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 658,
-      "sha256": "6055ad853f3517c819cadea9a558bcdea154195395e0f56110597ed149bacb98",
+      "artifactCount": 662,
+      "sha256": "d59b0aded2552ebca700d9334903e0c1869a2f691c7d4e9be9945b3eb122da47",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -328,7 +328,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "95ac05ac93a9fc0f3e757af0e4cf1cbe4dfb9343814ce1fd357a853826f3c430"
+        "sha256": "fc0ff7fdac5d655f91680bb0c13086de3e12bdbac67858c83a1d90a4433af8f9"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -619,6 +619,10 @@
         "sha256": "cb905eef845188a012915bb72177f08fd87e7c06f60f8258573bb923fb85f322"
       },
       {
+        "path": "lib/ozon-category-read-step.mjs",
+        "sha256": "eb1ee56ef3ec79f3b21f88b32d67385f70cf004d34e2ac47bd6b944d969cf72d"
+      },
+      {
         "path": "lib/ozon-commission-reference-reader.mjs",
         "sha256": "b8b27352d8cb53f709c9f773b4e0193b90651ae060e9e924506f6404730bc20c"
       },
@@ -645,6 +649,10 @@
       {
         "path": "lib/ozon-inventory-prerequisite-policy.mjs",
         "sha256": "1f5bb89423e9f85fcb4540ad3090fd74e14a7f92414a1956ddaa91a3ec5cfe07"
+      },
+      {
+        "path": "lib/ozon-page-capture-job.mjs",
+        "sha256": "c95f0b813b710d820f3d4509e59a41efcb0ad9ee84b07075c53070c5ee0d544c"
       },
       {
         "path": "lib/ozon-production-strategy.mjs",
@@ -1188,11 +1196,11 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "e94db10d81ebe20952f61edfb162a6e6adab21cf2cdc0aa528bfb9970e12b7df"
+        "sha256": "e1bb0c10d7b8ce87adef201818fa0e2982818518db067babf7840b49087e0676"
       },
       {
         "path": "src/App.jsx",
-        "sha256": "b0f01aeed05a21d6f289a1858f8912ea8dcd0c5bd346ac2e86d82f7a906adf26"
+        "sha256": "069e7a02405fcdce1566f791f32d23502c155207d8bc6afb95c121546db296c7"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1204,7 +1212,7 @@
       },
       {
         "path": "src/api.js",
-        "sha256": "548c71d45094e081977329136888cf8397cefd37106998496e3aba258ac7989d"
+        "sha256": "bcc0ba763629046696dae8bfc947d0f3ae88a149d9e92cf3c4f1eb7c85e8eb88"
       },
       {
         "path": "src/bExactCommissionInput.js",
@@ -1228,7 +1236,7 @@
       },
       {
         "path": "src/captureStart.js",
-        "sha256": "96704c04439a3e155e71bde39e04aaa75b8f492fbf3e7139029e06c3820f2335"
+        "sha256": "a16611e8eb6f6c2911d8797399b58acd8d8fc3c5b94ae8553d91c3a29c8878e3"
       },
       {
         "path": "src/commentInput.js",
@@ -1340,7 +1348,7 @@
       },
       {
         "path": "src/components/ProductPage.jsx",
-        "sha256": "3535ec5da0f881fd98b01b0b245e43bb9a6277be98b4d1fecdded5158aae4fcf"
+        "sha256": "8c9de4c01b0d3613dbad903c310debb4e0e728dde1693c9965c5e128ef36b98e"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1440,7 +1448,7 @@
       },
       {
         "path": "src/styles.css",
-        "sha256": "5e9c1d71f192cbeb82c24ba9f8c670a2f9f0457a23270cc891063927a946c68f"
+        "sha256": "735148aa2eab37cea22f5fc9c7ef22f0e057d9bda7f6d73ea3f122af74d8f9db"
       },
       {
         "path": "src/wbPresentation.js",
@@ -2331,6 +2339,10 @@
         "sha256": "de84b6ba9d8ca9321971092b4e8e7c02b50597b67f26f7f2f4b9391f755005c3"
       },
       {
+        "path": "tests/ozon-category-read-step.test.mjs",
+        "sha256": "5c265e5cad0d77534431663c67e68d237b8283636388aff8ac40be1fba7cdb2b"
+      },
+      {
         "path": "tests/ozon-commission-reference-reader.test.mjs",
         "sha256": "da3f8d23da1ae711a6840c043e588c1825e8bf3bb814fd3e0dda0f4df025cdf7"
       },
@@ -2359,12 +2371,16 @@
         "sha256": "3876806af9dd3feec2624ed706c6f0399f05d4ca1919f1953b447e594848a506"
       },
       {
+        "path": "tests/ozon-page-capture-job.test.mjs",
+        "sha256": "23c23be9917e0109ac390837b2ea429064d56d133e010e1f59c6676c2a212340"
+      },
+      {
         "path": "tests/ozon-production-strategy.test.mjs",
         "sha256": "07cee427a691982f449f3f3efe3e97da9f64ccbd902e0665a66521fbc7a37bf0"
       },
       {
         "path": "tests/ozon-sales-capture-api.test.mjs",
-        "sha256": "d168af7a897ef10a42405a2d053509fc572cb14111f3517f442be7914d348ed6"
+        "sha256": "eabcffef4bd96a5903d21be5474777a0d9018ec2acf8c054d225d6b029a63c2e"
       },
       {
         "path": "tests/ozon-seller-api-de-adapter.test.mjs",
@@ -2432,7 +2448,7 @@
       },
       {
         "path": "tests/product-page-ui.test.mjs",
-        "sha256": "6c2164c44ed2e8256b3bb3b428d6bb728323f1e6522bae4c68e4355ad5a61018"
+        "sha256": "fe45d15dca2a320bde3cbb417c70995953439fa529de630d823352dc3915cf17"
       },
       {
         "path": "tests/production-owner-decision-api.test.mjs",
@@ -2923,11 +2939,35 @@
           "status": "present_in_integration_source"
         },
         {
+          "path": "lib/ozon-category-read-step.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "lib/ozon-page-capture-job.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
           "path": "lib/ozon-sales-capture.mjs",
           "status": "present_in_integration_source"
         },
         {
           "path": "src/App.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/captureStart.js",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "src/components/ProductPage.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/ozon-category-read-step.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/ozon-page-capture-job.test.mjs",
           "status": "present_in_integration_source"
         },
         {

@@ -1,11 +1,32 @@
-const REQUEST = "SELECTION_REVIEW_1688_CAPTURE_REQUEST";
-const ACK = "SELECTION_REVIEW_1688_CAPTURE_ACK";
+export const CAPTURE_START_ACCEPTED_MESSAGE = "插件已领取本次采集，正在读取这个1688页面";
+
+/**
+ * 开始信号有两种页面要读：1688 的供应页，和这件商品自己的 Ozon 商品页。
+ *
+ * 两边的机制完全一样 —— 同一条页面→内容脚本的提示、同一套回执码、同一句「软件不会自动重试」——，不一样的只有
+ * 消息类型和「已经开始」那一句话。所以这里把类型参数化，而不是复制一份：复制出来的第二份迟早会和插件那侧的白
+ * 名单、超时和拒绝码走散，而那正是 2026-09-11 花掉一个下午去猜的那一类问题。
+ */
+export const SUPPLIER_CAPTURE_CHANNEL = Object.freeze({
+  queuedStatus: "supplier_capture_job_queued",
+  request: "SELECTION_REVIEW_1688_CAPTURE_REQUEST",
+  ack: "SELECTION_REVIEW_1688_CAPTURE_ACK",
+  acceptedMessage: CAPTURE_START_ACCEPTED_MESSAGE
+});
+
+export const OZON_PAGE_READ_CHANNEL = Object.freeze({
+  queuedStatus: "ozon_page_read_job_queued",
+  request: "SELECTION_REVIEW_OZON_CAPTURE_REQUEST",
+  ack: "SELECTION_REVIEW_OZON_CAPTURE_ACK",
+  acceptedMessage: "插件已领取这次读页面，正在打开并读取这个 Ozon 商品页"
+});
+
 export const CAPTURE_START_TIMEOUT_MS = 12000;
 
 // Called only after this page receives the receipt for a newly created, explicit job.
 // The extension's rejection code is carried back untouched: without it the page can only say "no confirmation",
 // which cost the owner over an hour of diagnosis on 2026-09-11.
-export function requestSupplierCaptureStart(captureId, page = window) {
+export function requestSupplierCaptureStart(captureId, page = window, channel = SUPPLIER_CAPTURE_CHANNEL) {
   if (typeof captureId !== "string" || !/^[A-Za-z0-9_-]{1,160}$/.test(captureId)) {
     throw new Error("本次采集作业编号无效");
   }
@@ -17,7 +38,7 @@ export function requestSupplierCaptureStart(captureId, page = window) {
     };
     const receive = (event) => {
       if (event.source !== page || event.origin !== page.location.origin ||
-          event.data?.type !== ACK || event.data.captureId !== captureId) return;
+          event.data?.type !== channel.ack || event.data.captureId !== captureId) return;
       finish({
         accepted: event.data.accepted === true,
         code: typeof event.data.code === "string" ? event.data.code : ""
@@ -26,11 +47,9 @@ export function requestSupplierCaptureStart(captureId, page = window) {
     page.addEventListener("message", receive);
     // Nothing answered at all: this tab carries no content script, so no request ever reached the extension.
     const timer = page.setTimeout(() => finish({ accepted: false, code: "no_bridge" }), CAPTURE_START_TIMEOUT_MS);
-    page.postMessage({ type: REQUEST, captureId }, page.location.origin);
+    page.postMessage({ type: channel.request, captureId }, page.location.origin);
   });
 }
-
-export const CAPTURE_START_ACCEPTED_MESSAGE = "插件已领取本次采集，正在读取这个1688页面";
 
 /**
  * One sentence per rejection code: what was observed, and the next thing the owner can do. No sentence here claims a
@@ -50,16 +69,19 @@ export const CAPTURE_START_REJECTION_MESSAGES = Object.freeze({
 
 const CAPTURE_START_UNKNOWN_MESSAGE = "插件没有确认领取这次采集，也没有说明原因；请查看上面的插件状态后重新申请一次采集，软件不会自动重试";
 
-/** The single ACK-code → owner-sentence mapping. Both the product page and the older A card read their words from here. */
-export function captureStartMessage(ack) {
-  if (ack?.accepted === true) return CAPTURE_START_ACCEPTED_MESSAGE;
+/**
+ * The single ACK-code → owner-sentence mapping. The product page, the older A card and the Ozon page read all read
+ * their words from here; only the accepted sentence differs, because only that one names the page being read.
+ */
+export function captureStartMessage(ack, channel = SUPPLIER_CAPTURE_CHANNEL) {
+  if (ack?.accepted === true) return channel.acceptedMessage;
   const code = typeof ack?.code === "string" ? ack.code : "";
   return CAPTURE_START_REJECTION_MESSAGES[code] ?? CAPTURE_START_UNKNOWN_MESSAGE;
 }
 
 /** A start signal belongs to a newly created job only; a duplicate receipt describes a job that was already signalled. */
-export function needsCaptureStartSignal(result) {
-  return result?.status === "supplier_capture_job_queued" && result.duplicate !== true;
+export function needsCaptureStartSignal(result, channel = SUPPLIER_CAPTURE_CHANNEL) {
+  return result?.status === channel.queuedStatus && result.duplicate !== true;
 }
 
 /**
@@ -67,12 +89,12 @@ export function needsCaptureStartSignal(result) {
  * the background never polls for jobs, so a confirmation route that skips it leaves the owner waiting for a timeout that
  * can only ever expire (owner, four attempts, 2026-09-11).
  */
-export async function startQueuedSupplierCapture(result, { signal = requestSupplierCaptureStart } = {}) {
-  if (!needsCaptureStartSignal(result)) return null;
-  const ack = await signal(result.captureJob.jobId);
+export async function startQueuedSupplierCapture(result, { signal = requestSupplierCaptureStart, channel = SUPPLIER_CAPTURE_CHANNEL } = {}) {
+  if (!needsCaptureStartSignal(result, channel)) return null;
+  const ack = await signal(result.captureJob.jobId, undefined, channel);
   return {
     accepted: ack?.accepted === true,
     code: typeof ack?.code === "string" ? ack.code : "",
-    message: captureStartMessage(ack)
+    message: captureStartMessage(ack, channel)
   };
 }

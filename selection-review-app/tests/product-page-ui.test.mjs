@@ -19,14 +19,16 @@ async function pageModule() {
         skuChoiceSummary, selectAllState, skuChoicePayload, skuWeightGapNotice, foldedStepLine, foldedStepState,
         profitStepOpen, profitStepFirstSkuId, profitStepThresholdLine, profitStepCohortHeadline, profitStepExcludedLine,
         profitStepSuggestionLine, profitStepPriceDeltaLine, profitStepCommissionLine, profitStepSubmitState,
-        profitStepOutcomeLine, cargoFactsFormState, cargoFactsPayload, cargoFactsStepGaps, cargoFactsHeadline} from ${JSON.stringify(component)};
+        profitStepOutcomeLine, cargoFactsFormState, cargoFactsPayload, cargoFactsStepGaps, cargoFactsHeadline,
+        ozonCategoryStepGaps, ozonPageReadOutcomeLine} from ${JSON.stringify(component)};
       export {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload,
         captureRecaptureReady, captureRecaptureConfirmLine, captureRecapturePayload, CAPTURE_RECAPTURE_REASONS,
         currentProductStep, skuChoiceReady, skuChoiceSaved, showsSkuChoice, skuChoiceHeadline, skuChoiceSwing,
         skuChoiceSummary, selectAllState, skuChoicePayload, skuWeightGapNotice, foldedStepLine, foldedStepState,
         profitStepOpen, profitStepFirstSkuId, profitStepThresholdLine, profitStepCohortHeadline, profitStepExcludedLine,
         profitStepSuggestionLine, profitStepPriceDeltaLine, profitStepCommissionLine, profitStepSubmitState,
-        profitStepOutcomeLine, cargoFactsFormState, cargoFactsPayload, cargoFactsStepGaps, cargoFactsHeadline};
+        profitStepOutcomeLine, cargoFactsFormState, cargoFactsPayload, cargoFactsStepGaps, cargoFactsHeadline,
+        ozonCategoryStepGaps, ozonPageReadOutcomeLine};
       export const render=props=>renderToStaticMarkup(<Page {...props}/>);` : null }],
       ssr: { noExternal: true }, build: { ssr: true, write: false, rollupOptions: { input: entry, output: { format: 'es' } } } });
     const chunk = output.output.find(value => value.type === 'chunk' && value.isEntry);
@@ -210,7 +212,7 @@ test('商品页的申请插件采集走专用处理：写操作不经读取守�
   // 旧 A 卡仍然自己调用同一个信号与同一套文案映射，没有被改成另一条路径。
   assert.match(app, /const captureStart = await startQueuedSupplierCapture\(result\);/u);
   assert.match(app, /\$\{captureStart\.message\}/u);
-  assert.match(app, /import \{ startQueuedSupplierCapture \} from "\.\/captureStart\.js";/u);
+  assert.match(app, /import \{ OZON_PAGE_READ_CHANNEL, startQueuedSupplierCapture \} from "\.\/captureStart\.js";/u);
 });
 
 // 定价指引 (owner question 2026-09-11). Synthetic guidance only: the page shows what the saved estimate carries.
@@ -827,12 +829,27 @@ const cargoDeclared = (extra = {}) => cargoStep({
     basis: cargoBasis(), matchesProposal: true },
   gate: { ready: true, reason: '' }, ...extra
 });
-const profitProps = (reviewExtra = {}, extra = {}, cargo = cargoDeclared()) => props({
+// 类目那一小块。默认给一条「已经是真实读过的页面给的」，因为下面这些用例核的是别的东西；
+// 类目本身不成立时会挡住确认按钮，那条由 tests/ozon-category-read-step.test.mjs 单独核。
+const CATEGORY_PATH = 'Товары для животных > Одежда и обувь для животных > Одежда для собак';
+const categoryReadStep = (extra = {}) => ({
+  schemaVersion: 'ozon-category-read-step-v1', candidateId: 'candidate:synthetic-product-page', dataRevision: 4,
+  ready: true, readySource: 'real_page_snapshot', category: CATEGORY_PATH,
+  categoryFrom: '真实打开过的 Ozon 商品页', categoryCollectorMode: 'real_page_read_only',
+  target: { productId: '3605840795', productUrl: 'https://www.ozon.ru/product/3605840795/', from: 'sales_snapshot:fixture-sales' },
+  blocked: null, lastRead: null, inFlight: false,
+  why: `这件商品的类目「${CATEGORY_PATH}」是软件真实打开 Ozon 商品页读到的，算利润可以用它。`,
+  scopeLine: '读的时候软件只用你自己的浏览器打开这一个商品页看一眼，不下单、不联系任何人，也不向 Ozon 写任何东西。',
+  action: { label: '读一次这个 Ozon 页面', available: false, reason: '这件商品的类目已经是真实读过的页面给的，不用再读一次。' },
+  ...extra
+});
+const profitProps = (reviewExtra = {}, extra = {}, cargo = cargoDeclared(), category = categoryReadStep()) => props({
   candidate: candidate({ sourceCapture: waitingCapture({ selectedSkuIds: ['sku-xl-yellow', 'sku-8xl-yellow'] }) }),
   view: { supplierDraftV1: draft, supplierDraftEstimateV1: okEstimate, marketSnapshot,
     skuChoiceTableV1: choiceTable({ selectedSkuIds: ['sku-xl-yellow', 'sku-8xl-yellow'] }),
-    profitStepV1: profitReview(reviewExtra), cargoFactsStepV1: cargo },
-  onChooseSkus: forbidden, onConfirmProfitStep: forbidden, onDeclareCargoFacts: forbidden, ...extra
+    profitStepV1: profitReview(reviewExtra), cargoFactsStepV1: cargo, ozonCategoryReadStepV1: category },
+  onChooseSkus: forbidden, onConfirmProfitStep: forbidden, onDeclareCargoFacts: forbidden,
+  onReadOzonPage: forbidden, ...extra
 });
 
 test('选定规格之后走到算利润：整套一起核线，不过线的自动排除并说明原因', async () => {
@@ -1081,6 +1098,54 @@ test('运输属性没确认，「算利润」的确认按钮就不可点，并�
   assert.match(html, /<b>运输属性<\/b>：还没有确认这件商品的运输属性。软件要先知道它带不带电、是不是普货，才能核验线路收不收这件货。/u);
   assert.match(html, /<button type="button" class="button primary" disabled[^>]*>确认，进入文案素材<\/button>/u);
   assert.match(html, /资料还缺东西，先补齐下面列出的这几项才能确认。/u);
+});
+
+// 2026-09-14：类目来自 Seerfar 接口，服务端只认真实读过的页面，主人点了确认才吃到那句 B_EVIDENCE_CONTEXT_INCOMPLETE。
+const categoryNotRead = (extra = {}) => categoryReadStep({
+  ready: false, readySource: null, categoryFrom: 'Seerfar 的接口结果', categoryCollectorMode: 'provider_category_result_read_only',
+  category: '宠物用品 > 宠物服装和靴子 > 宠物服装',
+  why: '算利润要用的类目，必须来自真实打开过的 Ozon 商品页。现在这条类目「宠物用品 > 宠物服装和靴子 > 宠物服装」是 Seerfar 的接口结果给的，不是页面上读到的，所以这一步还不能确认。',
+  action: { label: '读一次这个 Ozon 页面', available: true, reason: '' }, ...extra
+});
+
+test('类目还不是真实页面读来的，「算利润」的确认按钮就不可点，并把出路摆在按钮前面', async () => {
+  const { ozonCategoryStepGaps, ozonPageReadOutcomeLine } = await pageModule();
+  const step = categoryNotRead();
+  assert.deepEqual(ozonCategoryStepGaps(step), [{ field: 'ozonCategory', label: '当前类目', why: step.why }]);
+  assert.deepEqual(ozonCategoryStepGaps(categoryReadStep()), []);
+  // 读不到这一块时按钮同样不亮：宁可不亮，也不让主人点了才吃服务端那个 422。
+  assert.equal(ozonCategoryStepGaps(null).length, 1);
+  assert.equal(ozonCategoryStepGaps(undefined).length, 1);
+
+  const html = await render(profitProps({}, {}, cargoDeclared(), step));
+  assert.match(html, /<div class="product-profit-category" role="group" aria-label="这条类目是哪儿来的">/u);
+  assert.match(html, /这条类目还不是从 Ozon 页面上读来的/u);
+  assert.match(html, /现在这条类目「宠物用品 &gt; 宠物服装和靴子 &gt; 宠物服装」是 Seerfar 的接口结果给的/u);
+  assert.match(html, /不下单、不联系任何人，也不向 Ozon 写任何东西/u);
+  assert.match(html, /要读的页面：https:\/\/www\.ozon\.ru\/product\/3605840795\//u);
+  assert.match(html, /<button type="button" class="button primary">读一次这个 Ozon 页面<\/button>/u);
+  assert.match(html, /<b>当前类目<\/b>：算利润要用的类目，必须来自真实打开过的 Ozon 商品页。/u);
+  assert.match(html, /<button type="button" class="button primary" disabled[^>]*>确认，进入文案素材<\/button>/u);
+
+  // 类目已经是真实读过的页面给的，这一小块就不出现——没有事要主人做，缺项单里也不再有「当前类目」。
+  const ready = await render(profitProps());
+  assert.doesNotMatch(ready, /product-profit-category/u);
+  assert.doesNotMatch(ready, /读一次这个 Ozon 页面/u);
+  assert.doesNotMatch(ready, /product-profit-gaps/u);
+  assert.match(ready, /两件都确认后才能进入下一步。/u, '这时候挡着的只剩主人自己那两个勾');
+
+  // 上一次读页面的结局原样说出来；等插件的时候按钮不给点，也不承诺重试。
+  assert.equal(ozonPageReadOutcomeLine(categoryReadStep()), null);
+  const waiting = categoryNotRead({ inFlight: true, lastRead: { captureId: 'OPR-1', status: 'waiting_extension', jobStatus: 'queued' },
+    action: { label: '读一次这个 Ozon 页面', available: false, reason: '上一次读这个页面还没有结束，等它结束之后再说。' } });
+  assert.match(ozonPageReadOutcomeLine(waiting), /还没有结果/u);
+  const waitingHtml = await render(profitProps({}, {}, cargoDeclared(), waiting));
+  assert.match(waitingHtml, /<button type="button" class="button primary" disabled[^>]*>读一次这个 Ozon 页面<\/button>/u);
+  assert.match(waitingHtml, /上一次读这个页面还没有结束，等它结束之后再说。/u);
+  const stopped = categoryNotRead({ lastRead: { captureId: 'OPR-2', status: 'failed', failureCode: 'site_verification_required',
+    reason: 'Ozon页面要求人工完成验证', writeOccurred: false } });
+  assert.match(ozonPageReadOutcomeLine(stopped), /上一次没读成：Ozon页面要求人工完成验证。软件不会自动重试。/u);
+  assert.match(await render(profitProps({}, {}, cargoDeclared(), stopped)), /上一次没读成：Ozon页面要求人工完成验证。/u);
 });
 
 test('运输属性走自己的接口，只记录主人的说法，不经过算利润那条确认路', async () => {

@@ -94,6 +94,13 @@ import {
   ozonCaptureFailureMessage,
   sanitizeOzonCaptureEvidence
 } from "./lib/ozon-sales-capture.mjs";
+import {
+  ozonCapturePageJobPayload,
+  ozonCapturePageJobPublic,
+  ozonCapturePageTarget,
+  ozonPageReadStopMessage
+} from "./lib/ozon-page-capture-job.mjs";
+import { buildOzonCategoryReadStep } from "./lib/ozon-category-read-step.mjs";
 import { adaptLegacyCandidateToOpportunity } from "./lib/legacy-candidate-adapter.mjs";
 import { buildRealLifecycleEntryPreview } from "./lib/real-lifecycle-entry-preview.mjs";
 import { buildRealAConfirmationCard, validateRealAConfirmationSubmission } from "./lib/real-a-confirmation-card.mjs";
@@ -461,6 +468,8 @@ const SOURCE_CAPTURE_TTL_MS = 3 * 60 * 1000;
 const SOURCE_CAPTURE_JOB_QUEUE_TTL_MS = Math.max(50, Number(process.env.SELECTION_REVIEW_SOURCE_JOB_QUEUE_TTL_MS || 2 * 60 * 1000));
 const SOURCE_CAPTURE_JOB_EXECUTION_TTL_MS = Math.max(50, Number(process.env.SELECTION_REVIEW_SOURCE_JOB_EXECUTION_TTL_MS || 60 * 1000));
 const REQUIRED_SOURCE_CAPTURE_EXTENSION_VERSION = "1.2.7";
+/** Marks a sales-capture session that is a leased, claimable page-read job rather than a bare legacy session. */
+const OZON_PAGE_READ_CAPTURE_KIND = "ozon_page_read";
 const EXTENSION_HEARTBEAT_TTL_MS = 75 * 1000;
 let latestExtensionHeartbeat = null;
 let sourceCaptureJobClaimQueue = Promise.resolve();
@@ -494,7 +503,12 @@ function extensionHeartbeatSnapshot(timestamp = Date.now()) {
 function purgeExpiredCaptureSessions(timestamp = Date.now()) {
   for (const sessions of [sourceCaptureSessions, salesCaptureSessions]) {
     for (const [id, session] of sessions.entries()) {
+      // A job-backed session is closed by its own lease timer, which is the only thing that also writes the candidate's
+      // record. Dropping it here first would leave that record at waiting_extension with nothing left to close it —
+      // exactly the "永远卡住" record this project has already paid for twice. 1688 sessions keep the test they had;
+      // an Ozon page-read session (captureKind, never set on a 1688 session) gets the same protection.
       if (session.mode === "a_supplier_capture" && session.jobStatus) continue;
+      if (session.captureKind === OZON_PAGE_READ_CAPTURE_KIND && session.jobStatus) continue;
       if (session.expiresAt <= timestamp || session.consumedAt) sessions.delete(id);
     }
   }
@@ -1119,6 +1133,281 @@ function claimASupplierCaptureJob(captureId, extensionVersion, extensionOrigin) 
   // Keep the serialization tail usable; the original rejecting operation reaches its caller.
   sourceCaptureJobClaimQueue = operation.then(() => undefined, () => undefined);
   return operation;
+}
+
+/* ── 读一次 Ozon 商品页 ──────────────────────────────────────────────────────────────────────────────────────────
+ * 发起那一半。1688 供应采集的整条链路（全局采集控制锁、排队与执行租约、一次性令牌、插件明确领取、过期收口、
+ * 重启对账）今天全部修通了，这里用的就是同一套，只换了目标：读的是 www.ozon.ru 上这件商品自己的页面。
+ *
+ * 之所以必须有它：算利润要用的类目只认 collectorMode 为 real_page_read_only 的销售快照，而这个 collectorMode
+ * 只有插件真的读过页面并回传结果时才会产生。在这之前 /sales-capture/start 是一行写死的 409，于是那份快照永远
+ * 出不来，第一件真货卡在「当前类目」上（主人 2026-09-14）。
+ *
+ * 边界和 1688 那条一模一样：仅主人、封闭输入、修订号不符就 409、占同一把全局采集控制锁、同一套租约与收口。
+ * 服务端自己不碰 www.ozon.ru —— 页面只能由主人自己的浏览器经插件读取，验证码和登录墙由收集器如实回报后停下。
+ */
+function ozonPageReadAllowed(candidate) {
+  if (candidate.workflowStatus === "eliminated") return false;
+  const capture = candidate.salesCapture;
+  return !["waiting_extension", "capturing"].includes(capture?.status) &&
+    !["queued", "claimed"].includes(capture?.jobStatus);
+}
+
+/**
+ * 这次读页面停在哪儿，如实写进这件商品的记录。业务状态一律不动：没有下单、没有联系供应商、没有向 Ozon 写任何
+ * 东西，也没有产生任何快照。writeOccurred 恒为 false。
+ */
+function markOzonPageReadFailure(current, session, code, detail = "", observedAt = now()) {
+  const reason = ozonPageReadStopMessage(code, detail);
+  current.salesCapture = {
+    captureId: session.captureId,
+    jobId: session.captureId,
+    status: "failed",
+    jobStatus: code === "unknown_outcome" ? "unknown_outcome" : "failed",
+    technicalStatus: code === "unknown_outcome" ? "unknown_outcome" : "system_error",
+    productId: session.expectedProductId,
+    productUrl: session.productUrl,
+    attempt: Number(session.attempt || 0),
+    requiredExtensionVersion: session.requiredExtensionVersion || null,
+    failureCode: code,
+    failureLayer: "ozon_page_extension_capture",
+    reason,
+    observedAt,
+    stoppedAt: now(),
+    businessStateEffect: "unchanged",
+    retryAttempted: false,
+    writeOccurred: false
+  };
+  current.dataRevision = Number(current.dataRevision || 0) + 1;
+  current.updatedAt = now();
+  current.lastModifiedBy = "system";
+  addHistory(current, "system", "ozonPageReadStopped",
+    `${reason}；这件商品的业务状态没有改变，也没有产生任何销售快照`, observedAt);
+}
+
+async function expireOzonPageReadJob(captureId, expectedStatus) {
+  const session = salesCaptureSessions.get(captureId);
+  if (!session || session.jobStatus !== expectedStatus || session.consumedAt) return;
+  const failureCode = expectedStatus === "claimed" ? "unknown_outcome" : "extension_job_unclaimed";
+  await mutateDataWhenChanged((data) => {
+    const current = data.candidates.find((item) => item.id === session.candidateId);
+    // Only the captureId identifies the record this job owns — the same lesson the 1688 closure already paid for:
+    // also demanding an unchanged dataRevision let any unrelated edit during the wait abandon the closure and leave
+    // the product waiting on an extension that can never answer.
+    if (!current || current.salesCapture?.captureId !== captureId) return { changed: false };
+    // Only a record still waiting on the extension can be closed here. A record that already reached its verdict needs
+    // no closure, and overwriting it would turn a saved page read back into a failure.
+    if (!["waiting_extension", "capturing"].includes(current.salesCapture.status)) return { changed: false };
+    markOzonPageReadFailure(current, session, failureCode);
+    return { changed: true };
+  });
+  session.jobStatus = failureCode;
+  session.consumedAt = Date.now();
+  clearSourceCaptureJobTimer(captureId);
+  salesCaptureSessions.delete(captureId);
+}
+
+function scheduleOzonPageReadJobExpiry(session, expectedStatus, timeoutMs) {
+  clearSourceCaptureJobTimer(session.captureId);
+  const timer = setTimeout(() => {
+    void expireOzonPageReadJob(session.captureId, expectedStatus).catch((error) => {
+      console.error("Ozon读页面作业超时收口失败", error);
+    });
+  }, timeoutMs);
+  timer.unref?.();
+  sourceCaptureJobTimers.set(session.captureId, timer);
+}
+
+/** 同 1688：会话只活在建立它的进程里，所以重启时每一条还在等的记录都不可能再有结果，必须各收口一次。 */
+function ozonPageReadLostOnRestart(capture) {
+  if (!capture || typeof capture !== "object" || typeof capture.captureId !== "string" || capture.captureId === "") return false;
+  if (salesCaptureSessions.has(capture.captureId)) return false;
+  return ["waiting_extension", "capturing"].includes(capture.status) ||
+    ["queued", "claimed"].includes(capture.jobStatus);
+}
+
+async function reconcileOzonPageReadJobsAfterRestart() {
+  return mutateDataWhenChanged((data) => {
+    const closed = [];
+    for (const current of data.candidates) {
+      const capture = current.salesCapture;
+      if (!ozonPageReadLostOnRestart(capture)) continue;
+      markOzonPageReadFailure(current, {
+        captureId: capture.captureId,
+        expectedProductId: capture.productId ?? "",
+        productUrl: capture.productUrl ?? "",
+        attempt: capture.attempt ?? 0,
+        requiredExtensionVersion: capture.requiredExtensionVersion ?? null
+      }, "capture_job_lost");
+      closed.push(current.id);
+    }
+    return { changed: closed.length > 0, result: closed };
+  });
+}
+
+async function enqueueOzonPageReadJob({ candidateId, requestRevision }) {
+  const existing = salesCaptureSession(candidateId);
+  if (existing?.captureKind === OZON_PAGE_READ_CAPTURE_KIND &&
+    [existing.requestRevision, existing.dataRevision].includes(requestRevision) &&
+    ["queued", "claimed"].includes(existing.jobStatus)) {
+    const data = await readData();
+    const current = data.candidates.find((item) => item.id === candidateId);
+    if (!current) throw httpError(404, "候选不存在", { code: "candidate_not_found" });
+    if (Number(current.dataRevision) !== existing.dataRevision ||
+        current.salesCapture?.captureId !== existing.captureId) {
+      throw httpError(409, "当前资料与已有读页面作业不一致，不能沿用旧作业", { code: "capture_job_state_conflict" });
+    }
+    return { candidate: publicCandidate(current, data.rules), captureJob: ozonCapturePageJobPublic(existing), duplicate: true };
+  }
+  ensureCaptureControlAvailable(candidateId);
+  const snapshot = await readData();
+  const snapshotCandidate = snapshot.candidates.find((item) => item.id === candidateId);
+  if (!snapshotCandidate) throw httpError(404, "候选不存在", { code: "candidate_not_found" });
+  const target = ozonCapturePageTarget(snapshotCandidate);
+  if (!target.ok) throw httpError(422, target.reason, { code: target.code });
+
+  const session = {
+    captureId: `OPR-${randomUUID()}`,
+    token: randomBytes(32).toString("base64url"),
+    candidateId,
+    requestRevision,
+    dataRevision: null,
+    expectedProductId: target.productId,
+    productUrl: target.productUrl,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + SOURCE_CAPTURE_JOB_QUEUE_TTL_MS,
+    captureKind: OZON_PAGE_READ_CAPTURE_KIND,
+    jobStatus: "queued",
+    attempt: 0,
+    requiredExtensionVersion: REQUIRED_SOURCE_CAPTURE_EXTENSION_VERSION,
+    claimedAt: null,
+    claimedExtensionVersion: "",
+    claimedExtensionOrigin: ""
+  };
+  salesCaptureSessions.set(session.captureId, session);
+  let candidate;
+  try {
+    candidate = await mutateData((data) => {
+      const current = data.candidates.find((item) => item.id === candidateId);
+      if (!current) throw httpError(404, "候选不存在", { code: "candidate_not_found" });
+      if (Number(current.dataRevision) !== Number(requestRevision)) {
+        throw httpError(409, "商品资料已变化，请刷新后重新发起这次读页面", { code: "revision_conflict" });
+      }
+      if (!ozonPageReadAllowed(current)) {
+        throw httpError(409, "这件商品还有一次读页面没有结束，或者已经淘汰，不能再建立读页面作业", { code: "business_state_rejected" });
+      }
+      if (activeDispatchForCandidate(data, current.id)) {
+        throw httpError(409, "当前商品已有任务等待或运行，不能读这个 Ozon 页面", { code: "candidate_busy" });
+      }
+      const timestamp = now();
+      current.salesCapture = {
+        captureId: session.captureId,
+        jobId: session.captureId,
+        status: "waiting_extension",
+        jobStatus: "queued",
+        productId: session.expectedProductId,
+        productUrl: session.productUrl,
+        attempt: 0,
+        requiredExtensionVersion: session.requiredExtensionVersion,
+        startedAt: timestamp,
+        businessStateEffect: "unchanged",
+        retryAttempted: false,
+        writeOccurred: false
+      };
+      current.dataRevision = Number(current.dataRevision || 0) + 1;
+      session.dataRevision = current.dataRevision;
+      current.updatedAt = timestamp;
+      current.lastModifiedBy = "user";
+      addHistory(current, "user", "ozonPageReadJobQueued",
+        `主人要求读一次这个 Ozon 商品页（${session.expectedProductId}）；系统已建立一个受控只读作业，等待插件后台领取。` +
+        "不下单、不联系任何人、不向 Ozon 写入任何内容，也不推进业务阶段", timestamp);
+      return publicCandidate(current, data.rules);
+    });
+  } catch (error) {
+    salesCaptureSessions.delete(session.captureId);
+    throw error;
+  }
+  scheduleOzonPageReadJobExpiry(session, "queued", SOURCE_CAPTURE_JOB_QUEUE_TTL_MS);
+  return { candidate, captureJob: ozonCapturePageJobPublic(session), duplicate: false };
+}
+
+function claimOzonPageReadJob(captureId, extensionVersion, extensionOrigin) {
+  const operation = sourceCaptureJobClaimQueue.then(async () => {
+    const session = salesCaptureSessions.get(captureId);
+    if (!session || session.captureKind !== OZON_PAGE_READ_CAPTURE_KIND) {
+      throw httpError(409, "当前服务没有这次明确创建的采集作业", { code: "capture_job_not_current" });
+    }
+    if (session.jobStatus !== "queued" || session.attempt !== 0 || session.expiresAt <= Date.now()) {
+      throw httpError(409, "该采集作业已领取、失效或结果待核实，不能再次执行", { code: "capture_job_not_claimable" });
+    }
+    if (String(extensionVersion) !== session.requiredExtensionVersion) {
+      throw httpError(409, `本次采集要求插件v${session.requiredExtensionVersion}`, { code: "extension_version_mismatch" });
+    }
+    session.jobStatus = "claim_pending";
+    session.attempt = 1;
+    session.claimedAt = Date.now();
+    session.claimedExtensionVersion = String(extensionVersion);
+    session.claimedExtensionOrigin = String(extensionOrigin || "");
+    clearSourceCaptureJobTimer(session.captureId);
+    try {
+      const claimedRevision = await mutateData((data) => {
+        if (session.expiresAt <= Date.now()) throw httpError(409, "采集作业等待期限已结束", { code: "capture_job_expired" });
+        const current = data.candidates.find((item) => item.id === session.candidateId);
+        if (!current) throw httpError(404, "候选不存在", { code: "candidate_not_found" });
+        if (current.salesCapture?.captureId !== session.captureId ||
+          current.salesCapture.status !== "waiting_extension" ||
+          current.salesCapture.jobStatus !== "queued" || current.salesCapture.attempt !== 0 ||
+          current.salesCapture.productId !== session.expectedProductId) {
+          throw httpError(409, "当前候选不再等待该采集作业", { code: "capture_job_state_conflict" });
+        }
+        if (Number(current.dataRevision) !== Number(session.dataRevision)) {
+          throw httpError(409, "采集作业修订号已失效", { code: "revision_conflict" });
+        }
+        current.salesCapture = {
+          ...current.salesCapture,
+          status: "capturing",
+          jobStatus: "claimed",
+          attempt: 1,
+          claimedAt: new Date(session.claimedAt).toISOString(),
+          claimedExtensionVersion: session.claimedExtensionVersion,
+          failureCode: null,
+          reason: null,
+          writeOccurred: false,
+          businessStateEffect: "unchanged"
+        };
+        current.dataRevision = Number(current.dataRevision || 0) + 1;
+        current.updatedAt = now();
+        current.lastModifiedBy = "system";
+        return current.dataRevision;
+      });
+      session.dataRevision = claimedRevision;
+      session.jobStatus = "claimed";
+    } catch (error) {
+      // A failed durable write can have an uncertain outcome. Never reopen this claim.
+      session.jobStatus = "unknown_outcome";
+      session.consumedAt = Date.now();
+      salesCaptureSessions.delete(session.captureId);
+      throw error;
+    }
+    session.expiresAt = Date.now() + SOURCE_CAPTURE_JOB_EXECUTION_TTL_MS;
+    scheduleOzonPageReadJobExpiry(session, "claimed", SOURCE_CAPTURE_JOB_EXECUTION_TTL_MS);
+    return { captureJob: ozonCapturePageJobPayload(session), jobNotice: null };
+  });
+  // Keep the serialization tail usable; the original rejecting operation reaches its caller.
+  sourceCaptureJobClaimQueue = operation.then(() => undefined, () => undefined);
+  return operation;
+}
+
+/**
+ * 插件领取作业只有这一个入口，现在它同时认两种会话。
+ *
+ * 分流只看这次作业编号在不在 Ozon 读页面那张表里：在，就走读页面那条；不在（包括根本不存在的编号），原样交给
+ * claimASupplierCaptureJob。所以 1688 那侧的判断顺序、错误码和文案一个字都没变 —— 连「当前服务没有这次明确
+ * 创建的采集作业」这句拒绝也仍然由它自己给出。两种作业编号前缀不同（SCJ- / OPR-），不会互相认领。
+ */
+function claimCaptureJob(captureId, extensionVersion, extensionOrigin) {
+  if (salesCaptureSessions.has(captureId)) return claimOzonPageReadJob(captureId, extensionVersion, extensionOrigin);
+  return claimASupplierCaptureJob(captureId, extensionVersion, extensionOrigin);
 }
 
 function salesCaptureSession(candidateId, captureId = "") {
@@ -2445,6 +2734,8 @@ async function supplierDraftView(document, candidate) {
     }),
     // 运输属性那一小块：软件提议了什么、凭什么提议、主人确认了没有。它自己不算钱，所以和上面那张表无关。
     cargoFactsStepV1: buildCargoFactsStep(candidate),
+    // 类目那一小块：算利润只认真实读过的 Ozon 页面给的类目，这里说清楚现在这条是不是、不是的话出路是什么。
+    ozonCategoryReadStepV1: buildOzonCategoryReadStep(candidate),
     marketSnapshot: snapshot === null ? null : structuredClone(snapshot),
     candidate: publicView
   };
@@ -3154,7 +3445,7 @@ async function handleApi(req, res, pathname) {
     if (Object.keys(input).length !== 1 || typeof input.version !== "string" || !/^\d+\.\d+\.\d+$/.test(input.version)) {
       throw httpError(400, "领取请求必须只包含插件版本", { code: "capture_claim_invalid" });
     }
-    const claim = await claimASupplierCaptureJob(captureClaimRoute[1], input.version, String(req.headers.origin));
+    const claim = await claimCaptureJob(captureClaimRoute[1], input.version, String(req.headers.origin));
     return json(res, 200, { accepted: true, ...claim }, headers);
   }
   if (req.method === "GET" && pathname === "/api/health") {
@@ -3768,12 +4059,39 @@ async function handleApi(req, res, pathname) {
 
   const productionAuthorizationRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/production-authorization$/);
 
+  /**
+   * 读一次这个 Ozon 商品页 —— 主人在算利润那一步按下的那个按钮。
+   *
+   * 封闭输入：只有当前数据修订号。目标地址不接受主人或页面传进来，一律取候选自己已经保存的 Ozon 地址
+   * （先看最新的销售快照，再看候选自身字段），规范化之后与商品编号核对；保存的地址指向不止一个商品编号时
+   * 这里停下来说明冲突，不替主人挑一个去读。
+   *
+   * 建立的是一次受控作业，不是一次采集：服务端自己从不访问 www.ozon.ru。页面只能由主人自己的浏览器经插件打开，
+   * 遇到验证码或登录墙由收集器如实回报 site_verification_required / site_login_required 并停下，不重试、不绕过、
+   * 不伪造快照。落盘的快照 collectorMode 只能是 real_page_read_only，且只在插件真的回传了结果时才产生。
+   */
   const salesCaptureStartRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/sales-capture\/start$/);
   if (req.method === "POST" && salesCaptureStartRoute) {
-    const input = await requestBody(req);
-    if (!Number.isInteger(input.dataRevision)) throw httpError(400, "Ozon采集必须提供当前数据修订号");
-    throw httpError(409, "Ozon采集等待插件后台claim协议接线，本次没有创建采集会话或业务写入", {
-      code: "sales_capture_claim_protocol_required"
+    const input = await readJsonRequestBody(req, { maxBytes: 4096, requireJsonContentType: true });
+    if (!input || typeof input !== "object" || Array.isArray(input) || !Number.isInteger(input.dataRevision) ||
+        Object.keys(input).some((field) => field !== "dataRevision")) {
+      throw httpError(400, "读这个 Ozon 页面只接受当前数据修订号", { code: "ozon_page_read_input_invalid" });
+    }
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      throw httpError(403, "请先登录主人身份后再读这个 Ozon 页面。", { code: "ozon_page_read_owner_required" });
+    }
+    const queued = await enqueueOzonPageReadJob({
+      candidateId: decodeURIComponent(salesCaptureStartRoute[1]),
+      requestRevision: input.dataRevision
+    });
+    // The same receipt shape the 1688 capture request returns, so the page reuses its one start-signal path.
+    return json(res, queued.duplicate ? 200 : 202, {
+      status: "ozon_page_read_job_queued",
+      candidate: queued.candidate,
+      captureJob: queued.captureJob,
+      duplicate: queued.duplicate,
+      dispatch: null
     });
   }
 
@@ -3791,7 +4109,10 @@ async function handleApi(req, res, pathname) {
       const current = data.candidates.find((item) => item.id === session.candidateId);
       if (!current) throw httpError(404, "候选不存在");
       if (Number(current.dataRevision) !== session.dataRevision) throw httpError(409, "商品资料已变化，本次Ozon采集结果已拒绝");
-      if (current.salesCapture?.captureId !== session.captureId || current.salesCapture?.status !== "waiting_extension") {
+      // "capturing" is what a claimed page-read record says; assertClaimedCaptureResultOrigin above already refuses
+      // any result whose session was never claimed, so this only widens the record states that can still be settled.
+      if (current.salesCapture?.captureId !== session.captureId ||
+          !["waiting_extension", "capturing"].includes(current.salesCapture?.status)) {
         throw httpError(409, "当前商品不再等待这次Ozon采集结果");
       }
       const timestamp = now();
@@ -3801,6 +4122,9 @@ async function handleApi(req, res, pathname) {
         current.salesCapture = {
           ...current.salesCapture,
           status: "failed",
+          // The record must also say the job itself is over. Left at "claimed" by the spread above, it would block
+          // every later read through ozonPageReadAllowed and be closed a second time as lost on the next restart.
+          jobStatus: "failed",
           technicalStatus: salesCaptureTechnicalStatus(code),
           failureCode: code,
           reason: ozonCaptureFailureMessage(code),
@@ -3835,6 +4159,9 @@ async function handleApi(req, res, pathname) {
         current.salesCapture = {
           ...current.salesCapture,
           status: "failed",
+          // The record must also say the job itself is over. Left at "claimed" by the spread above, it would block
+          // every later read through ozonPageReadAllowed and be closed a second time as lost on the next restart.
+          jobStatus: "failed",
           technicalStatus: salesCaptureTechnicalStatus(code),
           failureCode: code,
           reason: ozonCaptureFailureMessage(code),
@@ -3858,6 +4185,7 @@ async function handleApi(req, res, pathname) {
       current.salesCapture = {
         ...current.salesCapture,
         status: "verified",
+        jobStatus: "completed",
         technicalStatus: "completed",
         snapshotId: snapshot.snapshotId,
         productId: snapshot.productId,
@@ -3898,6 +4226,12 @@ async function handleApi(req, res, pathname) {
       addHistory(current, "system", "ozonSalesSnapshotCaptured", `已保存Ozon商品${session.expectedProductId}的当前销售快照；未推进业务阶段`, timestamp);
       return publicCandidate(current, data.rules);
     });
+    // The lease ends the moment the result is durably recorded, before anything optional runs on top of it. Held open
+    // across the Terra step, a throw there would leave the session alive and its timer would later close this very
+    // record as "no result received" — overwriting the snapshot that had in fact just been saved.
+    session.consumedAt = Date.now();
+    clearSourceCaptureJobTimer(session.captureId);
+    salesCaptureSessions.delete(session.captureId);
     if (input.status === "captured" && candidate.salesCapture?.status === "verified" && candidate.salesCapture?.snapshotId) {
       candidate = await enrichCapturedSalesSnapshotWithTerra(
         candidate.id,
@@ -3905,8 +4239,6 @@ async function handleApi(req, res, pathname) {
         candidate.salesCapture.snapshotId
       );
     }
-    session.consumedAt = Date.now();
-    salesCaptureSessions.delete(session.captureId);
     return json(res, 200, { candidate, dispatch: null }, chromeExtensionCors(req));
   }
 
@@ -7306,6 +7638,12 @@ await softwareJobStore.reconcileAfterRestart({jobTypes:['a_product_discovery','a
 const lostCaptureJobs = await reconcileSourceCaptureJobsAfterRestart();
 if (lostCaptureJobs?.length) {
   console.log(`1688采集作业已随服务重启收口为失败（不会再有结果，需要重新申请）：${lostCaptureJobs.join("、")}`);
+}
+// The same closure for the Ozon page read: its session also lived only in the process that is gone, and an open
+// record would refuse every later read of that product through ozonPageReadAllowed.
+const lostOzonPageReads = await reconcileOzonPageReadJobsAfterRestart();
+if (lostOzonPageReads?.length) {
+  console.log(`Ozon读页面作业已随服务重启收口为失败（不会再有结果，需要重新读一次）：${lostOzonPageReads.join("、")}`);
 }
 server.listen(port, host, () => {
   if (runtimeConfiguration.dPlatformObservation.pumpIntervalMs !== null ||

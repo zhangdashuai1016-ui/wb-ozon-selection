@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { createLatestRead, createSelectionGuard, runMutation, shouldContinuePolling, errorMessage, candidatePlatform } from "./formState.js";
 import { validateCandidateCommentReceipt } from "./commentInput.js";
-import { startQueuedSupplierCapture } from "./captureStart.js";
+import { OZON_PAGE_READ_CHANNEL, startQueuedSupplierCapture } from "./captureStart.js";
 import { firstInQueue, matchesQueue } from "./candidateViews";
 import AddCandidateModal from "./components/AddCandidateModal";
 import CandidateDetail, { CandidateReview } from "./components/CandidateDetail";
@@ -220,6 +220,26 @@ export default function App() {
       const start=await startQueuedSupplierCapture(result);
       if(start)return start.message;
       return "这件商品已经有一次采集还在等插件，这次没有重新开始；等它结束后再试，软件不会自动重试";
+    }finally{await load(true);setProductDraftRefresh(value=>value+1);}
+  }
+  /**
+   * 读一次这个 Ozon 商品页 —— 算利润卡在类目上时唯一的出路。
+   *
+   * 和 申请插件采集 / 重新采集 是同样的两步，理由也一样：写操作留在读取守卫之外（被取消的读会把服务端真正的回答
+   * 抹成 null），拿到排队回执之后必须发一条开始信号，因为插件后台只维持心跳、从不主动轮询作业。只有目标不同，
+   * 所以走的是 captureStart.js 里同一个 helper，只把消息类型换成 Ozon 那一条，没有第二份实现。
+   */
+  async function readOzonProductPage(payload){
+    const ownerId=accountOwnerId,candidateId=selectedId;
+    const current=()=>accountContext.current.ownerId===ownerId&&accountContext.current.view==='product';
+    try{
+      const result=await runMutation(()=>api.startOzonSalesCapture(candidateId,payload),{
+        reads:productDraftReads.current,isCurrent:current,
+        publish(next){if(next?.supplierDraftV1!==undefined)setProductDraftView(next);}
+      });
+      const start=await startQueuedSupplierCapture(result,{channel:OZON_PAGE_READ_CHANNEL});
+      if(start)return start.message;
+      return "这件商品已经有一次读页面还在等插件，这次没有重新开始；等它结束后再试，软件不会自动重试";
     }finally{await load(true);setProductDraftRefresh(value=>value+1);}
   }
   /**
@@ -675,7 +695,12 @@ export default function App() {
     if (!selected) return null;
     try {
       const result = await api.startOzonSalesCapture(selected.id, { dataRevision: selected.dataRevision });
-      setNotice({ type: "success", message: "已提交当前商品的单次只读采集请求，等待后台认证领取；页面不转发凭据，也不把请求接受当作采集完成。" });
+      // The same receipt → start signal as every other capture: the extension background only keeps a heartbeat and
+      // never polls, so a queued job with no signal can do nothing but expire (owner, four attempts, 2026-09-11).
+      const captureStart = await startQueuedSupplierCapture(result, { channel: OZON_PAGE_READ_CHANNEL });
+      setNotice({ type: "success", message: captureStart
+        ? captureStart.message
+        : "这件商品已经有一次读页面还在等插件，这次没有重新开始；页面不转发凭据，也不把请求接受当作采集完成。" });
       await load(true);
       return result;
     } catch (error) {
@@ -1000,6 +1025,7 @@ export default function App() {
           onRequestCapture={payload => requestProductCapture(payload)}
           onReviewCaptureAndRequest={payload => reviewCaptureAndRequest(payload)}
           onRecaptureSource={payload => recaptureProductSource(payload)}
+          onReadOzonPage={payload => readOzonProductPage(payload)}
           onConfirmProfitStep={payload => confirmProductProfitStep(payload)}
           onOpenLegacyCard={() => setView("review")}
           onEliminateCandidate={eliminateCandidate}

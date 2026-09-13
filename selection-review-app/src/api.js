@@ -189,6 +189,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  // 读一次这个 Ozon 商品页。只送当前数据修订号：要读哪个页面由服务端从这件商品自己已经保存的地址里取，
+  // 页面不传目标。回执与 1688 申请采集一模一样，所以接着走 captureStart.js 里同一条开始信号。
   startOzonSalesCapture: (candidateId, payload) =>
     request(`/api/candidates/${encodeURIComponent(candidateId)}/sales-capture/start`, {
       method: "POST",
