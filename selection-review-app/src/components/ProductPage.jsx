@@ -356,6 +356,29 @@ export function skuChoiceSummary(table, chosen) {
   return `${head} · 单件利润 ${range}${pending > 0 ? `（其中 ${pending} 个${PENDING}）` : ""}${price}`;
 }
 
+/**
+ * 采回来的规格里缺不缺重量，用表自己的两个数字说出来。
+ *
+ * 没有重量的规格，运费、单件利润、利润率整行都算不出来，表里只能写「待补」。这不是页面算错了，是那一次采集根本没读到
+ * 重量，所以唯一的出路是重新读一次这个1688页面。2026-09-13 当天第一件商品（狗雨衣）24 个规格全部没有重量，整张表
+ * 三列空着，而「重新采集」当时只藏在折起来的「1688 采集」块里 —— 主人要先展开「找货」才看得见。
+ */
+export function skuWeightGapNotice(table) {
+  const total = Number.isInteger(table?.total) ? table.total : 0;
+  const missing = Number.isInteger(table?.weightMissingCount) ? table.weightMissingCount : 0;
+  if (total <= 0 || missing <= 0) return null;
+  const all = missing >= total;
+  return {
+    total,
+    missing,
+    all,
+    heading: all ? "这些规格没有重量，运费和利润算不出来" : `有 ${missing} 个规格没有重量，运费和利润算不出来`,
+    message: all
+      ? `这 ${total} 个规格是早先采的，那一次没有读到每个规格的重量，所以运费、单件利润、利润率整列都是「${PENDING}」，现在没法按利润挑。点「重新采集」把这个1688页面重新读一遍，就能按每个规格自己的重量算给你看。`
+      : `这 ${total} 个规格里有 ${missing} 个是早先采的，没有重量，它们那几行的运费和利润是「${PENDING}」；另外 ${total - missing} 个照常。点「重新采集」重新读一遍这个1688页面，就能把缺的那几个补上。`
+  };
+}
+
 /** Closed submission: the current revision and the specifications the owner ticked, in the order they are listed. */
 export function skuChoicePayload(table, chosen, dataRevision) {
   const ids = (Array.isArray(chosen) ? chosen : []).map(String);
@@ -403,20 +426,36 @@ function SkuChoiceSources({ table }) {
  * The owner ticks specifications and presses one button. Nothing here starts work, contacts anyone, or reaches a
  * platform; the checkboxes are local until that button is pressed.
  */
-function SkuChoiceSection({ candidate, table, chosen, saving, onToggle, onToggleAll, onSubmit }) {
+function SkuChoiceSection({ candidate, table, chosen, saving, recapturable = false, onRecapture, onToggle, onToggleAll, onSubmit }) {
   const capture = candidate.sourceCapture;
   const swing = skuChoiceSwing(table);
   const allState = selectAllState(chosen, table.rows);
   const columns = table.columns.length > 0 ? table.columns : ["规格"];
   const savedIds = Array.isArray(capture.selectedSkuIds) ? capture.selectedSkuIds : [];
+  const gap = skuWeightGapNotice(table);
   return <section className="product-section product-sku-choice" aria-label="选规格">
     <h3>选哪个规格上架</h3>
-    <p className="product-section-hint">{`插件已经把这件1688货源的 ${table.total} 个规格采回来了。它们货价不同、重量不同，所以运费和利润也不同——这一步就是让你按利润挑，而不是自己去1688页面上对着表格数。`}</p>
+    {/* 一个重量都没采到时，「按利润挑」这句话就是假的，不能照说。 */}
+    <p className="product-section-hint">{`插件已经把这件1688货源的 ${table.total} 个规格采回来了。${gap?.all === true
+      ? "它们货价不同、重量也不同，但这一次没有采到重量，所以现在还挑不了利润。"
+      : "它们货价不同、重量不同，所以运费和利润也不同——这一步就是让你按利润挑，而不是自己去1688页面上对着表格数。"}`}</p>
     <p className="product-sku-offer">货源 1688 / {textOf(capture.offerId) || "未取得"}
       {` · 目标售价 ${RUB(table.sources.targetSalePriceRub)}`}
       {dayOf(capture.observedAt) ? ` · ${dayOf(capture.observedAt)} 采到` : ""}</p>
 
-    <div className="product-sku-verdict">
+    {/* 缺重量就在表前面直说，并且把唯一的出路放在这句话旁边——不能让主人先去展开「找货」才找得到它。 */}
+    {gap === null ? null : <div className="product-sku-weight-gap" role="status">
+      <div className="product-sku-weight-gap-words">
+        <h4>{gap.heading}</h4>
+        <p>{gap.message}</p>
+      </div>
+      {recapturable
+        ? <RecaptureControl candidate={candidate} disabled={saving} onRecapture={onRecapture} />
+        : <span className="product-actions-note">这件商品当前的采集状态不能重读；先看下面「找货」里的采集状态。</span>}
+    </div>}
+
+    {/* 一个规格都算不出利润时，「最赚 / 最少」只会显示两个「待补」，那不是结论，就不显示。 */}
+    {table.pricedCount > 0 ? <div className="product-sku-verdict">
       <div className="product-sku-verdict-lede">
         <h4>{skuChoiceHeadline(table)}</h4>
         <p>每个规格的货价和重量都不一样，运费按各自的重量算，落到手里的利润也就不一样。</p>
@@ -427,7 +466,7 @@ function SkuChoiceSection({ candidate, table, chosen, saving, onToggle, onToggle
         <div className="product-sku-swing-low"><span>最少 · {swing.worst === null ? "未取得" : swing.worst.label}</span>
           <strong>{swing.worst === null ? PENDING : money(swing.worst.unitProfitRmb)}</strong></div>
       </div>
-    </div>
+    </div> : null}
 
     <div className="product-sku-table-head">
       <h4>{table.total} 个规格 · 按单件利润从高到低</h4>
@@ -481,6 +520,12 @@ function SkuChoiceSection({ candidate, table, chosen, saving, onToggle, onToggle
     {savedIds.length > 0
       ? <p className="product-sku-saved">已经选定过 {savedIds.length} 个规格，它们在这件商品的供货方案里；再点一次「选定这些规格」就按你现在勾的改。</p>
       : null}
+
+    {/* 规格齐全时重读只是退路，所以它留在这里，是一个不显眼的次要动作。 */}
+    {gap === null && recapturable ? <div className="product-sku-recapture">
+      <span>这些规格是上一次读到的。页面改了、或者规格不对，就重新读一遍这个1688页面。</span>
+      <RecaptureControl candidate={candidate} disabled={saving} onRecapture={onRecapture} />
+    </div> : null}
 
     <SkuChoiceSources table={table} />
 
@@ -603,6 +648,8 @@ export default function ProductPage({
   const estimate = estimateLines(view?.supplierDraftEstimateV1 ?? null);
   const reviewRequired = captureNeedsOwnerReview(candidate);
   const recapturable = captureRecaptureReady(candidate);
+  // 采到之后该看的地方是上面那张规格表，所以重读的入口跟着它走；规格表不在场时它才留在「1688 采集」块里。
+  const recaptureInChoice = recapturable && choosing;
   // 采回来之后，下一步就是上面那张表；找货里那句「去申请采集」已经过去了，不能再高亮，也不能再说。
   const highlight = choosing ? null : next.key;
   const nextHint = choosing ? null
@@ -619,6 +666,9 @@ export default function ProductPage({
     catch (cause) { setError(errorMessage(cause)); }
     finally { setSaving(false); }
   }
+  /** 同一次重读，无论从规格表旁边点还是从「1688 采集」块里点，走的都是这一条路。 */
+  const recapture = reason => run(onRecaptureSource, captureRecapturePayload(candidate, reason),
+    "已经让软件重新去读一次这个1688页面，读完这里会显示结果。");
 
   if (!candidate) return <div className="page-panel"><p role="status">{loadingLabel}</p></div>;
 
@@ -681,13 +731,15 @@ export default function ProductPage({
           review: captureReviewPayload(candidate),
           capture: captureSubmissionFromDraft({ candidate, draft, marketSnapshot })
         }, "已记下你的确认，并重新申请了一次采集。")}>{CAPTURE_REVIEW_ACTION_LABEL}</button> : null}
-      {/* 采到了之后「申请插件采集」不会再建新的采集，所以重读这个页面必须自己有一个入口，否则这件商品就钉死在那一次读到的内容上。 */}
-      {recapturable ? <RecaptureControl candidate={candidate} disabled={saving}
-        onRecapture={reason => run(onRecaptureSource, captureRecapturePayload(candidate, reason),
-          "已经让软件重新去读一次这个1688页面，读完这里会显示结果。")} /> : null}
+      {/* 采到了之后「申请插件采集」不会再建新的采集，所以重读这个页面必须自己有一个入口，否则这件商品就钉死在那一次读到的内容上。
+          规格表在场时那个入口在规格表旁边（那里才是主人看着这些规格的地方），这里就不再重复一个同名按钮。 */}
+      {recapturable && !recaptureInChoice ? <RecaptureControl candidate={candidate} disabled={saving} onRecapture={recapture} /> : null}
       {draft === null ? <span className="product-actions-note">先保存上面的找货方案，才能申请采集。</span> : null}
-      {recapturable ? <span className="product-actions-note">
+      {recapturable && !recaptureInChoice ? <span className="product-actions-note">
         上面这些规格是上一次读到的。页面改了、规格不对，或者这次没采到重量，就点「重新采集」让软件把这个1688页面再读一遍。
+      </span> : null}
+      {recaptureInChoice ? <span className="product-actions-note">
+        这些规格要重新读一次，用上面「选哪个规格上架」里的「重新采集」。
       </span> : null}
       {reviewRequired ? <span className="product-actions-note">
         在你确认这条「结果未知」的记录之前，「申请插件采集」不可用；确认只是记下你的判断，不会替你补一份采集结果。
@@ -745,8 +797,13 @@ export default function ProductPage({
           draft === null
             ? "先把下面「找货」里的资料填好保存一次，这里就会按每个规格自己的重量算给你看。"
             : "汇率、佣金、资费表或本店成本规则里还缺东西，补齐之后这里就会按每个规格自己的重量算给你看。"}`}</p>
+        {recapturable ? <div className="product-sku-recapture">
+          <span>如果是这一次采集本身采得不对，就重新读一遍这个1688页面。</span>
+          <RecaptureControl candidate={candidate} disabled={saving} onRecapture={recapture} />
+        </div> : null}
       </section>
       : <SkuChoiceSection candidate={candidate} table={skuTable} chosen={chosen} saving={saving}
+        recapturable={recapturable} onRecapture={recapture}
         onToggle={(id, checked) => { setChosen(current => toggleLocalSupplierSkuSelection(current, id, checked)); setNotice(null); }}
         onToggleAll={checked => { setChosen(checked ? skuTable.rows.map(row => String(row.sourceSkuId)) : []); setNotice(null); }}
         onSubmit={() => run(onChooseSkus, skuChoicePayload(skuTable, chosen, candidate.dataRevision),

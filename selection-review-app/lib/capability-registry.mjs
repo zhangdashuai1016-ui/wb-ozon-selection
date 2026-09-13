@@ -504,10 +504,10 @@ export const CAPABILITY_NODES = Object.freeze([
       capabilityRef("lib/runtime-identity.mjs", "createActorContext", "运行身份"),
       capabilityRef("lib/worker-registry.mjs", "createLocalDevelopmentWorkerRegistry", "本地 Worker 注册表")
     ],
-    uiRefs: [capabilityRef("src/components/RuntimeArchitectureStatus.jsx", "RuntimeArchitectureStatus", "运行边界提示")],
+    uiRefs: [capabilityRef("src/components/HeaderStatus.jsx", "HeaderStatus", "顶栏那一个状态指示器：运行方式、插件、采集控制三条合成一条")],
     testRefs: [capabilityRef("tests/runtime-identity-software-job.test.mjs", "test(", "身份与作业测试")],
     artifactRefs: ["lib/runtime-identity-provider.mjs", "lib/runtime-configuration.mjs", "lib/local-owner-identity.mjs",
-      "src/components/LocalOwnerAccessPanel.jsx", "src/ownerAccess.js", "src/runtimeArchitectureView.js"]
+      "src/components/LocalOwnerAccessPanel.jsx", "src/ownerAccess.js", "src/runtimeArchitectureView.js", "src/headerStatusView.js"]
   }),
   capability({
     id: "1.5", capabilityId: "presentation.review-desk", areaId: "1",
@@ -528,7 +528,8 @@ export const CAPABILITY_NODES = Object.freeze([
     codeRefs: [capabilityRef("src/App.jsx", "function App", "评审台应用外壳"), capabilityRef("src/api.js", "const api", "前端 API 表面")],
     uiRefs: [capabilityRef("src/components/CandidateRail.jsx", "CandidateRail", "候选列表"), capabilityRef("src/components/CandidateDetail.jsx", "CandidateDetail", "候选详情")],
     testRefs: [capabilityRef("tests/candidateViews.test.mjs", "test(", "评审台派生视图测试"),
-      capabilityRef("tests/candidate-rights-compliance-ui.test.mjs", "test(", "权利与合规证据显示测试")],
+      capabilityRef("tests/candidate-rights-compliance-ui.test.mjs", "test(", "权利与合规证据显示测试"),
+      capabilityRef("tests/header-status-view.test.mjs", "test(", "顶栏只剩位置、店铺和一个状态指示器，三条状态里任意一条异常都要说出来")],
     artifactRefs: ["src/main.jsx", "src/styles.css", "index.html"]
   }),
 
@@ -1368,7 +1369,7 @@ export const CAPABILITY_NODES = Object.freeze([
     position: { x: 780, y: 500 },
     aliases: ["旧 8.2"],
     codeRefs: [capabilityRef("lib/multi-user-central-runtime.mjs", "MULTI_USER_MIGRATION_STAGES", "多人迁移阶段")],
-    uiRefs: [capabilityRef("src/components/RuntimeArchitectureStatus.jsx", "RuntimeArchitectureStatus", "运行边界提示")],
+    uiRefs: [capabilityRef("src/components/HeaderStatus.jsx", "HeaderStatus", "顶栏运行方式提示")],
     testRefs: [capabilityRef("tests/multi-user-central-runtime.test.mjs", "test(", "中央运行边界测试")]
   })
 ]);

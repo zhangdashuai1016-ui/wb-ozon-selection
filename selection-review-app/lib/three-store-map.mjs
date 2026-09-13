@@ -698,7 +698,7 @@ export const THREE_STORE_MAP_REGISTRY = Object.freeze([
       ref("lib/worker-registry.mjs", "createLocalDevelopmentWorkerRegistry", "当前本地 Worker 适配器"),
       ref("src/runtimeArchitectureView.js", "runtimeArchitectureView", "运行边界展示")
     ],
-    uiRefs: [ref("src/components/RuntimeArchitectureStatus.jsx", "RuntimeArchitectureStatus", "本地/中央状态提示")],
+    uiRefs: [ref("src/components/HeaderStatus.jsx", "HeaderStatus", "顶栏本地/中央状态提示")],
     testEvidence: { refs: [
       ref("tests/multi-user-central-runtime.test.mjs", "test(", "中央运行边界测试"),
       ref("tests/runtime-architecture-view.test.mjs", "test(", "运行状态 UI 测试")

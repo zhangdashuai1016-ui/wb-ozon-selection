@@ -203,6 +203,17 @@ test('选品台最上面固定一块"我选的商品"，每行给出这件商品
   assert.doesNotMatch(html, /还没有选定的商品/u);
 });
 
+test('「添加我找到的商品」在选品台自己的位置上：就在「我选的商品」这张单子的头上', async () => {
+  const withAdd = await render(props(view({ products: [product('2107989735')] }), { onAddProduct: forbidden }));
+  assert.match(withAdd, /<h2>我选的商品（0）<\/h2>[\s\S]{0,200}?class="button add-button desk-mine-add"/u);
+  assert.match(withAdd, /添加我找到的商品/u);
+  // 它只是打开原来那个弹窗，页面自己不保存任何东西。
+  assert.doesNotMatch(withAdd, /<form/u);
+  // 没有接这个回调时（例如只读渲染）不显示一个点不动的按钮。
+  const without = await render(props(view({ products: [product('2107989735')] })));
+  assert.doesNotMatch(without, /添加我找到的商品/u);
+});
+
 test('还没选过商品时"我选的商品"直说没有，并指回下面的列表', async () => {
   const html = await render(props(view({ products: [product('2107989735')] })));
   assert.match(html, /我选的商品（0）/u);

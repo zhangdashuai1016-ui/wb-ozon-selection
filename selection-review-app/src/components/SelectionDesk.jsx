@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { DECLINE_REASONS, FEED_SORTS, boardColumns, deskErrorMessage, eliminatedRows, feedRows, inboxItems,
   lastRoundUndecidedRows, myProductRows, newRoundPlan, pointsLine } from "../selectionDeskView.js";
 import EliminateControl, { EliminatedFold } from "./EliminateControl.jsx";
+import { PlusIcon } from "./Icons";
 
 /** The one word the bulk drop is recorded under; free text is not accepted anywhere in this flow. */
 const BULK_DECLINE_REASON = "其他";
@@ -81,7 +82,7 @@ function FeedCard({ row, active, saving, declining, candidateRevision = null,
 export default function SelectionDesk({
   discoveryView, candidates, store, ownerReady = true, loadingLabel = "正在读取本店的查询结果…",
   onSelectProduct, onDeclineProduct, onLaterProduct, onEstimate, onTranslate,
-  onOpenCandidate, onStartNewRound, onResumeRound, onOpenBoard, onOpenInbox,
+  onOpenCandidate, onStartNewRound, onResumeRound, onOpenBoard, onOpenInbox, onAddProduct,
   onEliminateCandidate, onRestoreCandidate, skipped = []
 }) {
   const [sort, setSort] = useState("profit");
@@ -218,6 +219,10 @@ export default function SelectionDesk({
         <h2>我选的商品（{mine.length}）</h2>
         {mine.length > MY_PRODUCT_PREVIEW
           ? <button type="button" className="button secondary" onClick={onOpenBoard}>查看全部 {mine.length} 件</button> : null}
+        {/* 自己在别处找到的商品也进这张单子，所以入口就在这张单子的头上，不在每一页的顶栏里。 */}
+        {typeof onAddProduct === "function"
+          ? <button type="button" className="button add-button desk-mine-add" onClick={onAddProduct}>
+            <PlusIcon /> 添加我找到的商品</button> : null}
       </header>
       {/* The button below the cards is called 要, so the empty state has to say 要 — owner mis-click 2026-09-11. */}
       {mine.length === 0 ? <p className="desk-mine-empty" role="status">还没有选定的商品。在下面的列表里点「要」。</p>
@@ -266,7 +271,8 @@ export default function SelectionDesk({
         <p className="desk-hint">键盘：J 下一件 · K 上一件 · Y 要 · N 不要。运费占比＝运费 ÷（采购上限 ＋ 运费），只用已保存的估算数字。</p>
         {error ? <p role="alert">{error}</p> : null}
         {notice ? <p role="status" className="desk-notice">{notice}</p> : null}
-        {rows.length === 0 ? <p role="status">本店当前没有等你决定的商品。点右上角「找一轮新品」再找一批。</p> : null}
+        {/* 顶栏那个同名按钮去的是旧工程页，已经去掉了；这里只能指向本页右边「下一轮方向」里的那一个。 */}
+        {rows.length === 0 ? <p role="status">本店当前没有等你决定的商品。点右边「下一轮方向」里的「找一轮新品」再找一批。</p> : null}
         {feed.direction === null ? null : <p className="desk-round-header">本轮结果：{feed.direction} · 查询于 {feed.queriedAt ?? "未记录时间"}</p>}
         {rows.map(row => <FeedCard key={row.key} row={row} active={activeKey === row.key} saving={saving}
           declining={declining === row.key} onDeclining={setDeclining} candidateRevision={revisions.get(row.importedCandidateId) ?? null}

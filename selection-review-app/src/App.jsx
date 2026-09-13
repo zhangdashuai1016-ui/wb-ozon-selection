@@ -8,11 +8,10 @@ import AddCandidateModal from "./components/AddCandidateModal";
 import CandidateDetail, { CandidateReview } from "./components/CandidateDetail";
 import CandidateRail from "./components/CandidateRail";
 import DailyProgress from "./components/DailyProgress";
-import { PlusIcon } from "./components/Icons";
 import QueueTabs from "./components/QueueTabs";
 import OperatingRules from "./components/OperatingRules";
 import ProcessingBreakdown from "./components/ProcessingBreakdown";
-import RuntimeArchitectureStatus from "./components/RuntimeArchitectureStatus";
+import HeaderStatus from "./components/HeaderStatus.jsx";
 import LocalOwnerAccessPanel from "./components/LocalOwnerAccessPanel.jsx";
 import OzonAccountPreparationCard from './components/OzonAccountPreparationCard.jsx';
 import ProductDiscoveryCard from './components/ProductDiscoveryCard.jsx';
@@ -298,7 +297,8 @@ export default function App() {
     } catch (error) {
       if (signal?.aborted) return null;
       readFailed.current = true;
-      setNotice({ type: "error", message: `读取共享数据失败，轮询已暂停；点击“刷新数据”恢复：${error.message}` });
+      // 「刷新数据」已经收进「维护」，所以这句话必须说清楚现在去哪儿点它。
+      setNotice({ type: "error", message: `读取共享数据失败，轮询已暂停；到「维护」里点“刷新数据”恢复：${error.message}` });
       if (!quiet) setLoading(false);
       return null;
     }
@@ -906,22 +906,15 @@ export default function App() {
             </select>
           </label>
         </nav>
+        {/* 三条工程状态收成一条：都正常时一个圆点，任何一条不正常才占主人的注意力。 */}
         <div className="header-actions">
-          <RuntimeArchitectureStatus status={state.runtimeArchitecture} />
-          <span className={`extension-status ${effectiveExtensionStatus.code}`} data-testid="extension-status">
-            <i aria-hidden="true" />{effectiveExtensionStatus.label}
-          </span>
-          <span className={`capture-control-status ${state.captureControl?.status || "idle"}`} data-testid="capture-control-status">
-            <i aria-hidden="true" />{state.captureControl?.label || "商品采集控制状态未取得"}
-          </span>
-          <button type="button" className="button primary" onClick={() => setView("discovery")}>找一轮新品</button>
-          <button type="button" className="button secondary" onClick={() => { readFailed.current = false; setNotice(null); setPollEpoch(epoch => epoch + 1); }}>刷新数据</button>
-          <button type="button" className="button add-button" onClick={() => setAddOpen(true)}>
-            <PlusIcon /> 添加我找到的商品
-          </button>
+          <HeaderStatus extensionStatus={effectiveExtensionStatus} captureControl={state.captureControl}
+            runtimeArchitecture={state.runtimeArchitecture} />
         </div>
       </header>
-      <LocalOwnerAccessPanel onAccessResolved={refreshOwnerPermissions} onAccessUnknown={clearOwnerPermissions} />
+      {/* 已登录是常态，不必每一页都声明；没登录、读不出来或只是预览身份时这一条必须仍然显眼。退出登录收在「维护」里。 */}
+      <LocalOwnerAccessPanel showAuthenticated={view === "maint"}
+        onAccessResolved={refreshOwnerPermissions} onAccessUnknown={clearOwnerPermissions} />
       {notice ? <div role={notice.type === "error" ? "alert" : "status"} className={`global-notice ${notice.type}`}>{notice.message}</div> : null}
 
       {DESK_VIEWS.includes(view) ? (
@@ -951,6 +944,8 @@ export default function App() {
                 expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(), idempotencyKey: `desk-permit:${crypto.randomUUID()}` })}
             onOpenBoard={() => setView("board")}
             onOpenInbox={() => setView("inbox")}
+            // 添加我找到的商品属于找货这件事，所以它在选品台自己的位置上，而不是压在每一页的顶栏里。
+            onAddProduct={() => setAddOpen(true)}
             onEliminateCandidate={eliminateCandidate}
             onRestoreCandidate={restoreCandidate}
           />
@@ -966,6 +961,13 @@ export default function App() {
             <p>这些是以前的页面，行为没有变化。日常判断不需要打开它们。</p>
             <div className="maint-pages">
               {MAINTENANCE_PAGES.map(page => <button key={page.view} type="button" className="button secondary" onClick={() => setView(page.view)}>{page.label}</button>)}
+            </div>
+            {/* 页面本来就在自动轮询；这个按钮只在轮询因为读取失败停下来时才用得上，所以收在这里。 */}
+            <h3>手动操作</h3>
+            <p>页面每 3 秒自己读一次共享数据。只有读取失败、轮询停下来时才需要手动刷新。</p>
+            <div className="maint-pages">
+              <button type="button" className="button secondary"
+                onClick={() => { readFailed.current = false; setNotice(null); setPollEpoch(epoch => epoch + 1); }}>刷新数据</button>
             </div>
           </div>
         )

@@ -16,11 +16,11 @@ async function pageModule() {
       import Page, {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload,
         captureRecaptureReady, captureRecaptureConfirmLine, captureRecapturePayload, CAPTURE_RECAPTURE_REASONS,
         currentProductStep, skuChoiceReady, skuChoiceSaved, showsSkuChoice, skuChoiceHeadline, skuChoiceSwing,
-        skuChoiceSummary, selectAllState, skuChoicePayload, foldedStepLine, foldedStepState} from ${JSON.stringify(component)};
+        skuChoiceSummary, selectAllState, skuChoicePayload, skuWeightGapNotice, foldedStepLine, foldedStepState} from ${JSON.stringify(component)};
       export {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload,
         captureRecaptureReady, captureRecaptureConfirmLine, captureRecapturePayload, CAPTURE_RECAPTURE_REASONS,
         currentProductStep, skuChoiceReady, skuChoiceSaved, showsSkuChoice, skuChoiceHeadline, skuChoiceSwing,
-        skuChoiceSummary, selectAllState, skuChoicePayload, foldedStepLine, foldedStepState};
+        skuChoiceSummary, selectAllState, skuChoicePayload, skuWeightGapNotice, foldedStepLine, foldedStepState};
       export const render=props=>renderToStaticMarkup(<Page {...props}/>);` : null }],
       ssr: { noExternal: true }, build: { ssr: true, write: false, rollupOptions: { input: entry, output: { format: 'es' } } } });
     const chunk = output.output.find(value => value.type === 'chunk' && value.isEntry);
@@ -597,19 +597,114 @@ test('只有已采到、等你选规格时才有「重新采集」，点之前�
     ['weight_missing', 'page_changed', 'wrong_specifications']);
 });
 
+const fullWeightTable = (extra = {}) => choiceTable({
+  rows: [
+    choiceRow('sku-xl-yellow', '黄色', 'XL（背长35cm）', 20.5, 6.26, 59.47, 0.467, 0.103, 494),
+    choiceRow('sku-8xl-yellow', '黄色', '8XL（背长72cm）', 41.5, 10.11, 34.62, 0.2718, 0.24, 468)
+  ],
+  total: 2, pricedCount: 2, weightMissingCount: 0, ...extra
+});
+/** 2026-09-13 线上那件狗雨衣的形状：采到了规格，但一个重量都没采到。 */
+const noWeightTable = () => choiceTable({
+  rows: [
+    choiceRow('sku-xl-yellow', '黄色', 'XL（背长35cm）', 20.5, null, null, null, null, 494),
+    choiceRow('sku-8xl-yellow', '黄色', '8XL（背长72cm）', 41.5, null, null, null, null, 468),
+    choiceRow('sku-8xl-beige', '米色', '8XL（背长72cm）', 41.5, null, null, null, null, 479)
+  ],
+  total: 3, pricedCount: 0, weightMissingCount: 3, best: null, worst: null, profitDropRate: null
+});
+
 test('「重新采集」是次要按钮，一次点击只是打开确认，主按钮仍旧是那张选规格表', async () => {
-  const html = await render(choosingProps({ onRecaptureSource: forbidden }));
+  const html = await render(choosingProps({ onRecaptureSource: forbidden }, {}, fullWeightTable()));
   assert.match(html, /<button[^>]*class="button secondary product-recapture-button"[^>]*>重新采集<\/button>/u);
   // 确认要等主人点了才出现：它不能一点就把这次采到的规格作废掉。
   assert.doesNotMatch(html, /product-recapture-confirm/u);
   assert.doesNotMatch(html, /确定重新去读一次这个1688页面/u);
-  assert.match(html, /上面这些规格是上一次读到的。页面改了、规格不对，或者这次没采到重量，就点「重新采集」让软件把这个1688页面再读一遍。/u);
+  assert.match(html, /这些规格是上一次读到的。页面改了、或者规格不对，就重新读一遍这个1688页面。/u);
   // 主按钮仍旧是选规格；重读只是采得不对时的退路。
   assert.match(html, /<button type="button" class="button primary"[^>]*>选定这些规格<\/button>/u);
   // 还没采到过的商品不给这个按钮。
   const fresh = await render(props({ view: savedFind, onRecaptureSource: forbidden }));
   assert.doesNotMatch(fresh, /重新采集/u);
   assert.doesNotMatch(fresh, /product-recapture-button/u);
+});
+
+/* ── 重新采集看得见 ───────────────────────────────────────────────────────────────────────────────────────────────
+ * 采到之后，「1688 采集」那一块会被折进「找货」的 <details> 里，主人要先展开才看得见里面的「重新采集」。规格表才是
+ * 他这时候看着的东西，所以重读的入口必须在规格表这一步就露出来 —— 尤其是采到的规格根本没有重量、整列运费和利润
+ * 都算不出来的时候（2026-09-13 首件狗雨衣，24 个规格全部无重量）。
+ */
+test('规格表这一步就能看见「重新采集」，不必先展开「找货」', async () => {
+  const html = await render(choosingProps({ onRecaptureSource: forbidden }, {}, fullWeightTable()));
+  const table = html.indexOf('product-sku-table');
+  const folded = html.indexOf('<details class="product-folded" aria-label="找货">');
+  const button = html.indexOf('product-recapture-button');
+  assert.ok(table > 0 && folded > 0 && button > 0);
+  assert.ok(button < folded, '重新采集必须在折起来的「找货」之前就出现');
+  // 同一件商品只有一个重新采集入口：规格表在场时，「1688 采集」块里那个不再重复出现。
+  assert.equal((html.match(/product-recapture-button/gu) ?? []).length, 1);
+  assert.match(html, /这些规格要重新读一次，用上面「选哪个规格上架」里的「重新采集」。/u);
+  assert.doesNotMatch(html, /上面这些规格是上一次读到的。页面改了、规格不对，或者这次没采到重量/u);
+
+  // 规格表不在场时（采到了，却一个规格都没解析出来），它还留在「1688 采集」块里，不能凭空消失。
+  const noRows = await render(props({
+    candidate: candidate({ sourceCapture: waitingCapture({ skuChoices: [] }) }),
+    view: { supplierDraftV1: draft, supplierDraftEstimateV1: okEstimate, marketSnapshot, skuChoiceTableV1: null },
+    onRecaptureSource: forbidden
+  }));
+  assert.doesNotMatch(noRows, /product-sku-choice/u);
+  assert.equal((noRows.match(/product-recapture-button/gu) ?? []).length, 1);
+  assert.match(noRows, /上面这些规格是上一次读到的。页面改了、规格不对，或者这次没采到重量/u);
+});
+
+test('采到的规格没有重量时，页面直说算不出运费和利润，并把「重新采集」放在这句话旁边', async () => {
+  const { skuWeightGapNotice } = await pageModule();
+  // 一个规格都没有重量：整列算不出来。
+  const all = skuWeightGapNotice(noWeightTable());
+  assert.equal(all.all, true);
+  assert.deepEqual([all.total, all.missing], [3, 3]);
+  assert.equal(all.heading, '这些规格没有重量，运费和利润算不出来');
+  assert.match(all.message, /这 3 个规格是早先采的/u);
+  assert.match(all.message, /运费、单件利润、利润率整列都是「待补」/u);
+  assert.match(all.message, /点「重新采集」/u);
+  // 只有一部分没有重量：说清楚是几个，也说清楚其余的照常。
+  const some = skuWeightGapNotice(choiceTable());
+  assert.equal(some.all, false);
+  assert.deepEqual([some.total, some.missing], [3, 1]);
+  assert.equal(some.heading, '有 1 个规格没有重量，运费和利润算不出来');
+  assert.match(some.message, /另外 2 个照常/u);
+  // 规格齐全就没有这句话。
+  assert.equal(skuWeightGapNotice(fullWeightTable()), null);
+  assert.equal(skuWeightGapNotice(null), null);
+  assert.equal(skuWeightGapNotice({ total: 0, weightMissingCount: 0 }), null);
+
+  const html = await render(choosingProps({ onRecaptureSource: forbidden }, {}, noWeightTable()));
+  assert.match(html, /<div class="product-sku-weight-gap" role="status">/u);
+  assert.match(html, /<h4>这些规格没有重量，运费和利润算不出来<\/h4>/u);
+  assert.match(html, /这 3 个规格是早先采的/u);
+  // 这句话和重读的按钮在同一个框里，并且排在表前面。
+  const banner = html.indexOf('product-sku-weight-gap');
+  assert.ok(banner > 0 && banner < html.indexOf('product-sku-table'));
+  assert.ok(html.indexOf('product-recapture-button') > banner);
+  assert.ok(html.indexOf('product-recapture-button') < html.indexOf('product-sku-table'));
+  // 一个规格都算不出利润时，「最赚 / 最少」只会是两个「待补」，那不是结论，就不显示；开头那句也不再许诺「按利润挑」。
+  assert.doesNotMatch(html, /product-sku-verdict/u);
+  assert.match(html, /这一次没有采到重量，所以现在还挑不了利润/u);
+  assert.doesNotMatch(html, /这一步就是让你按利润挑/u);
+  assert.doesNotMatch(html, /最赚 · /u);
+  // 表本身照旧：每一行的运费和利润写「待补」，不借用别的规格的重量。
+  assert.equal((html.match(/待补/gu) ?? []).length > 0, true);
+  assert.match(html, /有 3 个规格页面没给，运费和利润留空/u);
+
+  // 缺一部分时，同一个框只报缺的那几个，其余照常显示。
+  const partial = await render(choosingProps({ onRecaptureSource: forbidden }));
+  assert.match(partial, /<h4>有 1 个规格没有重量，运费和利润算不出来<\/h4>/u);
+  assert.match(partial, /product-sku-verdict/u);
+  assert.equal((partial.match(/product-recapture-button/gu) ?? []).length, 1);
+  // 规格齐全时它是不显眼的次要动作，没有这条黄框。
+  const complete = await render(choosingProps({ onRecaptureSource: forbidden }, {}, fullWeightTable()));
+  assert.doesNotMatch(complete, /product-sku-weight-gap/u);
+  assert.match(complete, /product-sku-recapture/u);
 });
 
 test('重新采集有自己的处理函数：写操作不经读取守卫，拿到回执后复用今天那条开始信号', async () => {
