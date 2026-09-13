@@ -277,6 +277,17 @@
 - 草稿（主人认可，并要求加"全选"，已加：全选/全不选/半选三态）：https://claude.ai/code/artifact/e73af725-6341-41e2-b9e9-469e3eab41bf
 - 已派 Opus 子代理施工：在新商品页「选定」这一步做出该表；同时修两处数据问题——① `lib/source-capture.mjs` 的 `sanitize1688Evidence` 会丢掉每个规格的重量（`adapt1688CaptureToSupplierOption` 本来就读 `sku.weight`），② 每个规格的运费/利润必须按各自重量走同一套引擎。保存动作优先复用既有的 `/source-capture/select-sku` 与 `adapt1688CaptureToSupplierOption`。
 
+### r17 施工完成待部署：商品页「选规格」（2026-09-13，提交 `28aed84` 已推送，Opus 子代理施工、主会话审查复跑）
+
+- **界面**：新商品页「选定」这一步展开成规格表（照主人认可的草稿）：结论行（最赚/最少各自的单件利润）、9 列按单件利润降序、表头三态全选、底部"已选 N 个 · 单件利润区间"+「选定这些规格」、8 格数字来源、"选完会发生什么"（不下单、不联系供应商、不写平台）。找货一节折进 `<details>` 保留（改目标售价会改整张表）。
+- **每个规格按自己的重量算**：新纯函数模块 `lib/sku-choice-estimate.mjs`；`lib/supplier-draft.mjs` 把利润公式提成 `profitAtPurchase()`，找货估算与规格表**共用同一份官方输入**（`supplierDraftPricingInputs()` 一次解析），A 阶段只剩一个利润公式。没重量的规格 `status:'weight_missing'`、运费与利润留空，**不借用打包重量**。
+- **规格重量终于保住**：`lib/source-capture.mjs` 的 `sanitize1688Evidence` 原本丢弃 `weight`，现在按价格/库存同款校验保留（正数、上限 1000kg、必须带 `weightSource`，非法丢弃不抛错）；`adapt1688CaptureToSupplierOption` 那行原样生效。
+- **保存**：新路由 `POST /api/candidates/:id/lifecycle/sku-choice`（仅主人、封闭输入、修订号 409、非法规格 422、有在跑任务 409、写历史、不派发不写平台），冻结进 `sourceCapture.skuSelection.supplierOption` 并写 `selectedSkuIds`。**刻意不写 `candidate.supplierOptionsV11`**——该字段非空会让 `a-product-detail-application.mjs` 拒绝付费详情（CANDIDATE_CHANGED）；而 `lib/real-a-confirmation-card.mjs` 判断"规格已锁定"读的正是 `selectedSkuIds`。旧的 `/source-capture/select-sku` 不可复用（只认 `needs_sku_selection` + `listed_evidence_recovery`，且语义是向上架任务派发）。
+- **出口打通**：`OwnerInbox` 的「去选规格」从硬跳旧工程页改为开新商品页；`App.jsx` 删掉随之成为死代码的 `openLegacyCandidate`。
+- **验证（主会话复跑）**：全量自含 **2022/2022**（1201 秒，机器负载 22 导致偏慢）；`node --check` 通过；快照 **651** 项 `--check` 通过；vite `index-a5mEnjmI.js`；包 `runtime-packages/20260913-sku-choice-r17` 在隔离端口 4622 用线上数据副本启动：health ok、首页 200、新路由未登录被拒、stderr 干净、**副本校验和与线上逐字节一致**（启动未改数据）。24 行数值与主人认可的草稿逐分相同（XL ¥59.47 / 8XL ¥34.62）。
+- **隔离 API 套件仍是既有的两项失败**（`collaboration-api`、`phase-2a-api-guards`），子代理用 `git archive HEAD` 的干净副本复现过，与本次无关（源自 3030ca3 退役旧派发通道）。
+- **待部署**（plist 只改 ProgramArguments 与 WorkingDirectory，38 个环境变量不动）。已知遗留：① 选完后进度条走到「算利润」，而那一步目前仍只有旧版界面；② 子代理无法起服务，界面只有 SSR 断言，真实观感待主人上线后确认。
+
 ### 下一步（需主人）
 
 1. **首件解封（只差主人一次点击）**：r16 已上线。主人 Cmd+Shift+R → 首件雨衣商品页 →「1688 采集」块 → 点「这次采集没有结果，我确认并重新申请」（一次点击完成 确认 → 重新建作业 → 给插件发开始信号）。若再失败，**先读插件自己的结论码**：在页面控制台 postMessage 一个 `SELECTION_REVIEW_EXTENSION_STATUS_PING`，回应里的 `lastCaptureCode` 就是插件的结论（空字符串 = 插件后台被 Chrome 回收，方向完全不同）。备选验证对象 `candidate:f2e447df…`（1457 卢布反光雨衣，无采集记录，不受守卫影响）。
