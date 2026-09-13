@@ -671,11 +671,15 @@ export const CAPABILITY_NODES = Object.freeze([
     aliases: ["旧 2.1"],
     codeRefs: [capabilityRef("lib/real-a-confirmation-card.mjs", "buildRealAConfirmationCard", "A 确认卡"),
       capabilityRef("lib/profit-step-review.mjs", "buildProfitStepReview", "算利润：整套核线、指定先上的一个、其余排队"),
-      capabilityRef("lib/profit-step-review.mjs", "profitStepSubmission", "用已保存的资料把确认组装齐，缺一样就不组装")],
+      capabilityRef("lib/profit-step-review.mjs", "profitStepSubmission", "用已保存的资料把确认组装齐，缺一样就不组装"),
+      capabilityRef("lib/cargo-facts-declaration.mjs", "proposeCargoFacts", "运输属性：只按已有采集证据提议，判不定的如实交给主人选"),
+      capabilityRef("lib/cargo-facts-declaration.mjs", "buildOwnerCargoFactsRecord", "存档写明主人确认及软件当时的依据")],
     uiRefs: [capabilityRef("src/components/RealAConfirmationCard.jsx", "RealAConfirmationCard", "确认卡 UI"),
-      capabilityRef("src/components/ProductPage.jsx", "profitStepOpen", "商品页的算利润一步")],
+      capabilityRef("src/components/ProductPage.jsx", "profitStepOpen", "商品页的算利润一步"),
+      capabilityRef("src/components/ProductPage.jsx", "cargoFactsStepGaps", "运输属性未确认时算利润的确认按钮不可点")],
     testRefs: [capabilityRef("tests/real-a-confirmation-card.test.mjs", "test(", "确认卡测试"),
-      capabilityRef("tests/profit-step-review.test.mjs", "test(", "算利润这一步的校验基准")]
+      capabilityRef("tests/profit-step-review.test.mjs", "test(", "算利润这一步的校验基准"),
+      capabilityRef("tests/cargo-facts-declaration.test.mjs", "test(", "运输属性提议、校验与接进核验链路的基准")]
   }),
   capability({
     id: "2.7", capabilityId: "selection.a.owner-supply-confirmation", areaId: "2",
@@ -761,7 +765,8 @@ export const CAPABILITY_NODES = Object.freeze([
     nextStep: "与平台费用证据在 3.4 汇合。",
     position: { x: 360, y: 360 },
     codeRefs: [capabilityRef("lib/guoo-tariff-reader.mjs", "readGuooTariffCatalog", "指定版本realFBS资费目录"),
-      capabilityRef("lib/guoo-route-comparison.mjs", "compareGuooRoutes", "完整目录适用性与费用比较")],
+      capabilityRef("lib/guoo-route-comparison.mjs", "compareGuooRoutes", "完整目录适用性与费用比较"),
+      capabilityRef("lib/cargo-facts-declaration.mjs", "readDeclaredCargoFacts", "运输属性只来自主人的声明，没有声明仍然判不出适用性")],
     testRefs: [capabilityRef("tests/lifecycle-b-evidence-preparation.test.mjs", "test(", "B 证据准备测试")],
     artifactRefs: ["lib/official-fx-reader.mjs", "lib/lifecycle-b-evidence-preparation.mjs", "tests/guoo-tariff-reader.test.mjs", "tests/guoo-route-comparison.test.mjs"]
   }),

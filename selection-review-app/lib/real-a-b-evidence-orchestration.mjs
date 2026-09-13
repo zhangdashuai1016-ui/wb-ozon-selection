@@ -7,6 +7,7 @@ import { createLifecycleBInputBundle } from "./lifecycle-b-input-bundle.mjs";
 import { applyLifecycleBEvidenceContext } from "./lifecycle-b-evidence-context.mjs";
 import { LIFECYCLE_B_EVIDENCE_PREPARATION_VERSION, runLifecycleBEvidencePreparation } from "./lifecycle-b-evidence-preparation.mjs";
 import { buildRealAConfirmationCard, validateRealAConfirmationSubmission } from "./real-a-confirmation-card.mjs";
+import { readDeclaredCargoFacts } from "./cargo-facts-declaration.mjs";
 import { runRealAConfirmationToBAndC1 } from "./real-a-b-c1-flow.mjs";
 
 export const REAL_A_B_EVIDENCE_ORCHESTRATION_VERSION = "real-a-b-evidence-orchestration-v1.1";
@@ -191,9 +192,10 @@ export async function runRealAConfirmationWithSystemEvidence({
       amountRub: validation.normalized.targetSalePriceRub,
       sourceRef: `a-confirmation:${candidate.id}:${candidate.dataRevision}:target-sale-price-rub`
     },
-    // The current A card does not freeze verified transportation attributes.
-    // A quoted route must not turn missing cargo facts into a transport approval.
-    cargoFacts: null,
+    // 运输属性只能来自主人自己在「算利润」之前签下的那一次声明（`cargoFactsV1`），带着它自己的来源。
+    // 没有声明时这里仍然是 null：线路依旧判不出适用性，`transportVerified` 依旧为 false，B 依旧不放行——
+    // 算出了运费不等于核验了运输方式，这道闸没有被这次改动放宽，只是终于有了合法的入口。
+    cargoFacts: readDeclaredCargoFacts(candidate),
     catalog
   };
   const guooRouteComparison = assertGuooRouteComparison(compareGuooRouteCatalog(comparisonInput), {
@@ -211,7 +213,10 @@ export async function runRealAConfirmationWithSystemEvidence({
       : guooRouteComparison.status === "compared"
         ? guooRouteComparison.selectedRoute === null
           ? "表内最低运费存在并列线路，尚未确定可采用的线路族。"
-          : "已得到GUOO表内推荐运费及线路族；运输属性和配送映射尚未完成核验，不能作为正式B放行。"
+          : guooRouteComparison.inputSnapshot.cargoFacts === null
+            // 说清楚缺的是哪一样，主人才知道该去做什么：这一句对应「算利润」里那一块运输属性。
+            ? "已得到GUOO表内推荐运费及线路族；这件商品的运输属性还没有你的确认，线路收不收这件货就核验不了，不能作为正式B放行。"
+            : "已得到GUOO表内推荐运费及线路族；运输属性和配送映射尚未完成核验，不能作为正式B放行。"
         : "GUOO表内报价仍缺必要输入或存在无法计算的规则，不能准备正式B输入。";
     return deepFreeze({
       orchestrationVersion: REAL_A_B_EVIDENCE_ORCHESTRATION_VERSION,

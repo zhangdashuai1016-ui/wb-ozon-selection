@@ -996,6 +996,7 @@ export default function App() {
           loadingLabel={productDraftError ? `读取这件商品的找货资料失败：${productDraftError}` : "正在读取这件商品的找货资料…"}
           onSaveDraft={payload => runProductStep(api.saveSupplierDraft, payload)}
           onChooseSkus={payload => runProductStep(api.chooseSourceSkus, payload)}
+          onDeclareCargoFacts={payload => runProductStep(api.declareCargoFacts, payload)}
           onRequestCapture={payload => requestProductCapture(payload)}
           onReviewCaptureAndRequest={payload => reviewCaptureAndRequest(payload)}
           onRecaptureSource={payload => recaptureProductSource(payload)}

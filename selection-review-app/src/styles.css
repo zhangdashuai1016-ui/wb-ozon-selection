@@ -1283,6 +1283,17 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 .product-profit-gaps { display: grid; gap: 5px; padding: 10px 12px; border: 1px solid #e5c9a0; border-radius: 12px; background: var(--amber-soft); }
 .product-profit-gaps h4 { margin: 0; font-size: 13px; color: var(--amber); }
 .product-profit-gaps ul { margin: 0; padding-left: 18px; display: grid; gap: 3px; font-size: 12px; line-height: 1.55; }
+/* 运输属性：一行结论 + 依据 + 一个确认按钮；判不定的那几项才变成选择器。 */
+.product-profit-cargo { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #f8faf9; }
+.product-cargo-headline { margin: 0; font-size: 13px; font-weight: 600; }
+.product-cargo-basis { margin: 0; padding-left: 18px; display: grid; gap: 3px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.product-cargo-ask, .product-cargo-edit { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.page-panel .product-cargo-field { max-width: none; }
+.product-cargo-field select, .product-cargo-field input { width: 100%; }
+
+@media (max-width: 860px) {
+  .product-cargo-ask, .product-cargo-edit { grid-template-columns: minmax(0, 1fr); }
+}
 
 @media (max-width: 860px) {
   .product-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }

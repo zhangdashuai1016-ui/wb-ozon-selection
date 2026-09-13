@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-13T09:00:34.242Z",
+  "frozenAt": "2026-09-13T14:57:07.652Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 656,
-      "sha256": "a688edad020e5e7ebc68cca66308e93f9457555033d5d7f354baa98e7c390e95",
+      "artifactCount": 658,
+      "sha256": "6055ad853f3517c819cadea9a558bcdea154195395e0f56110597ed149bacb98",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -328,11 +328,15 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "a9cb9b3ce3d9af1935c548cd2110a9420064ef20571140b97a38d2fb284a555c"
+        "sha256": "95ac05ac93a9fc0f3e757af0e4cf1cbe4dfb9343814ce1fd357a853826f3c430"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
         "sha256": "5e8bad06bf75db61eb2c6ab7a52e9c45d5961260496394b3bd568ee8c47449ab"
+      },
+      {
+        "path": "lib/cargo-facts-declaration.mjs",
+        "sha256": "2839c846d45a375a75d2cd053029be7554dc729eb2e41af6a06f8a53bcda1649"
       },
       {
         "path": "lib/codex-dispatcher.mjs",
@@ -760,7 +764,7 @@
       },
       {
         "path": "lib/real-a-b-evidence-orchestration.mjs",
-        "sha256": "a9d417f4e43f396584f0762ae9b99fdfdbdc77f7764ae10681a78783ecf804f6"
+        "sha256": "e5685fe4e1df92e7004d9ce2a5a0545bb4a73eb1130872a8af699b4fe5d618d0"
       },
       {
         "path": "lib/real-a-confirmation-card.mjs",
@@ -1184,11 +1188,11 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "54810d9943c85c904196d6176e071dd30e82e377bd34525e0f346d29897610c2"
+        "sha256": "e94db10d81ebe20952f61edfb162a6e6adab21cf2cdc0aa528bfb9970e12b7df"
       },
       {
         "path": "src/App.jsx",
-        "sha256": "0194059e523fd9df964a43977f928ec60bf7ef310c243f9ebf19c1e4a187688d"
+        "sha256": "b0f01aeed05a21d6f289a1858f8912ea8dcd0c5bd346ac2e86d82f7a906adf26"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1200,7 +1204,7 @@
       },
       {
         "path": "src/api.js",
-        "sha256": "fde1280facc07c15d78329e200640885e2d9e19e0734d4b7e8f0ef3685e36dc9"
+        "sha256": "548c71d45094e081977329136888cf8397cefd37106998496e3aba258ac7989d"
       },
       {
         "path": "src/bExactCommissionInput.js",
@@ -1336,7 +1340,7 @@
       },
       {
         "path": "src/components/ProductPage.jsx",
-        "sha256": "c87444da2014125bf2dc2d32d05ac0e53024f7b2eb671f1e45d28b3c640682f8"
+        "sha256": "3535ec5da0f881fd98b01b0b245e43bb9a6277be98b4d1fecdded5158aae4fcf"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1436,7 +1440,7 @@
       },
       {
         "path": "src/styles.css",
-        "sha256": "05ea12dba31e0c25c3dcb0d91c1aaeb6cf7d4dfe60d88350d9573da9f263994d"
+        "sha256": "5e9c1d71f192cbeb82c24ba9f8c670a2f9f0457a23270cc891063927a946c68f"
       },
       {
         "path": "src/wbPresentation.js",
@@ -1777,6 +1781,10 @@
       {
         "path": "tests/capability-source-snapshot.test.mjs",
         "sha256": "b9fe613cf6fcecddd07b8483e7dd9280c0999609adc1aa1a082716de7e6ec1bb"
+      },
+      {
+        "path": "tests/cargo-facts-declaration.test.mjs",
+        "sha256": "8a8763ca10c64f42e73bbdfab02b01e04f569c5105fd475298049069ebcb795a"
       },
       {
         "path": "tests/ci-api-boundary.test.mjs",
@@ -2424,7 +2432,7 @@
       },
       {
         "path": "tests/product-page-ui.test.mjs",
-        "sha256": "ad343be0bedfdbf5d5e88ef67e2fe755d150dd101e38e15427d5c60a537e593e"
+        "sha256": "6c2164c44ed2e8256b3bb3b428d6bb728323f1e6522bae4c68e4355ad5a61018"
       },
       {
         "path": "tests/production-owner-decision-api.test.mjs",
@@ -3111,6 +3119,10 @@
       "verificationStatus": "test_files_present_not_run",
       "artifacts": [
         {
+          "path": "lib/cargo-facts-declaration.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
           "path": "lib/profit-step-review.mjs",
           "status": "present_in_integration_source"
         },
@@ -3124,6 +3136,10 @@
         },
         {
           "path": "src/components/RealAConfirmationCard.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/cargo-facts-declaration.test.mjs",
           "status": "present_in_integration_source"
         },
         {
@@ -3234,6 +3250,10 @@
       "wiringStatus": "partial",
       "verificationStatus": "test_files_present_not_run",
       "artifacts": [
+        {
+          "path": "lib/cargo-facts-declaration.mjs",
+          "status": "present_in_integration_source"
+        },
         {
           "path": "lib/guoo-route-comparison.mjs",
           "status": "present_in_integration_source"

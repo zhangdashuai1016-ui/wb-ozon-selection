@@ -19,14 +19,14 @@ async function pageModule() {
         skuChoiceSummary, selectAllState, skuChoicePayload, skuWeightGapNotice, foldedStepLine, foldedStepState,
         profitStepOpen, profitStepFirstSkuId, profitStepThresholdLine, profitStepCohortHeadline, profitStepExcludedLine,
         profitStepSuggestionLine, profitStepPriceDeltaLine, profitStepCommissionLine, profitStepSubmitState,
-        profitStepOutcomeLine} from ${JSON.stringify(component)};
+        profitStepOutcomeLine, cargoFactsFormState, cargoFactsPayload, cargoFactsStepGaps, cargoFactsHeadline} from ${JSON.stringify(component)};
       export {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload,
         captureRecaptureReady, captureRecaptureConfirmLine, captureRecapturePayload, CAPTURE_RECAPTURE_REASONS,
         currentProductStep, skuChoiceReady, skuChoiceSaved, showsSkuChoice, skuChoiceHeadline, skuChoiceSwing,
         skuChoiceSummary, selectAllState, skuChoicePayload, skuWeightGapNotice, foldedStepLine, foldedStepState,
         profitStepOpen, profitStepFirstSkuId, profitStepThresholdLine, profitStepCohortHeadline, profitStepExcludedLine,
         profitStepSuggestionLine, profitStepPriceDeltaLine, profitStepCommissionLine, profitStepSubmitState,
-        profitStepOutcomeLine};
+        profitStepOutcomeLine, cargoFactsFormState, cargoFactsPayload, cargoFactsStepGaps, cargoFactsHeadline};
       export const render=props=>renderToStaticMarkup(<Page {...props}/>);` : null }],
       ssr: { noExternal: true }, build: { ssr: true, write: false, rollupOptions: { input: entry, output: { format: 'es' } } } });
     const chunk = output.output.find(value => value.type === 'chunk' && value.isEntry);
@@ -790,12 +790,49 @@ const profitReview = (extra = {}) => ({
     unitDomesticFreight: 3.5, otherPurchaseCosts: 0, dimensionsCm: { length: 25, width: 22, height: 2.5 } },
   baseGaps: [], ...extra
 });
-const profitProps = (reviewExtra = {}, extra = {}) => props({
+/**
+ * 运输属性 — the block that sits before the confirm button. The server works out the proposal, the evidence sentence
+ * and whether the declaration is complete; the page only lays them out. The fixture below is the shape that record
+ * has, both before the owner has confirmed and after.
+ */
+const CARGO_FULL_FACTS = { batteryType: 'none', batteryEnergyWh: null, generalCargo: true, personalUse: true, irregularShape: false };
+const CARGO_HEADLINE = '这件是普货、不带电、不是异形件，按个人自用一单一件发出。';
+const cargoBasis = () => [
+  { field: 'batteryType', label: '带不带电', value: 'none',
+    because: '依据采到的类别「雨衣」、全部 3 项属性、商品标题里没有出现电池／锂电／充电／发热／USB／电动／遥控这类字样。' },
+  { field: 'generalCargo', label: '是不是普货', value: true,
+    because: '依据采到的类别「雨衣」里没有出现带磁／液体／粉末／刀具这类字样，采到的属性里也没有写牌子。' },
+  { field: 'personalUse', label: '个人自用还是商业用', value: true, because: '依据这次采到的 1688 报价里写着起订量 1 件。' },
+  { field: 'irregularShape', label: '是不是异形件', value: false, because: '依据你在「找货」里填的打包尺寸是 25×22×2.5 厘米 的方盒子。' }
+];
+const cargoFields = () => [
+  { field: 'batteryType', label: '带不带电', options: [{ value: 'none', label: '不带电' }, { value: 'installed', label: '电池装在里面' },
+    { value: 'standalone', label: '单独的电池' }, { value: 'unknown', label: '我也说不准' }] },
+  { field: 'batteryEnergyWh', label: '电池瓦时（Wh）', options: null },
+  { field: 'generalCargo', label: '是不是普货', options: [{ value: true, label: '是普货' }, { value: false, label: '不是普货' }, { value: null, label: '我也说不准' }] },
+  { field: 'personalUse', label: '个人自用还是商业用', options: [{ value: true, label: '个人自用' }, { value: false, label: '商业用途' }, { value: null, label: '我也说不准' }] },
+  { field: 'irregularShape', label: '是不是异形件', options: [{ value: false, label: '不是异形件' }, { value: true, label: '是异形件' }, { value: null, label: '我也说不准' }] }
+];
+const cargoStep = (extra = {}) => ({
+  schemaVersion: 'cargo-facts-step-v1', candidateId: 'candidate:synthetic-product-page', dataRevision: 4,
+  declared: false, declaration: null,
+  proposal: { ...CARGO_FULL_FACTS }, basis: cargoBasis(), undecided: [], headline: CARGO_HEADLINE,
+  fields: cargoFields(), gate: { ready: false, reason: '还没有确认这件商品的运输属性。软件要先知道它带不带电、是不是普货，才能核验线路收不收这件货。' },
+  ...extra
+});
+const cargoDeclared = (extra = {}) => cargoStep({
+  declared: true,
+  declaration: { declaredAt: '2026-09-13T02:00:00.000Z', declaredRevision: 3, headline: CARGO_HEADLINE,
+    facts: { ...CARGO_FULL_FACTS, sourceRef: 'owner-cargo-facts:candidate:synthetic-product-page:3:2026-09-13T02:00:00.000Z' },
+    basis: cargoBasis(), matchesProposal: true },
+  gate: { ready: true, reason: '' }, ...extra
+});
+const profitProps = (reviewExtra = {}, extra = {}, cargo = cargoDeclared()) => props({
   candidate: candidate({ sourceCapture: waitingCapture({ selectedSkuIds: ['sku-xl-yellow', 'sku-8xl-yellow'] }) }),
   view: { supplierDraftV1: draft, supplierDraftEstimateV1: okEstimate, marketSnapshot,
     skuChoiceTableV1: choiceTable({ selectedSkuIds: ['sku-xl-yellow', 'sku-8xl-yellow'] }),
-    profitStepV1: profitReview(reviewExtra) },
-  onChooseSkus: forbidden, onConfirmProfitStep: forbidden, ...extra
+    profitStepV1: profitReview(reviewExtra), cargoFactsStepV1: cargo },
+  onChooseSkus: forbidden, onConfirmProfitStep: forbidden, onDeclareCargoFacts: forbidden, ...extra
 });
 
 test('选定规格之后走到算利润：整套一起核线，不过线的自动排除并说明原因', async () => {
@@ -952,6 +989,111 @@ test('资料凑不齐就如实列出来并禁用提交，页面不替主人补�
   }));
   assert.match(missingEvidence, /<b>一件可买的凭据<\/b>：这一次采集没有读到「一件起订」的报价/u);
   assert.match(missingEvidence, /<button type="button" class="button primary" disabled[^>]*>确认，进入文案素材<\/button>/u);
+});
+
+test('运输属性：一行结论、一句依据、一个确认按钮，就摆在「确认，进入文案素材」之前', async () => {
+  const { cargoFactsHeadline, cargoFactsFormState, cargoFactsPayload } = await pageModule();
+
+  assert.equal(cargoFactsHeadline(cargoStep()), CARGO_HEADLINE);
+  assert.equal(cargoFactsHeadline(cargoDeclared()), CARGO_HEADLINE);
+  assert.equal(cargoFactsHeadline(cargoStep({ headline: null })), null);
+  // 表单从已保存的那份起手；还没确认过就从软件的提议起手。
+  assert.deepEqual(cargoFactsFormState(cargoStep()), { ...CARGO_FULL_FACTS, batteryEnergyWh: '' });
+  assert.deepEqual(cargoFactsFormState(cargoDeclared()), { ...CARGO_FULL_FACTS, batteryEnergyWh: '' });
+  assert.deepEqual(cargoFactsFormState(cargoStep({ proposal: { batteryType: null, batteryEnergyWh: null,
+    generalCargo: null, personalUse: true, irregularShape: false } })),
+    { batteryType: null, batteryEnergyWh: '', generalCargo: null, personalUse: true, irregularShape: false });
+
+  // 提交的是封闭的一份：当前修订号加那五项，空着的瓦时就是没填。
+  assert.deepEqual(cargoFactsPayload(cargoFactsFormState(cargoStep()), 4), { dataRevision: 4, ...CARGO_FULL_FACTS });
+  assert.deepEqual(cargoFactsPayload({ batteryType: 'installed', batteryEnergyWh: '96', generalCargo: false,
+    personalUse: true, irregularShape: false }, 9),
+    { dataRevision: 9, batteryType: 'installed', batteryEnergyWh: 96, generalCargo: false, personalUse: true, irregularShape: false });
+  for (const energy of ['', '  ', 'abc', '0', '-3']) {
+    assert.equal(cargoFactsPayload({ batteryType: 'installed', batteryEnergyWh: energy }, 1).batteryEnergyWh, null, energy);
+  }
+
+  const html = await render(profitProps({}, {}, cargoStep()));
+  assert.match(html, /<div class="product-profit-cargo">/u);
+  assert.match(html, /<h4>这件货是什么，运输上得先说清楚<\/h4>/u);
+  assert.match(html, /软件只按它真看到的东西提议，判断不了的让你选/u);
+  assert.match(html, new RegExp(`<p class="product-cargo-headline">${CARGO_HEADLINE}</p>`, 'u'));
+  assert.match(html, /依据采到的类别「雨衣」、全部 3 项属性、商品标题里没有出现电池／锂电／充电／发热／USB／电动／遥控这类字样。/u);
+  assert.match(html, /确认只是记下你对这件货的说法，不会下单、不会联系供应商、也不会向 Ozon 写任何东西。/u);
+  // 这一块在确认按钮之前。
+  assert.ok(html.indexOf('product-profit-cargo') < html.indexOf('确认，进入文案素材'));
+  // 四项全提议得出来时不摆四个下拉，只有「逐项修改」。
+  assert.doesNotMatch(html, /<div class="product-cargo-ask">/u);
+  assert.match(html, /逐项修改<\/button>/u);
+});
+
+test('判不定的那几项才变成选择，并且说清楚软件为什么不敢提议；已确认之后显示存档的那句话', async () => {
+  const partial = cargoStep({
+    proposal: { batteryType: null, batteryEnergyWh: null, generalCargo: null, personalUse: true, irregularShape: false },
+    basis: cargoBasis().filter(item => ['personalUse', 'irregularShape'].includes(item.field)),
+    undecided: [
+      { field: 'batteryType', label: '带不带电', why: '采到的商品标题里写着「充电」，软件不敢替你说这件不带电，你来选。' },
+      { field: 'generalCargo', label: '是不是普货', why: '属性「品牌」写的是「阿迪达斯」，不是「无」；牌子真假软件判断不了，仿牌走不了普货线路，你来选。' }
+    ],
+    headline: null
+  });
+  const html = await render(profitProps({}, {}, partial));
+  assert.match(html, /这几项里有软件判断不了的，下面标出来了，那几项要你自己选。/u);
+  assert.match(html, /<div class="product-cargo-ask">/u);
+  assert.match(html, /采到的商品标题里写着「充电」，软件不敢替你说这件不带电，你来选。/u);
+  assert.match(html, /牌子真假软件判断不了，仿牌走不了普货线路，你来选。/u);
+  assert.match(html, /<select id="cargo-batteryType"/u);
+  assert.match(html, /<select id="cargo-generalCargo"/u);
+  // 判得出来的那两项不变成选择器，它们是依据里那两句话。
+  assert.doesNotMatch(html, /<select id="cargo-personalUse"/u);
+  assert.match(html, /依据这次采到的 1688 报价里写着起订量 1 件。/u);
+
+  // 一项也判不出来的时候如实说。
+  const blind = await render(profitProps({}, {}, cargoStep({ proposal: { batteryType: null, batteryEnergyWh: null,
+    generalCargo: null, personalUse: null, irregularShape: null }, basis: [], headline: null,
+    undecided: cargoFields().filter(item => item.options !== null).map(item => ({ field: item.field, label: item.label,
+      why: '这件商品还没有采到属性和标题，软件手上没有可以依据的东西，这几项只能你自己选。' })) })));
+  assert.match(blind, /这件商品软件一项也判断不了，下面这几项要你自己选。/u);
+
+  const declared = await render(profitProps());
+  assert.match(declared, /<span>已确认<\/span>/u);
+  assert.match(declared, new RegExp(`<p class="product-cargo-headline">${CARGO_HEADLINE}</p>`, 'u'));
+  assert.match(declared, /你在 2026-09-13 确认的，记录里写明是你确认的。/u);
+  assert.match(declared, /改成这样<\/button>/u);
+});
+
+test('运输属性没确认，「算利润」的确认按钮就不可点，并把原因说在缺项单里', async () => {
+  const { cargoFactsStepGaps } = await pageModule();
+  const gap = { field: 'cargoFacts', label: '运输属性',
+    why: '还没有确认这件商品的运输属性。软件要先知道它带不带电、是不是普货，才能核验线路收不收这件货。' };
+  assert.deepEqual(cargoFactsStepGaps(cargoStep()), [gap]);
+  assert.deepEqual(cargoFactsStepGaps(cargoDeclared()), []);
+  // 读不到这一块时按钮同样不亮：宁可不亮，也不让主人点了才吃服务端的 422。
+  assert.equal(cargoFactsStepGaps(null).length, 1);
+  assert.equal(cargoFactsStepGaps(undefined).length, 1);
+  // 确认里还留着「说不准」时，说的是服务端那句为什么还不行。
+  assert.deepEqual(cargoFactsStepGaps(cargoDeclared({ gate: { ready: false,
+    reason: '运输属性里还有「带不带电」你标着说不准；线路核验用不了说不准的值，补一下再确认。' } })),
+    [{ ...gap, why: '运输属性里还有「带不带电」你标着说不准；线路核验用不了说不准的值，补一下再确认。' }]);
+
+  const html = await render(profitProps({}, {}, cargoStep()));
+  assert.match(html, /<div class="product-profit-gaps" role="alert">/u);
+  assert.match(html, /<b>运输属性<\/b>：还没有确认这件商品的运输属性。软件要先知道它带不带电、是不是普货，才能核验线路收不收这件货。/u);
+  assert.match(html, /<button type="button" class="button primary" disabled[^>]*>确认，进入文案素材<\/button>/u);
+  assert.match(html, /资料还缺东西，先补齐下面列出的这几项才能确认。/u);
+});
+
+test('运输属性走自己的接口，只记录主人的说法，不经过算利润那条确认路', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const app = await readFile(fileURLToPath(new URL('../src/App.jsx', import.meta.url)), 'utf8');
+  const page = await readFile(fileURLToPath(new URL('../src/components/ProductPage.jsx', import.meta.url)), 'utf8');
+  const api = await readFile(fileURLToPath(new URL('../src/api.js', import.meta.url)), 'utf8');
+  assert.match(api, /lifecycle\/cargo-facts/u);
+  assert.match(app, /onDeclareCargoFacts=\{payload => runProductStep\(api\.declareCargoFacts, payload\)\}/u);
+  assert.match(page, /const declareCargoFacts = payload => run\(onDeclareCargoFacts, payload,/u);
+  // 判断这件货是什么的那张词表和那些依据都在 lib 里，页面一个字都不重写；它只摆服务端给的那份记录。
+  assert.doesNotMatch(page, /锂电|仿牌|磁吸|起订量 1 件/u, '词表和依据都在 lib 里，页面不重写一份');
+  assert.match(page, /step\?\.gate\?\.reason/u, '为什么还不能确认，说的是服务端那句话');
 });
 
 test('算利润的确认走既有的 A 阶段确认接口，写操作不经读取守卫', async () => {

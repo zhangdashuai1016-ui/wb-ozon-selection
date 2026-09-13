@@ -12,6 +12,9 @@ import { ensureDiscoveryMarketSalesSnapshot, readDiscoveryMarketRecord, currentS
 import { SupplierDraftError, buildSupplierDraftEstimate, buildSupplierDraftV1, normalizeSupplierDraftInput } from './lib/supplier-draft.mjs';
 import { buildSkuChoiceTable } from './lib/sku-choice-estimate.mjs';
 import { buildProfitStepReview } from './lib/profit-step-review.mjs';
+import {
+  CARGO_FACT_KEYS, buildCargoFactsStep, buildOwnerCargoFactsRecord, validateOwnerCargoFactsDeclaration
+} from './lib/cargo-facts-declaration.mjs';
 import { adapt1688CaptureToSupplierOption } from './lib/supplier-option.mjs';
 import { readOzonCommissionReference, readOzonCommissionReferenceTiers } from './lib/ozon-commission-reference-reader.mjs';
 import { readGuooTariffCatalog } from './lib/guoo-tariff-reader.mjs';
@@ -2440,6 +2443,8 @@ async function supplierDraftView(document, candidate) {
       candidate, draft, table, estimate, card: publicView.realAConfirmationCard ?? null,
       commissionTiers: resolved.commissionTiers, builtAt: resolved.at
     }),
+    // 运输属性那一小块：软件提议了什么、凭什么提议、主人确认了没有。它自己不算钱，所以和上面那张表无关。
+    cargoFactsStepV1: buildCargoFactsStep(candidate),
     marketSnapshot: snapshot === null ? null : structuredClone(snapshot),
     candidate: publicView
   };
@@ -4499,6 +4504,74 @@ async function handleApi(req, res, pathname) {
       const gapText = missingWeightSkuIds.length ? `；其中${missingWeightSkuIds.length}个规格页面没有给出重量，运费与利润留空未补` : "";
       addHistory(current, "user", "aSupplierSkuChoiceSaved",
         `主人选定了${selectedSkuIds.length}个1688规格并锁进本商品的供货方案：${resolution.selected.map(capturedSkuLabel).join("；")}${gapText}；未派发任务、未联系供应商、未向平台写入任何内容`,
+        timestamp);
+      return current.dataRevision;
+    });
+    const savedDocument = await readData();
+    const savedCandidate = savedDocument.candidates.find((item) => item.id === candidateId);
+    if (!savedCandidate) throw httpError(404, "候选不存在");
+    return json(res, 200, await supplierDraftView(savedDocument, savedCandidate));
+  }
+
+  /**
+   * 运输属性 — the owner's own declaration of what this product is, for transport.
+   *
+   * This is the entrance that was missing. `compareGuooRoutes` answers `unknown` for every line while the cargo
+   * facts are absent, so `transportVerified` stays false and B refuses — correctly, because a worked-out freight
+   * figure is not a checked transport method. Nothing in the product page could state those facts, so the refusal
+   * landed on every product. This route records them, and only records them: no dispatch, no supplier contact,
+   * no platform write, and no profit conclusion — 算利润 is still a separate click afterwards.
+   *
+   * The software proposes from evidence it holds and saves that proposal beside the owner's answer, so the record
+   * says which of the two the values came from. It never signs for him: the five values written here are the five
+   * he confirmed, and the history line says so.
+   */
+  const cargoFactsRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/cargo-facts$/);
+  if (req.method === "POST" && cargoFactsRoute) {
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      throw httpError(403, "请先登录主人身份后确认运输属性。");
+    }
+    const candidateId = decodeURIComponent(cargoFactsRoute[1]);
+    const input = await readJsonRequestBody(req, { maxBytes: 4096, requireJsonContentType: true });
+    const accepted = ["dataRevision", ...CARGO_FACT_KEYS];
+    if (input === null || typeof input !== "object" || Array.isArray(input) ||
+        Object.keys(input).length !== accepted.length || accepted.some(key => !Object.hasOwn(input, key))) {
+      throw httpError(400, "确认运输属性只接受当前数据修订号和这五项：带不带电、电池瓦时、是不是普货、个人自用还是商业用、是不是异形件");
+    }
+    if (!Number.isInteger(input.dataRevision) || input.dataRevision < 0) {
+      throw httpError(400, "确认运输属性必须提供当前数据修订号");
+    }
+    const { dataRevision: _revision, ...declared } = input;
+    const validation = validateOwnerCargoFactsDeclaration(declared);
+    if (!validation.valid) {
+      throw httpError(422, `这份运输属性不能保存：${validation.errors.map(item => item.message).join("；")}`,
+        { code: "cargo_facts_invalid", errors: validation.errors });
+    }
+    const timestamp = now();
+    await mutateData((data) => {
+      const current = data.candidates.find((item) => item.id === candidateId);
+      if (!current) throw httpError(404, "候选不存在");
+      if (Number(current.dataRevision) !== input.dataRevision) {
+        throw httpError(409, "商品资料已变化，请刷新后重新确认运输属性", { currentRevision: current.dataRevision });
+      }
+      if (current.lifecycleV11?.skuPackage) {
+        throw httpError(409, "这件商品的供货方案已经冻结，运输属性不能再改", { code: "cargo_facts_frozen" });
+      }
+      if (activeDispatchForCandidate(data, current.id)) throw httpError(409, "当前商品已有任务正在等待或运行");
+      const record = buildOwnerCargoFactsRecord({ candidate: current, facts: declared, declaredAt: timestamp });
+      current.cargoFactsV1 = record;
+      current.dataRevision = Number(current.dataRevision || 0) + 1;
+      current.updatedAt = timestamp;
+      current.lastModifiedBy = "user";
+      assertSafeBusinessMutationCandidate(current, "businessMutation.candidate");
+      // 存档那句话要同时说清两件事：这是主人签的，以及软件当初凭什么这么提议、主人有没有照着签。
+      const detail = record.basis.length === 0
+        ? "软件当时一项也没敢提议，这几项全由主人自己选。"
+        : `${record.matchesProposal ? "主人原样采纳了软件的提议" : "主人改过软件提议里的至少一项，最终以他确认的为准"}。` +
+          `软件当时的依据：${record.basis.map(item => `${item.label}——${item.because}`).join(" ")}`;
+      addHistory(current, "user", "ownerCargoFactsDeclared",
+        `主人确认了本商品的运输属性：${record.headline}${detail}这一步只记录这份声明，未派发任务、未联系供应商、未向平台写入任何内容，也未形成利润结论。`,
         timestamp);
       return current.dataRevision;
     });

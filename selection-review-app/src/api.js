@@ -120,6 +120,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  // 运输属性 — the owner's own statement of what this product is for transport. It only records that statement:
+  // no dispatch, no supplier contact, no platform write, and no profit conclusion.
+  declareCargoFacts: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/cargo-facts`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   // 淘汰 / 恢复 are the owner's own soft delete: one status, one instant, one history line, no dispatch, no platform.
   eliminateCandidate: (candidateId, payload) =>
     request(`/api/candidates/${encodeURIComponent(candidateId)}/workflow/eliminate`, {

@@ -483,6 +483,58 @@ export function profitStepCommissionLine(review) {
     `小尺码压在 ${current.maxRub} 卢布以下更划算。分界线和费率都取自 Ozon 官方表。`;
 }
 
+/* ── 运输属性 ──────────────────────────────────────────────────────────────────────────────────────────────────────
+ * Before 算利润 can be confirmed the owner has to say what this product is for transport: whether it carries a
+ * battery, whether it is ordinary goods, whether it ships as a personal single piece, whether it is an odd shape.
+ * The server proposes those four from the capture it holds and shows what it read them from; the owner signs, or
+ * changes any of them. Where the software could not tell, it says why and asks instead of guessing.
+ *
+ * All the wording below comes from the server's step record. The page only lays it out and assembles the closed
+ * payload, exactly as the specification table and the profit step already do.
+ */
+
+/** The five values the form starts on: what is already saved, else what the software proposes, else nothing. */
+export function cargoFactsFormState(step) {
+  const source = isObject(step?.declaration?.facts) ? step.declaration.facts : (step?.proposal ?? {});
+  return {
+    batteryType: typeof source.batteryType === "string" ? source.batteryType : null,
+    batteryEnergyWh: finite(source.batteryEnergyWh) === null ? "" : String(source.batteryEnergyWh),
+    generalCargo: typeof source.generalCargo === "boolean" ? source.generalCargo : null,
+    personalUse: typeof source.personalUse === "boolean" ? source.personalUse : null,
+    irregularShape: typeof source.irregularShape === "boolean" ? source.irregularShape : null
+  };
+}
+
+/** Closed submission: the current revision and the five values, nothing else. An empty 瓦时 box means「没填」. */
+export function cargoFactsPayload(form, dataRevision) {
+  const energy = String(form?.batteryEnergyWh ?? "").trim();
+  return {
+    dataRevision,
+    batteryType: typeof form?.batteryType === "string" ? form.batteryType : "unknown",
+    batteryEnergyWh: energy === "" || !NUMBER_PATTERN.test(energy) || Number(energy) <= 0 ? null : Number(energy),
+    generalCargo: typeof form?.generalCargo === "boolean" ? form.generalCargo : null,
+    personalUse: typeof form?.personalUse === "boolean" ? form.personalUse : null,
+    irregularShape: typeof form?.irregularShape === "boolean" ? form.irregularShape : null
+  };
+}
+
+/**
+ * Why 算利润 cannot be confirmed yet, when the reason is the transport declaration. The server works out the same
+ * verdict; saying it here keeps the owner from clicking a button that would only come back with a 422.
+ */
+export function cargoFactsStepGaps(step) {
+  if (isObject(step) && step.gate?.ready === true) return [];
+  // 读不到这一块的时候也算没确认：宁可按钮不亮，也不能让主人点了才吃服务端那个 422。
+  return [{ field: "cargoFacts", label: "运输属性", why: textOf(step?.gate?.reason)
+    || "这件商品的运输属性还没有你的确认。软件要先知道它带不带电、是不是普货，才能核验线路收不收这件货。" }];
+}
+
+/** 一行人话：已经确认过就说存档的那句，还没确认就说软件提议的那句。两句都判断不出来时不说。 */
+export function cargoFactsHeadline(step) {
+  if (step?.declared === true) return textOf(step.declaration?.headline) || null;
+  return textOf(step?.headline) || null;
+}
+
 /**
  * Whether this step can be submitted, and when it cannot, exactly what is missing.
  * The two judgments are the owner's; everything else has to already exist in the saved records. A gap is reported as
@@ -683,20 +735,120 @@ function SkuChoiceSection({ candidate, table, chosen, saving, recapturable = fal
 }
 
 /**
+ * 运输属性 — one sentence, one button, and the evidence the sentence rests on.
+ *
+ * The owner's ruling, 2026-09-13: 「能默认，不能替他签」. So the normal case is a single line the software could
+ * work out, the reason it could, and 确认 — not four dropdowns. What the software could not work out is shown as a
+ * choice with the reason it declined, because a guessed 「不带电」 would be the software signing for him. Every
+ * value stays editable under 逐项修改, and once it is saved this block shows the sentence that went into the record.
+ */
+function CargoFactsBlock({ step, dataRevision, saving, onDeclare }) {
+  const [form, setForm] = useState(() => cargoFactsFormState(step));
+  const [editing, setEditing] = useState(false);
+  const undecided = Array.isArray(step?.undecided) ? step.undecided : [];
+  const basis = Array.isArray(step?.basis) ? step.basis : [];
+  const fields = Array.isArray(step?.fields) ? step.fields : [];
+  const declared = step?.declared === true;
+  const headline = cargoFactsHeadline(step);
+  const change = (field, value) => setForm(current => ({ ...current, [field]: value }));
+  const choice = field => fields.find(item => item.field === field) ?? null;
+  const battery = form.batteryType;
+  const declaredBasis = Array.isArray(step?.declaration?.basis) ? step.declaration.basis : [];
+
+  // 一项的选择器。判不定的那几项先说清楚软件为什么不敢提议，再让主人选。
+  const picker = field => {
+    const item = choice(field);
+    if (item === null || item.options === null) return null;
+    const open = undecided.find(entry => entry.field === field) ?? null;
+    const value = form[field];
+    const index = item.options.findIndex(option => option.value === value);
+    return <label key={field} className="product-field product-cargo-field" htmlFor={`cargo-${field}`}>
+      <span className="product-field-label">{item.label}</span>
+      <select id={`cargo-${field}`} name={`cargo-${field}`} value={index < 0 ? "" : String(index)} disabled={saving}
+        onChange={event => change(field, event.target.value === "" ? null : item.options[Number(event.target.value)].value)}>
+        {index < 0 ? <option value="">请选择</option> : null}
+        {item.options.map((option, position) => <option key={String(option.value)} value={String(position)}>{option.label}</option>)}
+      </select>
+      {open === null ? null : <span className="product-field-hint">{open.why}</span>}
+    </label>;
+  };
+
+  const energyField = ["installed", "standalone"].includes(battery)
+    ? <label className="product-field product-cargo-field" htmlFor="cargo-batteryEnergyWh">
+      <span className="product-field-label">{choice("batteryEnergyWh")?.label ?? "电池瓦时（Wh）"}</span>
+      <input id="cargo-batteryEnergyWh" name="cargo-batteryEnergyWh" type="number" inputMode="decimal"
+        value={form.batteryEnergyWh} disabled={saving} onChange={event => change("batteryEnergyWh", event.target.value)} />
+      <span className="product-field-hint">电池写在页面上就填，页面没写就空着；空着的时候受限线路核验不了。</span>
+    </label>
+    : null;
+
+  return <div className="product-profit-cargo">
+    <div className="product-sku-table-head">
+      <h4>这件货是什么，运输上得先说清楚</h4>
+      <span>{declared ? "已确认" : "软件只按它真看到的东西提议，判断不了的让你选"}</span>
+    </div>
+
+    {declared ? <>
+      <p className="product-cargo-headline">{headline ?? "这件商品的运输属性已经确认过。"}</p>
+      {textOf(step.declaration?.declaredAt)
+        ? <p className="product-result-provenance">{`你在 ${dayOf(step.declaration.declaredAt) ?? step.declaration.declaredAt} 确认的，记录里写明是你确认的。`}</p>
+        : null}
+      {declaredBasis.length === 0
+        ? <p className="product-result-provenance">当时软件一项也没敢提议，这几项全是你自己选的。</p>
+        : <ul className="product-cargo-basis">{declaredBasis.map(item => <li key={item.field}>{item.because}</li>)}</ul>}
+    </> : <>
+      {headline === null
+        ? <p className="product-cargo-headline">{basis.length === 0
+          ? "这件商品软件一项也判断不了，下面这几项要你自己选。"
+          : "这几项里有软件判断不了的，下面标出来了，那几项要你自己选。"}</p>
+        : <p className="product-cargo-headline">{headline}</p>}
+      {basis.length === 0 ? null : <ul className="product-cargo-basis">
+        {basis.map(item => <li key={item.field}>{item.because}</li>)}
+      </ul>}
+      {/* 判不定的那几项才摆出来让主人选；判得出来的已经在上面那一行结论和依据里了。 */}
+      {undecided.length === 0 || editing ? null : <div className="product-cargo-ask">
+        {undecided.map(item => picker(item.field))}
+      </div>}
+    </>}
+
+    {/* 逐项修改：五项一起摆出来，主人改哪一项都行。它和上面那几个判不定的选择器互斥，不重复同一个控件。 */}
+    {editing ? <div className="product-cargo-edit" aria-label="逐项修改运输属性">
+      {fields.filter(item => item.options !== null).map(item => picker(item.field))}
+    </div> : null}
+    {/* 电池瓦时只有在说了带电之后才有意义，所以它跟着带电与否走，整块里只出现一次。 */}
+    {energyField}
+
+    <div className="product-actions">
+      <button type="button" className={declared ? "button secondary" : "button primary"} disabled={saving}
+        onClick={() => onDeclare(cargoFactsPayload(form, dataRevision))}>{declared ? "改成这样" : "确认"}</button>
+      <button type="button" className="button secondary" disabled={saving}
+        onClick={() => setEditing(value => !value)}>{editing ? "收起逐项修改" : "逐项修改"}</button>
+      <span className="product-actions-note">
+        {"确认只是记下你对这件货的说法，不会下单、不会联系供应商、也不会向 Ozon 写任何东西。"}
+      </span>
+    </div>
+  </div>;
+}
+
+/**
  * 算利润 — the whole set against the line, one variant named to go up first, the rest queued.
  *
  * Only two things on this screen are the owner's to decide, and both are judgments no record can hold: whether the
  * two products really are the same kind of thing, and whether the link, the specification, the cost and the packing
  * are one purchase plan. Everything else is already saved and is shown beside the tick that relies on it. Nothing is
  * confirmed until both are ticked, and a missing fact disables the button instead of being filled in.
+ *
+ * Since 2026-09-13 the transport declaration joins them: B's line check answers 「说不准」 without it, so a product
+ * with no declaration cannot be confirmed here — the button is disabled and says why, instead of letting the owner
+ * click and collect the server's 422.
  */
-function ProfitStepSection({ review, saving, onConfirm }) {
+function ProfitStepSection({ review, cargoStep, dataRevision, saving, onConfirm, onDeclareCargoFacts }) {
   const [firstPick, setFirstPick] = useState(null);
   const [comparabilityConfirmed, setComparability] = useState(false);
   const [supplyConfirmed, setSupply] = useState(false);
   const firstSkuId = profitStepFirstSkuId(review, firstPick);
   const spec = review.specifications.find(item => item.sourceSkuId === firstSkuId) ?? null;
-  const gaps = profitStepGaps(review, firstSkuId ?? "");
+  const gaps = [...profitStepGaps(review, firstSkuId ?? ""), ...cargoFactsStepGaps(cargoStep)];
   const state = profitStepSubmitState({ review, firstSkuId, comparabilityConfirmed, supplyConfirmed, gaps });
   const benchmark = review.benchmark ?? {};
   const supply = review.supply ?? {};
@@ -854,6 +1006,10 @@ function ProfitStepSection({ review, saving, onConfirm }) {
       </label>
     </div>
 
+    {/* 五、这件货运输上是什么 — 这一块在确认按钮之前，因为不先说清楚，B 那边的线路核验就判不出适用性。 */}
+    {cargoStep === null || cargoStep === undefined ? null : <CargoFactsBlock step={cargoStep}
+      dataRevision={dataRevision} saving={saving} onDeclare={onDeclareCargoFacts} />}
+
     {/* 凑不齐的东西如实列出来，按钮就不给点；软件不会替主人补一个像样的数字上去。 */}
     {state.gaps.length === 0 ? null : <div className="product-profit-gaps" role="alert">
       <h4>还差这些，现在不能确认</h4>
@@ -959,13 +1115,14 @@ function Field({ id, label, hint, value, error, onChange, type = "text", placeho
 export default function ProductPage({
   candidate, view = null, titleZh = null, extensionStatus = null,
   onSaveDraft, onChooseSkus, onRequestCapture, onReviewCaptureAndRequest, onRecaptureSource,
-  onConfirmProfitStep, onOpenLegacyCard, onBack, onEliminateCandidate,
+  onConfirmProfitStep, onDeclareCargoFacts, onOpenLegacyCard, onBack, onEliminateCandidate,
   loadingLabel = "正在读取这件商品的找货资料…"
 }) {
   const draft = view?.supplierDraftV1 ?? null;
   const marketSnapshot = view?.marketSnapshot ?? null;
   const skuTable = view?.skuChoiceTableV1 ?? null;
   const profitReview = view?.profitStepV1 ?? null;
+  const cargoStep = view?.cargoFactsStepV1 ?? null;
   // The form follows the saved draft: when the server returns a newer declaration, the fields show that declaration.
   const prefillKey = `${candidate?.id ?? ""}:${candidate?.dataRevision ?? ""}:${draft?.declaredAt ?? "none"}`;
   const [form, setForm] = useState(() => draftFormState({ draft, candidate, marketSnapshot }));
@@ -1015,6 +1172,12 @@ export default function ProductPage({
    * 回来之后说的是服务端实际保存成什么样，不是「已提交」——同一个 200 底下有四种结果。服务端说不行的时候，原样显示
    * 服务端那句话，用的还是本页原有的那一个提示位。
    */
+  /**
+   * 运输属性的确认。它自己一条路：只把主人对这件货的说法记下来，不算钱、不派任务、不碰平台。保存成功之后页面重读，
+   * 「算利润」那个按钮才会解锁——解锁的理由由服务端那份记录说了算，不是这里自己判断的。
+   */
+  const declareCargoFacts = payload => run(onDeclareCargoFacts, payload,
+    "已记下你对这件货的说法：软件按它核验线路收不收，没有下单、没有联系供应商、也没有向 Ozon 写任何东西。");
   function confirmProfitStep(firstSkuId, judgments) {
     const payload = profitStepSubmission(profitReview, firstSkuId, judgments);
     if (payload === null) { setError("这一份确认还凑不齐，没有提交；请看上面列出的缺项。"); return undefined; }
@@ -1162,9 +1325,10 @@ export default function ProductPage({
           `已选定 ${chosen.length} 个规格，它们已经锁进这件商品的供货方案；没有下单、没有联系供应商、也没有向 Ozon 写任何东西。`)} />)
       : null}
 
-    {/* 算利润：整套一起核线、指定先上的那一个、其余排队，最后那两个只有主人能做的判断。 */}
+    {/* 算利润：整套一起核线、指定先上的那一个、其余排队，这件货运输上是什么，最后那两个只有主人能做的判断。 */}
     {profitOpen ? <ProfitStepSection key={`${candidate.id}:${candidate.dataRevision}`}
-      review={profitReview} saving={saving} onConfirm={confirmProfitStep} /> : null}
+      review={profitReview} cargoStep={cargoStep} dataRevision={candidate.dataRevision} saving={saving}
+      onConfirm={confirmProfitStep} onDeclareCargoFacts={declareCargoFacts} /> : null}
 
     {step === "find" ? <section className="product-section" aria-label="找货">
       <h3>找货</h3>
