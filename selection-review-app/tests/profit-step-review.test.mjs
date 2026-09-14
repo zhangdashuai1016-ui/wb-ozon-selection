@@ -316,6 +316,37 @@ test('两个判断少一个就不提交', () => {
   assert.equal(profitStepSubmission(review, 'sku-8xl-yellow', {}), null);
 });
 
+test('估算佣金授权：不勾完全不带这个字段，勾了就必须带得出一个真实的费率', () => {
+  const review = reviewOf();
+  const judged = { comparabilityConfirmed: true, supplyConfirmed: true };
+
+  // 没勾：一个字段都不多带，服务端照旧要求精确佣金，行为和以前一模一样。
+  for (const extra of [{}, { commissionEstimateAuthorized: false }, { commissionEstimateAuthorized: false, commissionEstimateRate: 0.12 }]) {
+    const payload = profitStepSubmission(review, 'sku-8xl-yellow', { ...judged, ...extra });
+    assert.equal(Object.hasOwn(payload, 'commissionEstimate'), false, JSON.stringify(extra));
+  }
+
+  // 勾了：带上主人对这一件、这一个费率的授权，费率是页面那份解析结果给的，不是这里写的。
+  const authorized = profitStepSubmission(review, 'sku-8xl-yellow',
+    { ...judged, commissionEstimateAuthorized: true, commissionEstimateRate: 0.12 });
+  assert.deepEqual(authorized.commissionEstimate, { authorized: true, confirmedBy: 'owner', commissionRate: 0.12 });
+  // 别的字段一个都没变。
+  const plain = profitStepSubmission(review, 'sku-8xl-yellow', judged);
+  assert.deepEqual({ ...authorized, commissionEstimate: undefined }, { ...plain, commissionEstimate: undefined });
+  // 跨过档位分界线是另一个费率，照样原样带上去。
+  assert.equal(profitStepSubmission(review, 'sku-8xl-yellow',
+    { ...judged, commissionEstimateAuthorized: true, commissionEstimateRate: 0.14 }).commissionEstimate.commissionRate, 0.14);
+
+  // 勾了却拿不出费率：整份确认不成立，而不是悄悄按精确佣金提交。
+  for (const rate of [null, undefined, 0, 1, 1.2, -0.05, Number.NaN, '0.12']) {
+    assert.equal(profitStepSubmission(review, 'sku-8xl-yellow',
+      { ...judged, commissionEstimateAuthorized: true, commissionEstimateRate: rate }), null, String(rate));
+  }
+  // 那两个判断本来就没做全的时候，勾这一个也救不回来。
+  assert.equal(profitStepSubmission(review, 'sku-8xl-yellow',
+    { comparabilityConfirmed: true, supplyConfirmed: false, commissionEstimateAuthorized: true, commissionEstimateRate: 0.12 }), null);
+});
+
 test('资料缺一样就不许提交，缺的是什么如实列出来', () => {
   // 采集里没有「一件起订」的报价：不许软件替主人写那句核对说明。
   const noRanges = capture({ priceRanges: [{ minimumQuantity: 2, priceCny: 20.5, source: 'tradeModel.offerPriceModel.currentPrices' }] });

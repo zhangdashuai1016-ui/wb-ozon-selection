@@ -1286,6 +1286,11 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 /* 类目从哪儿来：一句为什么不能用现在这条 + 这次读页面的范围 + 那一个按钮。类目已经对了，这一块就不出现。 */
 .product-profit-category { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid #e5c9a0; border-radius: 12px; background: var(--amber-soft); }
 .product-profit-category-why { margin: 0; font-size: 13px; line-height: 1.65; }
+/* 精确佣金读不到时的那一条出路：为什么读不到、拿什么替、会被记成什么、将来怎么复算，最后一个勾。
+   跟「类目从哪儿来」同一套琥珀色，因为它们是同一类东西：非常态，软件按真实证据提议，主人一键确认。 */
+.product-profit-commission { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid #e5c9a0; border-radius: 12px; background: var(--amber-soft); }
+.product-profit-commission-why { margin: 0; font-size: 13px; line-height: 1.65; }
+.product-profit-commission-basis { margin: 0; padding-left: 18px; display: grid; gap: 3px; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 /* 运输属性：一行结论 + 依据 + 一个确认按钮；判不定的那几项才变成选择器。 */
 .product-profit-cargo { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #f8faf9; }
 .product-cargo-headline { margin: 0; font-size: 13px; font-weight: 600; }

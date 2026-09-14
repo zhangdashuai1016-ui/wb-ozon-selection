@@ -4,6 +4,7 @@ import { normalizeEvidenceScope, normalizeRelatedSchemaScope, evidenceScopeMatch
 import { readCurrentGuooTariff } from "./guoo-tariff-reader.mjs";
 import { createLifecycleBEvidenceProviderRegistry } from "./lifecycle-b-evidence-providers.mjs";
 import { readCurrentCbrExchangeRate } from "./official-fx-reader.mjs";
+import { OZON_EVIDENCE_COMMISSION_UNAVAILABLE, remoteEvidenceReasonCode } from "./commission-estimate-authorization.mjs";
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -101,6 +102,30 @@ function assertLocalOzonService(value) {
   return url.origin;
 }
 
+/**
+ * 证据服务失败时那句话必须原样上来。
+ *
+ * 它自己已经脱过敏（失败回体是 `{"ok":false,"error":"<已脱敏的原因>"}`），把 error 丢掉，就把「这个店在这条
+ * 类目还没有商品，读不到同类商品的真实佣金」说成了一个光秃秃的 HTTP 500——那种话只会让主人一直重试，而这
+ * 件事重试多少次都一样。除了那句原话，错误对象上还挂着机器可读的那一份：上层判断「是不是精确佣金读不到」
+ * 靠 remoteCode，不靠那句中文。error 不是字符串或者根本没有时只报状态码，不再抛第二个异常。
+ */
+function localEvidenceFailure(status, payload) {
+  const remoteError = typeof payload?.error === "string" && payload.error.trim().length > 0
+    ? payload.error.trim().slice(0, 500) : null;
+  const remoteCode = remoteEvidenceReasonCode(remoteError);
+  return Object.assign(
+    new Error(`OZON_LOCAL_EVIDENCE_FAILED: HTTP ${status}${remoteError === null ? "" : `: ${remoteError}`}`),
+    {
+      code: "OZON_LOCAL_EVIDENCE_FAILED",
+      httpStatus: status,
+      remoteError,
+      remoteCode,
+      exactCommissionUnavailable: remoteCode === OZON_EVIDENCE_COMMISSION_UNAVAILABLE,
+    }
+  );
+}
+
 async function postOzonEvidence({ request, kind, fetchImpl, ozonServiceUrl }) {
   const scope = normalizeEvidenceScope(kind, request.scope);
   const response = await fetchImpl(`${assertLocalOzonService(ozonServiceUrl)}/api/read-only/evidence/ozon`, {
@@ -117,7 +142,7 @@ async function postOzonEvidence({ request, kind, fetchImpl, ozonServiceUrl }) {
     throw new Error("OZON_LOCAL_EVIDENCE_INVALID_JSON");
   }
   if (!response.ok || payload?.ok !== true || !isObject(payload?.evidence)) {
-    throw new Error(`OZON_LOCAL_EVIDENCE_FAILED: HTTP ${response.status}`);
+    throw localEvidenceFailure(response.status, payload);
   }
   if (Object.hasOwn(payload, "status") || (Object.hasOwn(payload.evidence, "status") &&
       !(kind === "commission" && payload.evidence.status === "data_unavailable"))) {

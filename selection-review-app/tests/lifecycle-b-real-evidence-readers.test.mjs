@@ -3,6 +3,7 @@ import { SYNTHETIC_STORE_REF } from "./fixtures/store-binding-fixture.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { exactCommissionUnavailable, officialCommissionTableGaps } from "../lib/commission-estimate-authorization.mjs";
 import { readCurrentGuooTariff, selectGuooTariffRow } from "../lib/guoo-tariff-reader.mjs";
 import { createLifecycleBRealEvidenceProviderRegistry, createLifecycleBRealEvidenceReaders } from "../lib/lifecycle-b-real-evidence-readers.mjs";
 import { readCurrentCbrExchangeRate } from "../lib/official-fx-reader.mjs";
@@ -530,4 +531,96 @@ test('未配置官方费表时佣金路径完全不变，也不读本地费表',
   assert.throws(() => createLifecycleBRealEvidenceProviderRegistry({ ozonServiceUrl: 'http://127.0.0.1:4173',
     ozonCommissionReference: { catalogPath: '/owner/ozon.json', sellerRegion: 'RU' } }),
     /B_EVIDENCE_OZON_COMMISSION_REFERENCE_INVALID/);
+});
+
+test('证据服务失败时那句已脱敏的原话原样上来，并带上机器可读的那一份', async () => {
+  const scope = { platform: 'ozon', store: 'dandanshu', storeRef: SYNTHETIC_STORE_REF, category: 'shelf', ruleVersion: 'v1' };
+  const readersFor = body => createLifecycleBRealEvidenceReaders({ ozonServiceUrl: 'http://127.0.0.1:4173', now: fixedNow,
+    fetchImpl: async () => httpJson(body, 500) });
+
+  // 2026-09-14 现场那一次：Miska 店在这条类目的第一件商品，读不到同类商品的真实佣金。
+  const remote = 'OZON_EVIDENCE_COMMISSION_UNAVAILABLE: 店铺当前没有同 description category 和 type 的商品可读取 RFBS 佣金';
+  const failure = await readersFor({ ok: false, error: remote }).schema(request('schema', scope)).then(
+    () => { throw new Error('MUST_REJECT'); }, error => error);
+  // 状态码还在，原话也在：只说 HTTP 500 会让主人一直重试一件重试多少次都一样的事。
+  assert.equal(failure.message, `OZON_LOCAL_EVIDENCE_FAILED: HTTP 500: ${remote}`);
+  assert.equal(failure.code, 'OZON_LOCAL_EVIDENCE_FAILED');
+  assert.equal(failure.httpStatus, 500);
+  assert.equal(failure.remoteError, remote);
+  assert.equal(failure.remoteCode, 'OZON_EVIDENCE_COMMISSION_UNAVAILABLE');
+  assert.equal(failure.exactCommissionUnavailable, true);
+  // 上层认的是这个标记，不是那句中文：中文换了，判断照旧。
+  const chinese = await readersFor({ ok: false, error: 'OZON_EVIDENCE_COMMISSION_UNAVAILABLE: 完全换一句说法' })
+    .schema(request('schema', scope)).then(() => { throw new Error('MUST_REJECT'); }, error => error);
+  assert.equal(chinese.exactCommissionUnavailable, true);
+
+  // 别的失败不能被认成这一类。
+  const other = await readersFor({ ok: false, error: 'OZON_EVIDENCE_STORE_UNAUTHORIZED: 本机凭据已过期' })
+    .schema(request('schema', scope)).then(() => { throw new Error('MUST_REJECT'); }, error => error);
+  assert.equal(other.message, 'OZON_LOCAL_EVIDENCE_FAILED: HTTP 500: OZON_EVIDENCE_STORE_UNAUTHORIZED: 本机凭据已过期');
+  assert.equal(other.remoteCode, 'OZON_EVIDENCE_STORE_UNAUTHORIZED');
+  assert.equal(other.exactCommissionUnavailable, false);
+
+  // error 缺失、不是字符串、或者空白：只报状态码，不在这里抛第二个异常。
+  for (const body of [{ ok: false }, { ok: false, error: null }, { ok: false, error: { code: 'X' } },
+    { ok: false, error: ['X'] }, { ok: false, error: 7 }, { ok: false, error: '   ' }]) {
+    const bare = await readersFor(body).schema(request('schema', scope))
+      .then(() => { throw new Error('MUST_REJECT'); }, error => error);
+    assert.equal(bare.message, 'OZON_LOCAL_EVIDENCE_FAILED: HTTP 500', JSON.stringify(body));
+    assert.equal(bare.remoteError, null);
+    assert.equal(bare.remoteCode, null);
+    assert.equal(bare.exactCommissionUnavailable, false);
+  }
+
+  // 超长的一句也不会把整份错误撑爆；带着的还是那个机器可读的码。
+  const long = await readersFor({ ok: false, error: `OZON_EVIDENCE_COMMISSION_UNAVAILABLE: ${'长'.repeat(4000)}` })
+    .schema(request('schema', scope)).then(() => { throw new Error('MUST_REJECT'); }, error => error);
+  assert.equal(long.remoteError.length, 500);
+  assert.equal(long.exactCommissionUnavailable, true);
+
+  // 回体里没有 evidence、或者 ok 不是 true，也走同一条路：状态码 200 也照样是失败。
+  const notOk = await createLifecycleBRealEvidenceReaders({ ozonServiceUrl: 'http://127.0.0.1:4173', now: fixedNow,
+    fetchImpl: async () => httpJson({ ok: false, error: 'OZON_EVIDENCE_SCHEMA_UNREADABLE: 读不到类目字段' }, 200) })
+    .schema(request('schema', scope)).then(() => { throw new Error('MUST_REJECT'); }, error => error);
+  assert.equal(notOk.message, 'OZON_LOCAL_EVIDENCE_FAILED: HTTP 200: OZON_EVIDENCE_SCHEMA_UNREADABLE: 读不到类目字段');
+});
+
+test('证据服务修好之后（200 + data_unavailable），缺授权时抛的那一句页面认得出来，官方费表的缺口也带得上来', async () => {
+  // 证据服务改好之后，「店里没有同类目商品」不再是 HTTP 500，OZON_EVIDENCE_COMMISSION_UNAVAILABLE 这个码在这条
+  // 路径上再也不出现。页面从此只能靠这里抛的这一句判断「现在就差主人授权」——这个测试把那一句和页面的判断钉在一起，
+  // 谁改了这边的码，这里立刻红。
+  const scope = officialCommissionScope();
+  const calls = [];
+  const fail = async (extra) => createLifecycleBRealEvidenceProviderRegistry({ ozonServiceUrl: 'http://127.0.0.1:4173',
+    now: fixedNow, fetchImpl: officialEvidenceService(scope, calls), ...extra })
+    .commission(officialCommissionRequest(scope, { priceRub: 2490, typeName: '宠物躺床' }))
+    .then(() => { throw new Error('MUST_REJECT'); }, (error) => error);
+
+  // 一、这台机器上没配官方费表：只有「缺授权」那一句，没有缺口可说，页面也就不说那一句。
+  const bare = await fail({});
+  assert.match(bare.message, /B_EVIDENCE_COMMISSION_ESTIMATE_NOT_AUTHORIZED: 缺少当前候选、revision和精确范围的单次估算授权/u);
+  assert.doesNotMatch(bare.message, /OZON_EVIDENCE_COMMISSION_UNAVAILABLE/u, '修好之后旧码确实不在这条路上了');
+  assert.equal(exactCommissionUnavailable(bare), true, '页面靠这个判断决定摆不摆出授权块');
+  assert.deepEqual(officialCommissionTableGaps(bare), []);
+
+  // 二、配了官方费表但它有阻断缺口：同一句话后面接上缺口，页面把那几处逐字显示给主人。
+  const gapped = await fail({ ozonCommissionReference: officialReferenceConfiguration(),
+    readOzonCommissionReferenceImpl: async () => officialReferenceRead({ commissionRate: null, matchedRows: [],
+      gaps: [{ code: 'TYPE_NOT_FOUND', field: 'scope.typeIdentity', blocking: true },
+        { code: 'CATALOG_VERSION_MISMATCH', field: 'versionState', blocking: true }] }) });
+  assert.equal(exactCommissionUnavailable(gapped), true);
+  assert.deepEqual(officialCommissionTableGaps(gapped), ['TYPE_NOT_FOUND', 'CATALOG_VERSION_MISMATCH']);
+
+  // 三、官方费表读取本身抛了异常：缺口是 OFFICIAL_TABLE_ 前缀那一个，也照样带上来。
+  const unreadable = await fail({ ozonCommissionReference: officialReferenceConfiguration(),
+    readOzonCommissionReferenceImpl: async () => { throw Object.assign(new Error('x'), { code: 'CATALOG_UNREADABLE' }); } });
+  assert.deepEqual(officialCommissionTableGaps(unreadable), ['OFFICIAL_TABLE_CATALOG_UNREADABLE']);
+
+  // 四、官方费表自己成交了：直接返回真证据，主人根本不需要授权，那一块也就没有机会出现。
+  const pack = await createLifecycleBRealEvidenceProviderRegistry({ ozonServiceUrl: 'http://127.0.0.1:4173', now: fixedNow,
+    fetchImpl: officialEvidenceService(scope, calls), ozonCommissionReference: officialReferenceConfiguration(),
+    readOzonCommissionReferenceImpl: async () => officialReferenceRead() })
+    .commission(officialCommissionRequest(scope, { priceRub: 2490, typeName: '宠物躺床' }));
+  assert.equal(pack.evidenceData.commissionEvidenceMode, 'official_reference');
+  assert.equal(pack.evidenceData.estimateAuthorized, false);
 });

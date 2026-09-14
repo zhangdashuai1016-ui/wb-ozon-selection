@@ -3,6 +3,7 @@ import { errorMessage } from "../formState.js";
 import { storeLabel } from "../selectionDeskView.js";
 import { toggleLocalSupplierSkuSelection } from "../aSupplierCaptureSelection.js";
 import { profitStepGaps, profitStepSubmission } from "../../lib/profit-step-review.mjs";
+import { commissionEstimateProposal, exactCommissionUnavailable, officialCommissionTableGaps } from "../../lib/commission-estimate-authorization.mjs";
 import EliminateControl from "./EliminateControl.jsx";
 
 /**
@@ -892,6 +893,100 @@ function CargoFactsBlock({ step, dataRevision, saving, onDeclare }) {
 }
 
 /**
+ * 估算佣金授权 — 只在一种情况下出现：精确佣金读不到。
+ *
+ * 软件算佣金的规矩是从主人自己店里同一条类目的在售商品上读出平台实际收的费率。一个店在一条类目的第一件
+ * 商品必然读不到——店里还没有同类商品。这不是网络卡了，重试多少次都一样，所以这里给一条真正的出路，而不是
+ * 一句让人再点一次的错误。
+ *
+ * 规矩照运输属性那一块：软件按真实证据提议，主人一键确认；证据含糊的地方软件拒绝提议。这里的证据是 Ozon
+ * 官方费率表，费率、档位和来源引用整份取自页面已经在显示的那份解析结果，页面自己不写死任何一个数——目标
+ * 成交价跨过档位分界线，同一份解析结果给的就是另一档。
+ *
+ * 措辞要对得上这一块出现时的真实前提。服务端在这条路上是先让官方费率表自己上：立住了就直接返回那份真证据
+ * （lib/lifecycle-b-real-evidence-readers.mjs 里的 `if (attempt.pack) return attempt.pack`），主人根本看
+ * 不到这一块。所以这一块一旦出现，前提必然是「那张表这一次没能自己立成证据」——要么它有缺口，要么这台机器
+ * 上压根没配它。绝不能写成「官方表好好的，只是还要你多签一次字」。服务端说了卡在哪几处的，逐字摆出来；
+ * 什么都没说的，就一个字都不说，不替它造一句。
+ *
+ * 它不常驻，也不是一个随时可勾的高级选项：只有点过确认、服务端回了「精确佣金读不到」之后才出现。页面加载
+ * 时不去探测——那会对主人的 Ozon 账户产生一次真实读取。
+ */
+export function CommissionEstimateBlock({ estimate, authorized, saving, onAuthorize }) {
+  if (!isObject(estimate)) return null;
+  const proposal = isObject(estimate.proposal) ? estimate.proposal : null;
+  const store = textOf(estimate.storeLabel) || "这个店";
+  const category = textOf(estimate.category);
+  const rate = proposal === null ? "" : percent(proposal.commissionRate) ?? "未取得";
+  const price = finite(proposal?.targetSalePriceRub);
+  // 服务端那几个缺口一个字都不改；它没说的时候这里是空的，下面那一整段也就不出现。
+  const officialGaps = (Array.isArray(estimate.officialGaps) ? estimate.officialGaps : [])
+    .map(value => textOf(value)).filter((value, index, all) => value !== "" && all.indexOf(value) === index);
+
+  return <div className="product-profit-commission" role="group" aria-label="估算佣金授权">
+    <div className="product-sku-table-head">
+      <h4>{`这条类目在${store}里还没有商品，精确佣金读不到`}</h4>
+      <span>{proposal === null
+        ? "官方费率表这一次没顶上，软件也拿不出一个能提议的费率"
+        : "官方费率表这一次没能自己立成证据，所以要你亲自签这一次"}</span>
+    </div>
+    <p className="product-profit-commission-why">
+      {`软件算佣金的规矩是：从${store}里已经上着的、同一条 Ozon 类目的商品上，读出 Ozon 实际收你的那个费率。` +
+        `这件是这条类目在${store}的第一件，店里没有同类商品可读，所以读不到。再点几次也还是读不到，这不是网络卡了。`}
+    </p>
+    {category ? <p className="product-result-provenance">{`这条类目：${category}`}</p> : null}
+
+    {/* 这一块出现时唯一可能的前提，说在最前面：那张表这一次没能自己立成证据。立住了主人根本看不到这一块。 */}
+    <p className="product-profit-commission-why">
+      {"能替它的只有 Ozon 官方费率表上的公开费率。这一次软件没能靠那张表自己把这件商品的佣金证据立起来——" +
+        "立住了你根本不会看见这一块，软件会直接按它算完往下走，用不着你签字。"}
+    </p>
+
+    {/* 服务端顺带说了官方佣金表卡在哪几处的，逐字摆出来；没说的时候这一段整个不存在。 */}
+    {officialGaps.length === 0 ? null : <>
+      <p className="product-profit-commission-why">{"服务端说，官方佣金表这一次卡在这几处（原话照抄）："}</p>
+      <ul className="product-profit-commission-basis">
+        {officialGaps.map(gap => <li key={gap}>{gap}</li>)}
+      </ul>
+    </>}
+
+    {/* 费率、档位、来源引用缺任何一样，软件就不提议——这时候只把实话说完，不替主人写一个数上去。 */}
+    {proposal === null ? <p role="alert" className="product-result-warning">
+      {"页面上这份官方费率表解析也连费率、档位和来源引用都拿不齐，软件不会替你写一个数上去。"}
+    </p> : <>
+      <p className="product-profit-commission-why">
+        {"所以现在要你亲自签一次字。" +
+          `${price === null ? "" : `你填的目标成交价 ${RUB(price)}落在这一档，`}` +
+          `页面上这份官方费率表解析给出的是 ${rate}。`}
+      </p>
+      <ul className="product-profit-commission-basis">
+        <li>{`费率 ${rate} · 档位 ${proposal.commissionTier}${price === null ? "" : ` · 目标成交价 ${RUB(price)}`}`}</li>
+        <li>{`取自 ${proposal.commissionSourceRef}`}</li>
+        <li>{"这个数跟着你填的目标成交价走：价格跨过档位分界线就换一档，这里显示的也跟着换，不会留着一个旧数。"}</li>
+      </ul>
+      <p role="alert" className="product-result-warning">
+        {"这一笔会记成估算佣金，不是精确佣金。这件商品的 B 会停在「条件测算」，不算正式通过，也不会进 C1；" +
+          "软件会把是你、在哪一版资料上、按哪个费率授权的一起存进记录。"}
+      </p>
+      <p className="product-profit-note">
+        {`等这条类目在${store}里有了第一件在售商品，精确佣金就读得到了。到那时打开这件商品的` +
+          "「条件测算已保存，等待精确佣金」那张卡，点「使用精确费用复算」，软件用真实费率把利润重算一次；" +
+          "已经确认过的货价和包装不用重填。"}
+      </p>
+      <label className="product-profit-check" htmlFor="profit-commission-estimate">
+        <input type="checkbox" id="profit-commission-estimate" checked={authorized} disabled={saving}
+          onChange={event => onAuthorize(event.target.checked)} />
+        <span>
+          <b>{`先按官方费率表的 ${rate} 算，记成估算佣金`}</b>
+          <p>{"不勾就不带这个授权，这一次确认还是会停在同一处。"}</p>
+          <p>{"这个授权只管这一件、这一版资料、这一个费率；换了商品、资料动过、或者费率换了档，都要你重新勾一次。"}</p>
+        </span>
+      </label>
+    </>}
+  </div>;
+}
+
+/**
  * 算利润 — the whole set against the line, one variant named to go up first, the rest queued.
  *
  * Only two things on this screen are the owner's to decide, and both are judgments no record can hold: whether the
@@ -903,10 +998,15 @@ function CargoFactsBlock({ step, dataRevision, saving, onDeclare }) {
  * with no declaration cannot be confirmed here — the button is disabled and says why, instead of letting the owner
  * click and collect the server's 422.
  */
-function ProfitStepSection({ review, cargoStep, categoryStep, dataRevision, saving, onConfirm, onDeclareCargoFacts, onReadOzonPage }) {
+function ProfitStepSection({ review, cargoStep, categoryStep, commissionEstimate = null, dataRevision, saving,
+  onConfirm, onDeclareCargoFacts, onReadOzonPage }) {
   const [firstPick, setFirstPick] = useState(null);
   const [comparabilityConfirmed, setComparability] = useState(false);
   const [supplyConfirmed, setSupply] = useState(false);
+  const [commissionEstimateTicked, setCommissionEstimateTicked] = useState(false);
+  // 提议不在场（这一次没撞上，或者软件不敢提议）时，之前勾过的那一下不能留着替主人签字。
+  const commissionProposal = isObject(commissionEstimate?.proposal) ? commissionEstimate.proposal : null;
+  const commissionEstimateAuthorized = commissionProposal !== null && commissionEstimateTicked;
   const firstSkuId = profitStepFirstSkuId(review, firstPick);
   const spec = review.specifications.find(item => item.sourceSkuId === firstSkuId) ?? null;
   const gaps = [...profitStepGaps(review, firstSkuId ?? ""), ...cargoFactsStepGaps(cargoStep),
@@ -1075,6 +1175,10 @@ function ProfitStepSection({ review, cargoStep, categoryStep, dataRevision, savi
     {cargoStep === null || cargoStep === undefined ? null : <CargoFactsBlock step={cargoStep}
       dataRevision={dataRevision} saving={saving} onDeclare={onDeclareCargoFacts} />}
 
+    {/* 七、精确佣金读不到时的那一条出路。只有服务端真的这么回过才出现，别的时候这一块根本不存在。 */}
+    <CommissionEstimateBlock estimate={commissionEstimate} authorized={commissionEstimateAuthorized}
+      saving={saving} onAuthorize={setCommissionEstimateTicked} />
+
     {/* 凑不齐的东西如实列出来，按钮就不给点；软件不会替主人补一个像样的数字上去。 */}
     {state.gaps.length === 0 ? null : <div className="product-profit-gaps" role="alert">
       <h4>还差这些，现在不能确认</h4>
@@ -1083,7 +1187,9 @@ function ProfitStepSection({ review, cargoStep, categoryStep, dataRevision, savi
 
     <div className="product-actions">
       <button type="button" className="button primary" disabled={saving || !state.ready}
-        onClick={() => onConfirm(firstSkuId, { comparabilityConfirmed, supplyConfirmed })}>确认，进入文案素材</button>
+        onClick={() => onConfirm(firstSkuId, { comparabilityConfirmed, supplyConfirmed,
+          commissionEstimateAuthorized,
+          commissionEstimateRate: commissionEstimateAuthorized ? commissionProposal.commissionRate : null })}>确认，进入文案素材</button>
       <span className="product-actions-note">{state.hint}</span>
     </div>
 
@@ -1194,11 +1300,16 @@ export default function ProductPage({
   const [form, setForm] = useState(() => draftFormState({ draft, candidate, marketSnapshot }));
   // The ticks follow the saved choice the same way: a newer revision shows what the server actually holds.
   const [chosen, setChosen] = useState(() => (skuTable?.selectedSkuIds ?? []).map(String));
+  // 「精确佣金读不到」是服务端真的这么回过一次才知道的事，所以它记在这里，不在页面加载时去探测。
+  // 记的不只是撞上没撞上，还有服务端顺带说的「官方佣金表卡在哪几处」——那几句要原样转给主人。
+  const [commissionEstimateSignal, setCommissionEstimateSignal] = useState(null);
   const [prefilled, setPrefilled] = useState(prefillKey);
   if (prefilled !== prefillKey) {
     setPrefilled(prefillKey);
     setForm(draftFormState({ draft, candidate, marketSnapshot }));
     setChosen((skuTable?.selectedSkuIds ?? []).map(String));
+    // 这件商品的资料换了一版，上一版那次读取失败说的就不是现在这一版的事了。
+    setCommissionEstimateSignal(null);
   }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -1223,11 +1334,11 @@ export default function ProductPage({
   const snapshotLine = marketSnapshotLine(marketSnapshot);
   const change = key => value => { setForm(current => ({ ...current, [key]: value })); setNotice(null); };
 
-  async function run(action, payload, successNotice) {
+  async function run(action, payload, successNotice, onFailure = null) {
     if (saving || typeof action !== "function") return;
     setSaving(true); setError(null); setNotice(null);
     try { setNotice(stepNotice(await action(payload), successNotice)); }
-    catch (cause) { setError(errorMessage(cause)); }
+    catch (cause) { setError(errorMessage(cause)); onFailure?.(cause); }
     finally { setSaving(false); }
   }
   /** 同一次重读，无论从规格表旁边点还是从「1688 采集」块里点，走的都是这一条路。 */
@@ -1254,7 +1365,12 @@ export default function ProductPage({
     const payload = profitStepSubmission(profitReview, firstSkuId, judgments);
     if (payload === null) { setError("这一份确认还凑不齐，没有提交；请看上面列出的缺项。"); return undefined; }
     return run(async input => profitStepOutcomeLine(await onConfirmProfitStep(input)), payload,
-      "已提交这一步的确认；下面显示的是服务端现在保存的状态。");
+      "已提交这一步的确认；下面显示的是服务端现在保存的状态。",
+      // 服务端说的是「你店里还没有这条类目的商品，读不到同类商品的真实佣金」这一类失败时，才把那一块摆出来。
+      // 认的是服务端原话里那两个机器可读的码，不是那句中文；别的失败照旧只显示服务端那句话。
+      // 同一句话里还带着官方佣金表这一次卡在哪几处的，一并留着，逐字转给主人。
+      cause => setCommissionEstimateSignal(exactCommissionUnavailable(cause)
+        ? { officialGaps: officialCommissionTableGaps(cause) } : null));
   }
 
   if (!candidate) return <div className="page-panel"><p role="status">{loadingLabel}</p></div>;
@@ -1400,6 +1516,14 @@ export default function ProductPage({
     {/* 算利润：整套一起核线、指定先上的那一个、其余排队，这件货运输上是什么，最后那两个只有主人能做的判断。 */}
     {profitOpen ? <ProfitStepSection key={`${candidate.id}:${candidate.dataRevision}`}
       review={profitReview} cargoStep={cargoStep} categoryStep={categoryStep}
+      commissionEstimate={commissionEstimateSignal === null ? null : {
+        // 费率、档位和来源引用每次渲染都从当前这份解析结果里取；跨了档位分界线它自己就是另一档。
+        proposal: commissionEstimateProposal(skuTable?.sources ?? null),
+        storeLabel: storeLabel(candidate.targetStore),
+        category: categoryStep?.category ?? null,
+        // 服务端这一次说的官方佣金表缺口，原样带下去；它没说就是空的，那一段不出现。
+        officialGaps: commissionEstimateSignal.officialGaps
+      }}
       dataRevision={candidate.dataRevision} saving={saving}
       onConfirm={confirmProfitStep} onDeclareCargoFacts={declareCargoFacts} onReadOzonPage={readOzonPage} /> : null}
 

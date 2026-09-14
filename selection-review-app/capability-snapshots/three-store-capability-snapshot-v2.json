@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-14T05:10:37.844Z",
+  "frozenAt": "2026-09-14T07:19:30.601Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 664,
-      "sha256": "613ee9e47746e6921001a8e5fec0501b569cba0b71cc670c309c808b3887c820",
+      "artifactCount": 666,
+      "sha256": "312dbd11061c9578a72f48bb6db70a5bd49317a3bcb8fbfdd7f090e38a71b8e6",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -328,7 +328,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "b6d35eed4cbf436b15219d773627d21c313e6f4857b9f4d6bbf4c205d7bec4a4"
+        "sha256": "951608dbca10017d6ea6950448ce302653fb7ab2b26f09e3cf763639b4bb5475"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -345,6 +345,10 @@
       {
         "path": "lib/codex-independence.mjs",
         "sha256": "2e360ebb32af32ac184c8bf032eb076b8b0b348373a7213a3f12933da1dbcd2a"
+      },
+      {
+        "path": "lib/commission-estimate-authorization.mjs",
+        "sha256": "a30a775b1838576952a5f4f6526bfbd2fa7efa5abf8f0b4c78590891e38e5058"
       },
       {
         "path": "lib/d-asset-transport-software-use-case.mjs",
@@ -528,7 +532,7 @@
       },
       {
         "path": "lib/lifecycle-b-real-evidence-readers.mjs",
-        "sha256": "b7e52aa782808baf9f4a806cfe5f0b860e1581fa99884c18cd8bee74534f4bb6"
+        "sha256": "9bd2db8a09687ea2b9867ad18ec5e33304a03b857da088ba024a368689d07b3a"
       },
       {
         "path": "lib/lifecycle-c-stage.mjs",
@@ -760,7 +764,7 @@
       },
       {
         "path": "lib/profit-step-review.mjs",
-        "sha256": "40491bdada3b43c648ae7313152ec81b1ecfdc3c365423775ce99148ab9229aa"
+        "sha256": "b9664986a399a990c7862e9afb5dec9e6f2e83c6d30b0dd87abda68159ce045a"
       },
       {
         "path": "lib/profit-threshold-policy.mjs",
@@ -1348,7 +1352,7 @@
       },
       {
         "path": "src/components/ProductPage.jsx",
-        "sha256": "8c9de4c01b0d3613dbad903c310debb4e0e728dde1693c9965c5e128ef36b98e"
+        "sha256": "917c4e6196037c89bc223d2f9f4166f348b5666d5f5baebad5ec124cb3cb9570"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1448,7 +1452,7 @@
       },
       {
         "path": "src/styles.css",
-        "sha256": "735148aa2eab37cea22f5fc9c7ef22f0e057d9bda7f6d73ea3f122af74d8f9db"
+        "sha256": "a23b43c91152cd3041b2e6377fe17a8cff0a0c512ec286d91a5068268d04566d"
       },
       {
         "path": "src/wbPresentation.js",
@@ -1813,6 +1817,10 @@
       {
         "path": "tests/collaboration-api.test.mjs",
         "sha256": "d46e65d95f52775a8550c67cb9ebf89c1453f2659effc3ccbf3842b4f7fae813"
+      },
+      {
+        "path": "tests/commission-estimate-authorization.test.mjs",
+        "sha256": "7d0c342fc4c690dd72b7bbf7fd2f76c93d1245d63b69c1383765aa546e7b6f19"
       },
       {
         "path": "tests/cross-stage-contract-schema.test.mjs",
@@ -2248,7 +2256,7 @@
       },
       {
         "path": "tests/lifecycle-b-real-evidence-readers.test.mjs",
-        "sha256": "cea8c3b458bc2600ff403633fdcd5ca5c8aa8dd4dd09c495f2d85f21c4f09970"
+        "sha256": "7caf9bd061a9fce60012af9677640ddfa2542d77eea591adeb445fbae190d757"
       },
       {
         "path": "tests/lifecycle-c-stage-generic-api.test.mjs",
@@ -2456,7 +2464,7 @@
       },
       {
         "path": "tests/product-page-ui.test.mjs",
-        "sha256": "fe45d15dca2a320bde3cbb417c70995953439fa529de630d823352dc3915cf17"
+        "sha256": "24521e5535a100ccac152090af54786b04f31d5b5d37be23b6503609ebd126b5"
       },
       {
         "path": "tests/production-owner-decision-api.test.mjs",
@@ -2480,7 +2488,7 @@
       },
       {
         "path": "tests/profit-step-review.test.mjs",
-        "sha256": "6a78956002c3fc1cc7ff53286cf8f7eb3f30dba1dd4769cae1bc237d354f2b9a"
+        "sha256": "80bbd5479b10b46813743bc9ef28d48a35bde112fc04e5db27e0d2cfaf1cf0f1"
       },
       {
         "path": "tests/real-13c-final-assets.test.mjs",
@@ -3183,6 +3191,10 @@
           "status": "present_in_integration_source"
         },
         {
+          "path": "lib/commission-estimate-authorization.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
           "path": "lib/profit-step-review.mjs",
           "status": "present_in_integration_source"
         },
@@ -3200,6 +3212,10 @@
         },
         {
           "path": "tests/cargo-facts-declaration.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/commission-estimate-authorization.test.mjs",
           "status": "present_in_integration_source"
         },
         {

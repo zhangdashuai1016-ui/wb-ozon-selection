@@ -20,7 +20,7 @@ async function pageModule() {
         profitStepOpen, profitStepFirstSkuId, profitStepThresholdLine, profitStepCohortHeadline, profitStepExcludedLine,
         profitStepSuggestionLine, profitStepPriceDeltaLine, profitStepCommissionLine, profitStepSubmitState,
         profitStepOutcomeLine, cargoFactsFormState, cargoFactsPayload, cargoFactsStepGaps, cargoFactsHeadline,
-        ozonCategoryStepGaps, ozonPageReadOutcomeLine} from ${JSON.stringify(component)};
+        ozonCategoryStepGaps, ozonPageReadOutcomeLine, CommissionEstimateBlock} from ${JSON.stringify(component)};
       export {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload,
         captureRecaptureReady, captureRecaptureConfirmLine, captureRecapturePayload, CAPTURE_RECAPTURE_REASONS,
         currentProductStep, skuChoiceReady, skuChoiceSaved, showsSkuChoice, skuChoiceHeadline, skuChoiceSwing,
@@ -29,7 +29,8 @@ async function pageModule() {
         profitStepSuggestionLine, profitStepPriceDeltaLine, profitStepCommissionLine, profitStepSubmitState,
         profitStepOutcomeLine, cargoFactsFormState, cargoFactsPayload, cargoFactsStepGaps, cargoFactsHeadline,
         ozonCategoryStepGaps, ozonPageReadOutcomeLine};
-      export const render=props=>renderToStaticMarkup(<Page {...props}/>);` : null }],
+      export const render=props=>renderToStaticMarkup(<Page {...props}/>);
+      export const renderCommissionEstimate=props=>renderToStaticMarkup(<CommissionEstimateBlock {...props}/>);` : null }],
       ssr: { noExternal: true }, build: { ssr: true, write: false, rollupOptions: { input: entry, output: { format: 'es' } } } });
     const chunk = output.output.find(value => value.type === 'chunk' && value.isEntry);
     assert.ok(chunk);
@@ -1182,6 +1183,126 @@ test('算利润的确认走既有的 A 阶段确认接口，写操作不经读�
   assert.match(css, /\.page-panel \.product-profit-check \{[^}]*flex-direction: row;[^}]*max-width: none;/u);
   assert.ok(css.indexOf('.page-panel .product-profit-check') > css.indexOf('.page-panel label'),
     '同样特指度时靠先后顺序取胜，这条必须排在 .page-panel label 之后');
+});
+
+test('精确佣金读不到才出现的那一块：说清四件事，主人勾了才带授权', async () => {
+  const { renderCommissionEstimate } = await pageModule();
+  // 2026-09-14 现场那一件的真实取值：Miska 店在这条类目的第一件商品。
+  const SOURCE_REF = 'ozon-official-commission:2025-12-01:sha256:be7832ff9dbd09ee7021aaefe9018a02287332bc22e4c6b470d6cfe0b3649cf0';
+  const estimate = {
+    proposal: { commissionRate: 0.12, commissionTier: 'le1500', commissionSourceRef: SOURCE_REF, targetSalePriceRub: 1455 },
+    storeLabel: 'Miska', category: 'Товары для животных > Для собак > Одежда > Одежда для животных'
+  };
+  const html = await renderCommissionEstimate({ estimate, authorized: false, saving: false, onAuthorize: forbidden });
+
+  // 一、为什么读不到：说的是「你店里还没有这条类目的商品」，并且明说重试没用。
+  assert.match(html, /<div class="product-profit-commission" role="group" aria-label="估算佣金授权">/u);
+  assert.match(html, /<h4>这条类目在Miska里还没有商品，精确佣金读不到<\/h4>/u);
+  assert.match(html, /这件是这条类目在Miska的第一件，店里没有同类商品可读，所以读不到。再点几次也还是读不到，这不是网络卡了。/u);
+  assert.match(html, /这条类目：Товары для животных &gt; Для собак &gt; Одежда &gt; Одежда для животных/u);
+  // 二、拿什么替：前提必须说对。服务端是先让官方费率表自己上，立住了直接返回真证据，主人根本看不到这一块；
+  //     所以这一块一出现，就一定是那张表这一次没能自己立成证据。不能写成「官方表好好的，只是还要你多签一次字」。
+  assert.match(html, /<span>官方费率表这一次没能自己立成证据，所以要你亲自签这一次<\/span>/u);
+  assert.match(html, /能替它的只有 Ozon 官方费率表上的公开费率。这一次软件没能靠那张表自己把这件商品的佣金证据立起来——立住了你根本不会看见这一块，软件会直接按它算完往下走，用不着你签字。/u);
+  // 费率、档位、来源引用、目标成交价，全部来自传进来的那份解析结果，页面不写死。
+  assert.match(html, /所以现在要你亲自签一次字。你填的目标成交价 1455 卢布落在这一档，页面上这份官方费率表解析给出的是 12%。/u);
+  assert.match(html, /费率 12% · 档位 le1500 · 目标成交价 1455 卢布/u);
+  assert.match(html, new RegExp(`取自 ${SOURCE_REF}`, 'u'));
+  assert.match(html, /价格跨过档位分界线就换一档，这里显示的也跟着换，不会留着一个旧数/u);
+  // 三、会被记成估算佣金，不是精确佣金，也不会进 C1。
+  assert.match(html, /这一笔会记成估算佣金，不是精确佣金。这件商品的 B 会停在「条件测算」，不算正式通过，也不会进 C1/u);
+  // 四、将来怎么复算：指向仓库里已经有的那条路，不另造一条。
+  assert.match(html, /等这条类目在Miska里有了第一件在售商品，精确佣金就读得到了/u);
+  assert.match(html, /「条件测算已保存，等待精确佣金」那张卡，点「使用精确费用复算」/u);
+  // 那个勾，以及不勾会怎么样。
+  assert.match(html, /<input type="checkbox" id="profit-commission-estimate"\/>/u);
+  assert.doesNotMatch(html, /checked=""/u);
+  assert.match(html, /<b>先按官方费率表的 12% 算，记成估算佣金<\/b>/u);
+  assert.match(html, /不勾就不带这个授权，这一次确认还是会停在同一处。/u);
+  assert.match(html, /这个授权只管这一件、这一版资料、这一个费率/u);
+  assert.match(await renderCommissionEstimate({ estimate, authorized: true, saving: false, onAuthorize: forbidden }),
+    /id="profit-commission-estimate" checked=""/u);
+
+  // 跨过 1500 卢布分界线的时候，显示的就是另一档：这一块不记数，只照那份解析结果说。
+  const higher = await renderCommissionEstimate({ authorized: false, saving: false, onAuthorize: forbidden,
+    estimate: { ...estimate, proposal: { ...estimate.proposal, commissionRate: 0.14, commissionTier: 'le5000', targetSalePriceRub: 1666 } } });
+  assert.match(higher, /费率 14% · 档位 le5000 · 目标成交价 1666 卢布/u);
+  assert.doesNotMatch(higher, /12%/u);
+
+  // 费率、档位或来源引用拿不齐：软件什么也不提议，也就没有那个勾可点。这里的前提同样要说对。
+  const refused = await renderCommissionEstimate({ authorized: false, saving: false, onAuthorize: forbidden,
+    estimate: { ...estimate, proposal: null } });
+  assert.match(refused, /这一次软件没能靠那张表自己把这件商品的佣金证据立起来/u);
+  assert.match(refused, /页面上这份官方费率表解析也连费率、档位和来源引用都拿不齐，软件不会替你写一个数上去/u);
+  assert.doesNotMatch(refused, /profit-commission-estimate/u);
+
+  // 没撞上这件事的时候，这一块根本不存在：它不是一个随时可勾的高级选项。
+  assert.equal(await renderCommissionEstimate({ estimate: null, authorized: false, saving: false, onAuthorize: forbidden }), '');
+  assert.doesNotMatch(await render(profitProps()), /估算佣金授权/u);
+});
+
+test('官方佣金表这一次卡在哪几处，逐字摆给主人；服务端没说就一个字都不造', async () => {
+  const { renderCommissionEstimate } = await pageModule();
+  const SOURCE_REF = 'ozon-official-commission:2025-12-01:sha256:be7832ff9dbd09ee7021aaefe9018a02287332bc22e4c6b470d6cfe0b3649cf0';
+  const estimate = {
+    proposal: { commissionRate: 0.12, commissionTier: 'le1500', commissionSourceRef: SOURCE_REF, targetSalePriceRub: 1455 },
+    storeLabel: 'Miska', category: '宠物用品 > 狗狗 > 服饰'
+  };
+  const block = async officialGaps => renderCommissionEstimate({ authorized: false, saving: false, onAuthorize: forbidden,
+    estimate: { ...estimate, officialGaps } });
+
+  // 有缺口：一句交代 + 逐字的缺口，顺序照服务端说的。主人有权知道那张表本来可以自己成交、这一次为什么没成。
+  const gapped = await block(['TYPE_NOT_FOUND', 'CATALOG_VERSION_MISMATCH']);
+  assert.match(gapped, /服务端说，官方佣金表这一次卡在这几处（原话照抄）：/u);
+  assert.match(gapped, /<li>TYPE_NOT_FOUND<\/li><li>CATALOG_VERSION_MISMATCH<\/li>/u);
+  // 缺口摆在「那张表没能自己立成证据」之后：主人先知道这几个码是什么意思，再看那几个码。
+  assert.ok(gapped.indexOf('这一次软件没能靠那张表自己把这件商品的佣金证据立起来') < gapped.indexOf('TYPE_NOT_FOUND'));
+  // 重复的那几处只摆一次。
+  assert.equal((await block(['TYPE_NOT_FOUND', 'TYPE_NOT_FOUND'])).match(/<li>TYPE_NOT_FOUND<\/li>/gu).length, 1);
+  // 一个字都不改：大小写、下划线、中文说明，服务端写成什么样就摆成什么样，不概括也不翻译。
+  assert.match(await block(['OFFICIAL_TABLE_CATALOG_UNREADABLE', '版本状态 status=stale']),
+    /<li>OFFICIAL_TABLE_CATALOG_UNREADABLE<\/li><li>版本状态 status=stale<\/li>/u);
+  // 软件拿不出提议的时候，这几处一样要说给主人听。
+  assert.match(await renderCommissionEstimate({ authorized: false, saving: false, onAuthorize: forbidden,
+    estimate: { ...estimate, proposal: null, officialGaps: ['TYPE_NOT_FOUND'] } }), /<li>TYPE_NOT_FOUND<\/li>/u);
+
+  // 服务端没提官方佣金表（比如这台机器上压根没配）：一个字都不造，那一整段不出现。
+  for (const quiet of [undefined, null, [], ['', '   '], 'TYPE_NOT_FOUND', { code: 'TYPE_NOT_FOUND' }]) {
+    const html = await block(quiet);
+    assert.doesNotMatch(html, /原话照抄/u, JSON.stringify(quiet) ?? 'undefined');
+    assert.doesNotMatch(html, /卡在这几处|官方佣金表/u, JSON.stringify(quiet) ?? 'undefined');
+    assert.doesNotMatch(html, /<li>TYPE_NOT_FOUND<\/li>/u, JSON.stringify(quiet) ?? 'undefined');
+    // 缺口没有不代表这一块不出现：那张表没配的时候，照样只有主人签字这一条路。
+    assert.match(html, /这一次软件没能靠那张表自己把这件商品的佣金证据立起来/u, JSON.stringify(quiet) ?? 'undefined');
+  }
+});
+
+test('那一块只在服务端真的说了「精确佣金读不到」之后才出现，勾了才带授权', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const page = await readFile(fileURLToPath(new URL('../src/components/ProductPage.jsx', import.meta.url)), 'utf8');
+  // 判断依据是 lib 里那些纯函数认的机器可读码，页面不自己匹配中文，也不在自己这儿写死任何一个码。
+  assert.match(page, /import \{ commissionEstimateProposal, exactCommissionUnavailable, officialCommissionTableGaps \} from "\.\.\/\.\.\/lib\/commission-estimate-authorization\.mjs";/u);
+  assert.match(page, /cause => setCommissionEstimateSignal\(exactCommissionUnavailable\(cause\)\s*\?\s*\{ officialGaps: officialCommissionTableGaps\(cause\) \} : null\)/u);
+  assert.doesNotMatch(page, /OZON_EVIDENCE_COMMISSION_UNAVAILABLE|B_EVIDENCE_COMMISSION_ESTIMATE_NOT_AUTHORIZED/u, '那两个码只在 lib 里有一份');
+  assert.doesNotMatch(page, /店铺当前没有同|官方佣金表未能成交/u, '不靠服务端那几句中文判断，也不自己拆那句话');
+  // 服务端说的那几处缺口只是被带下去，页面不改一个字。
+  assert.match(page, /officialGaps: commissionEstimateSignal\.officialGaps/u);
+  // 页面加载时不去探测：这一块的开关只由那一次失败设上，商品换了一版资料就清掉。
+  assert.match(page, /const \[commissionEstimateSignal, setCommissionEstimateSignal\] = useState\(null\);/u);
+  assert.match(page, /setCommissionEstimateSignal\(null\);/u);
+  // 这个开关只有两处会写：那一次失败之后设上，商品换了一版资料清掉。没有第三处，也就没有加载时的探测。
+  assert.equal(page.match(/setCommissionEstimateSignal\(/gu).length, 2, '这一块不在页面加载时去探测主人的 Ozon 账户');
+  // 费率、档位、来源引用都不在页面里写死，每次渲染都从当前那份解析结果里取。
+  assert.match(page, /proposal: commissionEstimateProposal\(skuTable\?\.sources \?\? null\)/u);
+  assert.match(page, /proposal\.commissionTier/u);
+  assert.match(page, /proposal\.commissionSourceRef/u);
+  assert.doesNotMatch(page, /le1500|ozon-official-commission/u, '费率、档位和来源引用一律取自解析结果');
+  // 勾了才带授权，费率来自提议本身；没勾就是 false，profitStepSubmission 那边就不带这个字段。
+  assert.match(page, /commissionEstimateRate: commissionEstimateAuthorized \? commissionProposal\.commissionRate : null/u);
+  assert.match(page, /const commissionEstimateAuthorized = commissionProposal !== null && commissionEstimateTicked;/u);
+  // 这一块和运输属性那一块同一套观感，不自创一套。
+  const css = await readFile(fileURLToPath(new URL('../src/styles.css', import.meta.url)), 'utf8');
+  assert.match(css, /\.product-profit-commission \{[^}]*background: var\(--amber-soft\);/u);
 });
 
 test('确认之后说的是服务端真的保存成什么样，同一个成功回执底下的四种结果各说各的', async () => {

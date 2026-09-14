@@ -410,13 +410,27 @@ export function profitStepGaps(review, sourceSkuId) {
  * make. Everything else is already evidenced: the link, the capture, this specification's own page price and weight,
  * the domestic freight and the packing size he declared in 找货, and the benchmark snapshot the comparison is about.
  * A specification with any gap left produces nothing at all — an incomplete confirmation is not a confirmation.
+ *
+ * Since 2026-09-14 a third judgment can join them, and only in one situation: the store has no product in this
+ * category yet, so the exact commission cannot be read off one, and the owner authorises the official table's rate
+ * instead. He has to tick it himself; not ticking sends no such field at all and the server keeps demanding the
+ * exact commission, exactly as before. The rate is never written here — it comes from the same parsed sources the
+ * page is showing him, so a target price that crosses a tier boundary carries its own rate.
  */
-export function profitStepSubmission(review, sourceSkuId, { comparabilityConfirmed, supplyConfirmed } = {}) {
+export function profitStepSubmission(review, sourceSkuId,
+  { comparabilityConfirmed, supplyConfirmed, commissionEstimateAuthorized = false, commissionEstimateRate = null } = {}) {
   if (comparabilityConfirmed !== true || supplyConfirmed !== true) return null;
   if (profitStepGaps(review, sourceSkuId).length > 0) return null;
+  // 估算佣金授权：没勾就完全不带这个字段，服务端照旧要求精确佣金。勾了就必须带得出一个真实的费率——
+  // 拿不出费率的授权是一份不完整的确认，那就整份不成立，而不是悄悄按精确佣金提交。
+  const rate = finite(commissionEstimateRate);
+  if (commissionEstimateAuthorized === true && (rate === null || rate <= 0 || rate >= 1)) return null;
+  const commissionEstimate = commissionEstimateAuthorized === true
+    ? { authorized: true, confirmedBy: 'owner', commissionRate: rate } : null;
   const base = review.submissionBase;
   const spec = review.specifications.find(item => item.sourceSkuId === String(sourceSkuId));
   return {
+    ...(commissionEstimate === null ? {} : { commissionEstimate }),
     dataRevision: base.dataRevision,
     sourceCandidateId: base.sourceCandidateId,
     sourceDataRevision: base.sourceDataRevision,

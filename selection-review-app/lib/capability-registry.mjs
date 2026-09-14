@@ -683,14 +683,19 @@ export const CAPABILITY_NODES = Object.freeze([
       capabilityRef("lib/profit-step-review.mjs", "buildProfitStepReview", "算利润：整套核线、指定先上的一个、其余排队"),
       capabilityRef("lib/profit-step-review.mjs", "profitStepSubmission", "用已保存的资料把确认组装齐，缺一样就不组装"),
       capabilityRef("lib/cargo-facts-declaration.mjs", "proposeCargoFacts", "运输属性：只按已有采集证据提议，判不定的如实交给主人选"),
-      capabilityRef("lib/cargo-facts-declaration.mjs", "buildOwnerCargoFactsRecord", "存档写明主人确认及软件当时的依据")],
+      capabilityRef("lib/cargo-facts-declaration.mjs", "buildOwnerCargoFactsRecord", "存档写明主人确认及软件当时的依据"),
+      capabilityRef("lib/commission-estimate-authorization.mjs", "exactCommissionUnavailable", "认出「店里还没有这条类目的商品，精确佣金读不到」这一类失败：新旧两代证据服务的说法都认"),
+      capabilityRef("lib/commission-estimate-authorization.mjs", "officialCommissionTableGaps", "服务端说的官方佣金表缺口逐字捡出来，没说就不造一句"),
+      capabilityRef("lib/commission-estimate-authorization.mjs", "commissionEstimateProposal", "替代费率整份取自已解析的官方费率表结果，缺一样就不提议")],
     uiRefs: [capabilityRef("src/components/RealAConfirmationCard.jsx", "RealAConfirmationCard", "确认卡 UI"),
       capabilityRef("src/components/ProductPage.jsx", "profitStepOpen", "商品页的算利润一步"),
       capabilityRef("src/components/ProductPage.jsx", "cargoFactsStepGaps", "运输属性未确认时算利润的确认按钮不可点"),
-      capabilityRef("src/components/ProductPage.jsx", "ozonCategoryStepGaps", "类目还不是真实页面读来的时候，算利润的确认按钮不可点")],
+      capabilityRef("src/components/ProductPage.jsx", "ozonCategoryStepGaps", "类目还不是真实页面读来的时候，算利润的确认按钮不可点"),
+      capabilityRef("src/components/ProductPage.jsx", "CommissionEstimateBlock", "精确佣金读不到时，软件按官方费率表提议、主人一键授权估算佣金")],
     testRefs: [capabilityRef("tests/real-a-confirmation-card.test.mjs", "test(", "确认卡测试"),
       capabilityRef("tests/profit-step-review.test.mjs", "test(", "算利润这一步的校验基准"),
-      capabilityRef("tests/cargo-facts-declaration.test.mjs", "test(", "运输属性提议、校验与接进核验链路的基准")]
+      capabilityRef("tests/cargo-facts-declaration.test.mjs", "test(", "运输属性提议、校验与接进核验链路的基准"),
+      capabilityRef("tests/commission-estimate-authorization.test.mjs", "test(", "估算佣金授权的识别与提议基准")]
   }),
   capability({
     id: "2.7", capabilityId: "selection.a.owner-supply-confirmation", areaId: "2",
