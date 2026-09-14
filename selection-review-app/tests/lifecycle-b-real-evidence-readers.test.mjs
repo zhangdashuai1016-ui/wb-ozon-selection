@@ -5,6 +5,7 @@ import test from "node:test";
 
 import { exactCommissionUnavailable, officialCommissionTableGaps } from "../lib/commission-estimate-authorization.mjs";
 import { readCurrentGuooTariff, selectGuooTariffRow } from "../lib/guoo-tariff-reader.mjs";
+import { validateLifecycleEvidenceData } from "../lib/lifecycle-b-input-bundle.mjs";
 import { createLifecycleBRealEvidenceProviderRegistry, createLifecycleBRealEvidenceReaders } from "../lib/lifecycle-b-real-evidence-readers.mjs";
 import { readCurrentCbrExchangeRate } from "../lib/official-fx-reader.mjs";
 
@@ -76,15 +77,21 @@ test("GUOO row selection matches one exact route and keeps the tariff cells", ()
   assert.equal(selected.row[11], 28.1);
 });
 
-test("GUOO reader parses the exact current xlsx row without inventing a rounding step", async () => {
+const formulaXml = text => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+const WEIGHT_FORMULA = "IF(OR(AND(D5>=2.001,D5<=30,D7>1501,D7<7000,SUM(H5:H7)<=310,H5<=150,H6<=80,H7<=80),AND(D5>=5.001,D5<=30,D7>7001,D7<250000,SUM(H5:H7)<=310,H5<=150,H6<=80,H7<=80)),MAX(H5*H6*H7/12000,D5),D5)";
+const QUOTE_FORMULA_17 = 'IF(OR(D5>2,D7<1501,D7>7000,AND(SUM(H5:H7)>150),H5>60,H6>60,H7>60),"",IF(OR($D$5=0,$D$7=0,$H$5=0,$H$6=0,$H$7=0),"",F5*K17+L17))';
+
+/** One synthetic GUOO workbook; `mutate` rewrites the sheet so a changed quote rule can be tried. */
+function guooReadOptions(mutate = value => value) {
   const workbook = `<workbook xmlns:r="x"><sheets><sheet name="GUOO realFBS资费试算表" sheetId="1" r:id="rId1"/></sheets></workbook>`;
   const relations = `<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>`;
   const strings = `<sst><si><t>Small&#10;(小件)</t></si><si><t>GUOO Express Small PUDO&#10;(特快轻小件到点)&#10;GUOO Express Small Courier&#10;(特快轻小件到门)</t></si><si><t>空运</t></si><si><t>0.001-2KG</t></si><si><t>GUOO Standard Small PUDO&#10;(标准轻小件到点)&#10;GUOO Standard Small Courier&#10;(标准轻小件到门)</t></si><si><t>GUOO Economy Small PUDO&#10;(经济轻小件到点)&#10;GUOO Economy Small Courier&#10;(经济轻小件到门)</t></si><si><t>陆运</t></si><si><t>可以运输内部装有电池的物品</t></si></sst>`;
-  const sheet = `<worksheet><sheetData>
+  const sheet = mutate(`<worksheet><sheetData>
+    <row r="5"><c r="F5"><f>${formulaXml(WEIGHT_FORMULA)}</f></c></row>
     <row r="15"><c r="A15"/><c r="B15" t="s"><v>0</v></c><c r="C15" t="s"><v>1</v></c><c r="D15" t="s"><v>2</v></c><c r="G15" t="s"><v>3</v></c></row>
     <row r="16"><c r="A16"/><c r="B16"/><c r="C16" t="s"><v>4</v></c><c r="G16"/></row>
-    <row r="17"><c r="A17"/><c r="B17"/><c r="C17" t="s"><v>5</v></c><c r="D17" t="s"><v>6</v></c><c r="G17"/><c r="J17" t="s"><v>7</v></c><c r="K17"><v>28.1</v></c><c r="L17"><v>17.97</v></c></row>
-  </sheetData><mergeCells><mergeCell ref="B15:B17"/><mergeCell ref="G15:G17"/></mergeCells></worksheet>`;
+    <row r="17"><c r="A17"/><c r="B17"/><c r="C17" t="s"><v>5</v></c><c r="D17" t="s"><v>6</v></c><c r="G17"/><c r="J17" t="s"><v>7</v></c><c r="K17"><v>28.1</v></c><c r="L17"><v>17.97</v></c><c r="E17"><f>${formulaXml(QUOTE_FORMULA_17)}</f><v>0</v></c></row>
+  </sheetData><mergeCells><mergeCell ref="B15:B17"/><mergeCell ref="G15:G17"/></mergeCells></worksheet>`);
   const execFileImpl = async (_command, args) => {
     if (args[0] === "-Z1") return { stdout: "xl/workbook.xml\nxl/_rels/workbook.xml.rels\nxl/sharedStrings.xml\nxl/worksheets/sheet1.xml\n" };
     const entry = args.at(-1);
@@ -94,21 +101,45 @@ test("GUOO reader parses the exact current xlsx row without inventing a rounding
     if (entry === "xl/worksheets/sheet1.xml") return { stdout: sheet };
     throw new Error(`unexpected ${entry}`);
   };
-  const result = await readCurrentGuooTariff({
+  return {
     scope: { route: "GUOO Economy Small", ruleVersion: "guoo-2026-07-20" },
     filePath: "/tmp/GUOO产品资费测算表【2026.7.20更新】.xlsx",
     execFileImpl,
     readFileImpl: async () => Buffer.from("fixture-xlsx"),
     now: fixedNow,
-  });
+  };
+}
+
+test("GUOO reader parses the exact current xlsx row without inventing a rounding step", async () => {
+  const result = await readCurrentGuooTariff(guooReadOptions());
   assert.equal(result.evidenceData.perKgRmb, 28.1);
-  assert.equal(result.current, false);
-  assert.equal(result.reasonCode, "guoo_settlement_rules_unverified");
-  assert.equal(result.evidenceData.calculationRuleStatus, "legacy_unverified");
+  assert.equal(result.current, true);
+  assert.equal(Object.hasOwn(result, "reasonCode"), false);
+  assert.equal(result.evidenceData.calculationRuleStatus, "main_sheet_quote_verified");
+  // 主表报价里没有最低计费重量，也不取整：这两项只能是 0 和 none，不是从重量档文字推出来的。
+  assert.equal(result.evidenceData.minimumChargeableWeightKg, 0);
   assert.equal(result.evidenceData.perParcelRmb, 17.97);
   assert.equal(result.evidenceData.weightRoundingRule, "none");
   assert.equal(result.evidenceData.weightRoundingKg, null);
   assert.equal(result.evidenceData.batteryTransportRule, "可以运输内部装有电池的物品");
+  assert.equal(validateLifecycleEvidenceData("logistics_tariff", result.evidenceData).valid, true);
+});
+
+test("一份报价公式对不上的资费表仍然读不出可用证据，没有核对过的旧证据包也仍然进不了正式计算", async () => {
+  // 「已核验」必须名副其实：换掉重量表达式、换掉本行报价表达式、或者整格缺失，三种都要停下。
+  for (const mutate of [
+    sheet => sheet.replace("/12000", "/6000"),
+    sheet => sheet.replace("F5*K17+L17", "ROUND(F5*K17+L17,0)"),
+    sheet => sheet.replace(/<c r="E17">[\s\S]*?<\/c>/u, ""),
+    sheet => sheet.replace(/<row r="5">[\s\S]*?<\/row>/u, ""),
+  ]) {
+    await assert.rejects(readCurrentGuooTariff(guooReadOptions(mutate)), /GUOO_TARIFF_MAIN_QUOTE_FORMULA_UNSUPPORTED/);
+  }
+  // 已经存下来的旧读取结果带着推定的最低计费重量和 legacy_unverified，照旧不能用。
+  const current = await readCurrentGuooTariff(guooReadOptions());
+  const stored = { ...structuredClone(current.evidenceData), minimumChargeableWeightKg: 0.001, calculationRuleStatus: "legacy_unverified" };
+  assert.equal(validateLifecycleEvidenceData("logistics_tariff", stored).valid, false);
+  assert.deepEqual(validateLifecycleEvidenceData("logistics_tariff", stored).errors.map(item => item.path), ["calculationRuleStatus"]);
 });
 
 test("CBR reader returns current official RUB/CNY and stops on another pair", async () => {

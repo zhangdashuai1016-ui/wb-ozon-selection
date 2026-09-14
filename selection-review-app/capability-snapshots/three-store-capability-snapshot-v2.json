@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-14T08:19:43.757Z",
+  "frozenAt": "2026-09-14T09:19:10.129Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 666,
-      "sha256": "f0a3302a1a7561cd2bd7055374c1000108ce4b2ba3a8fb8f4acf54ba171c2c2b",
+      "sha256": "8488afbbedc317b88690528f5e172f131668c13d9854cfbc3403f4dff01778da",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -468,7 +468,7 @@
       },
       {
         "path": "lib/guoo-tariff-reader.mjs",
-        "sha256": "7edc4dd229e37a4223d81168b358ce4746acfbd7ceb6afe4a4dafec543d18f19"
+        "sha256": "6f963cd47fa97988987fdbe34182ad2a0c97728cb1200dc1a5284d9e28931c1d"
       },
       {
         "path": "lib/http-api-boundary.mjs",
@@ -528,7 +528,7 @@
       },
       {
         "path": "lib/lifecycle-b-input-bundle.mjs",
-        "sha256": "bb1f9023bc33297d895822d70eca83e91d0f23d7b4cf8cb02f30ca8d1f2cf205"
+        "sha256": "215fdc5e610cae6e56b87c2c0928a219f0c724eac57605bdfaf5d02d7558ef87"
       },
       {
         "path": "lib/lifecycle-b-real-evidence-readers.mjs",
@@ -2124,7 +2124,7 @@
       },
       {
         "path": "tests/guoo-tariff-reader.test.mjs",
-        "sha256": "3015360588cdf0703c2105fb5509de8ce166349e987a813f0150652a77dd1006"
+        "sha256": "d9baf8b178277aad3a70fa3153cdf945af652813d58d1c81e739cdf3a28d39e8"
       },
       {
         "path": "tests/header-status-view.test.mjs",
@@ -2252,11 +2252,11 @@
       },
       {
         "path": "tests/lifecycle-b-input-bundle.test.mjs",
-        "sha256": "b0a3d1d19c005e0df233e8071823eac145890aef09d55a9ba58ab28c00ffaa22"
+        "sha256": "b52a9ba0f66312b17986653e95a91b34eaefac27858035c6b87ab9e1584c720b"
       },
       {
         "path": "tests/lifecycle-b-real-evidence-readers.test.mjs",
-        "sha256": "7caf9bd061a9fce60012af9677640ddfa2542d77eea591adeb445fbae190d757"
+        "sha256": "36e46f1a414a843182ecd55bd51d60d78c54d6c0faed804b6a28c7bc620eac78"
       },
       {
         "path": "tests/lifecycle-c-stage-generic-api.test.mjs",

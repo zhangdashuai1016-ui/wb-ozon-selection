@@ -14,6 +14,7 @@ import {
   validateLifecycleBOtherCosts
 } from "../lib/lifecycle-b-input-bundle.mjs";
 import { GLOBAL_PRICING_POLICY_VERSION } from "../lib/global-pricing-policy.mjs";
+import { GUOO_MAIN_QUOTE_CALCULATION_RULE_STATUS } from "../lib/guoo-tariff-reader.mjs";
 
 const createdAt = "2026-08-18T02:00:00.000Z";
 
@@ -30,6 +31,34 @@ test("历史GUOO默认计费证据保留但不能复用于新正式利润", () =
   assert.deepEqual(evidence, before);
   assert.equal(validateLifecycleEvidenceData("logistics_tariff", { ...logistics.evidenceData,
     calculationRuleStatus: "legacy_unverified" }).valid, false);
+});
+
+test("只有逐格核对过报价公式的那一次国欧读取能进正式计算，存下来的旧读取结果照旧被拒", () => {
+  // 三份证据包只差 calculationRuleStatus 一个字段：核对过的可用，写着 legacy_unverified 的和
+  // 根本没有这个字段的（更早的读取器留下的）都不可用，而且理由要说得出是哪一种。
+  const cases = [
+    [GUOO_MAIN_QUOTE_CALCULATION_RULE_STATUS, true, "current"],
+    ["legacy_unverified", false, "legacy_unverified"],
+    [undefined, false, "legacy_unverified"],
+  ];
+  for (const [calculationRuleStatus, usable, status] of cases) {
+    const evidence = packs();
+    const logistics = evidence.find(pack => pack.kind === "logistics_tariff");
+    logistics.sourceType = "guoo_current_tariff_xlsx";
+    if (calculationRuleStatus !== undefined) logistics.evidenceData.calculationRuleStatus = calculationRuleStatus;
+    const readiness = inspectLifecycleBInputReadiness({ candidate: candidate(), evidencePacks: evidence, asOf: createdAt });
+    assert.equal(readiness.fields.find(field => field.key === "logistics_tariff").status, status, String(calculationRuleStatus));
+    assert.equal(readiness.ready, usable, String(calculationRuleStatus));
+    if (usable) {
+      const bundle = createLifecycleBInputBundle({ otherCosts: currentCosts(), candidate: candidate(), evidencePacks: evidence,
+        normalizedSubmission: normalizedSubmission(), createdAt });
+      assert.equal(bundle.logisticsEvidence.evidenceId, "EP-LOGISTICS");
+      assert.equal(bundle.logisticsEvidence.tariff.calculationRuleStatus, GUOO_MAIN_QUOTE_CALCULATION_RULE_STATUS);
+    } else {
+      assert.throws(() => createLifecycleBInputBundle({ otherCosts: currentCosts(), candidate: candidate(), evidencePacks: evidence,
+        normalizedSubmission: normalizedSubmission(), createdAt }), /SYSTEM_EVIDENCE_GAP/);
+    }
+  }
 });
 
 function candidate() {

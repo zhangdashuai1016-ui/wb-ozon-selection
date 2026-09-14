@@ -1,4 +1,5 @@
 import { resolveLifecycleBCostPolicy } from "./global-pricing-policy.mjs";
+import { GUOO_MAIN_QUOTE_CALCULATION_RULE_STATUS } from "./guoo-tariff-reader.mjs";
 import { isDeepStrictEqual } from "node:util";
 import { buildExpectedEvidenceScope, evidenceScopeMatches, normalizeEvidenceScope } from "./lifecycle-evidence-scope.mjs";
 import { isCompleteStoreRef, sameStoreRef } from "./store-binding.mjs";
@@ -182,8 +183,9 @@ export function validateLifecycleEvidenceData(kind, evidenceData) {
       });
     }
   } else if (kind === "logistics_tariff") {
+    // 已经存下来的旧读取结果仍然带着这个状态：它的计费默认值是推定的，不是从报价公式核对来的。
     if (evidenceData.calculationRuleStatus === "legacy_unverified") {
-      errors.push(error("calculationRuleStatus", "历史计费默认值尚未核实，不能进入新正式计算"));
+      errors.push(error("calculationRuleStatus", "这份计费默认值是推定的、没有核对过报价公式，不能进入新正式计算"));
     }
     if (!["actual_weight", "max_actual_volume"].includes(evidenceData.chargeableWeightRule)) {
       errors.push(error("chargeableWeightRule", "必须明确为actual_weight或max_actual_volume"));
@@ -359,9 +361,11 @@ function packCurrent(pack, asOfMs) {
 function eligiblePack(pack, kind, context, asOfMs, candidate, currentCommissionCatalogs) {
   if (pack?.kind !== kind || !packCurrent(pack, asOfMs)) return false;
   if (!inspectCommissionCatalogValidity({ pack, currentCommissionCatalogs, asOf: new Date(asOfMs).toISOString() }).available) return false;
-  // These historical readers inferred billing defaults. Preserve their records,
-  // but never reuse them as verified inputs for a new formal calculation.
-  if (kind === "logistics_tariff" && pack.sourceType === "guoo_current_tariff_xlsx") return false;
+  // A stored GUOO reading whose billing rules were never checked against the row's own quote
+  // cells inferred its defaults. Preserve those records, but never reuse one as a verified
+  // input for a new formal calculation; only a reading that carries the checked stamp counts.
+  if (kind === "logistics_tariff" && pack.sourceType === "guoo_current_tariff_xlsx" &&
+      pack.evidenceData?.calculationRuleStatus !== GUOO_MAIN_QUOTE_CALCULATION_RULE_STATUS) return false;
   // 官方费表按本SKU成交价档取值，价格档不属于可复用的证据范围：只有绑定本候选本修订的命中行可用。
   if (kind === "commission" && pack.evidenceData?.commissionEvidenceMode === "official_reference" &&
       !isOfficialCommissionBindingForCandidate(pack.evidenceData.officialCommissionBinding, {
@@ -442,9 +446,10 @@ export function inspectLifecycleBInputReadiness({ candidate, evidencePacks = [],
     if (catalogValidity && !catalogValidity.available) {
       status = catalogValidity.status;
       message = catalogValidity.message;
-    } else if (exact && kind === "logistics_tariff" && exact.sourceType === "guoo_current_tariff_xlsx") {
+    } else if (exact && kind === "logistics_tariff" && exact.sourceType === "guoo_current_tariff_xlsx" &&
+        exact.evidenceData?.calculationRuleStatus !== GUOO_MAIN_QUOTE_CALCULATION_RULE_STATUS) {
       status = "legacy_unverified";
-      message = "历史国欧读取结果包含未核实计费默认值，不能用于新正式测算";
+      message = "这份国欧读取结果的计费规则没有逐格核对过报价公式，不能用于新正式测算；需要按当前资费表重新读取一次";
     } else if (exact && !isObject(exact.evidenceData)) {
       status = "metadata_only";
       message = "只有摘要，没有可计算的结构化数据";
