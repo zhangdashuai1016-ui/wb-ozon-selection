@@ -2,6 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { collectOzonPage } from "../extension/1688-capture/collector-ozon.js";
 import { sanitizeOzonCaptureEvidence } from "../lib/ozon-sales-capture.mjs";
+import { installOzonHtmlPage } from "./helpers/ozon-page-dom.mjs";
+import {
+  OZON_PRICE_PAGE_LINE_THROUGH_TEXTS,
+  OZON_PRICE_PAGE_PRODUCT_ID,
+  OZON_PRICE_PAGE_URL,
+  OZON_PRICE_PAGE_WIDGETS
+} from "./fixtures/ozon-price-widget-fixture.mjs";
 
 function node(textContent, options = {}) {
   return {
@@ -124,6 +131,119 @@ test("Ozon collector rejects another product before reading widgets", async () =
 
 test("Ozon collector stops when loaded price widget has no ordinary buyer price", async () => {
   const restore = installPage({ widgets: realLikeWidgets({ includePrice: false }) });
+  try {
+    const result = await collectOzonPage("4403916892");
+    assert.equal(result.status, "failed");
+    assert.equal(result.failureCode, "precise_price_missing");
+  } finally {
+    restore();
+  }
+});
+
+function realPage({ lineThroughTexts = OZON_PRICE_PAGE_LINE_THROUGH_TEXTS } = {}) {
+  return installOzonHtmlPage({
+    href: OZON_PRICE_PAGE_URL,
+    widgets: OZON_PRICE_PAGE_WIDGETS,
+    lineThroughTexts
+  });
+}
+
+test("Ozon collector reads the ordinary bank price out of a real three-price card", async () => {
+  const restore = realPage();
+  try {
+    const result = await collectOzonPage(OZON_PRICE_PAGE_PRODUCT_ID);
+    assert.equal(result.status, "captured", result.message);
+    assert.equal(result.evidence.currentPrice, 1445, "多价并存时取С другими банками的普通银行卡价");
+    assert.equal(result.evidence.currency, "RUB");
+    assert.equal(result.evidence.title, "Водонепроницаемый дождевик для собак, светоотражающий -8XL");
+    assert.equal(result.evidence.categoryPath, "Товары для животных > Для собак > Одежда");
+    assert.equal(result.evidence.attributes["Ozon bank price"], "1332 RUB", "联名卡价只作为附加属性留档");
+    assert.equal(result.evidence.attributes["Размер одежды/аксессуара для животных"], "8XL");
+
+    // 服务端脱敏不需要改：同一形状的证据照旧收得下。
+    const snapshot = sanitizeOzonCaptureEvidence(result.evidence, OZON_PRICE_PAGE_PRODUCT_ID, {
+      captureId: "OSC-real-price",
+      snapshotId: "sales-snapshot:ozon:real-price"
+    });
+    assert.equal(snapshot.currentPrice, 1445);
+    assert.equal(snapshot.currency, "RUB");
+    assert.equal(snapshot.collectorMode, "real_page_read_only");
+  } finally {
+    restore();
+  }
+});
+
+test("Ozon collector never sells from the co-branded, crossed-out or points price", async () => {
+  const restore = realPage();
+  try {
+    const result = await collectOzonPage(OZON_PRICE_PAGE_PRODUCT_ID);
+    assert.equal(result.status, "captured", result.message);
+    assert.notEqual(result.evidence.currentPrice, 1332, "1 332 ₽ 是С банками联名卡价");
+    assert.notEqual(result.evidence.currentPrice, 5172, "5 172 ₽ 是划线原价");
+    assert.notEqual(result.evidence.currentPrice, 1, "webPricePerStars的Купить за 1 ₽是积分促销，不在价格组件里");
+    assert.equal(JSON.stringify(result.evidence).includes("5172"), false, "划线原价不进入任何证据字段");
+  } finally {
+    restore();
+  }
+});
+
+test("Ozon collector stops instead of guessing when the crossed-out price cannot be told apart", async () => {
+  // 同一份真实页面，只是这次读不出删除线：三个数并存又分不出哪个是当前价。
+  const restore = realPage({ lineThroughTexts: [] });
+  try {
+    const result = await collectOzonPage(OZON_PRICE_PAGE_PRODUCT_ID);
+    assert.equal(result.status, "failed");
+    assert.equal(result.failureCode, "precise_price_missing");
+    assert.match(result.message, /没有唯一的普通买家当前价格/);
+    for (const amount of ["1 445 ₽", "5 172 ₽", "1 332 ₽"]) {
+      assert.equal(result.message.includes(amount), true, `失败说明要写清看到了${amount}`);
+    }
+    assert.equal(result.evidence, undefined, "分不出来就不能凑一个最小或最大值");
+  } finally {
+    restore();
+  }
+});
+
+test("Ozon collector keeps using a single unlabelled current price", async () => {
+  const restore = installPage({
+    widgets: { ...realLikeWidgets(), webPrice: priceElement("DIV", priceElement("SPAN", "1 299 ₽")) }
+  });
+  try {
+    const result = await collectOzonPage("4403916892");
+    assert.equal(result.status, "captured", result.message);
+    assert.equal(result.evidence.currentPrice, 1299);
+    assert.equal(result.evidence.attributes["Ozon bank price"], undefined);
+  } finally {
+    restore();
+  }
+});
+
+test("Ozon collector stops when several unlabelled prices sit side by side", async () => {
+  const restore = installPage({
+    widgets: {
+      ...realLikeWidgets(),
+      webPrice: priceElement("DIV", priceElement("SPAN", "1 299 ₽"), priceElement("SPAN", "1 490 ₽"))
+    }
+  });
+  try {
+    const result = await collectOzonPage("4403916892");
+    assert.equal(result.status, "failed");
+    assert.equal(result.failureCode, "precise_price_missing");
+    assert.match(result.message, /没有唯一的普通买家当前价格/);
+  } finally {
+    restore();
+  }
+});
+
+test("Ozon collector stops when unknown wording sits next to the only current price", async () => {
+  const restore = installPage({
+    widgets: {
+      ...realLikeWidgets(),
+      webPrice: priceElement("DIV",
+        priceElement("DIV", priceElement("SPAN", "1 332 ₽"), " с картой Ozon"),
+        priceElement("DIV", priceElement("SPAN", "1 445 ₽"), " со скидкой по промокоду"))
+    }
+  });
   try {
     const result = await collectOzonPage("4403916892");
     assert.equal(result.status, "failed");

@@ -583,8 +583,10 @@ export const CAPABILITY_NODES = Object.freeze([
       capabilityRef("src/components/ProductPage.jsx", "OzonCategoryReadBlock", "确认按钮之前的那一小块：为什么要读、读一次做什么")],
     testRefs: [capabilityRef("tests/ozon-sales-capture-api.test.mjs", "test(", "Ozon 采集 API 测试"),
       capabilityRef("tests/ozon-page-capture-job.test.mjs", "test(", "读页面作业形状与插件契约的对照基准"),
+      capabilityRef("tests/ozon-extension-collector.test.mjs", "test(", "真实商品页三个价并存时按标签认价的回归基准"),
       capabilityRef("tests/ozon-category-read-step.test.mjs", "test(", "类目判定、文案与页面契约的基准")],
-    artifactRefs: ["extension/1688-capture/collector-ozon.js", "extension/1688-capture/bridge.js", "extension/1688-capture/background.js"]
+    artifactRefs: ["extension/1688-capture/collector-ozon.js", "extension/1688-capture/bridge.js", "extension/1688-capture/background.js",
+      "tests/fixtures/ozon-price-widget-fixture.mjs", "tests/helpers/ozon-page-dom.mjs"]
   }),
   capability({
     id: "2.3", capabilityId: "selection.a.supplier-capture", areaId: "2",
