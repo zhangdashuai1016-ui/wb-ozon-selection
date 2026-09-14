@@ -2,9 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  B_EVIDENCE_COMMISSION_ESTIMATE_NOT_AUTHORIZED, OZON_EVIDENCE_COMMISSION_UNAVAILABLE, commissionEstimateProposal,
-  exactCommissionUnavailable, officialCommissionTableGaps, remoteEvidenceReasonCode
+  B_EVIDENCE_COMMISSION_ESTIMATE_NOT_AUTHORIZED, OZON_EVIDENCE_COMMISSION_UNAVAILABLE, buildCommissionEstimateSignal,
+  buildCommissionEstimateStep, commissionEstimateProposal, exactCommissionUnavailable, officialCommissionTableGaps,
+  remoteEvidenceReasonCode
 } from '../lib/commission-estimate-authorization.mjs';
+// 这个 bug 的引信就是它：同一次失败里物流比较落盘，落盘把 dataRevision 顶高一格。用真的那一个，不自己模拟。
+import { appendGuooRouteComparison, compareGuooRoutes } from '../lib/guoo-route-comparison.mjs';
 
 // 2026-09-14 现场那一次的原话，从最里面一层往外抄：证据服务 → 只读读取器 → 证据提供器 → a-confirm 的 422。
 // 这是证据服务还会把「店里没有同类商品」回成 HTTP 500 的那一代。
@@ -152,4 +155,153 @@ test('替代费率整份取自那份解析结果，缺一样就不提议', () =>
   assert.equal(commissionEstimateProposal(null), null);
   assert.equal(commissionEstimateProposal([]), null);
   assert.equal(commissionEstimateProposal('12%'), null);
+});
+
+/**
+ * 2026-09-14 那一次失败在服务端手上的样子：a-confirm 拿到的是编排返回的 evidencePreparation 本身，
+ * 不是 HTTP 回体。同一句原话，同一个包装层数。
+ */
+const preparation = (reason, layer = 'provider:commission') => ({
+  runVersion: 'lifecycle-b-evidence-preparation-v1.1',
+  status: 'failed',
+  failure: { layer, reason },
+  providerCalls: [{ kind: 'commission', attempt: 1, status: 'failed', reason }],
+  finalReadiness: null
+});
+const RECORDED_AT = '2026-09-14T06:30:00.000Z';
+const LIVE_REASON = withOfficialGaps('OFFICIAL_TABLE_PRICE_MISSING', 'OFFICIAL_TABLE_TYPE_IDENTITY_MISSING');
+
+/** 一份能通过 assertGuooRouteComparison 的最小比较：只有 17 行这一条在重量区间里，别的行都判 ineligible。 */
+function guooRow(rowNumber) {
+  const route = `GUOO Synthetic ${rowNumber} PUDO`;
+  return { rowNumber, route, routeText: route, deliveryMethods: [route],
+    sourceRefs: { perKgRmb: { sheetName: 'Synthetic', cellRef: `K${rowNumber}` } },
+    unresolvedRules: [],
+    feeCoverage: { status: 'complete', additionalPerParcelRmb: 0, evidenceRef: 'evidence:synthetic-complete-fees' },
+    evidenceData: { chargeableWeightRule: 'actual_weight', perKgRmb: 28.1, perParcelRmb: 17.97,
+      minimumChargeableWeightKg: 0.001, weightRoundingRule: 'none', weightRoundingKg: null,
+      productType: 'Small', weightLimit: rowNumber === 17 ? '0.001-2KG' : '10-30KG', declaredValueLimitRub: '1501-7000₽',
+      sizeLimit: '尺寸限制：三边之和不超150CM，单边最大尺寸不超60CM，按实重，按克计费',
+      batteryTransportRule: '电池不允许\n只接普货（不接带电、带磁、液体、粉末、刀具、仿牌等产品）' } };
+}
+const guooComparison = (candidateId, sourceRevision) => compareGuooRoutes({
+  candidateId, sourceRevision,
+  packaging: { weightKg: 0.21, dimensionsCm: { length: 20, width: 10, height: 5 }, sourceRef: 'evidence:synthetic-packaging' },
+  salePrice: { amountRub: 2000, sourceRef: 'evidence:synthetic-target-sale' },
+  cargoFacts: { batteryType: 'none', batteryEnergyWh: null, generalCargo: true, personalUse: true,
+    irregularShape: false, sourceRef: 'evidence:synthetic-cargo' },
+  catalog: { schemaVersion: 'guoo-tariff-catalog-v1', sourceRef: 'evidence:synthetic-catalog',
+    ruleVersion: 'synthetic-guoo-v1', observedAt: RECORDED_AT, sourceNotes: [], unresolvedRules: [],
+    rows: Array.from({ length: 15 }, (_, index) => guooRow(index + 10)) }
+});
+
+test('这一次停在哪，存成一条记录：认的是那两个码，官方佣金表的缺口逐字，服务端那句原话不进记录', () => {
+  const record = buildCommissionEstimateSignal({ evidencePreparation: preparation(LIVE_REASON),
+    recordedAt: RECORDED_AT, sourceRevision: 27, resultRevision: 28 });
+  assert.deepEqual(record, {
+    schemaVersion: 'commission-estimate-signal-v1',
+    recordedAt: RECORDED_AT,
+    sourceRevision: 27,
+    resultRevision: 28,
+    exactCommissionUnavailable: true,
+    officialCommissionTableGaps: ['OFFICIAL_TABLE_PRICE_MISSING', 'OFFICIAL_TABLE_TYPE_IDENTITY_MISSING'],
+    failureLayer: 'provider:commission'
+  });
+  // 服务端那句原话一个字都不存：它可能带着本机证据服务的回环地址或资费表的本机路径，业务记录不许保存这两样。
+  // 原话在这一次的 422 回体里已经原样给过主人了。
+  assert.equal(JSON.stringify(record).includes('B_EVIDENCE_PROVIDER_READ_FAILED'), false);
+  assert.equal(JSON.stringify(record).includes('缺少当前候选'), false);
+
+  // 停在别的地方的那几次也照存，只是不是这一类——它们要能把上一条旧记录盖掉，那一块才跟着消失。
+  const blocked = buildCommissionEstimateSignal({
+    evidencePreparation: preparation('已得到GUOO表内推荐运费及线路族；这件商品的运输属性还没有你的确认。', 'guoo_route_comparison'),
+    recordedAt: RECORDED_AT, sourceRevision: 27, resultRevision: 28 });
+  assert.equal(blocked.exactCommissionUnavailable, false);
+  assert.deepEqual(blocked.officialCommissionTableGaps, []);
+  assert.equal(blocked.failureLayer, 'guoo_route_comparison');
+
+  // 旧的那一代证据服务（HTTP 500 那一版）说的同一件事，照样认得出来。
+  assert.equal(buildCommissionEstimateSignal({ evidencePreparation: preparation(PROVIDER),
+    recordedAt: RECORDED_AT, sourceRevision: 3, resultRevision: 3 }).exactCommissionUnavailable, true);
+  // 服务端连 evidencePreparation 都没给的时候，记录照样成立，只是什么都没认出来。
+  const silent = buildCommissionEstimateSignal({ recordedAt: RECORDED_AT, sourceRevision: 0, resultRevision: 0 });
+  assert.equal(silent.exactCommissionUnavailable, false);
+  assert.equal(silent.failureLayer, null);
+
+  // 修订号和时间不成立的时候宁可报错，也不写一条说不清自己说的是哪一版的记录。
+  for (const broken of [{ sourceRevision: 27, resultRevision: 26 }, { sourceRevision: -1, resultRevision: 1 },
+    { sourceRevision: 1.5, resultRevision: 2 }, { sourceRevision: 27, resultRevision: null }]) {
+    assert.throws(() => buildCommissionEstimateSignal({ evidencePreparation: preparation(LIVE_REASON),
+      recordedAt: RECORDED_AT, ...broken }), /COMMISSION_ESTIMATE_SIGNAL_REVISION_INVALID/u, JSON.stringify(broken));
+  }
+  for (const when of [undefined, null, '', '刚才']) {
+    assert.throws(() => buildCommissionEstimateSignal({ evidencePreparation: preparation(LIVE_REASON),
+      recordedAt: when, sourceRevision: 27, resultRevision: 28 }), /COMMISSION_ESTIMATE_SIGNAL_RECORDED_AT_INVALID/u, String(when));
+  }
+});
+
+test('失败那一次物流比较落盘把版本顶高一格，这一块仍然是当期的（2026-09-14 那个 bug）', () => {
+  // 现场那一次：主人点确认 → 服务端在同一次失败里把物流比较落了盘 → dataRevision 27 涨到 28。
+  const candidate = { id: 'candidate:synthetic-guoo', dataRevision: 27, history: [] };
+  const saved = appendGuooRouteComparison(candidate, guooComparison(candidate.id, 27), { recordedAt: RECORDED_AT });
+  assert.equal(saved.dataRevision, 28, '物流比较落盘就是会把版本顶高一格，这是这个 bug 的引信');
+
+  // 服务端把这一次的结论记成事实，用的是顶高之后的那个版本号。
+  saved.commissionEstimateSignalV1 = buildCommissionEstimateSignal({ evidencePreparation: preparation(LIVE_REASON),
+    recordedAt: RECORDED_AT, sourceRevision: 27, resultRevision: saved.dataRevision });
+  const step = buildCommissionEstimateStep(saved);
+  assert.equal(step.present, true, '重新读一次视图，这一块必须还在');
+  assert.equal(step.current, true, '它说的就是当前这一版资料');
+  assert.equal(step.recordedRevision, 28);
+  assert.equal(step.dataRevision, 28);
+  assert.equal(step.recordedAt, RECORDED_AT);
+  assert.deepEqual(step.officialGaps, ['OFFICIAL_TABLE_PRICE_MISSING', 'OFFICIAL_TABLE_TYPE_IDENTITY_MISSING']);
+  assert.equal(step.schemaVersion, 'commission-estimate-step-v1');
+  assert.equal(step.candidateId, 'candidate:synthetic-guoo');
+
+  // 记成顶高之前的那个版本号（也就是这个 bug 原来的形状）：这一块当场变成「说的不是这一版」。
+  const stale = { ...saved, commissionEstimateSignalV1: buildCommissionEstimateSignal({
+    evidencePreparation: preparation(LIVE_REASON), recordedAt: RECORDED_AT, sourceRevision: 27, resultRevision: 27 }) };
+  assert.equal(buildCommissionEstimateStep(stale).present, true, '过期也不许无声消失');
+  assert.equal(buildCommissionEstimateStep(stale).current, false);
+  assert.equal(buildCommissionEstimateStep(stale).recordedRevision, 27);
+});
+
+test('那一块什么时候不该摆：确认成功之后、不是这一类、没有记录或记录不是本软件写的', () => {
+  const signal = buildCommissionEstimateSignal({ evidencePreparation: preparation(LIVE_REASON),
+    recordedAt: RECORDED_AT, sourceRevision: 27, resultRevision: 28 });
+  const candidate = (extra = {}) => ({ id: 'candidate:synthetic-guoo', dataRevision: 28,
+    commissionEstimateSignalV1: structuredClone(signal), ...extra });
+  assert.equal(buildCommissionEstimateStep(candidate()).present, true);
+
+  // 确认成功之后这一步早过去了：再摆一个待签的授权只会误导主人。
+  for (const lifecycle of [{ aConfirmationReceipt: { receiptId: 'receipt:1', decision: 'confirm' } },
+    { skuPackage: { skuPackageId: 'sku-package:1' } },
+    { aConfirmationReceipt: { receiptId: 'receipt:1' }, skuPackage: { skuPackageId: 'sku-package:1' } }]) {
+    const step = buildCommissionEstimateStep(candidate({ lifecycleV11: lifecycle }));
+    assert.equal(step.present, false, JSON.stringify(lifecycle));
+    assert.equal(step.current, false);
+    assert.deepEqual(step.officialGaps, []);
+    assert.equal(step.recordedRevision, null);
+  }
+  // 这件商品刚开始、或者上一次停的不是这一类：这一块根本不存在。
+  assert.equal(buildCommissionEstimateStep({ id: 'candidate:synthetic-guoo', dataRevision: 28 }).present, false);
+  assert.equal(buildCommissionEstimateStep(candidate({
+    commissionEstimateSignalV1: { ...signal, exactCommissionUnavailable: false } })).present, false);
+  // 不是本软件写下的格式就不认：宁可不摆，也不照着一份来路不明的记录劝主人签字。
+  for (const broken of [{ ...signal, schemaVersion: 'commission-estimate-signal-v2' }, { ...signal, schemaVersion: null },
+    'commission-estimate-signal-v1', [], 42]) {
+    assert.equal(buildCommissionEstimateStep(candidate({ commissionEstimateSignalV1: broken })).present, false, JSON.stringify(broken));
+  }
+  // 记录里那几处缺口不成句的，不往页面上摆一个空条目。
+  assert.deepEqual(buildCommissionEstimateStep(candidate({
+    commissionEstimateSignalV1: { ...signal, officialCommissionTableGaps: ['TYPE_NOT_FOUND', '', '   ', null] }
+  })).officialGaps, ['TYPE_NOT_FOUND']);
+  // 没有候选、没有版本号时也要给得出一份说得通的答案，不能抛。
+  for (const empty of [null, undefined, {}, 'candidate']) {
+    const step = buildCommissionEstimateStep(empty);
+    assert.equal(step.present, false, String(empty));
+    assert.equal(step.candidateId, null);
+    assert.equal(step.dataRevision, null);
+  }
 });

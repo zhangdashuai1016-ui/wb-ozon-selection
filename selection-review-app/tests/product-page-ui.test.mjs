@@ -844,11 +844,13 @@ const categoryReadStep = (extra = {}) => ({
   action: { label: '读一次这个 Ozon 页面', available: false, reason: '这件商品的类目已经是真实读过的页面给的，不用再读一次。' },
   ...extra
 });
-const profitProps = (reviewExtra = {}, extra = {}, cargo = cargoDeclared(), category = categoryReadStep()) => props({
+const profitProps = (reviewExtra = {}, extra = {}, cargo = cargoDeclared(), category = categoryReadStep(),
+  commission = null) => props({
   candidate: candidate({ sourceCapture: waitingCapture({ selectedSkuIds: ['sku-xl-yellow', 'sku-8xl-yellow'] }) }),
   view: { supplierDraftV1: draft, supplierDraftEstimateV1: okEstimate, marketSnapshot,
     skuChoiceTableV1: choiceTable({ selectedSkuIds: ['sku-xl-yellow', 'sku-8xl-yellow'] }),
-    profitStepV1: profitReview(reviewExtra), cargoFactsStepV1: cargo, ozonCategoryReadStepV1: category },
+    profitStepV1: profitReview(reviewExtra), cargoFactsStepV1: cargo, ozonCategoryReadStepV1: category,
+    commissionEstimateStepV1: commission },
   onChooseSkus: forbidden, onConfirmProfitStep: forbidden, onDeclareCargoFacts: forbidden,
   onReadOzonPage: forbidden, ...extra
 });
@@ -1277,22 +1279,24 @@ test('官方佣金表这一次卡在哪几处，逐字摆给主人；服务端�
   }
 });
 
-test('那一块只在服务端真的说了「精确佣金读不到」之后才出现，勾了才带授权', async () => {
+test('那一块在场与否整份由服务端那条已保存的记录说了算，勾了才带授权', async () => {
   const { readFile } = await import('node:fs/promises');
   const page = await readFile(fileURLToPath(new URL('../src/components/ProductPage.jsx', import.meta.url)), 'utf8');
-  // 判断依据是 lib 里那些纯函数认的机器可读码，页面不自己匹配中文，也不在自己这儿写死任何一个码。
-  assert.match(page, /import \{ commissionEstimateProposal, exactCommissionUnavailable, officialCommissionTableGaps \} from "\.\.\/\.\.\/lib\/commission-estimate-authorization\.mjs";/u);
-  assert.match(page, /cause => setCommissionEstimateSignal\(exactCommissionUnavailable\(cause\)\s*\?\s*\{ officialGaps: officialCommissionTableGaps\(cause\) \} : null\)/u);
+  // 页面只从服务端那一块读，自己不记「刚才撞上没撞上」——记在内存里，主人一硬刷新就没了，而软件一直在让他刷。
+  assert.match(page, /const commissionStep = view\?\.commissionEstimateStepV1 \?\? null;/u);
+  assert.match(page, /commissionEstimate=\{commissionStep\?\.present !== true \? null : \{/u);
+  assert.doesNotMatch(page, /commissionEstimateSignal/u, '页面内存里那个信号必须整个删掉，不留死代码');
+  assert.doesNotMatch(page, /useState\([^)]*\)[^\n]*[Cc]ommissionEstimate/u, '这一块不再有页面自己的状态');
+  // 认那两个机器可读码的活整个搬到服务端了：页面连那两个函数都不再 import，更不在自己这儿写死任何一个码。
+  assert.match(page, /import \{ commissionEstimateProposal \} from "\.\.\/\.\.\/lib\/commission-estimate-authorization\.mjs";/u);
+  assert.doesNotMatch(page, /exactCommissionUnavailable|officialCommissionTableGaps/u, '认码这件事只在服务端做一次');
   assert.doesNotMatch(page, /OZON_EVIDENCE_COMMISSION_UNAVAILABLE|B_EVIDENCE_COMMISSION_ESTIMATE_NOT_AUTHORIZED/u, '那两个码只在 lib 里有一份');
   assert.doesNotMatch(page, /店铺当前没有同|官方佣金表未能成交/u, '不靠服务端那几句中文判断，也不自己拆那句话');
   // 服务端说的那几处缺口只是被带下去，页面不改一个字。
-  assert.match(page, /officialGaps: commissionEstimateSignal\.officialGaps/u);
-  // 页面加载时不去探测：这一块的开关只由那一次失败设上，商品换了一版资料就清掉。
-  assert.match(page, /const \[commissionEstimateSignal, setCommissionEstimateSignal\] = useState\(null\);/u);
-  assert.match(page, /setCommissionEstimateSignal\(null\);/u);
-  // 这个开关只有两处会写：那一次失败之后设上，商品换了一版资料清掉。没有第三处，也就没有加载时的探测。
-  assert.equal(page.match(/setCommissionEstimateSignal\(/gu).length, 2, '这一块不在页面加载时去探测主人的 Ozon 账户');
-  // 费率、档位、来源引用都不在页面里写死，每次渲染都从当前那份解析结果里取。
+  assert.match(page, /officialGaps: commissionStep\.officialGaps/u);
+  // 确认失败之后页面什么都不记：那一条路由带回的整份资料里已经有这一块了。
+  assert.doesNotMatch(page, /onFailure/u, '失败回调没有别的用处，一并清掉');
+  // 费率、档位、来源引用都不在页面里写死，每次渲染都从当前那份解析结果里取——提议从来不进记录。
   assert.match(page, /proposal: commissionEstimateProposal\(skuTable\?\.sources \?\? null\)/u);
   assert.match(page, /proposal\.commissionTier/u);
   assert.match(page, /proposal\.commissionSourceRef/u);
@@ -1303,6 +1307,45 @@ test('那一块只在服务端真的说了「精确佣金读不到」之后才�
   // 这一块和运输属性那一块同一套观感，不自创一套。
   const css = await readFile(fileURLToPath(new URL('../src/styles.css', import.meta.url)), 'utf8');
   assert.match(css, /\.product-profit-commission \{[^}]*background: var\(--amber-soft\);/u);
+});
+
+/**
+ * 2026-09-14 那个 bug 在页面这一侧的形状：那一块原来只活在页面内存里，服务端在同一次失败里把物流比较落了盘、
+ * 把 dataRevision 顶高一格，页面重读资料时就把它当成旧版本清掉了。现在它整份来自服务端那条已保存的记录，
+ * 所以「重读一次资料」「硬刷新一次页面」都是同一件事：记录在，它就在。
+ */
+test('这一块跟着服务端那条记录走：重读资料它还在，说的不是这一版就照实说', async () => {
+  const { renderCommissionEstimate } = await pageModule();
+  const step = (extra = {}) => ({ schemaVersion: 'commission-estimate-step-v1',
+    candidateId: 'candidate:synthetic-product-page', dataRevision: 29, present: true, current: true,
+    recordedRevision: 29, recordedAt: '2026-09-14T06:30:00.000Z', officialGaps: [], ...extra });
+
+  // 服务端说这一块在场：整页渲染就有它，费率来自当前那份解析结果（choiceTable 的 sources 是 14%）。
+  const live = await render(profitProps({}, {}, cargoDeclared(), categoryReadStep(), step()));
+  assert.match(live, /<div class="product-profit-commission" role="group" aria-label="估算佣金授权">/u);
+  assert.match(live, /费率 14% · 档位 1500_5000/u);
+  assert.doesNotMatch(live, /这一块说的是上一次确认停下来那一刻的事/u);
+
+  // 服务端说不在场（没撞上过、或者已经确认成功）：这一块根本不存在，页面自己也不记得它曾经在过。
+  for (const absent of [null, undefined, step({ present: false, current: false, recordedRevision: null })]) {
+    assert.doesNotMatch(await render(profitProps({}, {}, cargoDeclared(), categoryReadStep(), absent)),
+      /估算佣金授权/u, JSON.stringify(absent) ?? 'undefined');
+  }
+
+  // 记录说的不是当前这一版资料：这一块不消失，而是把它说的是哪一版照实摆在最前面。
+  // 那句话只说资料动过，不说是主人改的——把版本顶高的也可能是软件自己存的另一条记录。
+  const stale = await render(profitProps({}, {}, cargoDeclared(), categoryReadStep(),
+    step({ current: false, recordedRevision: 27 })));
+  assert.match(stale, /这一块说的是上一次确认停下来那一刻的事：它说的是第 27 版资料，现在是第 29 版。这之后这件商品的资料又动过，软件没有因此重新读过佣金。/u);
+  assert.match(stale, /照它签一次字，或者直接再点一次下面那个确认，让软件按现在这一版重新读一次，都可以。/u);
+  // 过期不等于不能签：费率照样是现在这份解析结果给的，那个勾也还在。
+  assert.match(stale, /费率 14% · 档位 1500_5000/u);
+  assert.match(stale, /id="profit-commission-estimate"/u);
+  // 服务端连版本号都说不清的时候，那句话照说，但不编一个版本号出来。
+  const vague = await renderCommissionEstimate({ authorized: false, saving: false, onAuthorize: forbidden,
+    estimate: { proposal: null, storeLabel: 'Miska', current: false, recordedRevision: null, dataRevision: null } });
+  assert.match(vague, /这一块说的是上一次确认停下来那一刻的事。这之后这件商品的资料又动过/u);
+  assert.doesNotMatch(vague, /第 null 版|第 undefined 版/u);
 });
 
 test('确认之后说的是服务端真的保存成什么样，同一个成功回执底下的四种结果各说各的', async () => {

@@ -101,6 +101,7 @@ import {
   ozonPageReadStopMessage
 } from "./lib/ozon-page-capture-job.mjs";
 import { buildOzonCategoryReadStep } from "./lib/ozon-category-read-step.mjs";
+import { buildCommissionEstimateSignal, buildCommissionEstimateStep } from "./lib/commission-estimate-authorization.mjs";
 import { adaptLegacyCandidateToOpportunity } from "./lib/legacy-candidate-adapter.mjs";
 import { buildRealLifecycleEntryPreview } from "./lib/real-lifecycle-entry-preview.mjs";
 import { buildRealAConfirmationCard, validateRealAConfirmationSubmission } from "./lib/real-a-confirmation-card.mjs";
@@ -2736,6 +2737,9 @@ async function supplierDraftView(document, candidate) {
     cargoFactsStepV1: buildCargoFactsStep(candidate),
     // 类目那一小块：算利润只认真实读过的 Ozon 页面给的类目，这里说清楚现在这条是不是、不是的话出路是什么。
     ozonCategoryReadStepV1: buildOzonCategoryReadStep(candidate),
+    // 估算佣金授权那一小块：上一次确认是不是停在「精确佣金读不到、只差主人授权」。它整份来自已保存的记录，
+    // 所以主人硬刷新之后这一块还在——页面自己记不住这件事，正是 2026-09-14 那个 bug 的根。
+    commissionEstimateStepV1: buildCommissionEstimateStep(candidate),
     marketSnapshot: snapshot === null ? null : structuredClone(snapshot),
     candidate: publicView
   };
@@ -5019,17 +5023,42 @@ async function handleApi(req, res, pathname) {
       throw httpError(422, error instanceof Error ? error.message : String(error));
     }
     if (orchestration.status !== "completed") {
-      if (orchestration.guooRouteComparison) {
-        await mutateData((data) => {
-          const current = data.candidates.find(item => item.id === snapshotCandidate.id);
-          if (!current || current.dataRevision !== input.dataRevision) throw httpError(409, "商品资料已变化，本轮物流比较未保存，请刷新。");
-          assertCandidateStoreBinding(current, runtimeConfiguration.storeBindings);
-          if (activeDispatchForCandidate(data, current.id)) throw httpError(409, "当前SKU已有任务，不能同时保存物流比较。");
-          Object.assign(current, appendGuooRouteComparison(current, orchestration.guooRouteComparison, { recordedAt: timestamp }));
-          current.updatedAt = timestamp;
-          addHistory(current, "system", "guooRouteComparisonBlocked", "已保存指定版本的物流比较及证据缺口；未形成利润结论或进入C1。", timestamp);
+      // 这一次停下来的事实要落盘，主人刷新之后才找得回那条出路。物流比较能不能一起落盘是另一回事，两支都存。
+      const comparisonToSave = orchestration.guooRouteComparison || null;
+      await mutateData((data) => {
+        const current = data.candidates.find(item => item.id === snapshotCandidate.id);
+        if (!current || current.dataRevision !== input.dataRevision) {
+          throw httpError(409, comparisonToSave
+            ? "商品资料已变化，本轮物流比较未保存，请刷新。"
+            : "商品资料已变化，本轮确认停在哪一步未保存，请刷新。");
+        }
+        assertCandidateStoreBinding(current, runtimeConfiguration.storeBindings);
+        if (activeDispatchForCandidate(data, current.id)) {
+          throw httpError(409, comparisonToSave
+            ? "当前SKU已有任务，不能同时保存物流比较。"
+            : "当前SKU已有任务，不能同时保存本轮确认停在哪一步。");
+        }
+        if (comparisonToSave) Object.assign(current, appendGuooRouteComparison(current, comparisonToSave, { recordedAt: timestamp }));
+        // 这一次是不是「精确佣金读不到、只差主人授权」那一类，记成事实。上一行的物流比较落盘会把 dataRevision
+        // 顶高一格，所以这里用的是顶高之后的 current.dataRevision——用顶高之前的值，这条记录一存进去就过期，
+        // 页面上那一块还没渲染就没了（2026-09-14 现场实测：27→28→29，每失败一次涨一格）。
+        //
+        // 物流比较没有落盘的那一支不自己涨版本：涨了会把这件商品已经存着的那份物流比较判成过期（时效性判的是
+        // resultRevision === dataRevision），也会让主人手上那一版号当场作废，白白逼他多刷一次。不涨版本时这条
+        // 记录记的就是当前这一版，照样是当期的。
+        current.commissionEstimateSignalV1 = buildCommissionEstimateSignal({
+          evidencePreparation: orchestration.evidencePreparation,
+          recordedAt: timestamp,
+          sourceRevision: input.dataRevision,
+          resultRevision: current.dataRevision
         });
-      }
+        current.updatedAt = timestamp;
+        addHistory(current, "system", comparisonToSave ? "guooRouteComparisonBlocked" : "aConfirmationEvidenceBlocked",
+          comparisonToSave
+            ? "已保存指定版本的物流比较及证据缺口；未形成利润结论或进入C1。"
+            : "已记下本轮确认停在B证据准备的哪一步；未保存物流比较、未形成利润结论或进入C1。",
+          timestamp);
+      });
       throw httpError(422, `A确认后的B系统证据准备已停止：${orchestration.evidencePreparation?.failure?.reason || "未知失败"}`, {
         evidencePreparation: orchestration.evidencePreparation,
         guooRouteComparison: orchestration.guooRouteComparison || null

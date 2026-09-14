@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-14T07:19:30.601Z",
+  "frozenAt": "2026-09-14T08:19:43.757Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 666,
-      "sha256": "312dbd11061c9578a72f48bb6db70a5bd49317a3bcb8fbfdd7f090e38a71b8e6",
+      "sha256": "f0a3302a1a7561cd2bd7055374c1000108ce4b2ba3a8fb8f4acf54ba171c2c2b",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -328,7 +328,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "951608dbca10017d6ea6950448ce302653fb7ab2b26f09e3cf763639b4bb5475"
+        "sha256": "820d496cf997443e91586c155aa98c85f528fa69756b72466e9cdbff8d981268"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -348,7 +348,7 @@
       },
       {
         "path": "lib/commission-estimate-authorization.mjs",
-        "sha256": "a30a775b1838576952a5f4f6526bfbd2fa7efa5abf8f0b4c78590891e38e5058"
+        "sha256": "365eec2776318cdee8a32b063b88cac1aa00f3e7fde03fe9da59ca9b8cbdd1e4"
       },
       {
         "path": "lib/d-asset-transport-software-use-case.mjs",
@@ -1200,7 +1200,7 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "e1bb0c10d7b8ce87adef201818fa0e2982818518db067babf7840b49087e0676"
+        "sha256": "e87785a3bd4eecf53fca348af17b5469211687ee21ad91724c99ec9cde986250"
       },
       {
         "path": "src/App.jsx",
@@ -1352,7 +1352,7 @@
       },
       {
         "path": "src/components/ProductPage.jsx",
-        "sha256": "917c4e6196037c89bc223d2f9f4166f348b5666d5f5baebad5ec124cb3cb9570"
+        "sha256": "fd699c75137b74e7e2cb87135b204b6fb4613597dae3d989611031ad9cbcf9ec"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1820,7 +1820,7 @@
       },
       {
         "path": "tests/commission-estimate-authorization.test.mjs",
-        "sha256": "7d0c342fc4c690dd72b7bbf7fd2f76c93d1245d63b69c1383765aa546e7b6f19"
+        "sha256": "f0352efe39d5061acba5624d2651db7ab1e43801960175f52d219b84fe9a90e2"
       },
       {
         "path": "tests/cross-stage-contract-schema.test.mjs",
@@ -2464,7 +2464,7 @@
       },
       {
         "path": "tests/product-page-ui.test.mjs",
-        "sha256": "24521e5535a100ccac152090af54786b04f31d5b5d37be23b6503609ebd126b5"
+        "sha256": "c1096262b20202e4868b8a3f9ee22be3fe8dd858dc668c188855feaacca1374d"
       },
       {
         "path": "tests/production-owner-decision-api.test.mjs",
@@ -2496,7 +2496,7 @@
       },
       {
         "path": "tests/real-a-b-c1-api.test.mjs",
-        "sha256": "368f35f28d78ae951e90e4cb2e8ac0569009b9c1addb2258814c4b37444d97f7"
+        "sha256": "f5cf21f03c82b632ac2e536a668158f9d0c3c5df3e1da4487c5649eccaf5c6fb"
       },
       {
         "path": "tests/real-a-b-c1-flow.test.mjs",

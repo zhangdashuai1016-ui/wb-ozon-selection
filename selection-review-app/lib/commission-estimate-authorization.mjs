@@ -4,7 +4,7 @@
  * 软件算佣金的规矩是：从主人自己店里已经上着的、同一个 description_category_id + type_id 的商品上，读出平台
  * 实际收的那个费率。一个店在一条类目的第一件商品必然撞上这一下：店里没有同类商品，读不到，重试多少次都一样。
  *
- * 这个模块只做三件事，三件都不碰网络、不碰记录：
+ * 这个模块只做五件事，五件都不碰网络、不碰记录（它只把记录算成句子，写记录的是路由）：
  *   一、从服务端那句失败原话里认出这一类。认的是机器可读的码，不是那句中文——中文会改，码不会。失败的话被
  *       层层包过（422 的 evidencePreparation.failure.reason 里是 provider 的包装，再里面才是原话），所以
  *       这里在整句里找那些码。
@@ -13,6 +13,14 @@
  *   三、给出替代费率的提议。费率、档位、来源引用只从页面已经有的那份解析结果里取，三样缺一样就不提议——
  *       证据含糊的地方软件不替主人签字。它也不缓存任何一个数：目标成交价跨过档位分界线，同一份解析结果会
  *       给出另一档，这里跟着走。
+ *   四、把上面一二两件事的结论写成一条可以存进候选记录的事实（`buildCommissionEstimateSignal`）。
+ *   五、从那条已保存的记录构建出页面要摆的那一块（`buildCommissionEstimateStep`）。
+ *
+ * 四和五是 2026-09-14 那天现场抓到的那个 bug 逼出来的。原来这一块只活在页面内存里：确认失败 → 页面记下
+ * 「撞上了」→ 页面在 finally 里重读资料 → 而同一次失败里服务端把物流比较落了盘，落盘把 dataRevision 顶高
+ * 一格（lib/guoo-route-comparison.mjs 的 appendGuooRouteComparison）→ 页面按 dataRevision 变化清掉内存状态
+ * → 这一块还没渲染就没了，主人看到的只有一句读不懂的 422。页面内存治不好这个病：主人还会硬刷新。所以这一
+ * 次失败本身要变成服务端保存的事实，页面只负责渲染——照 cargoFactsStepV1 和 ozonCategoryReadStepV1 的样板。
  *
  * 两个码要一起认，因为它们是同一件事在两代证据服务下的两种说法：
  *   · 旧的本地只读证据服务把「店里没有同类商品可读 RFBS 佣金」回成 HTTP 500，原话里带 OZON_ 那个码；
@@ -118,4 +126,82 @@ export function commissionEstimateProposal(sources) {
     commissionSourceRef,
     targetSalePriceRub: finite(sources.targetSalePriceRub)
   });
+}
+
+/** 存进候选记录的那条事实的版本号。 */
+export const COMMISSION_ESTIMATE_SIGNAL_VERSION = 'commission-estimate-signal-v1';
+
+/** 页面拿到的那一块的版本号，和 cargo-facts-step-v1、ozon-category-read-step-v1 同一套叫法。 */
+export const COMMISSION_ESTIMATE_STEP_VERSION = 'commission-estimate-step-v1';
+
+/** 官方佣金表的缺口是机器可读的码（OFFICIAL_TABLE_*），最多留这么多条；再多说明上游出了别的事，不往记录里灌。 */
+const MAX_OFFICIAL_GAPS = 20;
+
+/**
+ * 一次 A 确认停在 B 证据准备上时，把这一次的结论写成一条可以存进候选记录的事实。
+ *
+ * 存的只有主人真正需要的那几样：这是不是「精确佣金读不到、只差主人授权」那一类、服务端顺带说的官方佣金表缺口
+ * （逐字），以及这条记录说的是哪一版资料。
+ *
+ * 不存服务端那句失败原话。那句话里可能带着本机证据服务的回环地址或者资费表的本机路径，而业务记录不许保存这两样
+ * （lib/runtime-identity.mjs 的 assertSafeBusinessMutationCandidate 明文禁止）。原话在这一次的 422 回体里已经
+ * 原样交给主人了，记录留下的是它的结论。
+ *
+ * 每一次停都要存，撞上的和没撞上的都存：主人这一次改好了类目、下一次停在别的地方时，`exactCommissionUnavailable`
+ * 就是 false，那一块跟着消失。只存撞上的那几次，反而会留下一条永远不被覆盖的旧记录。
+ *
+ * `resultRevision` 必须是这一次落盘全部写完之后的那个 dataRevision——同一次失败里物流比较也在落盘，它会把版本
+ * 顶高一格；用顶高之前的值，这条记录一存进去就是过期的。
+ */
+export function buildCommissionEstimateSignal({ evidencePreparation = null, recordedAt, sourceRevision, resultRevision }) {
+  const at = text(recordedAt);
+  if (at === null || !Number.isFinite(Date.parse(at))) {
+    throw new Error('COMMISSION_ESTIMATE_SIGNAL_RECORDED_AT_INVALID: 这一次失败的记录时间无效');
+  }
+  if (!Number.isSafeInteger(sourceRevision) || sourceRevision < 0 ||
+      !Number.isSafeInteger(resultRevision) || resultRevision < sourceRevision) {
+    throw new Error('COMMISSION_ESTIMATE_SIGNAL_REVISION_INVALID: 这一次失败的修订号必须是不倒退的非负整数');
+  }
+  const cause = { evidencePreparation };
+  return {
+    schemaVersion: COMMISSION_ESTIMATE_SIGNAL_VERSION,
+    recordedAt: at,
+    sourceRevision,
+    resultRevision,
+    exactCommissionUnavailable: exactCommissionUnavailable(cause),
+    officialCommissionTableGaps: officialCommissionTableGaps(cause).slice(0, MAX_OFFICIAL_GAPS),
+    // 停在哪一层，照服务端自己的说法（guoo_route_comparison、provider:commission……）；它没说就是 null。
+    failureLayer: text(evidencePreparation?.failure?.layer)
+  };
+}
+
+/**
+ * 「估算佣金授权」那一块，整份由服务端从已保存的记录构建：页面不再自己记「刚才撞上没撞上」，硬刷新之后它还在。
+ *
+ * `present` 为真才摆这一块：有一条本软件写下的记录、它说的是这一类、并且这件商品还没确认成功——已经有
+ * aConfirmationReceipt 或 skuPackage 的商品，这一步早过去了，再摆一个待签的授权只会误导。
+ *
+ * `current` 说的是「这条记录说的还不还是当前这一版资料」，判法和 guooRouteComparisonsV1 一样：resultRevision
+ * 对得上当前 dataRevision 才算。对不上时这一块不消失，只是照实说它说的是哪一版——消失正是这次要修的那个病：
+ * 主人改一次资料，能救他的那条出路就无声无息地没了。
+ */
+export function buildCommissionEstimateStep(candidate) {
+  const saved = isObject(candidate?.commissionEstimateSignalV1) ? candidate.commissionEstimateSignalV1 : null;
+  const record = saved !== null && saved.schemaVersion === COMMISSION_ESTIMATE_SIGNAL_VERSION ? saved : null;
+  const dataRevision = Number.isSafeInteger(candidate?.dataRevision) ? candidate.dataRevision : null;
+  const lifecycle = isObject(candidate?.lifecycleV11) ? candidate.lifecycleV11 : {};
+  const confirmed = isObject(lifecycle.aConfirmationReceipt) || isObject(lifecycle.skuPackage);
+  const recordedRevision = Number.isSafeInteger(record?.resultRevision) ? record.resultRevision : null;
+  const present = record !== null && record.exactCommissionUnavailable === true && !confirmed;
+  const gaps = Array.isArray(record?.officialCommissionTableGaps) ? record.officialCommissionTableGaps : [];
+  return {
+    schemaVersion: COMMISSION_ESTIMATE_STEP_VERSION,
+    candidateId: text(candidate?.id),
+    dataRevision,
+    present,
+    current: present && recordedRevision !== null && recordedRevision === dataRevision,
+    recordedRevision: present ? recordedRevision : null,
+    recordedAt: present ? text(record.recordedAt) : null,
+    officialGaps: present ? gaps.map(gap => text(gap)).filter(gap => gap !== null) : []
+  };
 }

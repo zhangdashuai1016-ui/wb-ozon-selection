@@ -3,7 +3,7 @@ import { errorMessage } from "../formState.js";
 import { storeLabel } from "../selectionDeskView.js";
 import { toggleLocalSupplierSkuSelection } from "../aSupplierCaptureSelection.js";
 import { profitStepGaps, profitStepSubmission } from "../../lib/profit-step-review.mjs";
-import { commissionEstimateProposal, exactCommissionUnavailable, officialCommissionTableGaps } from "../../lib/commission-estimate-authorization.mjs";
+import { commissionEstimateProposal } from "../../lib/commission-estimate-authorization.mjs";
 import EliminateControl from "./EliminateControl.jsx";
 
 /**
@@ -909,8 +909,13 @@ function CargoFactsBlock({ step, dataRevision, saving, onDeclare }) {
  * 上压根没配它。绝不能写成「官方表好好的，只是还要你多签一次字」。服务端说了卡在哪几处的，逐字摆出来；
  * 什么都没说的，就一个字都不说，不替它造一句。
  *
- * 它不常驻，也不是一个随时可勾的高级选项：只有点过确认、服务端回了「精确佣金读不到」之后才出现。页面加载
- * 时不去探测——那会对主人的 Ozon 账户产生一次真实读取。
+ * 它不常驻，也不是一个随时可勾的高级选项：只有点过确认、服务端在那一次确认里真的停在「精确佣金读不到」
+ * 之后才出现。页面加载时不去探测——那会对主人的 Ozon 账户产生一次真实读取。在场与否整份由服务端那条已保存
+ * 的记录（`commissionEstimateStepV1`）说了算，页面自己不记，所以硬刷新之后它还在。
+ *
+ * 那条记录说的可能已经不是当前这一版资料了（主人改过找货资料，或者软件又存过一次别的记录，版本号都会动）。
+ * 那种时候这一块不消失，只是把「它说的是哪一版」照实说在最前面：无声消失正是这一块原来的病——资料一动，唯一
+ * 那条出路就没了。也正因为动的不一定是主人，这句话只说资料动过，不替他认下是他改的。
  */
 export function CommissionEstimateBlock({ estimate, authorized, saving, onAuthorize }) {
   if (!isObject(estimate)) return null;
@@ -922,6 +927,11 @@ export function CommissionEstimateBlock({ estimate, authorized, saving, onAuthor
   // 服务端那几个缺口一个字都不改；它没说的时候这里是空的，下面那一整段也就不出现。
   const officialGaps = (Array.isArray(estimate.officialGaps) ? estimate.officialGaps : [])
     .map(value => textOf(value)).filter((value, index, all) => value !== "" && all.indexOf(value) === index);
+  // 记录说的那一版和现在这一版；服务端说不清楚版本号的时候就不报数字，但那句话照说。
+  const recordedRevision = finite(estimate.recordedRevision);
+  const dataRevision = finite(estimate.dataRevision);
+  const staleVersions = recordedRevision === null || dataRevision === null
+    ? "" : `：它说的是第 ${recordedRevision} 版资料，现在是第 ${dataRevision} 版`;
 
   return <div className="product-profit-commission" role="group" aria-label="估算佣金授权">
     <div className="product-sku-table-head">
@@ -930,6 +940,13 @@ export function CommissionEstimateBlock({ estimate, authorized, saving, onAuthor
         ? "官方费率表这一次没顶上，软件也拿不出一个能提议的费率"
         : "官方费率表这一次没能自己立成证据，所以要你亲自签这一次"}</span>
     </div>
+
+    {/* 记录说的不是当前这一版资料时，先把这件事说清楚，再说别的；这一块不会因为过期就悄悄消失。 */}
+    {estimate.current === false ? <p role="alert" className="product-result-warning">
+      {`这一块说的是上一次确认停下来那一刻的事${staleVersions}。这之后这件商品的资料又动过，软件没有因此重新读过佣金。` +
+        "照它签一次字，或者直接再点一次下面那个确认，让软件按现在这一版重新读一次，都可以。"}
+    </p> : null}
+
     <p className="product-profit-commission-why">
       {`软件算佣金的规矩是：从${store}里已经上着的、同一条 Ozon 类目的商品上，读出 Ozon 实际收你的那个费率。` +
         `这件是这条类目在${store}的第一件，店里没有同类商品可读，所以读不到。再点几次也还是读不到，这不是网络卡了。`}
@@ -1295,21 +1312,19 @@ export default function ProductPage({
   const profitReview = view?.profitStepV1 ?? null;
   const cargoStep = view?.cargoFactsStepV1 ?? null;
   const categoryStep = view?.ozonCategoryReadStepV1 ?? null;
+  // 「精确佣金读不到」是服务端在上一次确认里真的这么停过一次才知道的事。页面不记它，也不在加载时去探测——
+  // 探测会对主人的 Ozon 账户产生一次真实读取。服务端把那一次停在哪存成了记录，这里读的就是那份记录。
+  const commissionStep = view?.commissionEstimateStepV1 ?? null;
   // The form follows the saved draft: when the server returns a newer declaration, the fields show that declaration.
   const prefillKey = `${candidate?.id ?? ""}:${candidate?.dataRevision ?? ""}:${draft?.declaredAt ?? "none"}`;
   const [form, setForm] = useState(() => draftFormState({ draft, candidate, marketSnapshot }));
   // The ticks follow the saved choice the same way: a newer revision shows what the server actually holds.
   const [chosen, setChosen] = useState(() => (skuTable?.selectedSkuIds ?? []).map(String));
-  // 「精确佣金读不到」是服务端真的这么回过一次才知道的事，所以它记在这里，不在页面加载时去探测。
-  // 记的不只是撞上没撞上，还有服务端顺带说的「官方佣金表卡在哪几处」——那几句要原样转给主人。
-  const [commissionEstimateSignal, setCommissionEstimateSignal] = useState(null);
   const [prefilled, setPrefilled] = useState(prefillKey);
   if (prefilled !== prefillKey) {
     setPrefilled(prefillKey);
     setForm(draftFormState({ draft, candidate, marketSnapshot }));
     setChosen((skuTable?.selectedSkuIds ?? []).map(String));
-    // 这件商品的资料换了一版，上一版那次读取失败说的就不是现在这一版的事了。
-    setCommissionEstimateSignal(null);
   }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -1334,11 +1349,11 @@ export default function ProductPage({
   const snapshotLine = marketSnapshotLine(marketSnapshot);
   const change = key => value => { setForm(current => ({ ...current, [key]: value })); setNotice(null); };
 
-  async function run(action, payload, successNotice, onFailure = null) {
+  async function run(action, payload, successNotice) {
     if (saving || typeof action !== "function") return;
     setSaving(true); setError(null); setNotice(null);
     try { setNotice(stepNotice(await action(payload), successNotice)); }
-    catch (cause) { setError(errorMessage(cause)); onFailure?.(cause); }
+    catch (cause) { setError(errorMessage(cause)); }
     finally { setSaving(false); }
   }
   /** 同一次重读，无论从规格表旁边点还是从「1688 采集」块里点，走的都是这一条路。 */
@@ -1364,13 +1379,9 @@ export default function ProductPage({
   function confirmProfitStep(firstSkuId, judgments) {
     const payload = profitStepSubmission(profitReview, firstSkuId, judgments);
     if (payload === null) { setError("这一份确认还凑不齐，没有提交；请看上面列出的缺项。"); return undefined; }
+    // 失败时这里不记任何东西：服务端已经把这一次停在哪存进了记录，页面重读资料时那一块自己就回来了。
     return run(async input => profitStepOutcomeLine(await onConfirmProfitStep(input)), payload,
-      "已提交这一步的确认；下面显示的是服务端现在保存的状态。",
-      // 服务端说的是「你店里还没有这条类目的商品，读不到同类商品的真实佣金」这一类失败时，才把那一块摆出来。
-      // 认的是服务端原话里那两个机器可读的码，不是那句中文；别的失败照旧只显示服务端那句话。
-      // 同一句话里还带着官方佣金表这一次卡在哪几处的，一并留着，逐字转给主人。
-      cause => setCommissionEstimateSignal(exactCommissionUnavailable(cause)
-        ? { officialGaps: officialCommissionTableGaps(cause) } : null));
+      "已提交这一步的确认；下面显示的是服务端现在保存的状态。");
   }
 
   if (!candidate) return <div className="page-panel"><p role="status">{loadingLabel}</p></div>;
@@ -1516,13 +1527,18 @@ export default function ProductPage({
     {/* 算利润：整套一起核线、指定先上的那一个、其余排队，这件货运输上是什么，最后那两个只有主人能做的判断。 */}
     {profitOpen ? <ProfitStepSection key={`${candidate.id}:${candidate.dataRevision}`}
       review={profitReview} cargoStep={cargoStep} categoryStep={categoryStep}
-      commissionEstimate={commissionEstimateSignal === null ? null : {
+      commissionEstimate={commissionStep?.present !== true ? null : {
         // 费率、档位和来源引用每次渲染都从当前这份解析结果里取；跨了档位分界线它自己就是另一档。
+        // 提议从来不进记录，所以这里取的永远是现在这份解析结果，不是失败那一刻的旧数。
         proposal: commissionEstimateProposal(skuTable?.sources ?? null),
         storeLabel: storeLabel(candidate.targetStore),
         category: categoryStep?.category ?? null,
         // 服务端这一次说的官方佣金表缺口，原样带下去；它没说就是空的，那一段不出现。
-        officialGaps: commissionEstimateSignal.officialGaps
+        officialGaps: commissionStep.officialGaps,
+        // 这条记录说的还是不是当前这一版资料。不是的话这一块不消失，只照实说它说的是哪一版。
+        current: commissionStep.current,
+        recordedRevision: commissionStep.recordedRevision,
+        dataRevision: commissionStep.dataRevision
       }}
       dataRevision={candidate.dataRevision} saving={saving}
       onConfirm={confirmProfitStep} onDeclareCargoFacts={declareCargoFacts} onReadOzonPage={readOzonPage} /> : null}
