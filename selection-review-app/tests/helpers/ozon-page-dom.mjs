@@ -181,10 +181,13 @@ function queryAll(scope, selector, firstOnly) {
  * 装上一个只含给定组件的 Ozon 商品页。widgets 是 outerHTML 字符串。
  * lineThroughTexts 里的金额会被 getComputedStyle 报成 line-through。
  */
-export function installOzonHtmlPage({ href, widgets, lineThroughTexts = [] }) {
+export function installOzonHtmlPage({ href, widgets, lineThroughTexts = [], pseudoStruckTexts = [] }) {
   const previous = { window: globalThis.window, document: globalThis.document, fetch: globalThis.fetch };
   const roots = Object.values(widgets).map((html) => parseWidgetHtml(html));
   const struck = new Set(lineThroughTexts.map((value) => collapse(value)));
+  // 真实页面（2026-09-14 实测）不用 text-decoration 画删除线，而是一个 ::after 细线盒子。
+  // 这是线上失败而测试全绿的原因，所以样本按真实机制回放。
+  const pseudoStruck = new Set(pseudoStruckTexts.map((value) => collapse(value)));
   const scope = { roots };
   const documentStub = {
     body: { innerText: "" },
@@ -197,8 +200,17 @@ export function installOzonHtmlPage({ href, widgets, lineThroughTexts = [] }) {
     location: { href },
     // The dump carries no CSS, so the strike-through the owner saw on the page is
     // replayed by amount instead of by a guessed build-hashed class name.
-    getComputedStyle: (element) => {
+    getComputedStyle: (element, pseudo = null) => {
       if (!element || element.nodeType !== 1) throw new TypeError("OZON_FIXTURE_COMPUTED_STYLE_TARGET");
+      if (pseudo) {
+        const draws = pseudo === "::after" && pseudoStruck.has(collapse(element.textContent));
+        // 实测值：content ""、背景取文字同色、高 0.994318px、宽 43.2528px、绝对定位压在行中间。
+        return draws
+          ? { content: '""', backgroundColor: "rgba(0, 26, 51, 0.6)", height: "0.994318px", width: "43.2528px",
+              position: "absolute", top: "8.99858px" }
+          : { content: "none", backgroundColor: "rgba(0, 0, 0, 0)", height: "auto", width: "auto",
+              position: "static", top: "auto" };
+      }
       const line = struck.has(collapse(element.textContent)) ? "line-through" : "none";
       return { textDecorationLine: line, textDecoration: `${line} solid rgb(0, 26, 52)` };
     }

@@ -34,7 +34,10 @@ function inspectCaptureTab(tab, payload) {
     if (!address) return null;
     const sourceUrl = canonicalOzonCaptureSource(address, payload.expectedProductId);
     if (!sourceUrl) throw failure("wrong_product");
-    return tab.status === "complete" && !tab.pendingUrl ? { sourceUrl, productId: payload.expectedProductId } : null;
+    // Same relaxation as the supplier branch below, for the same measured reason: the Ozon product document has
+    // committed, and the collector waits in the page for the components it needs rather than for the load event that a
+    // throttled background tab may never report (owner, 2026-09-14, timed out at 25s).
+    return tab.pendingUrl ? null : { sourceUrl, productId: payload.expectedProductId };
   }
   const address = observed1688TabAddress(tab).value;
   if (!address) return null;

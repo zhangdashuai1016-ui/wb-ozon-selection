@@ -24,6 +24,23 @@ export async function collectOzonPage(expectedProductId) {
   if (document.querySelector?.('form[action*="login"] input[type="password"], [data-widget="loginForm"]')) return fail("site_login_required", "Ozon页面要求先登录");
 
   const widget = (name) => document.querySelector?.(`[data-widget="${name}"]`) || null;
+  // An Ozon product page loads in the background tab this capture opens, and Chrome throttles that tab: waiting for the
+  // whole page to report complete timed out at 25s on the owner's own machine (2026-09-14), the same way the 1688 page
+  // did. So the capture now starts as soon as the product document has committed and the collector waits here instead,
+  // for the two components it actually needs. A page that never renders them stops on its own deadline and says so.
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const blocked = () => document.querySelector?.('[id="captcha"], [data-widget="captcha"], iframe[src*="captcha"]') ||
+    document.querySelector?.('form[action*="login"] input[type="password"], [data-widget="loginForm"]');
+  const renderDeadline = Date.now() + 20000;
+  while (Date.now() < renderDeadline && !blocked() && !(widget("webProductHeading") && widget("webPrice"))) {
+    await sleep(250);
+  }
+  if (document.querySelector?.('[id="captcha"], [data-widget="captcha"], iframe[src*="captcha"]')) {
+    return fail("site_verification_required", "Ozon页面要求人工完成验证");
+  }
+  if (document.querySelector?.('form[action*="login"] input[type="password"], [data-widget="loginForm"]')) {
+    return fail("site_login_required", "Ozon页面要求先登录");
+  }
   const headingWidget = widget("webProductHeading");
   const priceWidget = widget("webPrice");
   const galleryWidget = widget("webGallery");
@@ -118,8 +135,38 @@ export async function collectOzonPage(expectedProductId) {
     if (!declarations.length) { decorationReadable = false; return false; }
     return declarations.some((value) => value.toLowerCase().includes("line-through"));
   };
+  // Ozon does not strike its former price with text-decoration: measured on the live page 2026-09-14, the 5 172 ₽ span
+  // reports decoration "none" and paints the line with an ::after box — content "", the text's own colour as
+  // background, height 0.99px, width 43.25px, absolutely positioned over the middle of the line. A generated box that
+  // is painted, thin and wide is a line drawn across the text, and nothing else looks like that; reading it costs one
+  // more computed style per price node. Missing it is what let the former price be read as a current one.
+  const STRIKE_MAX_THICKNESS_PX = 3;
+  const STRIKE_MIN_LENGTH_PX = 6;
+  const transparent = (value) => typeof value !== "string" || value === "" ||
+    /^(?:transparent|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))$/i.test(value.trim());
+  const pixels = (value) => {
+    const parsed = typeof value === "string" ? Number.parseFloat(value) : NaN;
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const drawsStrikeLine = (node) => {
+    const view = node?.ownerDocument?.defaultView || (typeof window === "object" ? window : null);
+    if (typeof view?.getComputedStyle !== "function") return false;
+    for (const pseudo of ["::after", "::before"]) {
+      let style = null;
+      try { style = view.getComputedStyle(node, pseudo); } catch { style = null; }
+      if (!style) continue;
+      const content = typeof style.content === "string" ? style.content.trim().toLowerCase() : "";
+      if (!content || content === "none" || content === "normal") continue;
+      const thickness = pixels(style.height);
+      const length = pixels(style.width);
+      if (thickness === null || length === null) continue;
+      if (thickness <= 0 || thickness > STRIKE_MAX_THICKNESS_PX || length < STRIKE_MIN_LENGTH_PX) continue;
+      if (!transparent(style.backgroundColor)) return true;
+    }
+    return false;
+  };
   const isCrossedOut = (node) => hasPriceAncestor(node, (ancestor) =>
-    ancestor.tagName === "S" || ancestor.tagName === "DEL" || declaresLineThrough(ancestor));
+    ancestor.tagName === "S" || ancestor.tagName === "DEL" || declaresLineThrough(ancestor) || drawsStrikeLine(ancestor));
 
   // Purchase conditions are matched as whole word runs over the collapsed text,
   // so ordinary spaces, non-breaking and thin spaces read the same, and

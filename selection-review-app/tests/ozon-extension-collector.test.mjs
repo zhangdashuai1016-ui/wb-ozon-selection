@@ -5,6 +5,7 @@ import { sanitizeOzonCaptureEvidence } from "../lib/ozon-sales-capture.mjs";
 import { installOzonHtmlPage } from "./helpers/ozon-page-dom.mjs";
 import {
   OZON_PRICE_PAGE_LINE_THROUGH_TEXTS,
+  OZON_PRICE_PAGE_PSEUDO_STRUCK_TEXTS,
   OZON_PRICE_PAGE_PRODUCT_ID,
   OZON_PRICE_PAGE_URL,
   OZON_PRICE_PAGE_WIDGETS
@@ -140,11 +141,13 @@ test("Ozon collector stops when loaded price widget has no ordinary buyer price"
   }
 });
 
-function realPage({ lineThroughTexts = OZON_PRICE_PAGE_LINE_THROUGH_TEXTS } = {}) {
+function realPage({ lineThroughTexts = OZON_PRICE_PAGE_LINE_THROUGH_TEXTS,
+  pseudoStruckTexts = OZON_PRICE_PAGE_PSEUDO_STRUCK_TEXTS } = {}) {
   return installOzonHtmlPage({
     href: OZON_PRICE_PAGE_URL,
     widgets: OZON_PRICE_PAGE_WIDGETS,
-    lineThroughTexts
+    lineThroughTexts,
+    pseudoStruckTexts
   });
 }
 
@@ -189,7 +192,7 @@ test("Ozon collector never sells from the co-branded, crossed-out or points pric
 
 test("Ozon collector stops instead of guessing when the crossed-out price cannot be told apart", async () => {
   // 同一份真实页面，只是这次读不出删除线：三个数并存又分不出哪个是当前价。
-  const restore = realPage({ lineThroughTexts: [] });
+  const restore = realPage({ lineThroughTexts: [], pseudoStruckTexts: [] });
   try {
     const result = await collectOzonPage(OZON_PRICE_PAGE_PRODUCT_ID);
     assert.equal(result.status, "failed");

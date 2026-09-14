@@ -22,11 +22,17 @@ export const OZON_PRICE_PAGE_URL = "https://www.ozon.ru/product/vodonepronitsaem
 export const OZON_PRICE_PAGE_PRODUCT_ID = "3605840795";
 
 /**
- * dump 里只有 outerHTML，没有页面 CSS，而 Ozon 的划线原价既不是 <s> 也不是 <del>，
- * 只靠一个构建期混淆的 class 渲染出删除线。所以这里不去猜是哪个 class，而是按主人在
- * 页面上亲眼看到的样子记录"哪一个金额被划掉了"，测试用它驱动 getComputedStyle 桩。
+ * dump 里只有 outerHTML，没有页面 CSS，而 Ozon 的划线原价既不是 <s> 也不是 <del>。
+ * 2026-09-14 在主人的浏览器上实测了它到底怎么画的：那一行的 getComputedStyle 报
+ * textDecorationLine: "none"，删除线来自一个 ::after 盒子——content ""、背景取文字同色
+ * rgba(0,26,51,0.6)、height 0.994318px、width 43.2528px、absolute 定位 top 8.99858px。
+ * 另外两个价的 ::after 与 ::before 都是 content: none。
+ *
+ * 这条实测之前，测试桩按 text-decoration 回放，所以测试全绿而线上照样把原价读成现价。
+ * 现在按真实机制回放：LINE_THROUGH 留空（页面确实不用它），PSEUDO_STRUCK 记这一个金额。
  */
-export const OZON_PRICE_PAGE_LINE_THROUGH_TEXTS = Object.freeze(["5\u2009172\u2009₽"]);
+export const OZON_PRICE_PAGE_LINE_THROUGH_TEXTS = Object.freeze([]);
+export const OZON_PRICE_PAGE_PSEUDO_STRUCK_TEXTS = Object.freeze(["5\u2009172\u2009₽"]);
 
 export const OZON_PRICE_PAGE_WIDGETS = Object.freeze({
   webProductHeading: `<div data-widget="webProductHeading" class="pdp_b6i"><h1 class="pdp_i5b tsHeadline550Medium" style="max-height: 90px; -webkit-line-clamp: 3;">

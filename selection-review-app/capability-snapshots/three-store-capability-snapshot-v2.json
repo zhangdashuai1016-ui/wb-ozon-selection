@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-14T01:21:12.461Z",
+  "frozenAt": "2026-09-14T05:10:37.844Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 664,
-      "sha256": "b6ec782ad861542e51846b466fb7591ad2fe538ea8d72dba052ba0ff5f5addf5",
+      "sha256": "613ee9e47746e6921001a8e5fec0501b569cba0b71cc670c309c808b3887c820",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -40,7 +40,7 @@
       },
       {
         "path": "extension/1688-capture/background.js",
-        "sha256": "f24c2a117145ef203f9f5bc353f9e27887cd95d5ec74318f76b20d1c3fe01c60"
+        "sha256": "44eac57db978407062d20899c1be5d1a41b221dbcd4970e62b06435b73712c38"
       },
       {
         "path": "extension/1688-capture/bridge.js",
@@ -52,7 +52,7 @@
       },
       {
         "path": "extension/1688-capture/collector-ozon.js",
-        "sha256": "b75286fb5d0a0499358ca1d5f6333e6f714df7403a0771075699595c05944c14"
+        "sha256": "ef990b78887a5b0420ee711bbe736f3b5dae28aa98693a8737d1b3c464c03fd9"
       },
       {
         "path": "extension/1688-capture/collector.js",
@@ -2080,7 +2080,7 @@
       },
       {
         "path": "tests/fixtures/ozon-price-widget-fixture.mjs",
-        "sha256": "add1a2763466de8c382b033110b8794f59e6c5d5a03d07e6bf7fbae9cdb927e9"
+        "sha256": "1dbce3f808edf1ca57a2068522e9ec7affb335a3bffcc65ff930d0c82dc67ed7"
       },
       {
         "path": "tests/fixtures/production-owner-decision-fixture.mjs",
@@ -2164,7 +2164,7 @@
       },
       {
         "path": "tests/helpers/ozon-page-dom.mjs",
-        "sha256": "3da21a927c3e7e9fb5f60fb912900c0ec1c1dd0ca525b5cbc329ab4f671f8598"
+        "sha256": "44a9340f40d8c5baee2d0631491b094d96ce8a7ce33d24196c1f9d13ce9e85fd"
       },
       {
         "path": "tests/helpers/published-schema-validator.mjs",
@@ -2376,7 +2376,7 @@
       },
       {
         "path": "tests/ozon-extension-collector.test.mjs",
-        "sha256": "9ec4044a86cf95bc515f6a2224efdc5a77782f9673a9e707040b9255ec203c3b"
+        "sha256": "c8825ab1b6a5b4bc718b5ab671eed231fcf522caca3f204f98f964b4b2e7ee0f"
       },
       {
         "path": "tests/ozon-page-capture-job.test.mjs",
