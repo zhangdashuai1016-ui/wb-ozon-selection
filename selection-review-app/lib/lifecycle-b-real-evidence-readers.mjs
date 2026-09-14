@@ -68,8 +68,11 @@ function normalizeOzonCommissionReferenceOption(value) {
 }
 
 /**
- * 官方费表只按“A阶段已冻结的成交价 + Ozon类型名称”查询：两项来自本轮请求，
+ * 官方费表只按“本轮已冻结的成交价 + Ozon类型名称”查询：两项来自本轮请求，
  * 任一缺失都记成缺口回到主人授权估算路径，绝不按类目选择器或市场行情猜测。
+ *
+ * 平台大类（mpCategoryZh）有就一起带上，当费表自己的消歧键：Full ChinaHK 里有 298 个重名类型，
+ * 不带大类时重名行费率不一致就只能记成 TYPE_AMBIGUOUS 缺口。带上去只会让匹配更严，永远不会更松。
  */
 function officialReferenceQuery(request, scope, reference) {
   const gaps = [];
@@ -81,6 +84,7 @@ function officialReferenceQuery(request, scope, reference) {
     : /\p{Script=Han}/u.test(typeName) ? "typeZh"
     : /\p{Script=Cyrillic}/u.test(typeName) ? "typeRu" : "typeEn";
   if (!field) gaps.push("OFFICIAL_TABLE_TYPE_IDENTITY_MISSING");
+  const mpCategoryZh = typeof inputs.mpCategoryZh === "string" ? inputs.mpCategoryZh.trim() : "";
   if (!["rfbs", "fbp"].includes(scope.salesScheme)) gaps.push("OFFICIAL_TABLE_SALES_SCHEME_UNSUPPORTED");
   if (!isObject(reference.versionState)) gaps.push("OFFICIAL_TABLE_VERSION_STATE_MISSING");
   if (gaps.length) return { gaps, query: null };
@@ -89,7 +93,11 @@ function officialReferenceQuery(request, scope, reference) {
     query: {
       catalogPath: reference.catalogPath,
       versionState: structuredClone(reference.versionState),
-      scope: { platform: "ozon", sellerRegion: reference.sellerRegion, salesScheme: scope.salesScheme, priceRub, typeIdentity: { [field]: typeName } },
+      scope: {
+        platform: "ozon", sellerRegion: reference.sellerRegion, salesScheme: scope.salesScheme, priceRub,
+        typeIdentity: { [field]: typeName },
+        ...(mpCategoryZh ? { mpCategoryZh } : {}),
+      },
     },
   };
 }

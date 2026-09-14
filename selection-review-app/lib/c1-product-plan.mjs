@@ -12,6 +12,12 @@ export const C1_CANONICAL_CONTRACT_VERSION = "g1-c1-domain-contract-v1";
 export const C1_PRODUCT_PLAN_SCHEMA_VERSION = "c1-product-plan-v1.1";
 export const C1_FACT_VERIFICATION_VERSION = C1_CURRENT_FACT_VERIFICATION_VERSION;
 
+/**
+ * 能形成正式B、因而能进文案素材的两种佣金来源。
+ * `estimated`（主人授权的估算）不在其中——那是条件测算。上架那一刻另有更严的一道闸门，只认 `exact`。
+ */
+export const FORMAL_B_COMMISSION_MODES = Object.freeze(["exact", "official_reference"]);
+
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -397,8 +403,13 @@ export function createC1ProductPlan({
   );
   if (!activeProfitModel) throw new Error("C1_GATE_REJECTED: 缺少当前B利润模型");
   assertValidProfitModel(activeProfitModel);
-  if (activeProfitModel.commissionMode !== "exact") {
-    throw new Error("C1_GATE_REJECTED: 正式B必须先取得精确佣金，估算或历史利润记录不得进入C1");
+  // 正式B只有两种来源：平台实收的精确佣金，和主人已保存的官方费表版本命中的费率——利润计算里两者同级
+  // （lib/profit-model.mjs 的 commissionMode，`official_reference` 的 calculationType 就是 "formal"）。
+  // `estimated` 照旧拦住：条件测算不得进入文案素材。
+  // 这里放宽到 official_reference，不等于放宽上架：往平台写价格、写库存那一刻的闸门在
+  // lib/commission-estimate-authorization.mjs 的 assertExactCommissionBeforeProduction，那里仍然只认 exact。
+  if (!FORMAL_B_COMMISSION_MODES.includes(activeProfitModel.commissionMode)) {
+    throw new Error("C1_GATE_REJECTED: 正式B必须先取得精确佣金或官方费表费率，估算或历史利润记录不得进入C1");
   }
   if (activeProfitModel.result !== "passed") {
     throw new Error("C1_GATE_REJECTED: 单件利润20元或利润率15%均未通过");
@@ -507,7 +518,10 @@ export function replaceC1ProductPlanForRightsReview({ skuPackage, expectedC1Plan
   const profit = skuPackage.profitModels.find(model => model.profitModelVersion === skuPackage.activeProfitModelVersion);
   const supply = snapshots.confirmedSupplierSkuSnapshot;
   const source = normalizeC1SourceIdentity(skuPackage.g1Identity);
-  if (!profit || !sameJson(profit, snapshots.profitModel) || profit.result !== "passed" || profit.commissionMode !== "exact" ||
+  // 复核的是当初生成这份C1的同一份冻结利润记录：这里认的模式必须和 createC1ProductPlan 那道闸门一致，
+  // 否则官方费表费率进得了C1、却做不了权利复核。
+  if (!profit || !sameJson(profit, snapshots.profitModel) || profit.result !== "passed" ||
+      !FORMAL_B_COMMISSION_MODES.includes(profit.commissionMode) ||
       profit.inputSnapshotRefs[0] !== previous.inputRefs.salesSnapshotId || profit.inputSnapshotRefs[1] !== previous.inputRefs.selectedSupplySnapshotId ||
       snapshots.salesSnapshot.snapshotId !== previous.inputRefs.salesSnapshotId ||
       !skuPackage.inheritedSalesSnapshotRefs.includes(snapshots.salesSnapshot.snapshotId) ||

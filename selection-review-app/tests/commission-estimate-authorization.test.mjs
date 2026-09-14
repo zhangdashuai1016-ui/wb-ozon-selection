@@ -305,3 +305,192 @@ test('那一块什么时候不该摆：确认成功之后、不是这一类、�
     assert.equal(step.dataRevision, null);
   }
 });
+
+/* ───────── 佣金还是估算的时候，软件敢往下走到哪一步 ───────── */
+
+import { createSavedConditionalBFixture } from './fixtures/real-a-b-flow-fixture.mjs';
+import {
+  CONDITIONAL_COMMISSION_BLOCK_CODES, EXACT_COMMISSION_RECALCULATION_ACTION, ExactCommissionRequiredForProductionError,
+  PRODUCTION_EXACT_COMMISSION_REQUIRED, activeProfitModelOf, assertExactCommissionBeforeProduction,
+  buildEstimatedCommissionNoticeStep, profitThresholdSatisfiedByOwnLogic, resolveConditionalCommissionRelease
+} from '../lib/commission-estimate-authorization.mjs';
+
+const BLOCK = CONDITIONAL_COMMISSION_BLOCK_CODES;
+// 主人首件就是这一种：走完 A 确认、拿到 B 利润结论、停在条件测算。用真跑出来的那一份，不自己捏一个对象。
+const conditional = await createSavedConditionalBFixture();
+const conditionalCandidate = conditional.candidate;
+const conditionalModel = activeProfitModelOf(conditionalCandidate.lifecycleV11.skuPackage);
+/** 换掉当前生效那一份利润记录里的某几个字段，别的原样。 */
+const withModel = (patch, runtime) => ({
+  profitModel: { ...structuredClone(conditionalModel), ...patch },
+  executionRuntime: runtime === undefined ? conditionalCandidate.executionRuntime : runtime
+});
+
+test('仅仅因为佣金是估算而停在条件测算的，判为可以放行；判据全部来自结构化字段', () => {
+  // 先钉住这一份记录确实是「条件测算 + 估算佣金」那一种，而不是别的原因造成的 manual_review。
+  assert.equal(conditionalModel.result, 'manual_review');
+  assert.equal(conditionalModel.calculationType, 'conditional');
+  assert.equal(conditionalModel.commissionMode, 'estimated');
+  assert.equal(conditionalModel.exactCommissionRequiredForFormalB, true);
+  assert.equal(conditionalModel.marketFit.status, 'fits_market');
+  assert.equal(conditionalCandidate.executionRuntime.exceptionCase, null);
+
+  const release = resolveConditionalCommissionRelease({
+    profitModel: conditionalModel, executionRuntime: conditionalCandidate.executionRuntime });
+  assert.deepEqual(release.blockedBy, []);
+  assert.equal(release.conditionalOnEstimatedCommissionOnly, true);
+  // 利润门槛按记录自己存着的那条规矩判，不写死 any。
+  assert.equal(release.thresholdLogic, 'any');
+  assert.equal(profitThresholdSatisfiedByOwnLogic(conditionalModel), true);
+  assert.equal(release.commissionRate, conditionalModel.commissionRate);
+  assert.equal(release.unitProfitRmb, conditionalModel.unitProfitRmb);
+  assert.equal(release.profitMargin, conditionalModel.profitMargin);
+});
+
+test('利润门槛没过的，照旧拦住', () => {
+  const thresholds = conditionalModel.thresholds;
+  // 两条都差一点：logic 是 any，所以必须两条都不到才算没过。
+  const release = resolveConditionalCommissionRelease(withModel({
+    unitProfitRmb: thresholds.minimumUnitProfitRmb - 0.01,
+    profitMargin: thresholds.minimumProfitMargin - 0.0001
+  }));
+  assert.equal(release.conditionalOnEstimatedCommissionOnly, false);
+  assert.deepEqual(release.blockedBy, [BLOCK.PROFIT_THRESHOLD_NOT_MET]);
+  // 只差一条、另一条过了的，按 any 仍然算过——门槛没有被这次改动收紧，也没有被放宽。
+  assert.equal(resolveConditionalCommissionRelease(withModel({
+    unitProfitRmb: thresholds.minimumUnitProfitRmb - 0.01
+  })).conditionalOnEstimatedCommissionOnly, true);
+  // logic 换成 all 之后，同一份数字就要两条都过才算过。
+  assert.equal(profitThresholdSatisfiedByOwnLogic({
+    ...conditionalModel, unitProfitRmb: thresholds.minimumUnitProfitRmb - 0.01,
+    thresholds: { ...thresholds, logic: 'all' } }), false);
+  // 不认识的 logic 一律算没过：软件不替主人猜一条它读不懂的规矩。
+  assert.equal(profitThresholdSatisfiedByOwnLogic({ ...conditionalModel, thresholds: { ...thresholds, logic: 'either' } }), null);
+  assert.deepEqual(resolveConditionalCommissionRelease(withModel({
+    thresholds: { ...thresholds, logic: 'either' } })).blockedBy, [BLOCK.PROFIT_THRESHOLD_POLICY_UNKNOWN, BLOCK.PROFIT_THRESHOLD_NOT_MET]);
+});
+
+test('门槛数值和它自称的那一版对不上的，照旧拦住——记录不能自己把自己判成通过', () => {
+  // 把门槛调到 0 就能自己判自己通过；数值必须和 thresholdVersion 指的那一版逐项相等才算数。
+  const release = resolveConditionalCommissionRelease(withModel({
+    unitProfitRmb: 0.01, profitMargin: 0.0001,
+    thresholds: { ...conditionalModel.thresholds, minimumUnitProfitRmb: 0, minimumProfitMargin: 0 }
+  }));
+  assert.equal(release.conditionalOnEstimatedCommissionOnly, false);
+  assert.deepEqual(release.blockedBy, [BLOCK.PROFIT_THRESHOLD_POLICY_UNKNOWN]);
+  assert.deepEqual(resolveConditionalCommissionRelease(withModel({ thresholdVersion: 'profit-threshold-v9' })).blockedBy,
+    [BLOCK.PROFIT_THRESHOLD_POLICY_UNKNOWN]);
+});
+
+test('市场判定没过的，照旧拦住', () => {
+  for (const status of ['above_market_needs_review', 'market_conflict', 'severe_market_conflict', 'unknown', null]) {
+    const release = resolveConditionalCommissionRelease(withModel({
+      marketFit: { ...conditionalModel.marketFit, status } }));
+    assert.equal(release.conditionalOnEstimatedCommissionOnly, false, String(status));
+    assert.deepEqual(release.blockedBy, [BLOCK.MARKET_FIT_NOT_PASSED], String(status));
+  }
+});
+
+test('执行期留着一件没解决的异常的，照旧拦住', () => {
+  const open = { ...conditionalCandidate.executionRuntime,
+    exceptionCase: { schemaVersion: 'exception-case-v2', reasonCode: 'external_dependency_unavailable', status: 'open',
+      evidenceRefs: [], dispatchState: 'not_dispatched', automaticRetryAllowed: false } };
+  const release = resolveConditionalCommissionRelease({ profitModel: conditionalModel, executionRuntime: open });
+  assert.equal(release.conditionalOnEstimatedCommissionOnly, false);
+  assert.deepEqual(release.blockedBy, [BLOCK.OPEN_EXCEPTION_CASE]);
+  // 已经处理完的那一件不算：它不再挡着谁。
+  assert.equal(resolveConditionalCommissionRelease({ profitModel: conditionalModel,
+    executionRuntime: { ...open, exceptionCase: { ...open.exceptionCase, status: 'resolved' } } }).conditionalOnEstimatedCommissionOnly, true);
+});
+
+test('别的原因造成的 manual_review，照旧拦住——绝不能凭 result 一个字眼放行', () => {
+  // 正式计算、精确佣金，结论却是 manual_review：那就是另一件事，和这次要放行的这一种毫无关系。
+  const otherReason = resolveConditionalCommissionRelease(withModel({
+    result: 'manual_review', calculationType: 'formal', commissionMode: 'exact', exactCommissionRequiredForFormalB: false }));
+  assert.equal(otherReason.conditionalOnEstimatedCommissionOnly, false);
+  assert.deepEqual(otherReason.blockedBy,
+    [BLOCK.CALCULATION_NOT_CONDITIONAL, BLOCK.COMMISSION_MODE_NOT_ESTIMATED, BLOCK.EXACT_COMMISSION_NOT_REQUIRED_FOR_FORMAL_B]);
+  // 三个字段各自单独错一个，也一样拦住——三条是「与」的关系，不是投票。
+  assert.deepEqual(resolveConditionalCommissionRelease(withModel({ calculationType: 'formal' })).blockedBy, [BLOCK.CALCULATION_NOT_CONDITIONAL]);
+  assert.deepEqual(resolveConditionalCommissionRelease(withModel({ commissionMode: 'official_reference' })).blockedBy, [BLOCK.COMMISSION_MODE_NOT_ESTIMATED]);
+  assert.deepEqual(resolveConditionalCommissionRelease(withModel({ exactCommissionRequiredForFormalB: false })).blockedBy,
+    [BLOCK.EXACT_COMMISSION_NOT_REQUIRED_FOR_FORMAL_B]);
+  // 根本读不出一份利润记录的，同样不放行。
+  for (const missing of [null, undefined, 'profit', []]) {
+    assert.deepEqual(resolveConditionalCommissionRelease({ profitModel: missing, executionRuntime: null }).blockedBy,
+      [BLOCK.PROFIT_MODEL_UNREADABLE], String(missing));
+  }
+});
+
+test('当前生效那一份利润记录必须唯一，指不到或者指到两份都当读不出来', () => {
+  const sku = conditionalCandidate.lifecycleV11.skuPackage;
+  assert.equal(activeProfitModelOf(sku), sku.profitModels.at(-1));
+  assert.equal(activeProfitModelOf({ ...sku, activeProfitModelVersion: 'profit-v99' }), null);
+  assert.equal(activeProfitModelOf({ ...sku, profitModels: [...sku.profitModels, structuredClone(conditionalModel)] }), null);
+  for (const broken of [null, undefined, {}, { profitModels: 'none' }]) assert.equal(activeProfitModelOf(broken), null, String(broken));
+});
+
+test('佣金还是估算时，上架那道闸门拒绝，并给出稳定 ASCII 码和主人下一步', () => {
+  const sku = conditionalCandidate.lifecycleV11.skuPackage;
+  assert.throws(() => assertExactCommissionBeforeProduction(sku), error => {
+    assert.ok(error instanceof ExactCommissionRequiredForProductionError);
+    assert.equal(error.code, PRODUCTION_EXACT_COMMISSION_REQUIRED);
+    assert.equal(error.exactCommissionRequiredForProduction, true);
+    assert.equal(error.commissionMode, 'estimated');
+    assert.equal(error.ownerNextStep, EXACT_COMMISSION_RECALCULATION_ACTION);
+    assert.equal(error.skuPackageId, sku.skuPackageId);
+    return true;
+  });
+  // 那个码必须能被生产确认路由分类，否则主人收到的是 500 和一句读不懂的话。
+  // 这条正则逐字取自那条路由的分类判断；那边改了这里要红（路由那一头由 cross-stage-contract-schema 钉着）。
+  assert.match(PRODUCTION_EXACT_COMMISSION_REQUIRED, /^(?:PRODUCTION_OWNER|PRODUCTION_AUTHORIZATION|BUSINESS_MUTATION|RUNTIME_OPERATION)_[A-Z_]{1,100}$/);
+  // official_reference 在利润计算里和 exact 同级，但往平台写东西这一刻仍然不算数。
+  const swap = mode => {
+    const next = structuredClone(sku);
+    next.profitModels.at(-1).commissionMode = mode;
+    return next;
+  };
+  assert.throws(() => assertExactCommissionBeforeProduction(swap('official_reference')), { code: PRODUCTION_EXACT_COMMISSION_REQUIRED });
+  assert.throws(() => assertExactCommissionBeforeProduction(null), { code: PRODUCTION_EXACT_COMMISSION_REQUIRED });
+  assert.equal(assertExactCommissionBeforeProduction(swap('exact')).commissionMode, 'exact');
+});
+
+test('「佣金还是估算的」那一块跟着商品走，语气是还差一道手续，不是出了问题', () => {
+  const step = buildEstimatedCommissionNoticeStep(conditionalCandidate);
+  assert.equal(step.schemaVersion, 'estimated-commission-notice-step-v1');
+  assert.equal(step.present, true);
+  assert.equal(step.candidateId, conditionalCandidate.id);
+  assert.equal(step.dataRevision, conditionalCandidate.dataRevision);
+  assert.equal(step.blocksProduction, true);
+  assert.equal(step.ownerNextStep, EXACT_COMMISSION_RECALCULATION_ACTION);
+  assert.equal(step.release.conditionalOnEstimatedCommissionOnly, true);
+  assert.equal(step.sentences.length, 3);
+  // 三件事说全：佣金是估算的、现在只是条件测算、上架之前必须先做精确费用复算。
+  assert.match(step.sentences[0], /平台佣金还是估算的/u);
+  assert.match(step.sentences[1], /条件测算/u);
+  assert.match(step.sentences[2], /使用精确费用复算/u);
+  // 不吓唬人：门槛本来就过了，这三句里不许出现这几个字眼。
+  for (const sentence of step.sentences) {
+    assert.doesNotMatch(sentence, /失败|异常|错误|风险|警告/u, sentence);
+  }
+  assert.match(step.sentences[1], /不是一件有问题的商品/u);
+  // 数字照记录说，不写死。
+  assert.ok(step.sentences[0].includes(`${Number((conditionalModel.commissionRate * 100).toFixed(2))}%`));
+  assert.ok(step.sentences[1].includes(`¥${conditionalModel.unitProfitRmb.toFixed(2)}`));
+
+  // 佣金换成精确的那一刻它自己消失，不用谁去清。
+  const exact = structuredClone(conditionalCandidate);
+  exact.lifecycleV11.skuPackage.profitModels.at(-1).commissionMode = 'exact';
+  assert.equal(buildEstimatedCommissionNoticeStep(exact).present, false);
+  // 已经拿到生产授权的商品不摆这一块：那时候佣金早就是精确的了，再说一句「还差一道手续」只会误导。
+  const authorized = structuredClone(conditionalCandidate);
+  authorized.lifecycleV11.skuPackage.productionAuthorization = { authorizationId: 'production-auth:synthetic' };
+  assert.equal(buildEstimatedCommissionNoticeStep(authorized).present, false);
+  // 没有候选、没有 SKU 的也要给得出一份说得通的答案，不能抛。
+  for (const empty of [null, undefined, {}, 'candidate']) {
+    const none = buildEstimatedCommissionNoticeStep(empty);
+    assert.equal(none.present, false, String(empty));
+    assert.deepEqual(none.sentences, []);
+    assert.equal(none.blocksProduction, false);
+  }
+});

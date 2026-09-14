@@ -300,28 +300,60 @@ test('WB prepared references survive success but invalidation before final readi
   }
 });
 
-function frozenAOpportunity(price, categoryPath) {
+function frozenAOpportunity(price) {
   return {
     lifecycleV11: {
       opportunityPackage: {
         marketAssessment: price === null ? null : { recommendedSalePrice: { amount: price, currency: "RUB", method: "median_of_comparable_primary_samples" } },
-        salesSnapshots: categoryPath === null ? [] : [{ snapshotId: "SNAP-1", categoryPath }]
+        salesSnapshots: []
       }
     }
   };
 }
 
-test("官方费表所需的成交价与类型名称只取A已冻结结果，未冻结时留空不猜测", async () => {
+/**
+ * 一份能通过 validateSalesSnapshot 的销售快照，只为把 categoryPath 摆到正确的地方：
+ * 官方费表的类型名称取的是**这件商品自己保存的销售快照**里那条中文类目树路径，
+ * 不是 opportunityPackage 里挑出来做价格判断的市场样本（首次确认时它还不存在）。
+ */
+function snapshotWithCategory(categoryPath, collectedAt = "2026-08-17T06:30:00.000Z", snapshotId = "SNAP-1") {
+  return {
+    schemaVersion: "sales-snapshot-v1.1", snapshotId, platform: "ozon", marketScope: "ozon_general_market",
+    sellerType: "unknown", sellerIdentityEvidence: { status: "unverified", signals: [], evidenceRef: "fixture:seller" },
+    productUrl: "https://www.ozon.ru/product/1234567/", title: "Лежанка", imageRefs: [],
+    currentPrice: 2490, currency: "RUB", categoryPath, attributes: {}, collectedAt,
+    evidenceRef: "fixture:snapshot", collectorVersion: "real-ozon-sales-snapshot-v1",
+    collectorMode: "real_page_read_only", readOnly: true
+  };
+}
+
+test("官方费表所需的成交价与类型名称只取已冻结结果，未冻结或形状不对时留空不猜测", async () => {
+  const chinese = [snapshotWithCategory("宠物用品 > 携带和睡眠配件 > 宠物躺床")];
+  const russian = [snapshotWithCategory("Товары для животных > Для кошек > Лежанки")];
   const cases = [
-    { frozen: frozenAOpportunity(2490, "Товары для животных > Лежанки для животных"),
-      expected: { priceRub: 2490, typeName: "Лежанки для животных" } },
-    { frozen: frozenAOpportunity(2490, "宠物用品/猫咪用品/宠物躺床"), expected: { priceRub: 2490, typeName: "宠物躺床" } },
-    { frozen: frozenAOpportunity(null, "Товары для животных > Лежанки"), expected: { priceRub: null, typeName: "Лежанки" } },
-    { frozen: frozenAOpportunity(2490, null), expected: { priceRub: 2490, typeName: null } },
-    { frozen: {}, expected: null },
-    { frozen: frozenAOpportunity(0, ""), expected: null },
-    { frozen: { lifecycleV11: { opportunityPackage: { marketAssessment: { recommendedSalePrice: { amount: 2490, currency: "CNY" } }, salesSnapshots: [] } } },
-      expected: null }
+    // 本轮提交带着主人填的成交价时用它；类型名称取中文类目树末段，平台大类一起带上。
+    { snapshots: chinese, frozen: {}, submission: { targetSalePriceRub: 2490 },
+      expected: { priceRub: 2490, typeName: "宠物躺床", mpCategoryZh: "宠物用品" } },
+    // 没有本轮提交时退回A阶段已冻结的建议成交价。
+    { snapshots: chinese, frozen: frozenAOpportunity(2490), submission: null,
+      expected: { priceRub: 2490, typeName: "宠物躺床", mpCategoryZh: "宠物用品" } },
+    // 页面面包屑不是类型树：不拿它去撞表，留空记缺口。
+    { snapshots: russian, frozen: frozenAOpportunity(2490), submission: null,
+      expected: { priceRub: 2490, typeName: null, mpCategoryZh: null } },
+    // 中文类目树必须正好三级，多一级少一级都不算。
+    { snapshots: [snapshotWithCategory("宠物用品 > 宠物躺床")], frozen: frozenAOpportunity(2490), submission: null,
+      expected: { priceRub: 2490, typeName: null, mpCategoryZh: null } },
+    // 两份都在时按 collectedAt 取最新的那份中文类目树快照。
+    { snapshots: [snapshotWithCategory("宠物用品 > 旧的分法 > 旧躺床", "2026-08-10T06:30:00.000Z", "SNAP-OLD"), ...chinese],
+      frozen: frozenAOpportunity(2490), submission: null,
+      expected: { priceRub: 2490, typeName: "宠物躺床", mpCategoryZh: "宠物用品" } },
+    // 价格与类型名称都取不到时整份留空。
+    { snapshots: [], frozen: {}, submission: null, expected: null },
+    { snapshots: [], frozen: frozenAOpportunity(0), submission: null, expected: null },
+    { snapshots: [], frozen: {}, submission: { targetSalePriceRub: 0 }, expected: null },
+    // 建议成交价不是卢布时不采用。
+    { snapshots: [], submission: null, expected: null,
+      frozen: { lifecycleV11: { opportunityPackage: { marketAssessment: { recommendedSalePrice: { amount: 2490, currency: "CNY" } }, salesSnapshots: [] } } } }
   ];
   for (const item of cases) {
     const observed = [];
@@ -330,11 +362,12 @@ test("官方费表所需的成交价与类型名称只取A已冻结结果，未�
       async (request) => { observed.push({ kind: entry.kind, commissionReferenceScope: request.commissionReferenceScope }); return pack(entry.kind); }
     ]));
     const result = await runLifecycleBEvidencePreparation({
-      candidate: { ...candidate(), ...item.frozen },
+      candidate: { ...candidate(), salesSnapshotsV11: item.snapshots, ...item.frozen },
       evidencePacks: [],
       providers,
       plannedAt,
-      preparedAt
+      preparedAt,
+      submission: item.submission
     });
     assert.equal(result.status, "completed");
     assert.deepEqual(observed.find((entry) => entry.kind === "commission").commissionReferenceScope, item.expected);

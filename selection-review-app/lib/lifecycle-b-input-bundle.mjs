@@ -379,12 +379,20 @@ function eligiblePack(pack, kind, context, asOfMs, candidate, currentCommissionC
   return evidenceScopeMatches(kind, pack.scope, buildExpectedEvidenceScope(kind, context));
 }
 
+/**
+ * 同时有几份合格佣金证据时谁说了算：平台实收的精确费率 > 官方费表命中的费率 > 主人授权的估算。
+ * 按证据强度排，不按新旧——不然一份刚授权的估算会把一份能形成正式B的官方费表费率挤掉，
+ * 把已经成立的正式B降级成条件测算。同一强度之内才比取得时间。
+ */
+const COMMISSION_EVIDENCE_STRENGTH = Object.freeze({ exact: 0, official_reference: 1, estimated: 2 });
+const commissionStrength = (pack) => COMMISSION_EVIDENCE_STRENGTH[pack.evidenceData.commissionEvidenceMode] ?? 3;
+
 function latestPack(packs, kind, context, asOfMs, candidate, currentCommissionCatalogs) {
   return packs
     .filter((pack) => eligiblePack(pack, kind, context, asOfMs, candidate, currentCommissionCatalogs))
     .sort((left, right) => {
-      if (kind === "commission" && left.evidenceData.commissionEvidenceMode !== right.evidenceData.commissionEvidenceMode) {
-        return left.evidenceData.commissionEvidenceMode === "exact" ? -1 : 1;
+      if (kind === "commission" && commissionStrength(left) !== commissionStrength(right)) {
+        return commissionStrength(left) - commissionStrength(right);
       }
       return Date.parse(right.checkedAt) - Date.parse(left.checkedAt);
     })[0] || null;

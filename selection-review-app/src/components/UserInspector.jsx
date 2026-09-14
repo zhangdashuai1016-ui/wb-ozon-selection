@@ -307,6 +307,31 @@ function MissingField({ field, form, update }) {
   return <label>{definition[0]}<input type="text" inputMode={definition[1]} value={form[field]} onChange={(event) => update(field, event.target.value)} /></label>;
 }
 
+/**
+ * 「这件的佣金还是估算的」那一块。
+ *
+ * 它摆在所有阶段面板的最前面，不属于任何一个阶段——主人从条件测算走到上架之间会换好几屏、隔好几天，只在
+ * 出事那一屏说一次他会忘，忘了最坏的结果是拿一个估算费率去上架。
+ *
+ * 整块由服务端构建（`estimatedCommissionNoticeStepV1`），页面一个字都不自己写：上架那道闸门和这几句话读的
+ * 是同一份记录的同一个字段，所以不会出现「页面说没事、服务端拦下来」这种事。佣金换成精确的那一刻服务端把
+ * present 置为 false，这一块自己消失。
+ *
+ * 不是警告。利润门槛本来就过了，市场价也容得下——所以这里用 role="status" 而不是 alert，样式也跟着选品页
+ * 那几块说明走，不用红字。
+ */
+export function EstimatedCommissionNotice({ step }) {
+  if (step?.present !== true) return null;
+  const sentences = Array.isArray(step.sentences) ? step.sentences : [];
+  if (sentences.length === 0) return null;
+  return (
+    <div className="source-capture-summary" role="status" aria-label="佣金还是估算的">
+      <b>这件商品的佣金还是估算的，上架之前要先复算一次</b>
+      {sentences.map(sentence => <span key={sentence}>{sentence}</span>)}
+    </div>
+  );
+}
+
 function NeedsDataPanel({ candidate, onUpdate, identity, onRecalculateBWithExactCommission }) {
   const [form, setForm, guard] = useCandidateForm(candidate, formFromCandidate(candidate));
   const { saving, error, run } = useSubmit();
@@ -1299,6 +1324,8 @@ function OzonSalesCapturePanel({ candidate, captureControl, extensionStatus, onS
 export default function UserInspector({ candidate, rules, captureControl, extensionStatus, onUpdate, onEvaluate, onComment, onMarkListed, onRecoveryAction, onStartSourceCapture, onStartOzonSalesCapture, onSelectSourceCaptureSku, onUploadLifecycleFinalAsset, onSaveC2UploadDraft, onConfirmLifecycleFinalAssets, onSaveProductionOwnerDecision, onSaveFinalPricingReview, onSaveC1RightsReview, onAuthorizeC1PaidDraft, onContinueSavedC1Draft, onRetryC1KeywordHandoff, onRecalculateBWithExactCommission, productionIdentity }) {
   return (
     <section className="workflow-region">
+      {/* 不属于任何一个阶段，所以摆在所有阶段面板之前：从条件测算一路到上架之前的每一屏都看得见。 */}
+      <EstimatedCommissionNotice step={candidate.estimatedCommissionNoticeStepV1} />
       {candidate.lifecycleV11?.c1PricingReuse ? (
         <div className="source-capture-summary" role="status">
           <b>{candidate.lifecycleV11.c1PricingReuse.status === "reused" ? "改价后的文案核验已完成" : "改价后的文案复用待处理"}</b>

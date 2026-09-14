@@ -101,7 +101,8 @@ import {
   ozonPageReadStopMessage
 } from "./lib/ozon-page-capture-job.mjs";
 import { buildOzonCategoryReadStep } from "./lib/ozon-category-read-step.mjs";
-import { buildCommissionEstimateSignal, buildCommissionEstimateStep } from "./lib/commission-estimate-authorization.mjs";
+import { buildCommissionEstimateSignal, buildCommissionEstimateStep, buildEstimatedCommissionNoticeStep,
+  ExactCommissionRequiredForProductionError } from "./lib/commission-estimate-authorization.mjs";
 import { adaptLegacyCandidateToOpportunity } from "./lib/legacy-candidate-adapter.mjs";
 import { buildRealLifecycleEntryPreview } from "./lib/real-lifecycle-entry-preview.mjs";
 import { buildRealAConfirmationCard, validateRealAConfirmationSubmission } from "./lib/real-a-confirmation-card.mjs";
@@ -2838,6 +2839,10 @@ function publicCandidate(candidate, rules, queueInfo = {}, evidencePacks = [], c
       : null,
     executionRuntimeView: buildCurrentExecutionRuntimeView(candidate),
     bExactCommissionRuntimeView: buildBExactCommissionRuntimeView({ candidate, evidencePacks, currentCommissionCatalogs, rules, observedAt: now() }),
+    // 「这件的佣金还是估算的」那一块。挂在每一份候选视图上，所以从条件测算一路到上架之前的每一屏都看得见——
+    // 中间隔着几天，只在出事那一屏说一次，主人会忘；忘了最坏的结果是拿估算费率去上架。佣金换成精确的那一刻
+    // 它自己消失（present 为 false），不用谁去清。
+    estimatedCommissionNoticeStepV1: buildEstimatedCommissionNoticeStep(candidate),
     dESoftwareRuntimeView: buildDESoftwareIntegrationView({ candidate, eReadbackRuntimeView,
       currentProductionBinding: currentProductionBinding(candidate), inspectedAt: now() }),
     lifecycleEntryPreview: realAEligible ? buildRealLifecycleEntryPreview(candidate) : null,
@@ -5965,6 +5970,16 @@ async function handleApi(req, res, pathname) {
           ...context, configuration: runtimeConfiguration
         }) });
     } catch (error) {
+      // 钱的闸门。佣金还是估算的时候这一次授权没有落盘，原利润结论也没变——主人要做的就一件事：先复算。
+      // 页面认的是 code 和 ownerNextStep 这两个 ASCII 标记，不靠下面那句中文。
+      if (error instanceof ExactCommissionRequiredForProductionError) {
+        return json(res, 422, { code: error.code, ownerNextStep: error.ownerNextStep,
+          commissionMode: error.commissionMode, exactCommissionRequiredForProduction: true,
+          message: "这件商品的平台佣金还是估算的，所以现在的利润结论只是条件测算，不能提交上架。" +
+            "请先在这件商品上做一次「使用精确费用复算」，软件会用平台实际收的那个费率把利润重算一遍；" +
+            "正式 B 通过之后再提交生产授权。本次没有保存任何授权，也没有往平台写任何东西。",
+          externalRequests: 0, platformWrites: 0 });
+      }
       if (error instanceof ProductionOwnerPreparationError) {
         const status = /CHANGED|EXPIRED/.test(error.code) ? 409 : /NOT_CONFIGURED/.test(error.code) ? 503 : 422;
         return json(res, status, { code: error.code, message: error.message, externalRequests: 0, platformWrites: 0 });

@@ -1,4 +1,5 @@
 import { C1_UNKNOWN_CLASSIFICATION_VERSION } from './c1-product-plan.mjs';
+import { assertExactCommissionBeforeProduction } from "./commission-estimate-authorization.mjs";
 import { executeBusinessMutation } from "./business-mutation-transaction.mjs";
 import { assertCurrentC1SkuRightsReview } from "./c1-sku-rights-review.mjs";
 import { authorizeOperation } from "./runtime-identity.mjs";
@@ -478,6 +479,10 @@ export async function commitSingleOwnerProductionAuthorization({ repository, run
           preparation?.preparationFingerprint !== input.sourcePreparationFingerprint || preparation.finalCardInputFingerprint !== input.sourceFinalCardInputFingerprint) {
         throw new Error("PRODUCTION_AUTHORIZATION_CARD_DRIFT");
       }
+      // 钱的闸门在这里，不在文案素材那里。往平台写价格、库存、可买状态的授权，只认平台对这个店这条类目实际
+      // 收的那个费率；佣金还是估算的（或者当前生效的利润记录读不出来），一律不给授权。读的是这一刻从仓库里
+      // 取出来的记录，不是客户端送上来的字段，所以页面上藏不藏按钮都拦得住；拒绝发生在任何东西落盘之前。
+      assertExactCommissionBeforeProduction(currentSku);
       // Resolve only current, verified local configuration and frozen price evidence inside the same transaction.
       const commercialDecision = resolveProductionAuthorizationDecision({ candidate: structuredClone(candidate), input: structuredClone(input), observedAt, evidencePacks });
       if (!exactKeys(commercialDecision, OWNER_COMMERCIAL_FIELDS) || commercialDecision.merchantSku !== input.merchantSku.trim()) throw new Error("PRODUCTION_OWNER_COMMERCIAL_INPUT_INVALID");

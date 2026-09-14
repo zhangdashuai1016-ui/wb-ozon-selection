@@ -27,7 +27,12 @@
  *   · 修好之后它回 HTTP 200 + 一份合格的 data_unavailable 证据，那个码在这条路径上再也不出现，改由消费方
  *     lib/lifecycle-b-real-evidence-readers.mjs 的 assertEstimateScopeAndValidity 抛出 B_ 那个码。
  * 证据服务是单独部署的，主人机器上可能还是旧的，所以旧信号也得继续认。
+ *
+ * 2026-09-14 之后这个模块还多了一件事（见文件末尾那一段）：佣金还是估算的时候，软件敢往下走到哪一步。
+ * 那个判断放在这里而不是新开一个文件，是因为它问的还是同一件事——「这一次用的是不是估算佣金，凭什么」。
  */
+
+import { PROFIT_THRESHOLD_POLICIES } from './profit-threshold-policy.mjs';
 
 /** 本地只读证据服务对「店里没有同类商品可读 RFBS 佣金」的稳定说法，它的机器可读前缀（HTTP 500 那一代）。 */
 export const OZON_EVIDENCE_COMMISSION_UNAVAILABLE = 'OZON_EVIDENCE_COMMISSION_UNAVAILABLE';
@@ -203,5 +208,237 @@ export function buildCommissionEstimateStep(candidate) {
     recordedRevision: present ? recordedRevision : null,
     recordedAt: present ? text(record.recordedAt) : null,
     officialGaps: present ? gaps.map(gap => text(gap)).filter(gap => gap !== null) : []
+  };
+}
+
+/* ────────────────────────── 佣金还是估算的时候，软件敢往下走到哪一步 ────────────────────────── */
+
+/**
+ * 「这件的条件测算，是不是**仅仅**因为佣金还是估算」——一个判断，三处共用。
+ *
+ * 为什么要有这么一个函数：一件停在条件测算的商品，`skuPackage.businessResult` 是 `manual_review`，
+ * `profitModel.result` 也是 `manual_review`。可是 `manual_review` 是个筐：利润没过门槛、市场价容不下、
+ * 执行期留着一件没解决的异常，都可能落进同一个字眼。软件绝不能凭这一个字眼放行——那等于把三道本来拦得住
+ * 的闸门一起拆了。所以这里不看结论，只看结构化字段，一条一条对：
+ *
+ *   · `calculationType === "conditional"`      这一次算的确实是条件测算，不是正式计算；
+ *   · `commissionMode === "estimated"`          用的确实是估算佣金（`exact` 和 `official_reference` 都不算）；
+ *   · `exactCommissionRequiredForFormalB === true`  记录自己承认「正式 B 还欠一个精确佣金」；
+ *   · `thresholds` 与 `thresholdVersion` 对得上已发布的门槛版本，并且按它自己的 `logic` 判下来是满足的；
+ *   · `marketFit.status === "fits_market"`      市场价容得下这条成本线；
+ *   · `executionRuntime.exceptionCase` 没有一件 `open` 的。
+ *
+ * 任何一条不成立，都不是「仅仅因为佣金是估算」，照旧拦住，并把不成立的那几条逐条说出来——主人有权知道
+ * 拦他的到底是哪一道，而不是只看见一个「待人工复核」。
+ *
+ * 门槛按它自己的 `logic` 判，不写死 `any`：记录里存着 `logic`，就按记录里的那个判；碰上不认识的 `logic`
+ * 一律算不满足。软件不替主人猜一条它读不懂的规矩。
+ *
+ * 门槛数值还要和 `thresholdVersion` 指的那一版逐项相等（`PROFIT_THRESHOLD_POLICIES`）。不这么对一次的话，
+ * 一份把 `minimumUnitProfitRmb` 写成 0 的记录能自己把自己判成通过——门槛就成了记录自己说了算的东西。
+ */
+export const CONDITIONAL_COMMISSION_RELEASE_VERSION = 'conditional-commission-release-v1';
+
+/** 拦住的理由，机器可读的码。中文会改，码不会——页面认的是这些。 */
+export const CONDITIONAL_COMMISSION_BLOCK_CODES = Object.freeze({
+  PROFIT_MODEL_UNREADABLE: 'PROFIT_MODEL_UNREADABLE',
+  CALCULATION_NOT_CONDITIONAL: 'CALCULATION_NOT_CONDITIONAL',
+  COMMISSION_MODE_NOT_ESTIMATED: 'COMMISSION_MODE_NOT_ESTIMATED',
+  EXACT_COMMISSION_NOT_REQUIRED_FOR_FORMAL_B: 'EXACT_COMMISSION_NOT_REQUIRED_FOR_FORMAL_B',
+  PROFIT_THRESHOLD_POLICY_UNKNOWN: 'PROFIT_THRESHOLD_POLICY_UNKNOWN',
+  PROFIT_THRESHOLD_NOT_MET: 'PROFIT_THRESHOLD_NOT_MET',
+  MARKET_FIT_NOT_PASSED: 'MARKET_FIT_NOT_PASSED',
+  OPEN_EXCEPTION_CASE: 'OPEN_EXCEPTION_CASE'
+});
+
+/**
+ * 这份利润记录按它自己存着的那条门槛规矩判下来，过没过。
+ * 读不出数、或者 `logic` 不是本软件认识的那两种，一律返回 null——「判不出来」不等于「过了」。
+ */
+export function profitThresholdSatisfiedByOwnLogic(profitModel) {
+  const thresholds = isObject(profitModel?.thresholds) ? profitModel.thresholds : null;
+  const unitProfitRmb = finite(profitModel?.unitProfitRmb);
+  const profitMargin = finite(profitModel?.profitMargin);
+  const minimumUnitProfitRmb = finite(thresholds?.minimumUnitProfitRmb);
+  const minimumProfitMargin = finite(thresholds?.minimumProfitMargin);
+  if (unitProfitRmb === null || profitMargin === null || minimumUnitProfitRmb === null || minimumProfitMargin === null) return null;
+  const profitReached = unitProfitRmb >= minimumUnitProfitRmb;
+  const marginReached = profitMargin >= minimumProfitMargin;
+  if (thresholds.logic === 'all') return profitReached && marginReached;
+  if (thresholds.logic === 'any') return profitReached || marginReached;
+  return null;
+}
+
+/** 这份记录存的门槛数值，和它自称的那一版门槛政策逐项相等吗。 */
+function thresholdPolicyMatches(profitModel) {
+  const policy = PROFIT_THRESHOLD_POLICIES[profitModel?.thresholdVersion];
+  if (!isObject(policy)) return false;
+  return Object.entries(policy).every(([key, value]) => profitModel.thresholds?.[key] === value);
+}
+
+/**
+ * 一份利润记录（外加这件商品的执行期状态）够不够「仅仅因为佣金是估算」那一种放行。
+ *
+ * 纯函数：不读盘、不发请求、不改入参。三处共用同一个返回值——C1 那道闸门、上架那道闸门、页面那一块。
+ */
+export function resolveConditionalCommissionRelease({ profitModel, executionRuntime = null }) {
+  const codes = CONDITIONAL_COMMISSION_BLOCK_CODES;
+  const model = isObject(profitModel) ? profitModel : null;
+  const blockedBy = [];
+  if (model === null) blockedBy.push(codes.PROFIT_MODEL_UNREADABLE);
+  else {
+    if (model.calculationType !== 'conditional') blockedBy.push(codes.CALCULATION_NOT_CONDITIONAL);
+    if (model.commissionMode !== 'estimated') blockedBy.push(codes.COMMISSION_MODE_NOT_ESTIMATED);
+    if (model.exactCommissionRequiredForFormalB !== true) blockedBy.push(codes.EXACT_COMMISSION_NOT_REQUIRED_FOR_FORMAL_B);
+    if (!thresholdPolicyMatches(model)) blockedBy.push(codes.PROFIT_THRESHOLD_POLICY_UNKNOWN);
+    if (profitThresholdSatisfiedByOwnLogic(model) !== true) blockedBy.push(codes.PROFIT_THRESHOLD_NOT_MET);
+    if (model.marketFit?.status !== 'fits_market') blockedBy.push(codes.MARKET_FIT_NOT_PASSED);
+  }
+  // 执行期留着一件没解决的异常，就是还有一件事没交代清楚；那种时候不放行，和佣金无关。
+  if (isObject(executionRuntime) && executionRuntime.exceptionCase?.status === 'open') blockedBy.push(codes.OPEN_EXCEPTION_CASE);
+  return Object.freeze({
+    schemaVersion: CONDITIONAL_COMMISSION_RELEASE_VERSION,
+    conditionalOnEstimatedCommissionOnly: blockedBy.length === 0,
+    blockedBy: Object.freeze([...blockedBy]),
+    commissionMode: model === null ? null : text(model.commissionMode),
+    commissionRate: model === null ? null : finite(model.commissionRate),
+    unitProfitRmb: model === null ? null : finite(model.unitProfitRmb),
+    profitMargin: model === null ? null : finite(model.profitMargin),
+    minimumUnitProfitRmb: model === null ? null : finite(model.thresholds?.minimumUnitProfitRmb),
+    minimumProfitMargin: model === null ? null : finite(model.thresholds?.minimumProfitMargin),
+    thresholdLogic: model === null ? null : text(model.thresholds?.logic),
+    marketFitStatus: model === null ? null : text(model.marketFit?.status)
+  });
+}
+
+/**
+ * 这件商品当前生效的那一份 B 利润记录。
+ * 生效版本必须唯一：`activeProfitModelVersion` 指到零份或者两份以上，一律当读不出来。
+ */
+export function activeProfitModelOf(skuPackage) {
+  if (!isObject(skuPackage) || !Array.isArray(skuPackage.profitModels)) return null;
+  const matched = skuPackage.profitModels.filter(model =>
+    isObject(model) && model.profitModelVersion === skuPackage.activeProfitModelVersion);
+  return matched.length === 1 ? matched[0] : null;
+}
+
+/* ───────────────────────────────── 上架那道闸门 ───────────────────────────────── */
+
+/**
+ * 生产授权／上架在佣金还是估算时拒绝的那个码。
+ *
+ * 前缀必须是 `PRODUCTION_AUTHORIZATION_`：server.mjs 的生产确认路由只把
+ * `^(?:PRODUCTION_OWNER|PRODUCTION_AUTHORIZATION|BUSINESS_MUTATION|RUNTIME_OPERATION)_[A-Z_]+$`
+ * 当成「软件认得的拒绝」，别的一律变成 500 加一句读不懂的话。改名要连那条正则一起看。
+ */
+export const PRODUCTION_EXACT_COMMISSION_REQUIRED = 'PRODUCTION_AUTHORIZATION_EXACT_COMMISSION_REQUIRED';
+
+/** 主人下一步该做的那一件事，机器可读的名字；页面拿它决定把哪个按钮指出来。 */
+export const EXACT_COMMISSION_RECALCULATION_ACTION = 'b_exact_commission_recalculate';
+
+/** 上架那道闸门拒绝时抛的错误。带稳定 ASCII 码和结构化标记，页面不靠中文字符串认它。 */
+export class ExactCommissionRequiredForProductionError extends Error {
+  constructor({ commissionMode = null, skuPackageId = null } = {}) {
+    super(`${PRODUCTION_EXACT_COMMISSION_REQUIRED}: 佣金还是估算的，先做一次「使用精确费用复算」再上架`);
+    this.name = 'ExactCommissionRequiredForProductionError';
+    this.code = PRODUCTION_EXACT_COMMISSION_REQUIRED;
+    this.exactCommissionRequiredForProduction = true;
+    this.commissionMode = commissionMode;
+    this.skuPackageId = skuPackageId;
+    this.ownerNextStep = EXACT_COMMISSION_RECALCULATION_ACTION;
+  }
+}
+
+/**
+ * 上架那一刻的闸门：当前生效的 B 利润记录必须是用精确佣金算出来的，否则一律不给生产授权。
+ *
+ * 为什么闸门是这一道而不是文案素材那一道：生成俄文标题、卖点和图片方案，和佣金率没有一点关系；真正由钱说
+ * 了算的是往平台写价格、写库存、让它对外可买的那一刻。所以钱的闸门归这里。
+ *
+ * 为什么必须放在服务端的提交路径上、而不是页面上藏个按钮：页面上少一个按钮拦不住直接打这个接口的请求，也拦
+ * 不住一份过期的页面。这个断言由 `commitSingleOwnerProductionAuthorization` 在它那一次原子事务的 `mutate`
+ * 里调用，读的是那一刻从仓库里取出来的记录，不是客户端送上来的字段；拒绝发生在任何东西落盘之前，所以拒绝一
+ * 次不会留下半截状态。
+ *
+ * `official_reference`（官方费表命中的费率）在利润计算里和 `exact` 同级，可以形成正式 B；但它终究不是平台
+ * 对这个店、这条类目实际收的那个数，所以在往平台写东西这一刻仍然不算数。这里只认 `exact`。
+ */
+export function assertExactCommissionBeforeProduction(skuPackage) {
+  const model = activeProfitModelOf(skuPackage);
+  if (isObject(model) && model.commissionMode === 'exact') return model;
+  throw new ExactCommissionRequiredForProductionError({
+    commissionMode: model === null ? null : text(model.commissionMode),
+    skuPackageId: text(skuPackage?.skuPackageId)
+  });
+}
+
+/* ─────────────────────── 一路上都要看得见「佣金还是估算的」 ─────────────────────── */
+
+/** 页面拿到的那一块的版本号，和 commission-estimate-step-v1 同一套叫法。 */
+export const ESTIMATED_COMMISSION_NOTICE_STEP_VERSION = 'estimated-commission-notice-step-v1';
+
+const percentText = rate => (rate === null ? null : `${Number((rate * 100).toFixed(2))}%`);
+const moneyText = amount => (amount === null ? null : `¥${amount.toFixed(2)}`);
+
+/**
+ * 「这件的佣金还是估算的」那一块，整份由服务端从已保存的记录构建，挂在每一份候选视图上。
+ *
+ * 为什么要一路挂着：主人从条件测算走到上架之前会经过好几个界面，中间隔着几天。只在出事的那一屏说一次，他会
+ * 忘；忘了之后最坏的结果是拿一个估算费率去上架。所以这一块跟着商品走，直到佣金真的换成精确的为止。
+ *
+ * 语气：这不是一件有问题的商品。利润门槛本来就过了，市场价也容得下——它只是还差一道正式化手续。所以这里不
+ * 用红字、不说「异常」、不说「失败」，只把三件事说清楚：佣金是估算的、现在这个结论只是条件测算、上架之前必
+ * 须先做一次精确费用复算。
+ *
+ * 已经上过架或者已经拿到生产授权的商品不摆这一块：那时候佣金早就是精确的了（上架那道闸门只认 exact），再摆
+ * 一句「还差一道手续」只会误导。
+ */
+export function buildEstimatedCommissionNoticeStep(candidate) {
+  const skuPackage = isObject(candidate?.lifecycleV11?.skuPackage) ? candidate.lifecycleV11.skuPackage : null;
+  const model = activeProfitModelOf(skuPackage);
+  const authorized = skuPackage !== null &&
+    (isObject(skuPackage.productionAuthorization) || isObject(skuPackage.productionRecord) || isObject(skuPackage.externalListingRecord));
+  const estimated = isObject(model) && model.commissionMode === 'estimated' && model.exactCommissionRequiredForFormalB === true;
+  const present = estimated && !authorized;
+  if (!present) {
+    return {
+      schemaVersion: ESTIMATED_COMMISSION_NOTICE_STEP_VERSION,
+      candidateId: text(candidate?.id),
+      dataRevision: Number.isSafeInteger(candidate?.dataRevision) ? candidate.dataRevision : null,
+      present: false, release: null, sentences: [], ownerNextStep: null, blocksProduction: false
+    };
+  }
+  const release = resolveConditionalCommissionRelease({ profitModel: model, executionRuntime: candidate?.executionRuntime ?? null });
+  const rate = percentText(release.commissionRate);
+  const unitProfit = moneyText(release.unitProfitRmb);
+  const margin = percentText(release.profitMargin);
+  const minimumProfit = moneyText(release.minimumUnitProfitRmb);
+  const minimumMargin = percentText(release.minimumProfitMargin);
+  const either = release.thresholdLogic === 'any' ? '满足任一项' : release.thresholdLogic === 'all' ? '两项都要满足' : null;
+  const thresholdSentence = minimumProfit === null || minimumMargin === null || either === null
+    ? '利润门槛按当前已发布的那一版判。'
+    : `利润门槛是单件利润 ≥ ${minimumProfit} 或利润率 ≥ ${minimumMargin}（${either}）。`;
+  return {
+    schemaVersion: ESTIMATED_COMMISSION_NOTICE_STEP_VERSION,
+    candidateId: text(candidate?.id),
+    dataRevision: Number.isSafeInteger(candidate?.dataRevision) ? candidate.dataRevision : null,
+    present: true,
+    release,
+    ownerNextStep: EXACT_COMMISSION_RECALCULATION_ACTION,
+    // 这一块在，上架就一定会被服务端拦下来——两处读的是同一份记录的同一个字段。
+    blocksProduction: true,
+    sentences: [
+      rate === null
+        ? '这件商品的平台佣金还是估算的，不是从你店里同类目已上架商品上读到的实际费率。'
+        : `这件商品的平台佣金还是估算的：${rate}，来自官方费率表，不是从你店里同类目已上架商品上读到的实际费率。`,
+      unitProfit === null || margin === null
+        ? `所以现在这个利润结论只是条件测算，不是正式 B 通过。${thresholdSentence}`
+        : `所以现在这个利润结论只是条件测算，不是正式 B 通过：单件利润 ${unitProfit}、利润率 ${margin}。${thresholdSentence}` +
+          (release.conditionalOnEstimatedCommissionOnly
+            ? '这两条和市场价这一条都已经过了——这不是一件有问题的商品，只是一件还差一道正式化手续的商品。'
+            : ''),
+      '上架之前必须先做一次「使用精确费用复算」：软件用平台实际收的那个费率把利润重算一遍，正式 B 通过之后才能提交生产授权。' +
+        '在那之前，这件商品不会有任何东西被写到平台上。'
+    ]
   };
 }

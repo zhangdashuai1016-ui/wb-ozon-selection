@@ -246,7 +246,10 @@ export async function runRealAConfirmationWithSystemEvidence({
     evidencePacks,
     currentCommissionCatalogs,
     providers,
-    plannedAt: confirmedAt
+    plannedAt: confirmedAt,
+    // 官方费表按成交价档取值，而这一笔确认的成交价要到这一轮结束才落盘：把主人本轮填的那个价随请求带下去。
+    // 传的是已校验的 normalized，不是客户端原样的 input。
+    submission: validation.normalized
   });
   if (evidencePreparation.status !== "completed") {
     return deepFreeze({

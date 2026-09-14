@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-14T09:19:10.129Z",
+  "frozenAt": "2026-09-14T12:05:46.285Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 666,
-      "sha256": "8488afbbedc317b88690528f5e172f131668c13d9854cfbc3403f4dff01778da",
+      "artifactCount": 667,
+      "sha256": "9aba8463d373752054194963cedee64c1b0ef5f31669a5dd6ff63aa3dff339f9",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -256,7 +256,7 @@
       },
       {
         "path": "lib/c1-product-plan.mjs",
-        "sha256": "0a1fe40fe2a91dae4d229ddf0bb622d6d6d7aafba16398eb1ca2e7a639fc0ac6"
+        "sha256": "830a86edcc2242e43c5accf738dd633c63b0b5e68e0ad419c0f9f87662027767"
       },
       {
         "path": "lib/c1-review-presentation.mjs",
@@ -328,7 +328,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "820d496cf997443e91586c155aa98c85f528fa69756b72466e9cdbff8d981268"
+        "sha256": "5a4a9946b7d5be07d23e2386fc9e8ac0c19daa57820ee4f490e8f42f90db7a0f"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -348,7 +348,7 @@
       },
       {
         "path": "lib/commission-estimate-authorization.mjs",
-        "sha256": "365eec2776318cdee8a32b063b88cac1aa00f3e7fde03fe9da59ca9b8cbdd1e4"
+        "sha256": "02a7dcecb87fc4567a5618a824b219074950846276440fa0ca315026f7e75d87"
       },
       {
         "path": "lib/d-asset-transport-software-use-case.mjs",
@@ -516,7 +516,7 @@
       },
       {
         "path": "lib/lifecycle-b-evidence-preparation.mjs",
-        "sha256": "587ca7ac24a2afee4eee38419afb594239cbd3e676fe4a90f601a9946644a862"
+        "sha256": "17e8f19235a13e28206f8796d52ca181d66501366107844cd0e5ae7de2c2ef7b"
       },
       {
         "path": "lib/lifecycle-b-evidence-providers.mjs",
@@ -528,11 +528,11 @@
       },
       {
         "path": "lib/lifecycle-b-input-bundle.mjs",
-        "sha256": "215fdc5e610cae6e56b87c2c0928a219f0c724eac57605bdfaf5d02d7558ef87"
+        "sha256": "cee78d77343d4df0431b1f94849fa15da7a2289d47260a9a983c9885e97aefec"
       },
       {
         "path": "lib/lifecycle-b-real-evidence-readers.mjs",
-        "sha256": "9bd2db8a09687ea2b9867ad18ec5e33304a03b857da088ba024a368689d07b3a"
+        "sha256": "9c9997886a48735fb511b361833b15847b2ad0adbec8319f02c5716da6eb6244"
       },
       {
         "path": "lib/lifecycle-c-stage.mjs",
@@ -732,7 +732,7 @@
       },
       {
         "path": "lib/production-authorization.mjs",
-        "sha256": "72a994578cba5e5f53e8405b34b77b3f2e24efc05b1d7a1b43bf9cd7d482d473"
+        "sha256": "d4d563d0b3f4c94fb57b87c80b3ccaa57796fb417b38b870e21628c6fce6436b"
       },
       {
         "path": "lib/production-contract-primitives.mjs",
@@ -756,7 +756,7 @@
       },
       {
         "path": "lib/profit-model-calculation.mjs",
-        "sha256": "dd3711598556b161be9543912b43cee61af241798629ad105e2339bc4ddba2d4"
+        "sha256": "e1c446af8c5135981e887439aa7ec917c0e38d7fc6ab5fb0d4c75a3453168634"
       },
       {
         "path": "lib/profit-model.mjs",
@@ -776,7 +776,7 @@
       },
       {
         "path": "lib/real-a-b-evidence-orchestration.mjs",
-        "sha256": "e5685fe4e1df92e7004d9ce2a5a0545bb4a73eb1130872a8af699b4fe5d618d0"
+        "sha256": "335793922db2eaf48daffd1a4d46c321c67fdba2b814fa774077808c56dae964"
       },
       {
         "path": "lib/real-a-confirmation-card.mjs",
@@ -884,7 +884,7 @@
       },
       {
         "path": "lib/workflow.mjs",
-        "sha256": "51e26b6b116cde1d01f882a1f46c74fa6c31f8f0d812b18a5dfee7330aa55e4c"
+        "sha256": "5e5d80e51934aa532403b467e6c7b0e3d549c33e2e114546618cf6c73323f04c"
       },
       {
         "path": "package.json",
@@ -1200,7 +1200,7 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "e87785a3bd4eecf53fca348af17b5469211687ee21ad91724c99ec9cde986250"
+        "sha256": "50658a9befffbd8af630ff6bc1289b2cf4619b354fbeb9362f69cbc6bbac8912"
       },
       {
         "path": "src/App.jsx",
@@ -1380,7 +1380,7 @@
       },
       {
         "path": "src/components/UserInspector.jsx",
-        "sha256": "42393edbb5ca8833254b4c00fe2d0fc3bac1818127089c3cdb11999b5402df54"
+        "sha256": "c91e6f94f81dfa027b1abf91c109919177e7b54b7b427859d90aee6d7886b847"
       },
       {
         "path": "src/components/WorkflowMap.jsx",
@@ -1820,11 +1820,11 @@
       },
       {
         "path": "tests/commission-estimate-authorization.test.mjs",
-        "sha256": "f0352efe39d5061acba5624d2651db7ab1e43801960175f52d219b84fe9a90e2"
+        "sha256": "59a0725f80c01f109859e98035fa30c284ae330656f85f5d16b6e6438b9de464"
       },
       {
         "path": "tests/cross-stage-contract-schema.test.mjs",
-        "sha256": "4e8c0af5462784df376317a97801829b906d074db7254d1841749c5ad85d8e69"
+        "sha256": "5e7ce5afc085a73a24dd17738a0bac7ffdb149184cc7d01ce512821ab27dce43"
       },
       {
         "path": "tests/d-asset-transport-saved-job.test.mjs",
@@ -2240,7 +2240,7 @@
       },
       {
         "path": "tests/lifecycle-b-evidence-preparation.test.mjs",
-        "sha256": "66d8d18cb02ec054826f04b33f7a72ed4f9ffc0cc52a69264716a190d7024eca"
+        "sha256": "79055df7ffe2c40669b2ab3a0b0c49ad7579e2558f31c73d1aa97c5c048673ba"
       },
       {
         "path": "tests/lifecycle-b-evidence-providers.test.mjs",
@@ -2313,6 +2313,10 @@
       {
         "path": "tests/multi-user-central-runtime.test.mjs",
         "sha256": "f3610c7fd1ec8a0f972a182d389b111c31ce934074ddfaecfb004b6f7857266c"
+      },
+      {
+        "path": "tests/official-commission-formal-b.test.mjs",
+        "sha256": "ba364327f4e03a86e2f951e901def4767c550a5f19a14d10042348191135da84"
       },
       {
         "path": "tests/owner-inbox-board-ui.test.mjs",
@@ -2472,7 +2476,7 @@
       },
       {
         "path": "tests/production-owner-decision.test.mjs",
-        "sha256": "eddf168c3eb0eb92c593602ab674bbf919f695779b41ded66882310aa81519c7"
+        "sha256": "f1c2d4bdae927047264073c5d88dac38938ca1daf9cee1d88ec55a364e1f0abb"
       },
       {
         "path": "tests/production-owner-preparation.test.mjs",
@@ -2500,7 +2504,7 @@
       },
       {
         "path": "tests/real-a-b-c1-flow.test.mjs",
-        "sha256": "14c66502695112e4155f27994ca8c62fa09b4c22f0abe95d1b89f1034d91b9af"
+        "sha256": "55d77c1f2d337b96c19ac4bebc1c4e7c7a6d3631fd3e56e43b70991982f634a2"
       },
       {
         "path": "tests/real-a-b-evidence-orchestration.test.mjs",
@@ -3211,6 +3215,10 @@
           "status": "present_in_integration_source"
         },
         {
+          "path": "src/components/UserInspector.jsx",
+          "status": "present_in_integration_source"
+        },
+        {
           "path": "tests/cargo-facts-declaration.test.mjs",
           "status": "present_in_integration_source"
         },
@@ -3308,6 +3316,10 @@
         },
         {
           "path": "tests/lifecycle-b-real-evidence-readers.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/official-commission-formal-b.test.mjs",
           "status": "present_in_integration_source"
         },
         {
@@ -3874,6 +3886,10 @@
       "wiringStatus": "partial",
       "verificationStatus": "non_blocking_risk",
       "artifacts": [
+        {
+          "path": "lib/commission-estimate-authorization.mjs",
+          "status": "present_in_integration_source"
+        },
         {
           "path": "lib/production-authorization.mjs",
           "status": "present_in_integration_source"

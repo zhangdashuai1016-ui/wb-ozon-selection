@@ -1288,6 +1288,12 @@ test("server只接原子授权处理器且旧入口永久零派发", async () =>
   assert.match(lifecycleRoute, /commitSingleOwnerProductionAuthorization/);
   assert.match(lifecycleRoute, /resolveProductionOwnerPreparation/);
   assert.match(lifecycleRoute, /production_authorization_reconfirmation_required/);
+  // 钱的闸门那一次拒绝，页面认的是 code 和 ownerNextStep 这两个 ASCII 标记，不靠那句中文；
+  // 回体还要照实说这一次零外部请求、零平台写入。
+  assert.match(lifecycleRoute, /ExactCommissionRequiredForProductionError/);
+  assert.match(lifecycleRoute, /code: error\.code, ownerNextStep: error\.ownerNextStep/);
+  assert.match(lifecycleRoute, /exactCommissionRequiredForProduction: true/);
+  assert.match(lifecycleRoute, /使用精确费用复算/u);
   assert.doesNotMatch(lifecycleRoute, /createCandidateDispatch|deliverDispatch|createProductionPlan|ExecutionIntent/);
   const legacyStart = source.indexOf('if (req.method === "POST" && productionAuthorizationRoute)');
   const legacyEnd = source.indexOf('const dispatchClaimRoute', legacyStart);
