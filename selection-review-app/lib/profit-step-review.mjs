@@ -124,6 +124,43 @@ export function specificationBreakdown({ row, packagingRmb, labelCostRmb }) {
 }
 
 /**
+ * 「这笔每单额外操作费涨到多少，这个规格才会掉出利润线」 — owner question 2026-09-15.
+ *
+ * He does not want to be told to think about every fee. He wants to know, per specification, where the point of
+ * caring is: a variant with ¥34 of room does not need a second thought about a ¥2 bag, and one with ¥7 does.
+ *
+ * The line this store draws is `thresholdLogic: any`: a specification passes when EITHER the unit-profit floor or
+ * the target margin is reached, so it only drops out when both fail — that is, below the LOOSER of the two, which is
+ * `min(minimumUnitProfitRmb, targetMarginRate × 收入)`. A store configured `both` needs both, so there it is the
+ * stricter of the two. The fee eats profit one-for-one (it is one of the fixed non-purchase costs subtracted from
+ * revenue), so the room is `单件利润 − 门槛` and the fee may rise to `现在这笔费用 + room` before the line is crossed.
+ *
+ * Everything here comes from this row's own already-computed revenue and profit and this store's own policy numbers;
+ * not one figure is written into the code. The room is floored to cents, so the answer never overstates it.
+ */
+export function extraHandlingBreakPoint({ row, policy, currentRmb }) {
+  const unitProfitRmb = finite(row?.unitProfitRmb);
+  const revenueCny = finite(row?.revenueCny);
+  const current = finite(currentRmb);
+  const minimumUnitProfitRmb = finite(policy?.minimumUnitProfitRmb);
+  const marginFloorRmb = finite(policy?.targetMarginRate) === null || revenueCny === null
+    ? null : cents(policy.targetMarginRate * revenueCny);
+  if (unitProfitRmb === null || current === null || current < 0) return null;
+  const floors = [minimumUnitProfitRmb, marginFloorRmb].filter(value => value !== null);
+  if (floors.length === 0) return null;
+  const both = policy?.thresholdPolicy === 'both';
+  const thresholdRmb = both ? Math.max(...floors) : Math.min(...floors);
+  const headroomRmb = roundDownCents(unitProfitRmb - thresholdRmb);
+  // 已经在线下的规格没有「再涨多少」可言；这一步只把过线的摆出来，但这里不靠调用方保证。
+  if (headroomRmb < 0) return null;
+  const basis = minimumUnitProfitRmb === null ? 'margin' : marginFloorRmb === null ? 'unit_profit'
+    : minimumUnitProfitRmb === marginFloorRmb ? 'both'
+      : thresholdRmb === minimumUnitProfitRmb ? 'unit_profit' : 'margin';
+  return { currentRmb: current, thresholdRmb, thresholdBasis: basis, headroomRmb,
+    breakRmb: roundDownCents(current + headroomRmb) };
+}
+
+/**
  * Owner ruling 2026-09-13: the price this step charges is the page's own price for this specification, not the one
  * figure typed into 找货 — but the difference between them has to be said out loud, because 找货 priced one imagined
  * average parcel and this specification carries its own. Equal prices have no difference to report.
@@ -192,7 +229,9 @@ export function groupQueuedSpecifications(rows, columns) {
       freightRmb: head.freightRmb, allInPurchaseRmb: head.allInPurchaseRmb,
       unitProfitRmb: head.unitProfitRmb, marginRate: head.marginRate,
       breakEvenRub: head.breakEvenRub ?? null, thresholdRub: head.thresholdRub ?? null,
-      thresholdBasis: head.thresholdBasis ?? null
+      thresholdBasis: head.thresholdBasis ?? null,
+      // 同价同重的规格利润一模一样，所以「额外操作费涨到多少才掉线」也一模一样，跟着这一行走。
+      extraHandling: head.extraHandling ?? null
     };
   });
 }
@@ -266,7 +305,11 @@ export function buildProfitStepReview({
     .filter(row => textOf(row.attributes?.[match.attributeKey]) === match.value);
   const suggested = sameAttribute[0] ?? null;
 
-  const priced = verdicts.passing.map(row => ({ ...row, ...specificationPrices({ row, fx, tiers, policy }) }));
+  // 这张表实际是按哪笔「每单额外操作费」算出来的，以及那个数是不是主人自己声明过的。两者都来自表自己的来源栏。
+  const extraHandlingRmb = finite(table.sources?.packagingRmbDefault);
+  const extraHandlingDeclared = table.sources?.extraHandlingDeclared === true;
+  const priced = verdicts.passing.map(row => ({ ...row, ...specificationPrices({ row, fx, tiers, policy }),
+    extraHandling: extraHandlingBreakPoint({ row, policy, currentRmb: extraHandlingRmb }) }));
   const byId = new Map(priced.map(row => [String(row.sourceSkuId), row]));
 
   // 提交时每个规格都一样的那一半，全部来自已保存的记录。
@@ -318,6 +361,8 @@ export function buildProfitStepReview({
       freightRmb: row.freightRmb, allInPurchaseRmb: row.allInPurchaseRmb,
       unitProfitRmb: row.unitProfitRmb, marginRate: row.marginRate,
       breakEvenRub: row.breakEvenRub, thresholdRub: row.thresholdRub, thresholdBasis: row.thresholdBasis,
+      // 「这笔费用涨到 ¥X 以上，这个规格才会掉出利润线」——X 按这个规格自己的利润和这家店自己的门槛现算。
+      extraHandling: row.extraHandling,
       breakdown: specificationBreakdown({ row,
         packagingRmb: table.sources?.packagingRmbDefault, labelCostRmb: table.sources?.labelCostRmb }),
       priceDelta: pagePriceDelta({ row, draft }),
@@ -349,6 +394,9 @@ export function buildProfitStepReview({
       thresholdPolicy: policy.thresholdPolicy === 'both' ? 'both' : 'either',
       policyVersion: textOf(policy.pricingPolicyVersion)
     },
+    // 这一整套利润是按哪笔「每单额外操作费」算出来的，以及那个数是主人的声明还是一个还没签过字的暂算值。
+    // 没声明的时候页面必须说出来，绝不能把一个暂算值当成已经定下来的钱摆在他面前。
+    extraHandlingFee: { appliedRmb: extraHandlingRmb, declared: extraHandlingDeclared },
     // 建议里为什么是这一个：对标标题里写着的那个规格。同规格有几个颜色就说几个，颜色由主人自己定。
     benchmark: sales === null ? null : {
       productNumber: ozonProductNumber(sales.productUrl),

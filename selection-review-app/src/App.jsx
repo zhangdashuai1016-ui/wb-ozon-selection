@@ -1051,6 +1051,7 @@ export default function App() {
           onSaveDraft={payload => runProductStep(api.saveSupplierDraft, payload)}
           onChooseSkus={payload => runProductStep(api.chooseSourceSkus, payload)}
           onDeclareCargoFacts={payload => runProductStep(api.declareCargoFacts, payload)}
+          onDeclareExtraHandlingFees={payload => runProductStep(api.declareExtraHandlingFees, payload)}
           onRequestCapture={payload => requestProductCapture(payload)}
           onReviewCaptureAndRequest={payload => reviewCaptureAndRequest(payload)}
           onRecaptureSource={payload => recaptureProductSource(payload)}

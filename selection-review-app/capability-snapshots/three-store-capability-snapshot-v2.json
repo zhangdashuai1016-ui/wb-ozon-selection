@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-15T02:36:21.480Z",
+  "frozenAt": "2026-09-15T06:04:11.718Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 668,
-      "sha256": "9d45a6b3b3a9c5b81ca5643c9f5629b3cc1595449d97db29bda72a52ce2cf2b3",
+      "artifactCount": 670,
+      "sha256": "f154421c175d56f24b58a8cf47987827c5d348f9d55029cb1869077d7c234e7a",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -84,7 +84,7 @@
       },
       {
         "path": "lib/a-discovery-estimate.mjs",
-        "sha256": "f6c58348d802d61e53a91a18cdbb61354e00ce6e9f5609594e9e821c94e0f55f"
+        "sha256": "2fae66fb68d3502921923a5587cbec4c9171ddd7ef6720281b6b7e7870f7d916"
       },
       {
         "path": "lib/a-discovery-runtime-services.mjs",
@@ -324,11 +324,11 @@
       },
       {
         "path": "lib/candidate-user-fields.mjs",
-        "sha256": "35fc66a3bbb67704b18d085e8806db771cd4c1a14c69e30f218e20a7033cb5f0"
+        "sha256": "9786cfacaebdc4892a21554cfb1e9ebeb55c7d65c53459b468bfa19143aafe88"
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "b4e1979458f88014c6ebcb9b928daff781fa69f2a354d6b389f2ed76a2e23fcd"
+        "sha256": "aaf961c4e33d6a66e60543d5911341e659e838f48dc7f878a44a026c2138ebfb"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -443,6 +443,10 @@
         "sha256": "b5f3b2c3ff787a109f295f0426238d748f2b1d1ba9e845ce6f8734d009b528a4"
       },
       {
+        "path": "lib/extra-handling-fees.mjs",
+        "sha256": "7ef9e8ae39b880aca447031d9654487d0ca4a37f0c9e42e3b612a5890fe0c340"
+      },
+      {
         "path": "lib/final-pricing-revalidation.mjs",
         "sha256": "bcbd3a522187cc84f1bcbbb114f7fbe338df8196d23f897fb6b5e84342194655"
       },
@@ -524,7 +528,7 @@
       },
       {
         "path": "lib/lifecycle-b-evidence-runtime.mjs",
-        "sha256": "182ae73c6845ee2210c41c6aad927a31d979204f2846acb363f06867604e8b3c"
+        "sha256": "a1b588fab36aebf2d18a98e91d2f2334efb0c29f06e805b4cdf2fc2bfe3b5ea7"
       },
       {
         "path": "lib/lifecycle-b-input-bundle.mjs",
@@ -764,7 +768,7 @@
       },
       {
         "path": "lib/profit-step-review.mjs",
-        "sha256": "b9664986a399a990c7862e9afb5dec9e6f2e83c6d30b0dd87abda68159ce045a"
+        "sha256": "b31ff66192bdc827d7d6c14b5f9b9cfade885b30965fa97e15a79f716b400588"
       },
       {
         "path": "lib/profit-threshold-policy.mjs",
@@ -828,7 +832,7 @@
       },
       {
         "path": "lib/sku-choice-estimate.mjs",
-        "sha256": "a5473efea76dd2d8ddae620c8c4734598a601eae93207eb748ab823edeeeb466"
+        "sha256": "67aab4f71686b0858e3ebfc4e1f18016bbc6ffeb08b381b87c9c9cce700b90a9"
       },
       {
         "path": "lib/software-execution-state.mjs",
@@ -1200,11 +1204,11 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "6ed266305cf6abc84e45f36baa6d11bae3ed708e716eff7e80474b97bd79811a"
+        "sha256": "3e7ccd39300fddd560af89cbc1a222578be9cb3827a80d0497ea34819767fbb4"
       },
       {
         "path": "src/App.jsx",
-        "sha256": "127831698702746310ae92f9ac542d31099f4e508cf9a7b599eab6b1acda726e"
+        "sha256": "2cf672552269968b2ba5dfb579ed89e802679e06974560a28abce47d618e3e61"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1216,7 +1220,7 @@
       },
       {
         "path": "src/api.js",
-        "sha256": "52e3c1f8cfc1b1738d9e18dbc00df463596690d51dada02597dc15fbbaac1cdc"
+        "sha256": "d536e2b439160f72464982b1fd4d453e9f10d1925ba3f76db4ea5712ac0d5b91"
       },
       {
         "path": "src/bExactCommissionInput.js",
@@ -1352,7 +1356,7 @@
       },
       {
         "path": "src/components/ProductPage.jsx",
-        "sha256": "8b6cdf71a14e999a0536fc73a17de70d99594a0e43e3a144d7d9e54262e5ba03"
+        "sha256": "78d3a441ffc70f9f408c70da0c175ba6d07278924f661ed109a51f476048cc82"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1452,7 +1456,7 @@
       },
       {
         "path": "src/styles.css",
-        "sha256": "a23b43c91152cd3041b2e6377fe17a8cff0a0c512ec286d91a5068268d04566d"
+        "sha256": "60e18a7a871227c5fcb005d3222694023c12f36f5f0bd2da927ea94c3735474e"
       },
       {
         "path": "src/wbPresentation.js",
@@ -1971,6 +1975,10 @@
         "sha256": "ed1398dcf09b1089b6b613ef32c7518264b24a1d6ee3dbabbfcda6619972a9c6"
       },
       {
+        "path": "tests/extra-handling-fees.test.mjs",
+        "sha256": "d757d3d9c4ed2262794e4999c1aae204d39f2cc101ecb48c086881b4adb25a0f"
+      },
+      {
         "path": "tests/final-pricing-c1-reuse-integration.test.mjs",
         "sha256": "ae94e596e97b54203aab3833feb56621be975b639f8c19d564cf08e3c34ea682"
       },
@@ -2472,7 +2480,7 @@
       },
       {
         "path": "tests/product-page-ui.test.mjs",
-        "sha256": "5e4a47e608d11a5159becc4055351f5f72fd594476704849b0407f411215ff72"
+        "sha256": "d2418a08325e26a6829c9c26f54a4c13e8dc9568005919127d37048bb1c11e41"
       },
       {
         "path": "tests/production-owner-decision-api.test.mjs",
@@ -2596,7 +2604,7 @@
       },
       {
         "path": "tests/sku-choice-estimate.test.mjs",
-        "sha256": "ff1519c9e2165874fdec1ef413b65ac53929a726109e029b438739cb8b78cbba"
+        "sha256": "b3057196f9f1538f29c113e29113a1cee0cea0b57453a0dc953ad1926d0f0eba"
       },
       {
         "path": "tests/software-execution-state.test.mjs",
@@ -3203,6 +3211,10 @@
           "status": "present_in_integration_source"
         },
         {
+          "path": "lib/extra-handling-fees.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
           "path": "lib/profit-step-review.mjs",
           "status": "present_in_integration_source"
         },
@@ -3228,6 +3240,10 @@
         },
         {
           "path": "tests/commission-estimate-authorization.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/extra-handling-fees.test.mjs",
           "status": "present_in_integration_source"
         },
         {

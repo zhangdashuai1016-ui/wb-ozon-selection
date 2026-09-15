@@ -3,6 +3,7 @@ import { normalizeEvidenceScope, evidenceScopeKey, evidenceScopeMatches } from "
 import { validateLifecycleEvidenceData, isLifecycleEvidenceTraceValid, inspectCommissionCatalogValidity,
   normalizeCurrentCommissionCatalogs } from "./lifecycle-b-input-bundle.mjs";
 import { resolveLifecycleBCostPolicy, instantiateLifecycleBCostPolicySnapshot } from "./global-pricing-policy.mjs";
+import { extraHandlingFeesConsistency, extraHandlingFeesGate } from "./extra-handling-fees.mjs";
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -41,6 +42,13 @@ export function buildLifecycleBExplicitOtherCosts(candidate, profitRule, { asOf 
   const snapshot = lifecycleBCostPolicySnapshot(profitRule, context);
   const resolved = resolveLifecycleBCostPolicy({ snapshot, context, asOf });
   const costs = Object.fromEntries(Object.entries(resolved).filter(([key]) => !["policyId", "policyVersion"].includes(key)));
+  // 明细和总额必须是同一笔钱。明细缺失（历史数据）不报错，总额照旧；明细在场但加不出这个总额，那份明细说的就不是
+  // 正在被扣的这笔钱，宁可停在这里，也不能拿一份对不上的分解去支撑一个签得下去的利润。
+  const detail = extraHandlingFeesConsistency(candidate);
+  if (detail.status === "inconsistent") {
+    throw Object.assign(new Error(`B_EVIDENCE_COST_POLICY_INCOMPLETE: ${detail.reason}`),
+      { code: "B_EVIDENCE_COST_POLICY_INCOMPLETE" });
+  }
   const policy = {
     ...costs,
     packagingRmb: candidate?.packagingCostRmb,
@@ -65,7 +73,7 @@ const COST_ITEM_LABELS = Object.freeze({
 });
 
 const COST_READINESS_MESSAGES = Object.freeze({
-  B_EVIDENCE_COST_POLICY_INCOMPLETE: "当前店铺成本规则、商品包材费用或利润门槛不完整。",
+  B_EVIDENCE_COST_POLICY_INCOMPLETE: "当前店铺成本规则、这件商品的每单额外操作费或利润门槛不完整。",
   B_COST_POLICY_INVALID: "完整成本政策缺失或结构无效，需要明确政策版本与来源。",
   B_COST_POLICY_SCOPE_MISMATCH: "成本政策不适用于当前平台、店铺身份或销售模式。",
   B_COST_POLICY_TIME_INVALID: "成本政策有效时间配置无效。",
@@ -93,6 +101,10 @@ export function inspectLifecycleBCostReadiness({ candidate, rules, asOf }) {
     if (!(error instanceof Error) || !Object.hasOwn(COST_READINESS_MESSAGES, error.code)) throw error;
     const snapshot = profitRule?.costPolicySnapshot ?? profitRule?.costPolicy;
     let missing = [];
+    // 这一条缺口必须点名说出来。它是这台机器上最常见的那一个（从 Seerfar 发现进来的候选一律没有这笔钱），
+    // 报成「成本规则不完整」主人无从下手，报成这句话他知道去哪儿点。
+    const fee = extraHandlingFeesGate(candidate);
+    if (error.code === "B_EVIDENCE_COST_POLICY_INCOMPLETE" && fee.ready !== true) missing.push(fee.reason);
     if (error.code === "B_COST_POLICY_INVALID" && (snapshot === null || snapshot === undefined)) {
       missing = ["完整成本政策未登记。"];
     } else if (isObject(snapshot?.items)) {

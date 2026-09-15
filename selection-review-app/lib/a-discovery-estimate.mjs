@@ -119,7 +119,11 @@ export function estimateDiscoveredProduct({ product, storeRule, fx, commission, 
   }
   const status = missing.length ? 'incomplete' : ceiling.maximumAllInPurchaseRmb <= 0 ? 'negative' : 'ok';
   return { schemaVersion: 'a-discovery-estimate-v1', productId: product.productId ?? null, priceRub: product.price, revenueCny, fx: fxSource,
-    commission: commissionSource, costPolicy: policy, assumptions: { packagingRmbDefault: assumptions.packagingRmbDefault, assumed: true }, freight, ceiling, status, missing };
+    commission: commissionSource, costPolicy: policy,
+    // 这笔「每单额外操作费」是不是一个假设值，由调用方说了算：发现批量估算那条路没有商品可问，只能按项目默认值假设；
+    // 单件商品那条路问的是这件货自己的声明，那就不是假设。旧调用方不传这个标记，行为一个字都不变。
+    assumptions: { packagingRmbDefault: assumptions.packagingRmbDefault, assumed: assumptions.extraHandlingDeclared !== true },
+    freight, ceiling, status, missing };
 }
 
 /**

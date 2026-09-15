@@ -531,6 +531,88 @@ export function cargoFactsStepGaps(step) {
     || "这件商品的运输属性还没有你的确认。软件要先知道它带不带电、是不是普货，才能核验线路收不收这件货。" }];
 }
 
+/* ── 每单额外操作费 ────────────────────────────────────────────────────────────────────────────────────────────────
+ * 包材、拆单费、合包费、额外材料费——每单要另外花的钱。它不是一个固定数，也不总叫同一个名字，所以这里是一份可增删的
+ * 清单：一行一个名目一笔金额。一行都没有 = ¥0.00，而且那是主人的一次明确声明，不是「还没填」。
+ *
+ * 为什么非有这一块不可：`candidate.packagingCostRmb` 是 B 阶段证据的硬要求，从 Seerfar 发现进来的候选一律是空的，
+ * 而新版商品页原来没有任何地方能填它。主人 2026-09-14、2026-09-15 两次走到最后一个按钮才撞上这堵墙。
+ *
+ * 清单各行加起来必须正好是那个合计——服务端写的时候合计就是从行里算出来的，所以两个数不可能分家。
+ */
+
+/** 表单从已保存的明细开始；没有明细就是空清单，也就是软件提议的那个 ¥0.00。 */
+export function extraHandlingFeesFormState(step) {
+  return (Array.isArray(step?.items) ? step.items : [])
+    .map(item => ({ name: textOf(item?.name), amountRmb: numberField(item?.amountRmb) }));
+}
+
+/** 名目和金额都空着的那一行当作没有这一行；剩下的原样带走。空清单带的是 `items: []`，服务端认得那是 ¥0.00。 */
+export function extraHandlingFeesPayload(rows, dataRevision) {
+  return {
+    dataRevision,
+    items: (Array.isArray(rows) ? rows : [])
+      .filter(row => textOf(row?.name) !== "" || String(row?.amountRmb ?? "").trim() !== "")
+      .map(row => ({ name: textOf(row?.name), amountRmb: Number(String(row?.amountRmb ?? "").trim()) }))
+  };
+}
+
+/** 哪一行填得不成立。空行不算错——它只是还没写。 */
+export function extraHandlingFeesFormErrors(rows) {
+  const errors = {};
+  (Array.isArray(rows) ? rows : []).forEach((row, index) => {
+    const name = textOf(row?.name);
+    const amount = String(row?.amountRmb ?? "").trim();
+    if (name === "" && amount === "") return;
+    if (name === "") errors[`name:${index}`] = "写清楚这笔钱叫什么，比如包材、拆单费、合包费、额外材料费";
+    if (!NUMBER_PATTERN.test(amount) || Number(amount) <= 0) {
+      errors[`amountRmb:${index}`] = "金额要大于 0；这一笔不用花钱就把这一行删掉";
+    }
+  });
+  return errors;
+}
+
+/** 这份清单现在加起来是多少。填得还不成立的行不算进去，所以这个数永远是「照现在这样确认下去会是多少」。 */
+export function extraHandlingFeesFormTotal(rows) {
+  const payload = extraHandlingFeesPayload(rows, 0).items
+    .filter(item => textOf(item.name) !== "" && finite(item.amountRmb) !== null && item.amountRmb > 0);
+  return Math.round(payload.reduce((total, item) => total + item.amountRmb, 0) * 100) / 100;
+}
+
+/**
+ * 这笔钱还没声明的时候，算利润就不能确认。判断来自服务端那份记录，页面不自己算；读不到这一块也按「没声明」算，
+ * 宁可按钮不亮，也不能让主人点了才吃服务端那句 B_EVIDENCE_COST_POLICY_INCOMPLETE。
+ */
+export function extraHandlingFeesStepGaps(step) {
+  if (isObject(step) && step.gate?.ready === true) return [];
+  return [{ field: "extraHandlingFees", label: textOf(step?.label) || "每单额外操作费",
+    why: textOf(step?.gate?.reason) ||
+      "这件商品还没声明每单额外操作费——包材、拆单费、合包费、额外材料费这一类，每单要另外花的钱。不用加钱就一键确认 ¥0.00。" }];
+}
+
+/**
+ * 「这笔费用涨到 ¥X 以上，这个规格才会掉出利润线」——主人 2026-09-15 最看重的那一句。
+ * X 由服务端按这个规格自己的利润和这家店自己的门槛现算，页面一个数都不写。
+ */
+export function extraHandlingFeeBreakLine(spec) {
+  const point = spec?.extraHandling ?? null;
+  if (!isObject(point) || finite(point.breakRmb) === null) return null;
+  const basis = point.thresholdBasis === "margin" ? "利润率那条门槛"
+    : point.thresholdBasis === "unit_profit" ? "单件利润那条门槛" : "两条门槛";
+  return `这笔费用涨到 ${money(point.breakRmb)} 以上，这个规格才会掉出本店利润线` +
+    `（现在按 ${money(point.currentRmb)} 算，还剩 ${money(point.headroomRmb)} 的余地，卡住它的是${basis} ${money(point.thresholdRmb)}）。`;
+}
+
+/** 上面那一套利润到底扣的是哪笔额外操作费，以及那个数签过字没有。没签过字就必须说出来。 */
+export function extraHandlingFeeAppliedLine(review) {
+  const fee = review?.extraHandlingFee ?? null;
+  if (!isObject(fee) || finite(fee.appliedRmb) === null) return null;
+  return fee.declared === true
+    ? `上面每个规格的利润都扣了你声明的每单额外操作费 ${money(fee.appliedRmb)}。`
+    : `上面每个规格的利润是暂按每单额外操作费 ${money(fee.appliedRmb)} 算的——这件商品你还没声明过这笔钱，` +
+      "这个数没签过字，确认一下它才算数。";
+}
+
 /* ── 类目从哪儿来 ──────────────────────────────────────────────────────────────────────────────────────────────────
  * 算利润这一步要用的类目，服务端只认真实打开过的 Ozon 商品页读回来的那一份。Seerfar 接口给的那条类目它不认，
  * 于是主人点下「确认，进入文案素材」只会收到一句 B_EVIDENCE_CONTEXT_INCOMPLETE: 当前类目 —— 2026-09-14 第一件
@@ -612,19 +694,42 @@ export function profitStepOutcomeLine(result) {
   return `已确认，但利润还没有算完：${needed || "服务端保存了这一轮核算，但没有形成正式结论"}。`;
 }
 
+/**
+ * 这六步在一件商品上真实发生的先后。
+ *
+ * `PRODUCT_STEPS` 是进度条的排版顺序——「选定」摆在最前面——但真正先做的是「找货」：填资料、申请采集，采回来了才谈得上
+ * 选规格。折叠区要判断「这一步过去了没有」，只能按这个顺序，不能按排版顺序。
+ */
+const STEP_FLOW_ORDER = Object.freeze(["find", "select", "profit", "copy", "publish", "readback"]);
+
+/**
+ * 这一步是不是已经走过去了。
+ *
+ * 这正是 2026-09-15 那个显示 bug 的根：原来这里只认得两件事——「这是当前这一步」和「这是选定并且规格已经锁定」，
+ * 除此之外的每一步都掉进同一个分支，写成「未开始」。于是一件已经正式通过 B、正停在「文案素材」的商品，页面把它的
+ * 「找货」和「算利润」都标成未开始，说「等前面的步骤完成后再开始」——而它们恰恰是已经完成的那两步。
+ */
+export function productStepPassed(stepKey, step) {
+  const position = STEP_FLOW_ORDER.indexOf(stepKey);
+  const current = STEP_FLOW_ORDER.indexOf(step);
+  return position >= 0 && current >= 0 && position < current;
+}
+
 /** The sentence a finished step shows once it is folded away. */
 export function foldedStepLine(stepKey, step, candidate) {
   if (stepKey === "select" && skuChoiceSaved(candidate)) {
     return `已选定 ${candidate.sourceCapture.selectedSkuIds.length} 个规格，已经锁进这件商品的供货方案。`;
   }
-  return stepKey === step
-    ? "这一步的详细界面还在旧版页面里，先用「打开旧版A卡」查看。"
+  if (stepKey === step) return "这一步的详细界面还在旧版页面里，先用「打开旧版A卡」查看。";
+  return productStepPassed(stepKey, step)
+    ? "这一步已经做完了；详细内容还在旧版页面里，用「打开旧版A卡」可以回看。"
     : "等前面的步骤完成后再开始。";
 }
 
 export function foldedStepState(stepKey, step, candidate) {
   if (stepKey === "select" && skuChoiceSaved(candidate)) return "已完成";
-  return stepKey === step ? "进行中" : "未开始";
+  if (stepKey === step) return "进行中";
+  return productStepPassed(stepKey, step) ? "已完成" : "未开始";
 }
 
 /** Where every number in the table came from, in the owner's words and the records' own values. */
@@ -639,7 +744,10 @@ function SkuChoiceSources({ table }) {
     <div><dt>物流线路</dt><dd>{source.routes.length === 0 ? "未取得"
       : `${source.routes.join(" / ")}${textOf(source.tariffRuleVersion) ? ` · ${source.tariffRuleVersion} 资费` : ""}`}</dd></div>
     <div><dt>国内运费</dt><dd>{money(source.domesticShippingRmb) ?? "未取得"} · 你填的</dd></div>
-    <div><dt>包装 + 贴标</dt><dd>{money(source.packagingRmbDefault) ?? "未取得"} + {money(source.labelCostRmb) ?? "未取得"}</dd></div>
+    {/* 这笔钱是这件商品自己声明的，不是一个项目假设值；还没声明过的时候必须说出来，不能让它冒充一个签过字的数。 */}
+    <div><dt>每单额外操作费</dt><dd>{money(source.packagingRmbDefault) ?? "未取得"}
+      {source.extraHandlingDeclared === true ? " · 你声明的" : " · 还没声明，暂按这个数"}</dd></div>
+    <div><dt>贴标</dt><dd>{money(source.labelCostRmb) ?? "未取得"}</dd></div>
     <div><dt>店铺预留</dt><dd>{percent(source.reserveRate) ?? "未取得"} · 退货{percent(parts.returnOpsReserveRate)}
       {" "}破损{percent(parts.damageLossReserveRate)} 提现{percent(parts.withdrawalFeeRate)}</dd></div>
     <div><dt>规格重量</dt><dd>来自采集到的页面 · 每个规格各自的重量{table.weightMissingCount > 0
@@ -801,6 +909,88 @@ function OzonCategoryReadBlock({ step, saving, onRead }) {
       <button type="button" className="button primary" disabled={saving || action.available !== true}
         onClick={() => onRead?.()}>{textOf(action.label) || "读一次这个 Ozon 页面"}</button>
       {action.available === true ? null : <span className="product-actions-note">{textOf(action.reason)}</span>}
+    </div>
+  </div>;
+}
+
+/**
+ * 每单额外操作费 — 一份可增删的小清单，一行「名目 + 金额」。
+ *
+ * 照运输属性那一块的规矩：软件提议，主人一键确认。这里软件敢提议的是空清单 = ¥0.00，因为那正是主人定下的默认
+ * （「可以先走 0 然后我手动往上加」）。他要加就按「加一行」，名目随他写——包材、拆单费、合包费、额外材料费都行。
+ *
+ * 还没声明过的时候这一块必须把两件事说清楚：这件商品还没声明过这笔钱，以及上面那些利润是暂按 ¥0.00 算的。
+ * 绝不能悄悄拿一个项目假设值算给他看——2026-09-15 之前页面按 ¥3 显示，确认时按这件货自己的数算，两个数不是一回事。
+ */
+export function ExtraHandlingFeesBlock({ step, dataRevision, saving, onDeclare }) {
+  const [rows, setRows] = useState(() => extraHandlingFeesFormState(step));
+  const [editing, setEditing] = useState(false);
+  if (!isObject(step)) return null;
+  const declared = step.declared === true;
+  const label = textOf(step.label) || "每单额外操作费";
+  const suggestions = Array.isArray(step.nameSuggestions) ? step.nameSuggestions : [];
+  const maxItems = finite(step.maxItems) ?? 12;
+  const errors = extraHandlingFeesFormErrors(rows);
+  const invalid = Object.keys(errors).length > 0;
+  const total = extraHandlingFeesFormTotal(rows);
+  // 没有明细、也没改过的时候，这一块只需要一个按钮；他想加行才把清单摆出来。
+  const listing = editing || rows.length > 0;
+  const change = (index, field, value) => setRows(current =>
+    current.map((row, position) => (position === index ? { ...row, [field]: value } : row)));
+
+  return <div className="product-profit-extra-handling" role="group" aria-label={label}>
+    <div className="product-sku-table-head">
+      <h4>{declared ? `${label}：${money(step.totalRmb) ?? "¥0.00"}` : `这件商品还没声明${label}`}</h4>
+      <span>{declared ? "已确认" : "包材 / 拆单费 / 合包费 / 额外材料费这一类，每单要另外花的钱"}</span>
+    </div>
+
+    <p className="product-cargo-headline">{textOf(step.headline) ||
+      "一行都没有就是 ¥0.00，那也是一次明确的声明；不用加钱就直接确认，要加就按「加一行」写上名目和金额。"}</p>
+    {declared || step.status === "total_only" ? null : <p className="product-profit-note">
+      {"在你确认之前，上面那些利润是暂按 ¥0.00 算的——这个数还没签过字。"}
+    </p>}
+    {step.status === "total_only" ? <p className="product-result-provenance">
+      {"这个合计是早先存下来的，没有留下它由哪几笔组成。现在确认一次就能把名目补上，合计也照你写的重新算。"}
+    </p> : null}
+    {textOf(step.declaredAt) ? <p className="product-result-provenance">
+      {`你在 ${dayOf(step.declaredAt) ?? step.declaredAt} 确认的，记录里写明是你确认的。`}</p> : null}
+
+    {listing ? <div className="product-extra-handling-list">
+      {rows.length === 0 ? <p className="product-pricing-empty">{"一行都没有：这件商品不用另外加钱，合计 ¥0.00。"}</p> : null}
+      {rows.map((row, index) => <div className="product-extra-handling-row" key={`extra-handling-${index}`}>
+        <label className="product-field" htmlFor={`extra-handling-name-${index}`}>
+          <span className="product-field-label">名目</span>
+          <input id={`extra-handling-name-${index}`} name={`extra-handling-name-${index}`} type="text"
+            list="extra-handling-name-suggestions" value={row.name} disabled={saving}
+            onChange={event => change(index, "name", event.target.value)} />
+          {errors[`name:${index}`] ? <span className="product-field-error">{errors[`name:${index}`]}</span> : null}
+        </label>
+        <label className="product-field" htmlFor={`extra-handling-amount-${index}`}>
+          <span className="product-field-label">金额（元）</span>
+          <input id={`extra-handling-amount-${index}`} name={`extra-handling-amount-${index}`} type="number"
+            inputMode="decimal" value={row.amountRmb} disabled={saving}
+            onChange={event => change(index, "amountRmb", event.target.value)} />
+          {errors[`amountRmb:${index}`] ? <span className="product-field-error">{errors[`amountRmb:${index}`]}</span> : null}
+        </label>
+        <button type="button" className="button secondary" disabled={saving}
+          onClick={() => setRows(current => current.filter((_, position) => position !== index))}>删掉这一行</button>
+      </div>)}
+      <datalist id="extra-handling-name-suggestions">
+        {suggestions.map(name => <option key={name} value={name} />)}
+      </datalist>
+      <p className="product-extra-handling-total">{`这份清单合计 ${money(total) ?? "¥0.00"}`}</p>
+    </div> : null}
+
+    <div className="product-actions">
+      <button type="button" className={declared ? "button secondary" : "button primary"} disabled={saving || invalid}
+        onClick={() => onDeclare?.(extraHandlingFeesPayload(rows, dataRevision))}>
+        {rows.length === 0 ? "确认：这件不用加钱（¥0.00）" : `确认这 ${rows.length} 笔，合计 ${money(total) ?? "¥0.00"}`}
+      </button>
+      <button type="button" className="button secondary" disabled={saving || rows.length >= maxItems}
+        onClick={() => { setEditing(true); setRows(current => [...current, { name: "", amountRmb: "" }]); }}>加一行</button>
+      <span className="product-actions-note">
+        {"确认只是记下这件商品每单要另外花多少钱，不会下单、不会联系供应商、也不会向 Ozon 写任何东西。"}
+      </span>
     </div>
   </div>;
 }
@@ -1016,8 +1206,8 @@ export function CommissionEstimateBlock({ estimate, authorized, saving, onAuthor
  * with no declaration cannot be confirmed here — the button is disabled and says why, instead of letting the owner
  * click and collect the server's 422.
  */
-function ProfitStepSection({ review, cargoStep, categoryStep, commissionEstimate = null, dataRevision, saving,
-  onConfirm, onDeclareCargoFacts, onReadOzonPage }) {
+function ProfitStepSection({ review, cargoStep, categoryStep, extraHandlingStep = null, commissionEstimate = null,
+  dataRevision, saving, onConfirm, onDeclareCargoFacts, onDeclareExtraHandlingFees, onReadOzonPage }) {
   const [firstPick, setFirstPick] = useState(null);
   const [comparabilityConfirmed, setComparability] = useState(false);
   const [supplyConfirmed, setSupply] = useState(false);
@@ -1028,13 +1218,15 @@ function ProfitStepSection({ review, cargoStep, categoryStep, commissionEstimate
   const firstSkuId = profitStepFirstSkuId(review, firstPick);
   const spec = review.specifications.find(item => item.sourceSkuId === firstSkuId) ?? null;
   const gaps = [...profitStepGaps(review, firstSkuId ?? ""), ...cargoFactsStepGaps(cargoStep),
-    ...ozonCategoryStepGaps(categoryStep)];
+    ...ozonCategoryStepGaps(categoryStep), ...extraHandlingFeesStepGaps(extraHandlingStep)];
   const state = profitStepSubmitState({ review, firstSkuId, comparabilityConfirmed, supplyConfirmed, gaps });
   const benchmark = review.benchmark ?? {};
   const supply = review.supply ?? {};
   const breakdown = spec?.breakdown ?? null;
   const queued = (finite(review.passCount) ?? 0) - (spec === null ? 0 : 1);
   const deltaLine = profitStepPriceDeltaLine(spec);
+  const breakLine = extraHandlingFeeBreakLine(spec);
+  const appliedLine = extraHandlingFeeAppliedLine(review);
   const dimensions = supply.dimensionsCm ?? {};
   const size = [dimensions.length, dimensions.width, dimensions.height].every(value => finite(value) !== null)
     ? `${dimensions.length}×${dimensions.width}×${dimensions.height} 厘米` : "未取得";
@@ -1094,7 +1286,10 @@ function ProfitStepSection({ review, cargoStep, categoryStep, commissionEstimate
           <div><dt>国际运费</dt><dd>−{money(breakdown.freightRmb) ?? PENDING}
             {textOf(spec.route) ? ` · ${spec.route} · 计费 ${spec.chargeableKg} 公斤` : ""}</dd></div>
           <div><dt>到手采购</dt><dd>−{money(breakdown.allInPurchaseRmb) ?? PENDING}</dd></div>
-          <div><dt>包装 + 贴标</dt><dd>−{money(breakdown.packagingRmb + breakdown.labelCostRmb) ?? PENDING}</dd></div>
+          {/* 这笔钱单独一行，并且说清楚它是主人签过的还是一个暂算值——它和贴标不是同一件事，也不该被合在一起蒙混过去。 */}
+          <div><dt>每单额外操作费</dt><dd>−{money(breakdown.packagingRmb) ?? PENDING}
+            {review.extraHandlingFee?.declared === true ? " · 你声明的" : " · 还没声明，暂按这个数"}</dd></div>
+          <div><dt>贴标</dt><dd>−{money(breakdown.labelCostRmb) ?? PENDING}</dd></div>
           {breakdown.otherFixedRmb === 0 ? null
             : <div><dt>其他固定成本</dt><dd>−{money(breakdown.otherFixedRmb)}</dd></div>}
           <div><dt>店铺预留 {percent(breakdown.storeReserveRate) ?? "未取得"}</dt>
@@ -1102,6 +1297,9 @@ function ProfitStepSection({ review, cargoStep, categoryStep, commissionEstimate
           <div><dt>单件利润</dt><dd className="product-sku-profit">{money(breakdown.unitProfitRmb) ?? PENDING}
             {` · 利润率 ${percent(breakdown.marginRate) ?? "未取得"}`}</dd></div>
         </dl>}
+      {/* 值不值得为这笔钱纠结，按这个规格自己的余地说，不按感觉说。 */}
+      {breakLine === null ? null : <p className="product-profit-extra-handling-break">{breakLine}</p>}
+      {appliedLine === null ? null : <p className="product-profit-note">{appliedLine}</p>}
       {breakdown === null ? null : <p className="product-result-provenance">
         {"上面每一项都是分开算到分的，最后一行的单件利润是软件按整条算式一次算出来的那个数，两者可能差一两分钱。"}
       </p>}
@@ -1114,12 +1312,13 @@ function ProfitStepSection({ review, cargoStep, categoryStep, commissionEstimate
     </div>
     <div className="product-pricing-scroll">
       <table className="product-pricing-ladder product-sku-table">
-        <caption>每个规格自己的下探空间：保本价、达标最低售价，以及按当前目标价能落下多少</caption>
+        <caption>每个规格自己的下探空间：保本价、达标最低售价、按当前目标价能落下多少，以及这笔额外操作费涨到多少它才掉线</caption>
         <thead><tr>
           {(review.columns.length > 0 ? review.columns : ["规格"]).map(key => <th scope="col" key={key}>{key}</th>)}
           <th scope="col">货价</th><th scope="col">计费重</th><th scope="col">运费</th>
           <th scope="col">保本价</th><th scope="col">达标最低售价</th>
           <th scope="col">{`按 ${RUB(supply.targetSalePriceRub)}的利润`}</th>
+          <th scope="col">额外操作费涨到</th>
         </tr></thead>
         <tbody>
           {review.queue.map(row => {
@@ -1138,14 +1337,23 @@ function ProfitStepSection({ review, cargoStep, categoryStep, commissionEstimate
               <td>{finite(row.thresholdRub) === null ? PENDING : RUB(row.thresholdRub)}</td>
               <td className={row.unitProfitRmb === null ? "product-sku-pending" : "product-sku-profit"}>
                 {`${yuanOr(row.unitProfitRmb)} · ${percent(row.marginRate) ?? PENDING}`}</td>
+              {/* 这一格回答「这笔费用值不值得为它纠结」：涨到这个数以上，这一行才掉出本店利润线。 */}
+              <td>{finite(row.extraHandling?.breakRmb) === null ? PENDING : `${money(row.extraHandling.breakRmb)} 以上`}</td>
             </tr>;
           })}
         </tbody>
       </table>
     </div>
     <p className="product-result-provenance">{profitStepCommissionLine(review)}</p>
+    <p className="product-result-provenance">
+      {"最后那一格是这个规格自己的余地：每单额外操作费涨过那个数，它才掉出本店门槛。余地宽的不必为几毛钱纠结，窄的要当心。"}
+    </p>
 
-    {/* 四、只有主人能确认的两件事 */}
+    {/* 四、这一单要另外花多少钱 — 也在确认按钮之前：没声明过这笔钱，B 那边的成本政策就凑不齐，这一步的确认服务端不收。 */}
+    <ExtraHandlingFeesBlock step={extraHandlingStep} dataRevision={dataRevision} saving={saving}
+      onDeclare={onDeclareExtraHandlingFees} />
+
+    {/* 五、只有主人能确认的两件事 */}
     <div className="product-profit-judge">
       <div className="product-sku-table-head"><h4>只有你能确认的两件事</h4>
         <span>软件不替你判断，也不替你签字</span></div>
@@ -1186,14 +1394,14 @@ function ProfitStepSection({ review, cargoStep, categoryStep, commissionEstimate
       </label>
     </div>
 
-    {/* 五、这条类目是哪儿来的 — 也在确认按钮之前：类目不是从 Ozon 页面上读来的，这一步的确认服务端就不收。 */}
+    {/* 六、这条类目是哪儿来的 — 也在确认按钮之前：类目不是从 Ozon 页面上读来的，这一步的确认服务端就不收。 */}
     <OzonCategoryReadBlock step={categoryStep} saving={saving} onRead={onReadOzonPage} />
 
-    {/* 六、这件货运输上是什么 — 这一块在确认按钮之前，因为不先说清楚，B 那边的线路核验就判不出适用性。 */}
+    {/* 七、这件货运输上是什么 — 这一块在确认按钮之前，因为不先说清楚，B 那边的线路核验就判不出适用性。 */}
     {cargoStep === null || cargoStep === undefined ? null : <CargoFactsBlock step={cargoStep}
       dataRevision={dataRevision} saving={saving} onDeclare={onDeclareCargoFacts} />}
 
-    {/* 七、精确佣金读不到时的那一条出路。只有服务端真的这么回过才出现，别的时候这一块根本不存在。 */}
+    {/* 八、精确佣金读不到时的那一条出路。只有服务端真的这么回过才出现，别的时候这一块根本不存在。 */}
     <CommissionEstimateBlock estimate={commissionEstimate} authorized={commissionEstimateAuthorized}
       saving={saving} onAuthorize={setCommissionEstimateTicked} />
 
@@ -1375,7 +1583,8 @@ function RefreshFeeEvidenceSection({ candidate, saving, onRefresh }) {
 export default function ProductPage({
   candidate, view = null, titleZh = null, extensionStatus = null,
   onSaveDraft, onChooseSkus, onRequestCapture, onReviewCaptureAndRequest, onRecaptureSource,
-  onConfirmProfitStep, onDeclareCargoFacts, onReadOzonPage, onOpenLegacyCard, onBack, onEliminateCandidate,
+  onConfirmProfitStep, onDeclareCargoFacts, onDeclareExtraHandlingFees, onReadOzonPage, onOpenLegacyCard,
+  onBack, onEliminateCandidate,
   onRecalculateBWithExactCommission = null, onRefreshBFeeEvidence = null,
   loadingLabel = "正在读取这件商品的找货资料…"
 }) {
@@ -1385,6 +1594,8 @@ export default function ProductPage({
   const profitReview = view?.profitStepV1 ?? null;
   const cargoStep = view?.cargoFactsStepV1 ?? null;
   const categoryStep = view?.ozonCategoryReadStepV1 ?? null;
+  // 每单额外操作费那一块整份来自服务端那份记录：这件商品声明过没有、声明的是哪几笔、合计多少、还缺什么。
+  const extraHandlingStep = view?.extraHandlingFeesStepV1 ?? null;
   // 「精确佣金读不到」是服务端在上一次确认里真的这么停过一次才知道的事。页面不记它，也不在加载时去探测——
   // 探测会对主人的 Ozon 账户产生一次真实读取。服务端把那一次停在哪存成了记录，这里读的就是那份记录。
   const commissionStep = view?.commissionEstimateStepV1 ?? null;
@@ -1447,6 +1658,12 @@ export default function ProductPage({
    */
   const declareCargoFacts = payload => run(onDeclareCargoFacts, payload,
     "已记下你对这件货的说法：软件按它核验线路收不收，没有下单、没有联系供应商、也没有向 Ozon 写任何东西。");
+  /**
+   * 每单额外操作费的确认。它和运输属性一样自己一条路：只把主人的声明记下来，并把合计写进这件商品的成本事实。
+   * 保存成功之后页面重读，上面那一套利润就按这个数重算——所以他看到的利润和他最后签下去的利润是同一个数。
+   */
+  const declareExtraHandlingFees = payload => run(onDeclareExtraHandlingFees, payload,
+    "已记下这件商品每单要另外花的钱，上面的利润已经按它重算过；没有下单、没有联系供应商、也没有向 Ozon 写任何东西。");
   /**
    * 读一次这个 Ozon 商品页。目标地址不从这里传：服务端只认这件商品自己已经保存的那个地址。回来的那句话是服务端
    * 和插件实际说的（含插件自己的拒绝码），页面原样显示，不改写、不概括，也不承诺重试。
@@ -1603,7 +1820,7 @@ export default function ProductPage({
 
     {/* 算利润：整套一起核线、指定先上的那一个、其余排队，这件货运输上是什么，最后那两个只有主人能做的判断。 */}
     {profitOpen ? <ProfitStepSection key={`${candidate.id}:${candidate.dataRevision}`}
-      review={profitReview} cargoStep={cargoStep} categoryStep={categoryStep}
+      review={profitReview} cargoStep={cargoStep} categoryStep={categoryStep} extraHandlingStep={extraHandlingStep}
       commissionEstimate={commissionStep?.present !== true ? null : {
         // 费率、档位和来源引用每次渲染都从当前这份解析结果里取；跨了档位分界线它自己就是另一档。
         // 提议从来不进记录，所以这里取的永远是现在这份解析结果，不是失败那一刻的旧数。
@@ -1618,7 +1835,8 @@ export default function ProductPage({
         dataRevision: commissionStep.dataRevision
       }}
       dataRevision={candidate.dataRevision} saving={saving}
-      onConfirm={confirmProfitStep} onDeclareCargoFacts={declareCargoFacts} onReadOzonPage={readOzonPage} /> : null}
+      onConfirm={confirmProfitStep} onDeclareCargoFacts={declareCargoFacts}
+      onDeclareExtraHandlingFees={declareExtraHandlingFees} onReadOzonPage={readOzonPage} /> : null}
 
     {/* 算利润停在条件测算之后，这一步就只剩这一件事可做；它的按钮不能只长在旧版页面上。 */}
     {recalculationOpen ? <BetterCommissionEvidenceSection candidate={candidate} saving={saving}

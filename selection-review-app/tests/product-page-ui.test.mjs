@@ -20,7 +20,9 @@ async function pageModule() {
         profitStepOpen, profitStepFirstSkuId, profitStepThresholdLine, profitStepCohortHeadline, profitStepExcludedLine,
         profitStepSuggestionLine, profitStepPriceDeltaLine, profitStepCommissionLine, profitStepSubmitState,
         profitStepOutcomeLine, cargoFactsFormState, cargoFactsPayload, cargoFactsStepGaps, cargoFactsHeadline,
-        ozonCategoryStepGaps, ozonPageReadOutcomeLine, CommissionEstimateBlock} from ${JSON.stringify(component)};
+        ozonCategoryStepGaps, ozonPageReadOutcomeLine, productStepPassed, extraHandlingFeesFormState,
+        extraHandlingFeesPayload, extraHandlingFeesFormErrors, extraHandlingFeesFormTotal, extraHandlingFeesStepGaps,
+        extraHandlingFeeBreakLine, extraHandlingFeeAppliedLine, CommissionEstimateBlock} from ${JSON.stringify(component)};
       export {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload,
         captureRecaptureReady, captureRecaptureConfirmLine, captureRecapturePayload, CAPTURE_RECAPTURE_REASONS,
         currentProductStep, skuChoiceReady, skuChoiceSaved, showsSkuChoice, skuChoiceHeadline, skuChoiceSwing,
@@ -28,7 +30,9 @@ async function pageModule() {
         profitStepOpen, profitStepFirstSkuId, profitStepThresholdLine, profitStepCohortHeadline, profitStepExcludedLine,
         profitStepSuggestionLine, profitStepPriceDeltaLine, profitStepCommissionLine, profitStepSubmitState,
         profitStepOutcomeLine, cargoFactsFormState, cargoFactsPayload, cargoFactsStepGaps, cargoFactsHeadline,
-        ozonCategoryStepGaps, ozonPageReadOutcomeLine};
+        ozonCategoryStepGaps, ozonPageReadOutcomeLine, productStepPassed, extraHandlingFeesFormState,
+        extraHandlingFeesPayload, extraHandlingFeesFormErrors, extraHandlingFeesFormTotal, extraHandlingFeesStepGaps,
+        extraHandlingFeeBreakLine, extraHandlingFeeAppliedLine};
       export const render=props=>renderToStaticMarkup(<Page {...props}/>);
       export const renderCommissionEstimate=props=>renderToStaticMarkup(<CommissionEstimateBlock {...props}/>);` : null }],
       ssr: { noExternal: true }, build: { ssr: true, write: false, rollupOptions: { input: entry, output: { format: 'es' } } } });
@@ -366,7 +370,7 @@ const choiceTable = (extra = {}) => ({
     targetSalePriceRub: 1600, rubPerCny: 12.5637, fxRateDate: '2026-09-12', fxSourceRef: 'cbr-xml-daily:R01375:2026-09-12',
     commissionRate: 0.14, commissionTier: '1500_5000', commissionSourceRef: 'ozon-official-commission:2026-09-01:sha256:synthetic',
     routes: ['GUOO Economy Extra Small'], tariffRuleVersion: 'guoo-2026-08-19', domesticShippingRmb: 3.5,
-    packagingRmbDefault: 3, labelCostRmb: 1.5,
+    packagingRmbDefault: 3, extraHandlingDeclared: true, labelCostRmb: 1.5,
     reserveParts: { advertisingReserveRate: 0, returnOpsReserveRate: 0.05, damageLossReserveRate: 0.05, withdrawalFeeRate: 0.02 },
     reserveRate: 0.12, dimensionsCm: { length: 25, width: 22, height: 2.5 }
   },
@@ -495,7 +499,9 @@ test('数字来源那一栏照实给出这一轮真正用到的输入，没有�
   assert.match(html, /<dt>Ozon 官方佣金<\/dt><dd>14% · 按你填的售价所在档<\/dd>/u);
   assert.match(html, /<dt>物流线路<\/dt><dd>GUOO Economy Extra Small · guoo-2026-08-19 资费<\/dd>/u);
   assert.match(html, /<dt>国内运费<\/dt><dd>¥3\.50 · 你填的<\/dd>/u);
-  assert.match(html, /<dt>包装 \+ 贴标<\/dt><dd>¥3\.00 \+ ¥1\.50<\/dd>/u);
+  // 这笔钱单独一栏，并且说出它是主人自己声明的还是一个还没签过字的暂算值。
+  assert.match(html, /<dt>每单额外操作费<\/dt><dd>¥3\.00 · 你声明的<\/dd>/u);
+  assert.match(html, /<dt>贴标<\/dt><dd>¥1\.50<\/dd>/u);
   assert.match(html, /<dt>店铺预留<\/dt><dd>12% · 退货5% 破损5% 提现2%<\/dd>/u);
   assert.match(html, /<dt>规格重量<\/dt><dd>来自采集到的页面 · 每个规格各自的重量（有 1 个规格页面没给，运费和利润留空）<\/dd>/u);
   // 官方输入缺一样就直说未取得，不给一个猜出来的数。
@@ -746,6 +752,11 @@ const profitSpec = (id, label, values, priceCny, freightRmb, unitProfitRmb, marg
   priceCny, weightKg, chargeableKg: weightKg, route: 'GUOO Economy Extra Small', freightRmb,
   allInPurchaseRmb: priceCny + 3.5, unitProfitRmb, marginRate,
   breakEvenRub: 1069, thresholdRub: 1331, thresholdBasis: 'margin',
+  // 「每单额外操作费涨到多少这个规格才掉线」：门槛取两条里较松的那条（min(¥20, 15% × ¥127.35) = ¥19.10），
+  // 余地 = 单件利润 − 门槛，X = 现在这笔费用 ¥3.00 + 余地。
+  extraHandling: { currentRmb: 3, thresholdRmb: 19.1, thresholdBasis: 'margin',
+    headroomRmb: Math.round((unitProfitRmb - 19.1) * 100) / 100,
+    breakRmb: Math.round((3 + unitProfitRmb - 19.1) * 100) / 100 },
   breakdown: { revenueCny: 127.35, commissionRate: 0.14, commissionRmb: 17.82, storeReserveRate: 0.12,
     storeReserveRmb: 15.28, freightRmb, packagingRmb: 3, labelCostRmb: 1.5, otherFixedRmb: 0,
     allInPurchaseRmb: priceCny + 3.5, unitProfitRmb, marginRate, roundingRmb: 0.02 },
@@ -762,6 +773,8 @@ const profitReview = (extra = {}) => ({
   excluded: [{ sourceSkuId: 'sku-8xl-navy', label: '8XL · 藏青色', kind: 'below_threshold', missing: [],
     unitProfitRmb: 16.12, marginRate: 0.1266, unitProfitShortRmb: 3.88, marginShortRate: 0.0234 }],
   threshold: { minimumUnitProfitRmb: 20, targetMarginRate: 0.15, thresholdPolicy: 'either', policyVersion: 'synthetic-pricing-v1' },
+  // 这一整套利润是按哪笔「每单额外操作费」算出来的，以及那个数主人签过字没有。
+  extraHandlingFee: { appliedRmb: 3, declared: true },
   benchmark: { productNumber: '3605840795', productUrl: 'https://www.ozon.ru/product/3605840795',
     title: 'Водонепроницаемый дождевик для собак, светоотражающий -8XL', currentPrice: 1457, currency: 'RUB',
     collectedOn: '2026-09-11', snapshotId: marketSnapshot.snapshotId,
@@ -774,10 +787,12 @@ const profitReview = (extra = {}) => ({
   queue: [
     { key: 'sku-xl-yellow', sourceSkuIds: ['sku-xl-yellow'], count: 1, label: 'XL · 黄色', values: [['XL'], ['黄色']],
       priceCny: 20.5, weightKg: 0.103, chargeableKg: 0.103, freightRmb: 6.26, allInPurchaseRmb: 24,
-      unitProfitRmb: 59.47, marginRate: 0.467, breakEvenRub: 658, thresholdRub: 820, thresholdBasis: 'margin' },
+      unitProfitRmb: 59.47, marginRate: 0.467, breakEvenRub: 658, thresholdRub: 820, thresholdBasis: 'margin',
+      extraHandling: { currentRmb: 3, thresholdRmb: 19.1, thresholdBasis: 'margin', headroomRmb: 40.37, breakRmb: 43.37 } },
     { key: 'sku-8xl-yellow', sourceSkuIds: ['sku-8xl-yellow'], count: 1, label: '8XL · 黄色', values: [['8XL'], ['黄色']],
       priceCny: 41.5, weightKg: 0.24, chargeableKg: 0.24, freightRmb: 10.11, allInPurchaseRmb: 45,
-      unitProfitRmb: 34.62, marginRate: 0.2718, breakEvenRub: 1069, thresholdRub: 1331, thresholdBasis: 'margin' }
+      unitProfitRmb: 34.62, marginRate: 0.2718, breakEvenRub: 1069, thresholdRub: 1331, thresholdBasis: 'margin',
+      extraHandling: { currentRmb: 3, thresholdRmb: 19.1, thresholdBasis: 'margin', headroomRmb: 15.52, breakRmb: 18.52 } }
   ],
   commission: { bands: [{ rate: 0.12, minRub: 0, maxRub: 1500, tier: 'le1500' },
     { rate: 0.14, minRub: 1500.01, maxRub: 5000, tier: '1500_5000' }],
@@ -844,15 +859,35 @@ const categoryReadStep = (extra = {}) => ({
   action: { label: '读一次这个 Ozon 页面', available: false, reason: '这件商品的类目已经是真实读过的页面给的，不用再读一次。' },
   ...extra
 });
+/**
+ * 每单额外操作费那一小块。默认给一份「已经声明过」的记录，因为下面这些用例核的是别的东西；没声明时它会挡住确认
+ * 按钮，那一条由本文件末尾那个用例单独核。
+ */
+const extraHandlingStep = (extra = {}) => ({
+  schemaVersion: 'extra-handling-fees-step-v1', candidateId: 'candidate:synthetic-product-page', dataRevision: 4,
+  label: '每单额外操作费', status: 'consistent', declared: true, totalRmb: 3,
+  items: [{ name: '包材', amountRmb: 1.5 }, { name: '拆单费', amountRmb: 1.5 }],
+  declaredAt: '2026-09-15T02:00:00.000Z', declaredRevision: 3,
+  headline: '每单额外操作费 ¥3.00：包材 ¥1.50 ＋ 拆单费 ¥1.50。',
+  proposal: { items: [], totalRmb: 0, headline: '每单额外操作费 ¥0.00：这件商品你声明了不用另外加钱。' },
+  nameSuggestions: ['包材', '拆单费', '合包费', '额外材料费'], maxItems: 12,
+  gate: { ready: true, reason: '' }, ...extra
+});
+const EXTRA_HANDLING_NOT_DECLARED_WHY = '这件商品还没声明每单额外操作费——包材、拆单费、合包费、额外材料费这一类，' +
+  '每单要另外花的钱。不用加钱就一键确认 ¥0.00；要加就写上名目和金额。下面的利润在你声明之前只是暂按 ¥0.00 算的。';
+const extraHandlingNotDeclared = (extra = {}) => extraHandlingStep({
+  status: 'absent', declared: false, totalRmb: null, items: [], declaredAt: null, declaredRevision: null,
+  headline: null, gate: { ready: false, reason: EXTRA_HANDLING_NOT_DECLARED_WHY }, ...extra
+});
 const profitProps = (reviewExtra = {}, extra = {}, cargo = cargoDeclared(), category = categoryReadStep(),
-  commission = null) => props({
+  commission = null, extraHandling = extraHandlingStep()) => props({
   candidate: candidate({ sourceCapture: waitingCapture({ selectedSkuIds: ['sku-xl-yellow', 'sku-8xl-yellow'] }) }),
   view: { supplierDraftV1: draft, supplierDraftEstimateV1: okEstimate, marketSnapshot,
     skuChoiceTableV1: choiceTable({ selectedSkuIds: ['sku-xl-yellow', 'sku-8xl-yellow'] }),
     profitStepV1: profitReview(reviewExtra), cargoFactsStepV1: cargo, ozonCategoryReadStepV1: category,
-    commissionEstimateStepV1: commission },
+    commissionEstimateStepV1: commission, extraHandlingFeesStepV1: extraHandling },
   onChooseSkus: forbidden, onConfirmProfitStep: forbidden, onDeclareCargoFacts: forbidden,
-  onReadOzonPage: forbidden, ...extra
+  onDeclareExtraHandlingFees: forbidden, onReadOzonPage: forbidden, ...extra
 });
 
 test('选定规格之后走到算利润：整套一起核线，不过线的自动排除并说明原因', async () => {
@@ -917,7 +952,8 @@ test('先上这一个：默认建议同尺码那一个，算式摊开，其余�
   assert.match(html, /<dt>官方佣金 14%<\/dt><dd>−¥17\.82<\/dd>/u);
   assert.match(html, /<dt>国际运费<\/dt><dd>−¥10\.11 · GUOO Economy Extra Small · 计费 0\.24 公斤<\/dd>/u);
   assert.match(html, /<dt>到手采购<\/dt><dd>−¥45\.00<\/dd>/u);
-  assert.match(html, /<dt>包装 \+ 贴标<\/dt><dd>−¥4\.50<\/dd>/u);
+  assert.match(html, /<dt>每单额外操作费<\/dt><dd>−¥3\.00 · 你声明的<\/dd>/u);
+  assert.match(html, /<dt>贴标<\/dt><dd>−¥1\.50<\/dd>/u);
   assert.match(html, /<dt>店铺预留 12%<\/dt><dd>−¥15\.28<\/dd>/u);
   assert.match(html, /<dd class="product-sku-profit">¥34\.62 · 利润率 27%<\/dd>/u);
   // 排队表给每个规格自己的保本价和达标最低售价，先上的那一行标出来。
@@ -1475,4 +1511,106 @@ test('已经有可用证据时这一块还在，但说清它不是必须的；�
   const withoutHandler = await render({ candidate: recalculationCandidate(readyRecalculationView('exact')),
     view: null, onRecalculateBWithExactCommission: forbidden, onOpenLegacyCard: forbidden });
   assert.doesNotMatch(withoutHandler, /重新读一次费用证据/u);
+});
+
+/* ── 每单额外操作费 ────────────────────────────────────────────────────────────────────────────────────────────────
+ * 主人 2026-09-14、2026-09-15 两次走到最后一个按钮才撞上这堵墙：`packagingCostRmb` 是 B 阶段证据的硬要求，从
+ * Seerfar 发现进来的候选一律没有它，而新版商品页没有任何地方能填。这一组用例钉住的是那个入口本身、它说的那几句话，
+ * 以及「没声明」必须在「算利润」这一步就报出来。
+ */
+test('没声明每单额外操作费，「算利润」这一步就报缺项，按钮不给点，并且当场就能一键确认 ¥0.00', async () => {
+  const { extraHandlingFeesStepGaps } = await pageModule();
+  const missing = extraHandlingFeesStepGaps(extraHandlingNotDeclared());
+  assert.deepEqual(missing, [{ field: 'extraHandlingFees', label: '每单额外操作费', why: EXTRA_HANDLING_NOT_DECLARED_WHY }]);
+  assert.deepEqual(extraHandlingFeesStepGaps(extraHandlingStep()), []);
+  // 读不到这一块时按钮同样不亮：宁可不亮，也不让主人点了才吃服务端那句 B_EVIDENCE_COST_POLICY_INCOMPLETE。
+  assert.equal(extraHandlingFeesStepGaps(null).length, 1);
+  assert.equal(extraHandlingFeesStepGaps(undefined).length, 1);
+
+  const html = await render(profitProps({}, {}, cargoDeclared(), categoryReadStep(), null, extraHandlingNotDeclared()));
+  assert.match(html, /<div class="product-profit-extra-handling" role="group" aria-label="每单额外操作费">/u);
+  assert.match(html, /<h4>这件商品还没声明每单额外操作费<\/h4>/u);
+  assert.match(html, /包材 \/ 拆单费 \/ 合包费 \/ 额外材料费这一类，每单要另外花的钱/u);
+  // 缺项单里点名说的就是这笔钱，不是一句「成本规则不完整」。
+  assert.match(html, /<b>每单额外操作费<\/b>：这件商品还没声明每单额外操作费/u);
+  assert.match(html, /<button type="button" class="button primary" disabled[^>]*>确认，进入文案素材<\/button>/u);
+  // 出路就在缺项旁边：一键确认 ¥0.00，不用打字。
+  assert.match(html, /<button type="button" class="button primary"[^>]*>确认：这件不用加钱（¥0\.00）<\/button>/u);
+  assert.match(html, /<button type="button" class="button secondary"[^>]*>加一行<\/button>/u);
+  assert.match(html, /确认只是记下这件商品每单要另外花多少钱，不会下单、不会联系供应商、也不会向 Ozon 写任何东西。/u);
+
+  // 声明过了，这一块说的是那份声明本身，缺项单里也不再有它。
+  const declaredHtml = await render(profitProps());
+  assert.match(declaredHtml, /<h4>每单额外操作费：¥3\.00<\/h4>/u);
+  assert.match(declaredHtml, /每单额外操作费 ¥3\.00：包材 ¥1\.50 ＋ 拆单费 ¥1\.50。/u);
+  assert.match(declaredHtml, /你在 2026-09-15 确认的，记录里写明是你确认的。/u);
+  assert.doesNotMatch(declaredHtml, /product-profit-gaps/u);
+});
+
+test('页面显示的利润用这件货自己的那个数；没声明时明说它还没签过字，不冒充一个定下来的数', async () => {
+  const { extraHandlingFeeAppliedLine } = await pageModule();
+  assert.equal(extraHandlingFeeAppliedLine(profitReview()),
+    '上面每个规格的利润都扣了你声明的每单额外操作费 ¥3.00。');
+  assert.match(extraHandlingFeeAppliedLine(profitReview({ extraHandlingFee: { appliedRmb: 0, declared: false } })),
+    /暂按每单额外操作费 ¥0\.00 算的——这件商品你还没声明过这笔钱，这个数没签过字/u);
+  assert.equal(extraHandlingFeeAppliedLine(profitReview({ extraHandlingFee: null })), null);
+
+  // 算式里这笔钱自己一行，并且说出它是主人签的还是暂算的；它和贴标不再被合成一行蒙混过去。
+  const undeclared = await render(profitProps({ extraHandlingFee: { appliedRmb: 0, declared: false } },
+    {}, cargoDeclared(), categoryReadStep(), null, extraHandlingNotDeclared()));
+  assert.match(undeclared, /<dt>每单额外操作费<\/dt><dd>−¥3\.00 · 还没声明，暂按这个数<\/dd>/u);
+  assert.match(undeclared, /在你确认之前，上面那些利润是暂按 ¥0\.00 算的——这个数还没签过字。/u);
+
+  // 数字来源那一栏也照实说：这个数是主人声明的，还是还没签过字的。
+  const sources = await render(choosingProps({}, {},
+    { sources: { ...choiceTable().sources, packagingRmbDefault: 0, extraHandlingDeclared: false } }));
+  assert.match(sources, /<dt>每单额外操作费<\/dt><dd>¥0\.00 · 还没声明，暂按这个数<\/dd>/u);
+});
+
+test('每个规格旁边说清「这笔费用涨到 ¥X 以上它才掉线」，X 跟着这个规格自己的余地走', async () => {
+  const { extraHandlingFeeBreakLine } = await pageModule();
+  const roomy = profitReview().specifications.find(item => item.sourceSkuId === 'sku-xl-yellow');
+  const tight = profitReview().specifications.find(item => item.sourceSkuId === 'sku-8xl-yellow');
+  assert.equal(extraHandlingFeeBreakLine(tight),
+    '这笔费用涨到 ¥18.52 以上，这个规格才会掉出本店利润线（现在按 ¥3.00 算，还剩 ¥15.52 的余地，卡住它的是利润率那条门槛 ¥19.10）。');
+  assert.match(extraHandlingFeeBreakLine(roomy), /涨到 ¥43\.37 以上/u);
+  // 服务端没给这个答案时一个字都不说，页面不自己算。
+  assert.equal(extraHandlingFeeBreakLine({ extraHandling: null }), null);
+  assert.equal(extraHandlingFeeBreakLine(null), null);
+
+  const html = await render(profitProps());
+  assert.match(html, /<p class="product-profit-extra-handling-break">这笔费用涨到 ¥18\.52 以上/u);
+  // 排队表里每一行都有自己的那一格。
+  assert.match(html, /<th scope="col">额外操作费涨到<\/th>/u);
+  assert.match(html, /<td>¥43\.37 以上<\/td>/u);
+  assert.match(html, /<td>¥18\.52 以上<\/td>/u);
+  assert.match(html, /余地宽的不必为几毛钱纠结，窄的要当心/u);
+});
+
+test('已经走过去的那几步显示成已完成，不再说「等前面的步骤完成后再开始」', async () => {
+  const { currentProductStep, foldedStepState, foldedStepLine, productStepPassed } = await pageModule();
+  // 主人首件就是这个状态：B 已经正式通过，商品停在「文案素材」。
+  const passedB = candidate({ sourceCapture: waitingCapture({ selectedSkuIds: ['sku-xl-yellow'] }),
+    executionRuntime: { businessPhase: 'C1' }, workflowStatus: 'listing_preparation',
+    lifecycleV11: { status: 'b_passed_auto_c1', aConfirmationReceipt: { decision: 'confirm' },
+      skuPackage: { businessPhase: 'C1' } } });
+  assert.equal(currentProductStep(passedB), 'copy');
+  assert.equal(foldedStepState('profit', 'copy', passedB), '已完成');
+  assert.equal(foldedStepState('find', 'copy', passedB), '已完成');
+  assert.equal(foldedStepState('select', 'copy', passedB), '已完成');
+  assert.equal(foldedStepState('copy', 'copy', passedB), '进行中');
+  assert.equal(foldedStepState('publish', 'copy', passedB), '未开始');
+  assert.equal(foldedStepLine('profit', 'copy', passedB), '这一步已经做完了；详细内容还在旧版页面里，用「打开旧版A卡」可以回看。');
+  assert.equal(foldedStepLine('publish', 'copy', passedB), '等前面的步骤完成后再开始。');
+
+  // 先后按这件商品上真实发生的顺序，不按进度条的排版顺序——「选定」排在最前面，但真正先做的是「找货」。
+  assert.equal(productStepPassed('find', 'select'), true);
+  assert.equal(productStepPassed('select', 'find'), false);
+  assert.equal(productStepPassed('profit', 'readback'), true);
+  assert.equal(productStepPassed('copy', 'copy'), false);
+
+  const html = await render({ candidate: passedB, view: null });
+  assert.match(html, /<summary>算利润<span class="product-folded-state">已完成<\/span><\/summary>/u);
+  assert.match(html, /<summary>文案素材<span class="product-folded-state">进行中<\/span><\/summary>/u);
+  assert.match(html, /<summary>上架<span class="product-folded-state">未开始<\/span><\/summary>/u);
 });

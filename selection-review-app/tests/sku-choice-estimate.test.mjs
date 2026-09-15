@@ -161,6 +161,8 @@ test('数字来源那一栏全部取自本次解析的输入，没有一处写�
     tariffRuleVersion: 'guoo-2026-08-19',
     domesticShippingRmb: 3.5,
     packagingRmbDefault: 3,
+    // 这个数是不是主人自己声明过的每单额外操作费。这份 assumptions 没说，那就是没声明。
+    extraHandlingDeclared: false,
     labelCostRmb: 1.5,
     reserveParts: { advertisingReserveRate: 0, returnOpsReserveRate: 0.05, damageLossReserveRate: 0.05, withdrawalFeeRate: 0.02 },
     reserveRate: 0.12,

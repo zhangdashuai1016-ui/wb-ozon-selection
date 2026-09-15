@@ -196,7 +196,10 @@ function skuChoiceSources({ draft, storeRule, fx, commission, routes, inputs, as
     routes,
     tariffRuleVersion: typeof inputs?.tariffRuleVersion === 'string' ? inputs.tariffRuleVersion : null,
     domesticShippingRmb: draft.domesticShippingRmb,
+    // 每单额外操作费：这张表实际是按哪个数算出来的。它从 2026-09-15 起是这件商品自己声明的合计，不再是项目假设值——
+    // `extraHandlingDeclared` 说的就是这一点，页面必须照它说话，没声明的时候不能装作有声明。
     packagingRmbDefault: finite(assumptions?.packagingRmbDefault) ? assumptions.packagingRmbDefault : null,
+    extraHandlingDeclared: assumptions?.extraHandlingDeclared === true,
     labelCostRmb: rate('labelCostRmb'),
     reserveParts,
     reserveRate: Math.round(Object.values(reserveParts).reduce((total, value) => total + value, 0) * 10000) / 10000,

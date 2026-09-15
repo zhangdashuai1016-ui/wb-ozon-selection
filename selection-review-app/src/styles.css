@@ -1299,8 +1299,19 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 .page-panel .product-cargo-field { max-width: none; }
 .product-cargo-field select, .product-cargo-field input { width: 100%; }
 
+/* 每单额外操作费：一份可增删的小清单，一行「名目 + 金额」。跟运输属性同一套外观——同一类东西：软件提议、主人确认。 */
+.product-profit-extra-handling { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #f8faf9; }
+.product-extra-handling-list { display: grid; gap: 8px; }
+.product-extra-handling-row { display: grid; gap: 8px; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto; align-items: end; }
+.page-panel .product-extra-handling-row .product-field { max-width: none; }
+.product-extra-handling-row input { width: 100%; }
+.product-extra-handling-total { margin: 0; font-size: 13px; font-weight: 600; }
+/* 「这笔费用涨到 ¥X 才掉线」：主人最看重的那一句，要看得见，但不能喊。 */
+.product-profit-extra-handling-break { margin: 0; font-size: 13px; line-height: 1.65; }
+
 @media (max-width: 860px) {
   .product-cargo-ask, .product-cargo-edit { grid-template-columns: minmax(0, 1fr); }
+  .product-extra-handling-row { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 860px) {

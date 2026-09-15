@@ -130,6 +130,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  // 每单额外操作费 — 包材／拆单费／合包费／额外材料费这一类，每单要另外花的钱。一行都没有就是 ¥0.00，而且那是
+  // 主人的一次明确声明。它只记录这份声明并把合计写进本商品的成本事实：不派任务、不联系供应商、不碰平台。
+  declareExtraHandlingFees: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/extra-handling-fees`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   // 淘汰 / 恢复 are the owner's own soft delete: one status, one instant, one history line, no dispatch, no platform.
   eliminateCandidate: (candidateId, payload) =>
     request(`/api/candidates/${encodeURIComponent(candidateId)}/workflow/eliminate`, {

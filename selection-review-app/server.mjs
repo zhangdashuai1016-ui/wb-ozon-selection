@@ -15,6 +15,10 @@ import { buildProfitStepReview } from './lib/profit-step-review.mjs';
 import {
   CARGO_FACT_KEYS, buildCargoFactsStep, buildOwnerCargoFactsRecord, validateOwnerCargoFactsDeclaration
 } from './lib/cargo-facts-declaration.mjs';
+import {
+  EXTRA_HANDLING_FEE_LABEL, buildExtraHandlingFeesStep, buildOwnerExtraHandlingFeesRecord,
+  extraHandlingFeeAssumptions, validateOwnerExtraHandlingFees
+} from './lib/extra-handling-fees.mjs';
 import { adapt1688CaptureToSupplierOption } from './lib/supplier-option.mjs';
 import { readOzonCommissionReference, readOzonCommissionReferenceTiers } from './lib/ozon-commission-reference-reader.mjs';
 import { readGuooTariffCatalog } from './lib/guoo-tariff-reader.mjs';
@@ -325,8 +329,14 @@ const aDiscoveryTitleTranslationUseCase = (() => {
 /**
  * A-stage purchase-ceiling estimate for discovered products. Commission, FX and freight all come from the same official
  * readers the B stage uses; an input that is not configured becomes a recorded gap instead of a guessed number.
- * Packaging is the one declared assumption: 3 RMB per parcel until the real packaging cost is measured in B
- * (override with SELECTION_REVIEW_A_ESTIMATE_PACKAGING_RMB). It is stamped into every saved estimate record.
+ * Packaging is the one declared assumption: 3 RMB per parcel (override with SELECTION_REVIEW_A_ESTIMATE_PACKAGING_RMB).
+ * It is stamped into every saved estimate record as `assumed: true`.
+ *
+ * Since 2026-09-15 this value applies to the DISCOVERY BATCH estimate only. That path screens whole batches of market
+ * products before any of them is a candidate, so there is no product to ask and no owner declaration to read; the
+ * ceiling it produces is a filter, not a number anyone signs. Every figure shown for ONE product — 找货, 选定, 算利润 —
+ * now uses that product's own declared 每单额外操作费 instead (`extraHandlingFeeAssumptions`), because the owner was
+ * being shown a profit worked out at ¥3 and then asked to sign one worked out at this product's own cost.
  */
 const A_ESTIMATE_PACKAGING_RMB = (() => {
   const raw = String(process.env.SELECTION_REVIEW_A_ESTIMATE_PACKAGING_RMB ?? "").trim();
@@ -2670,7 +2680,10 @@ async function supplierDraftPricingInputs(document, candidate, draft) {
     { categoryPath: marketProduct?.categoryPath ?? null }, at);
   return {
     at, marketProduct, storeRule, fx, freight, commission, commissionTiers,
-    assumptions: supplierDraftEstimateInputs.assumptions,
+    // 每单额外操作费按这件货自己的声明算，不按项目假设值 A_ESTIMATE_PACKAGING_RMB。主人看到的利润和他最后签下去的
+    // 利润必须是同一个数——2026-09-15 之前页面按 ¥3 显示、确认时按这件货自己的 packagingCostRmb 算，两者不是一回事。
+    // 还没声明过的时候这里是 ¥0 且 extraHandlingDeclared 为 false，页面照实说它还没签过字。
+    assumptions: extraHandlingFeeAssumptions(candidate),
     inputs: { fxSourceRef: fx?.sourceRef ?? null, fxRateDate: fx?.rateDate ?? null,
       commissionSourceRef: commission.sourceRef, tariffRuleVersion: freight.ruleVersion,
       costPolicyVersion: typeof storeRule.pricingPolicyVersion === "string" ? storeRule.pricingPolicyVersion : null }
@@ -2738,6 +2751,10 @@ async function supplierDraftView(document, candidate) {
     }),
     // 运输属性那一小块：软件提议了什么、凭什么提议、主人确认了没有。它自己不算钱，所以和上面那张表无关。
     cargoFactsStepV1: buildCargoFactsStep(candidate),
+    // 每单额外操作费那一小块：包材／拆单费／合包费／额外材料费这一类，每单要另外花的钱。默认一行都没有 = ¥0，
+    // 而且那是主人的一次明确声明。缺它的时候 B 阶段证据会在最后一个按钮上抛 B_EVIDENCE_COST_POLICY_INCOMPLETE，
+    // 所以它必须在「算利润」里就能填、就能看见缺。
+    extraHandlingFeesStepV1: buildExtraHandlingFeesStep(candidate),
     // 类目那一小块：算利润只认真实读过的 Ozon 页面给的类目，这里说清楚现在这条是不是、不是的话出路是什么。
     ozonCategoryReadStepV1: buildOzonCategoryReadStep(candidate),
     // 估算佣金授权那一小块：上一次确认是不是停在「精确佣金读不到、只差主人授权」。它整份来自已保存的记录，
@@ -5022,6 +5039,74 @@ async function handleApi(req, res, pathname) {
           `软件当时的依据：${record.basis.map(item => `${item.label}——${item.because}`).join(" ")}`;
       addHistory(current, "user", "ownerCargoFactsDeclared",
         `主人确认了本商品的运输属性：${record.headline}${detail}这一步只记录这份声明，未派发任务、未联系供应商、未向平台写入任何内容，也未形成利润结论。`,
+        timestamp);
+      return current.dataRevision;
+    });
+    const savedDocument = await readData();
+    const savedCandidate = savedDocument.candidates.find((item) => item.id === candidateId);
+    if (!savedCandidate) throw httpError(404, "候选不存在");
+    return json(res, 200, await supplierDraftView(savedDocument, savedCandidate));
+  }
+
+  /**
+   * 每单额外操作费 — the owner's own declaration of what this one product costs to get out of the door.
+   *
+   * This is the second entrance that was missing, and it cost him two walks to the last button. `packagingCostRmb`
+   * is `null` on every candidate that arrived through discovery, and `buildLifecycleBExplicitOtherCosts` refuses
+   * without it — correctly, because a cost the software invented is not a cost. Nothing on the product page could
+   * state it, so 「确认，进入文案素材」 answered with `B_EVIDENCE_COST_POLICY_INCOMPLETE` and the only way on was a
+   * hand-written PATCH.
+   *
+   * Owner's ruling 2026-09-15: it is not one fixed number and not always called 包材费 — 拆单费, 合包费, 额外材料费
+   * are the same money under other names — so it is a list of 名目 + 金额 lines; and the default is nothing at all,
+   * with lines added by hand where the goods actually need them. An empty list is therefore ¥0.00 AND a declaration.
+   *
+   * Two things are written here and they are written together: the detail (`extraHandlingFeesV1`) and the one
+   * authoritative total the rest of the money reads (`packagingCostRmb`). The total is derived from the lines, so
+   * they cannot be saved disagreeing. No dispatch, no supplier contact, no platform write, no profit conclusion.
+   */
+  const extraHandlingFeesRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/extra-handling-fees$/);
+  if (req.method === "POST" && extraHandlingFeesRoute) {
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      throw httpError(403, `请先登录主人身份后确认${EXTRA_HANDLING_FEE_LABEL}。`);
+    }
+    const candidateId = decodeURIComponent(extraHandlingFeesRoute[1]);
+    const input = await readJsonRequestBody(req, { maxBytes: 8192, requireJsonContentType: true });
+    if (input === null || typeof input !== "object" || Array.isArray(input) ||
+        Object.keys(input).length !== 2 || !Object.hasOwn(input, "dataRevision") || !Object.hasOwn(input, "items")) {
+      throw httpError(400, `确认${EXTRA_HANDLING_FEE_LABEL}只接受当前数据修订号和一份清单；一行都没有就是 ¥0.00`);
+    }
+    if (!Number.isInteger(input.dataRevision) || input.dataRevision < 0) {
+      throw httpError(400, `确认${EXTRA_HANDLING_FEE_LABEL}必须提供当前数据修订号`);
+    }
+    const validation = validateOwnerExtraHandlingFees(input.items);
+    if (!validation.valid) {
+      throw httpError(422, `这份${EXTRA_HANDLING_FEE_LABEL}不能保存：${validation.errors.map(item => item.message).join("；")}`,
+        { code: "extra_handling_fees_invalid", errors: validation.errors });
+    }
+    const timestamp = now();
+    await mutateData((data) => {
+      const current = data.candidates.find((item) => item.id === candidateId);
+      if (!current) throw httpError(404, "候选不存在");
+      if (Number(current.dataRevision) !== input.dataRevision) {
+        throw httpError(409, `商品资料已变化，请刷新后重新确认${EXTRA_HANDLING_FEE_LABEL}`, { currentRevision: current.dataRevision });
+      }
+      if (current.lifecycleV11?.skuPackage) {
+        throw httpError(409, `这件商品的供货方案已经冻结，${EXTRA_HANDLING_FEE_LABEL}不能再改`, { code: "extra_handling_fees_frozen" });
+      }
+      if (activeDispatchForCandidate(data, current.id)) throw httpError(409, "当前商品已有任务正在等待或运行");
+      const record = buildOwnerExtraHandlingFeesRecord({ candidate: current, items: input.items, declaredAt: timestamp });
+      current.extraHandlingFeesV1 = record;
+      // 总额和明细一起写，永远由同一次计算得出；利润链路读的还是 packagingCostRmb 这一个数，一个字都不用改。
+      current.packagingCostRmb = record.totalRmb;
+      current.dataRevision = Number(current.dataRevision || 0) + 1;
+      current.updatedAt = timestamp;
+      current.lastModifiedBy = "user";
+      assertSafeBusinessMutationCandidate(current, "businessMutation.candidate");
+      addHistory(current, "user", "ownerExtraHandlingFeesDeclared",
+        `主人确认了本商品的${EXTRA_HANDLING_FEE_LABEL}：${record.headline}` +
+        `这一步只记录这份声明并把合计写进本商品的成本事实，未派发任务、未联系供应商、未向平台写入任何内容，也未形成利润结论。`,
         timestamp);
       return current.dataRevision;
     });
