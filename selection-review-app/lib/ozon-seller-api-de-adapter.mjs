@@ -123,9 +123,11 @@ export function inspectAdapterCapabilities({
       approvedHosts.some((host) => blockedHost(host))) {
     gaps.push(gap("asset_transport_not_verified", "assetTransport", "缺少已批准的稳定HTTPS素材能力"));
   }
-  if (!validPrerequisitePolicy(inventoryWrite?.prerequisitePolicy)) {
-    gaps.push(gap("inventory_prerequisite_policy_not_verified", "inventoryWrite.prerequisitePolicy", "库存前提与请求合同尚未取得正式证据"));
-  }
+  // prerequisitePolicy 只在真发库存那一步用得上（它的 priceSent.acceptedValues 至今没有官方来源）。
+  // 以前把它算进“能力就绪”，于是一个发库存才需要的未知把商品导入本身也挡住了。这项检查没有删掉，
+  // 只是挪到真正用它的那一步：observePriceSent 会抛 OZON_DE_INVENTORY_POLICY_NOT_VERIFIED，
+  // executeRemainingInventory 会返回 inventory_prerequisite_policy_not_verified，
+  // lib/d-e-runtime-services.mjs 还会以 inventory_policy_missing 拒掉整个续跑。
   if (!verifiedEvidence(inventoryWrite) || inventoryWrite.endpoint !== OZON_INVENTORY_WRITE_ENDPOINT ||
       !isPersistedNumericId(inventoryWrite.warehouseId) || inventoryWrite.warehouseId !== warehouseId || inventoryWrite.warehouseRef !== warehouseRef ||
       inventoryWrite.credentialAlias !== credentialAlias || !sameStoreRef(inventoryWrite.storeRef, storeRef)) {

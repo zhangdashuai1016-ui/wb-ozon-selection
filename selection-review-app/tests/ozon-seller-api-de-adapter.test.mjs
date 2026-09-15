@@ -709,9 +709,41 @@ test('missing policy, forged success, policy drift, and incomplete reserved fact
     assert.equal(result.status, 'blocked'); assert.equal(result.inventoryWriteState, 'not_sent');
   }
   assert.equal(f.calls.length, 0); assert.equal(f.checkpoints.length, 0);
+});
+
+/**
+ * 库存前提（priceSent.acceptedValues 至今没有官方来源）只在发库存那一步才用得上。
+ * 它以前被算进「能力就绪」，于是把商品导入本身也一起挡住了；现在导入放行，发库存照旧挡死。
+ * 这条测试就是那道搬家的闸门：任何一头松了都会红。
+ */
+test('inventory prerequisite policy no longer blocks product import, and still blocks the stock write', async () => {
   const input = capabilityInput(); delete input.inventoryWrite.prerequisitePolicy;
-  assert.equal(inspectAdapterCapabilities(input).status, 'not_ready');
-  assert.ok(inspectAdapterCapabilities(input).gaps.some(gap => gap.code === 'inventory_prerequisite_policy_not_verified'));
+  const capabilities = inspectAdapterCapabilities(input);
+  assert.equal(capabilities.status, 'ready');
+  assert.equal(capabilities.gaps.length, 0);
+  assert.equal(capabilities.inventoryWrite.prerequisitePolicy, null);
+
+  const withPolicy = phasedAdapter(), observation = await prerequisiteObservations(withPolicy);
+  const policyless = phasedAdapter({}, { adapterCapabilities: inspectAdapterCapabilities({
+    ...capabilityInput({ assets: formalExecution.prepared.executableRequest.finalUploads,
+      host: new URL(formalExecution.prepared.executableRequest.finalUploads[0].platformAcceptedUrl).hostname }),
+    inventoryWrite: { ...writeCapabilities.inventoryWrite, status: 'verified', protocolVersion: 'ozon-products-stocks-v2',
+      evidenceRef: 'evidence:protocol:inventory', prerequisitePolicy: undefined } }) });
+  policyless.calls.length = 0;
+
+  // 导入这一步照常走完：证明挡住主人的确实只是那条搬走的检查。
+  const imported = await policyless.adapter.executeSellerApi(executableRequest(), { persistCheckpoint: policyless.persistCheckpoint });
+  assert.equal(imported.status, 'waiting_platform');
+
+  // 发库存这一步一步都不让过，而且没有产生任何库存意图。
+  await assert.rejects(() => policyless.adapter.observePriceSent(taskQuery({ productId: '910001' })), /OZON_DE_INVENTORY_POLICY_NOT_VERIFIED/);
+  const blocked = await policyless.adapter.executeRemainingInventory(executableRequest(), { observation,
+    persistCheckpoint: policyless.persistCheckpoint, assertRemainingInventoryAuthorization: async () => {} });
+  assert.equal(blocked.status, 'blocked');
+  assert.equal(blocked.code, 'inventory_prerequisite_policy_not_verified');
+  assert.equal(blocked.inventoryWriteState, 'not_sent');
+  assert.equal(policyless.checkpoints.some(event => event.kind === 'stock_intent'), false);
+  assert.equal(policyless.calls.some(call => call.endpoint === '/v2/products/stocks'), false);
 });
 
 test('continuation authorization is required and checked again after stock intent', async () => {

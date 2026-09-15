@@ -941,11 +941,14 @@ test('verified no-battery product does not require unknown battery type count an
   }
 });
 
+// 主人 2026-09-15 要求撤掉「合规」那一档阻断。电池缺口仍然逐条如实记在清单上——
+// 只是不再拿它挡 C1→C2。不是把它藏起来：blockingScope 必须还叫得出名字。
 for (const powerProfile of [{ powered: false }, { powered: true, containsBattery: true }]) {
-  test(`battery safety gaps stay blocking when containsBattery is ${powerProfile.containsBattery ?? 'unknown'}`, () => {
+  test(`battery gaps stay on the record but stop blocking when containsBattery is ${powerProfile.containsBattery ?? 'unknown'}`, () => {
     const { c1ProductPlan: plan } = attributeDecisionFacts({ powerProfile });
     const gaps = collectC1UnknownManifest(plan).filter(item => item.fieldPath.startsWith('batteryAssessment.'));
-    assert.ok(gaps.some(item => item.blocksC2Handoff));
+    assert.ok(gaps.length > 0);
+    assert.ok(gaps.every(item => item.blockingScope === 'informational' && item.blocksC2Handoff === false));
   });
 }
 
@@ -994,12 +997,15 @@ test('optional unknown material survives final card and authorization without an
 });
 
 
-test('contradictory frozen battery evidence cannot receive the no-battery exemption', () => {
+test('contradictory frozen battery evidence is still listed, and is no longer a C2 blocker either', () => {
   const plan = structuredClone(attributeDecisionFacts().c1ProductPlan);
   plan.inputSnapshots.confirmedSupplierSkuSnapshot.supplierSku.powerProfile.batteryIncluded = true;
   const gaps = collectC1UnknownManifest(plan);
   for (const field of ['batteryType', 'batteryCount', 'batteryCapacity']) {
-    assert.equal(gaps.find(item => item.fieldPath === `batteryAssessment.${field}`).blocksC2Handoff, true);
+    const gap = gaps.find(item => item.fieldPath === `batteryAssessment.${field}`);
+    assert.ok(gap, field);
+    assert.equal(gap.blockingScope, 'informational', field);
+    assert.equal(gap.blocksC2Handoff, false, field);
   }
 });
 

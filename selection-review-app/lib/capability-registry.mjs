@@ -871,7 +871,8 @@ export const CAPABILITY_NODES = Object.freeze([
     position: { x: 60, y: 80 },
     aliases: ["旧 4.1"],
     codeRefs: [capabilityRef("lib/c1-product-plan.mjs", "verifyC1ProductFacts", "C1 商品事实")],
-    testRefs: [capabilityRef("tests/c1-product-plan.test.mjs", "test(", "C1 事实测试")],
+    testRefs: [capabilityRef("tests/c1-product-plan.test.mjs", "test(", "C1 事实测试"),
+      capabilityRef("tests/c1-unapproved-gate-removal.test.mjs", "test(", "撤掉没人批准过的门之后，还剩哪几条在挡")],
     artifactRefs: ["lib/c1-software-input-preparation.mjs", "lib/c1-fact-keyword-pipeline.mjs", "schema/c1-product-plan-v1.1.schema.json"]
   }),
   capability({

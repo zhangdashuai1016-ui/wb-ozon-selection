@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-15T06:04:11.718Z",
+  "frozenAt": "2026-09-15T08:29:47.042Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 670,
-      "sha256": "f154421c175d56f24b58a8cf47987827c5d348f9d55029cb1869077d7c234e7a",
+      "artifactCount": 671,
+      "sha256": "0eab821045c525584a75394574f7b30f142ea9059faa7dfd0e3072c02209d5d5",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -256,7 +256,7 @@
       },
       {
         "path": "lib/c1-product-plan.mjs",
-        "sha256": "830a86edcc2242e43c5accf738dd633c63b0b5e68e0ad419c0f9f87662027767"
+        "sha256": "70679c98eaa32ce8da2b891bf7c1dbab086dd719072bc74bd0fa8f72bb35f6ab"
       },
       {
         "path": "lib/c1-review-presentation.mjs",
@@ -320,7 +320,7 @@
       },
       {
         "path": "lib/candidate-initialization.mjs",
-        "sha256": "38402999556f17578ffc359a9e616db4e3562422bf28bb078ab59fe9a74c8ff1"
+        "sha256": "bd3e755aa9a25e9bba1008012241e4cc09cd068bc224cbd44dd2637a64345710"
       },
       {
         "path": "lib/candidate-user-fields.mjs",
@@ -328,7 +328,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "aaf961c4e33d6a66e60543d5911341e659e838f48dc7f878a44a026c2138ebfb"
+        "sha256": "b5322a9732c0cbde1c44360129d98bf591afed765b3245fc0cdc5c9976ec33e0"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -672,7 +672,7 @@
       },
       {
         "path": "lib/ozon-seller-api-de-adapter.mjs",
-        "sha256": "912667d4c7e4a9c00427d13ef50242904ecb571cbd310e885bcd078c9b3ccf22"
+        "sha256": "b2619c6931405184e83d45cb5f8a003e78916b4756a734bedb2e77bb7dfc39ce"
       },
       {
         "path": "lib/ozon-seller-api-production-adapter.mjs",
@@ -888,7 +888,7 @@
       },
       {
         "path": "lib/workflow.mjs",
-        "sha256": "5e5d80e51934aa532403b467e6c7b0e3d549c33e2e114546618cf6c73323f04c"
+        "sha256": "c884cfcd97890a886c555b491d9a299cbeec64d404dd103488e88e485ab6dbb9"
       },
       {
         "path": "package.json",
@@ -1728,7 +1728,7 @@
       },
       {
         "path": "tests/c1-product-plan.test.mjs",
-        "sha256": "4237b9624a10a044446d4dc550b6df500c64850e3af5bc4ef0c02864abaf049f"
+        "sha256": "8895fa859c1ffd6bead7f3e3789b97234e65778326b6dd0d1a31e4d0a33790bc"
       },
       {
         "path": "tests/c1-rights-review-input.test.mjs",
@@ -1753,6 +1753,10 @@
       {
         "path": "tests/c1-software-input-preparation.test.mjs",
         "sha256": "6080a1498a38579345f5d42406783568c482e7bf6a08023aba7c8c370a254202"
+      },
+      {
+        "path": "tests/c1-unapproved-gate-removal.test.mjs",
+        "sha256": "401cafd0e39ed0241006a59fced94c67dcebd2af474e66b19ff88f49af4c75da"
       },
       {
         "path": "tests/c2-final-assets-ui-contract.test.mjs",
@@ -1984,7 +1988,7 @@
       },
       {
         "path": "tests/final-pricing-revalidation.test.mjs",
-        "sha256": "ce25e11f0f197cfa3bba98a28120583b0b24bcc1001f8a4c2eb96ac0acabe8e0"
+        "sha256": "1ec2265b75c82d2ceee040393a5e61b5a069d1353cd6afe5ab33981a54db3a8f"
       },
       {
         "path": "tests/final-pricing-review-api.test.mjs",
@@ -2416,7 +2420,7 @@
       },
       {
         "path": "tests/ozon-seller-api-de-adapter.test.mjs",
-        "sha256": "31c60afde4ff47720602ad733df02c7ad39c206a0b4fcd6f8f9bea9280ae8f59"
+        "sha256": "350a95759547989bd64c96305c1f0c20d04c2d6e99b3e8000c7139f53d60ed6e"
       },
       {
         "path": "tests/ozon-seller-api-production-adapter.test.mjs",
@@ -3520,6 +3524,10 @@
         },
         {
           "path": "tests/c1-product-plan.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/c1-unapproved-gate-removal.test.mjs",
           "status": "present_in_integration_source"
         }
       ],

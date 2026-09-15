@@ -667,9 +667,20 @@ export function collectC1UnknownManifest(plan) {
           (/^productAttributes\.supplierAttributes\[/.test(path) && attributeKey !== null && !requiredKeys.has(attributeKey) && !necessarySupplierKeys.has(attributeKey))))
         blockingScope = 'informational';
       if (/^productAttributes\.requiredPlatformFields\[/.test(path) ||
-          /^platformCategory\.(categoryId|descriptionCategoryId|typeId)$/.test(path) ||
+          /^platformCategory\.(descriptionCategoryId|typeId)$/.test(path) ||
           /^schemaSnapshot\.(schemaRevision|writeBindings)$/.test(path)) blockingScope = "required_field";
-      if (/^(batteryAssessment|categoryRestrictions|platformCompliance)\./.test(path)) blockingScope = "compliance";
+      // 主人 2026-09-15 的决定：合规这一档不再拦人。
+      // categoryRestrictions / platformCompliance 只可能来自冻结 Schema 的同名字段，而全仓库没有任何一处
+      // 给它们赋过值（唯一路径是 lib/lifecycle-b-input-bundle.mjs 的 C1_SCHEMA_CONTENT_FIELDS 透传，
+      // Ozon 证据服务不返回），按现有证据永远不可能确认；batteryAssessment 读的 supplierSku.powerProfile
+      // 在现行 lib/real-a-b-c1-flow.mjs 里恒为 "unknown"。
+      // 没有一起松动的：主人自己签的权利/品牌声明（platformCompliance.skuRightsReview）照旧阻断，
+      // 而且另有 assertCurrentC1SkuRightsReview 一道独立闸门；利润由 B 的 result 把关。
+      if (/^(batteryAssessment|categoryRestrictions)\./.test(path) ||
+          /^platformCompliance\.(status|assessment)$/.test(path)) blockingScope = "informational";
+      // 同理：categoryId / categoryName 冻结 Schema 从不携带，真实 import 只写
+      // description_category_id + type_id（见 lib/ozon-seller-api-production-adapter.mjs），两者仍然阻断。
+      if (/^platformCategory\.(categoryId|categoryName)$/.test(path)) blockingScope = "informational";
       const batteryDetail = path.match(/^batteryAssessment\.(batteryType|batteryCount|batteryCapacity)$/);
       if (schemaKnown && noBattery && batteryDetail && !requiredKeys.has(batteryDetail[1])) blockingScope = 'informational';
       result.push({ fieldPath: path, reason: value.reason, sourceRefs: [...new Set(value.sourceRefs)],
@@ -682,6 +693,36 @@ export function collectC1UnknownManifest(plan) {
   for (const field of ["exactSkuVerification", "productAttributes", "platformCategory", "schemaSnapshot",
     "batteryAssessment", "categoryRestrictions", "platformCompliance"]) visit(plan[field], field);
   return result;
+}
+
+/**
+ * Ozon 必填属性「Бренд」的属性号。冻结 Schema 的 requiredFields 用平台属性号当 fieldKey
+ * （主人两件真实商品上就是 "85"），历史夹具用的是 "brand"，两种都认。
+ */
+const OZON_BRAND_ATTRIBUTE_KEYS = Object.freeze(["85", "brand"]);
+/** 平台自己的“无品牌”标记；lib/c1-sku-rights-review.mjs 的品牌冲突检查已经在用同一个字符串。 */
+const OZON_NO_BRAND_VALUE = "Нет бренда";
+
+function isBrandRequiredField(field) {
+  const keys = [field?.fieldKey, ...(Array.isArray(field?.sourceAttributeKeys) ? field.sourceAttributeKeys : [])];
+  return keys.some((key) => OZON_BRAND_ATTRIBUTE_KEYS.includes(key));
+}
+
+/**
+ * 主人已经在权利声明里签过品牌，不该再让他在必填属性里输一次同一个事实。
+ * 这里只搬运那份已签的声明，不发明任何东西：字典属性要的 dictionaryValueId 冻结 Schema 读不出来，
+ * 就如实留成 null——真发 import 时 lib/ozon-seller-api-production-adapter.mjs 会因此明确报
+ * OZON_ADAPTER_DICTIONARY_VALUE_REQUIRED，而不是写一个编出来的字典号上去。
+ */
+function declaredBrandPlatformFact(skuRightsReview, targetPlatform) {
+  if (targetPlatform !== "ozon" || !isObject(skuRightsReview) || !isObject(skuRightsReview.brand)) return null;
+  const { status, name, evidenceRefs } = skuRightsReview.brand;
+  if (!Array.isArray(evidenceRefs) || evidenceRefs.length === 0) return null;
+  let text = null;
+  if (status === "unbranded") text = OZON_NO_BRAND_VALUE;
+  else if (status === "branded" && nonEmptyString(name)) text = name;
+  if (text === null) return null;
+  return sourcedFact({ value: text, brandStatus: status, dictionaryValueId: null }, evidenceRefs);
 }
 
 export function verifyC1ProductFacts({ skuPackage, skuRightsReview = null, verifiedAt }) {
@@ -730,10 +771,14 @@ export function verifyC1ProductFacts({ skuPackage, skuRightsReview = null, verif
       fact: sourcedFact(value, [factPath(supplyRoot, "supplierSku/attributes")])
     }));
   const attributeMap = new Map(supplierAttributes.map((item) => [item.fieldKey, item.fact]));
+  const declaredBrand = declaredBrandPlatformFact(skuRightsReview, plan.identity.targetPlatform);
   const requiredPlatformFields = schema.requiredFields.map((field) => {
     const matchedKey = Array.isArray(field.sourceAttributeKeys)
       ? field.sourceAttributeKeys.find((key) => attributeMap.has(key))
       : null;
+    if (!matchedKey && declaredBrand !== null && isBrandRequiredField(field)) {
+      return { fieldKey: field.fieldKey, label: field.label, fact: structuredClone(declaredBrand) };
+    }
     return {
       fieldKey: field.fieldKey,
       label: field.label,
@@ -870,8 +915,12 @@ export function verifyC1ProductFacts({ skuPackage, skuRightsReview = null, verif
         sourceRefs: [schema.evidenceId], blockingScope: "required_field", blocksC2Handoff: true });
     }
     if (!mediaReady) {
+      // 这条槽位合同是我们自己编的，不是平台要求：真实 import 只写 primary_image = urls[0] 和
+      // images = urls.slice(1)（lib/ozon-seller-api-production-adapter.mjs），从不读槽位。
+      // 而它挂靠的 schema.mediaRequirements 全仓库无人赋值、证据服务也不返回，永远是 unknown。
+      // 如实留一条 informational 记着“平台媒体规则还没问过 Ozon”，但不再拿它挡 C1→C2。
       plan.unknownManifest.push({ fieldPath: "mediaRequirements", reason: plan.mediaRequirements.reason,
-        sourceRefs: [schema.evidenceId], blockingScope: "media_slot", blocksC2Handoff: true });
+        sourceRefs: [schema.evidenceId], blockingScope: "informational", blocksC2Handoff: false });
     }
   }
 
