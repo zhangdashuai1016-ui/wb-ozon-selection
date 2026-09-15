@@ -754,6 +754,29 @@ export default function App() {
     }
   }
 
+  /**
+   * 重读一次费用证据。这一步只换证据，利润结论一个字都不动——那句话要说出来，
+   * 不然主人会以为按完这一下就完事了，而真正改结论的是紧接着那一次「用更好的费用证据重算」。
+   */
+  async function refreshBFeeEvidence(payload) {
+    if (!selected || payload.candidateId !== selected.id) throw new Error("当前商品已变化，未替旧商品读取费用证据。");
+    try {
+      const result = await api.refreshBFeeEvidence(selected.id, payload);
+      const kinds = { commission: "佣金", schema: "Schema", exchange_rate: "汇率", logistics_tariff: "物流资费" };
+      const read = (result.evidencePacks || []).map(pack => kinds[pack.kind] || pack.kind);
+      setNotice({ type: "success", message: read.length === 0
+        ? "已经核对过：这件商品的费用证据都是当期的，没有需要重读的，什么都没有改动。"
+        : `已经重新读到${read.join("、")}证据并存下来；规格、货价、线路、运费和供货确认都没有动，也没有向 Ozon 写任何东西。` +
+          "利润结论还是原来那份条件测算——要用新证据换掉它，请再点一次「用更好的费用证据重算」。" });
+      await load(true);
+      return result;
+    } catch (error) {
+      setNotice({ type: "error", message: errorMessage(error) });
+      await load(true);
+      throw error;
+    }
+  }
+
   async function retryC1KeywordHandoff(payload) {
     if (!selected || payload.candidateId !== selected.id) throw new Error("当前商品已变化，未继续旧交接。");
     try {
@@ -1034,6 +1057,7 @@ export default function App() {
           onReadOzonPage={payload => readOzonProductPage(payload)}
           onConfirmProfitStep={payload => confirmProductProfitStep(payload)}
           onRecalculateBWithExactCommission={recalculateBWithExactCommission}
+          onRefreshBFeeEvidence={refreshBFeeEvidence}
           onOpenLegacyCard={() => setView("review")}
           onEliminateCandidate={eliminateCandidate}
           onBack={() => setView("desk")}

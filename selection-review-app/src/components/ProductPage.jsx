@@ -4,7 +4,7 @@ import { storeLabel } from "../selectionDeskView.js";
 import { toggleLocalSupplierSkuSelection } from "../aSupplierCaptureSelection.js";
 import { profitStepGaps, profitStepSubmission } from "../../lib/profit-step-review.mjs";
 import { commissionEstimateProposal } from "../../lib/commission-estimate-authorization.mjs";
-import { buildBExactCommissionInput } from "../bExactCommissionInput.js";
+import { buildBExactCommissionInput, buildBEvidenceRefreshInput } from "../bExactCommissionInput.js";
 import EliminateControl from "./EliminateControl.jsx";
 
 /**
@@ -1338,11 +1338,45 @@ function BetterCommissionEvidenceSection({ candidate, saving, onRecalculate, onO
   </section>;
 }
 
+/**
+ * 「重新读一次费用证据」——两次点击里的第一次。
+ *
+ * 上面那一块只会用已经存下来的证据；这件商品现在那份佣金证据挂在旧类目路径上，谁也用不了，
+ * 于是上面那一块永远是「还没有可用的更好证据」，而软件按设计不会自己去读。这一块就是那条出路：
+ * 主人点一下，去把佣金和 Schema 按这件商品自己的适用范围重读一遍。
+ *
+ * 它和重算是两个决定，不合并成一次点击：读证据不改结论，改结论要主人自己再按一次。这一块把
+ * 「做什么、不做什么、读完还要做什么」三件事都摆在按钮上面，省得主人按完还得猜自己刚才做了什么。
+ */
+function RefreshFeeEvidenceSection({ candidate, saving, onRefresh }) {
+  const ready = candidate.bExactCommissionRuntimeView?.canRecalculate === true;
+  return <section className="product-section" aria-label="重新读一次费用证据">
+    <h3>{ready ? "也可以重新读一次费用证据" : "重新读一次费用证据"}</h3>
+    <p>{ready
+      ? "上面那一步已经有证据可用了，这一步不是必须的。想换一份更新的佣金和 Schema，可以再读一次。"
+      : "上面那一步只会用已经存下来的证据，而存下来的那份现在用不了——为什么用不了，服务端那句话就在上面。软件不会自己去读；要重新读一次，按下面这个按钮。"}</p>
+    <p className="product-profit-note">
+      这一步做的事：按这件商品<strong>已经冻结的</strong>店铺、类目和销售模式，重新读一次平台佣金和 Schema（汇率过期的话一起读）。
+      佣金和 Schema 走本机的只读证据服务，资费走本机那份资费表，汇率走俄罗斯央行。
+    </p>
+    <p className="product-profit-note">
+      这一步<strong>不做</strong>的事：不碰已经定下来的规格、货价、重量、包装、线路、运费和供货确认，一个都不动；
+      不向 Ozon 写任何东西；也不改这件商品的利润结论——读完之后它仍然是原来那份条件测算。
+    </p>
+    <button type="button" className="button secondary" disabled={saving} onClick={onRefresh}>
+      {saving ? "正在重新读取费用证据…" : "重新读一次费用证据"}
+    </button>
+    <p className="product-actions-note">
+      读完之后利润不会自己变。要用新读到的证据把利润换掉，请再点一次上面的「用更好的费用证据重算」——那是第二个决定，由主人自己按。
+    </p>
+  </section>;
+}
+
 export default function ProductPage({
   candidate, view = null, titleZh = null, extensionStatus = null,
   onSaveDraft, onChooseSkus, onRequestCapture, onReviewCaptureAndRequest, onRecaptureSource,
   onConfirmProfitStep, onDeclareCargoFacts, onReadOzonPage, onOpenLegacyCard, onBack, onEliminateCandidate,
-  onRecalculateBWithExactCommission = null,
+  onRecalculateBWithExactCommission = null, onRefreshBFeeEvidence = null,
   loadingLabel = "正在读取这件商品的找货资料…"
 }) {
   const draft = view?.supplierDraftV1 ?? null;
@@ -1598,6 +1632,17 @@ export default function ProductPage({
         return run(onRecalculateBWithExactCommission, payload,
           "已经用保存下来的费用证据把这件商品的利润重算了一次；没有打开平台，也没有向 Ozon 写任何东西。");
       }} /> : null}
+
+    {/* 上面那一步只用存下来的证据。存下来的那份用不了时，这一块是唯一的出路，它也只有主人按得动。 */}
+    {recalculationOpen && typeof onRefreshBFeeEvidence === "function"
+      ? <RefreshFeeEvidenceSection candidate={candidate} saving={saving}
+        onRefresh={() => {
+          let payload;
+          try { payload = buildBEvidenceRefreshInput({ candidate, sourceRevision: candidate.dataRevision }); }
+          catch (cause) { setError(errorMessage(cause)); setNotice(null); return undefined; }
+          return run(onRefreshBFeeEvidence, payload,
+            "已经重新读了一次费用证据；已经定下来的规格、成本、线路和运费都没有动，利润结论也没有变。");
+        }} /> : null}
 
     {step === "find" ? <section className="product-section" aria-label="找货">
       <h3>找货</h3>

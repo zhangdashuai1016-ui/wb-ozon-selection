@@ -828,7 +828,8 @@ export const CAPABILITY_NODES = Object.freeze([
     artifactRefs: ["lib/global-pricing-policy.mjs", "tests/global-pricing-policy.test.mjs", "tests/fixtures/b-cost-policy-fixture.mjs", "schema/profit-model-v1.1.schema.json",
       "lib/b-exact-commission-recalculation-use-case.mjs", "lib/b-exact-commission-runtime-view.mjs", "src/bExactCommissionInput.js",
       "tests/b-exact-commission-recalculation-http.test.mjs", "tests/b-exact-commission-recalculation-use-case.test.mjs",
-      "tests/b-exact-commission-runtime-view.test.mjs", "tests/fixtures/real-a-b-flow-fixture.mjs"]
+      "tests/b-exact-commission-runtime-view.test.mjs", "tests/fixtures/real-a-b-flow-fixture.mjs",
+      "tests/b-fee-evidence-refresh.test.mjs"]
   }),
   capability({
     id: "3.6", capabilityId: "selection.b.atomic-c1-handoff", areaId: "3",

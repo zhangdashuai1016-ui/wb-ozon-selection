@@ -113,7 +113,8 @@ import {
 } from "./lib/a-stage-terra-gateway.mjs";
 import { applyLifecycleBEvidenceContext } from "./lib/lifecycle-b-evidence-context.mjs";
 import { runRealAConfirmationWithSystemEvidence } from "./lib/real-a-b-evidence-orchestration.mjs";
-import { GuooRouteComparisonError, appendGuooRouteComparison, assertGuooComparisonReadyForEvidence } from "./lib/guoo-route-comparison.mjs";
+import { GuooRouteComparisonError, appendGuooRouteComparison, assertGuooComparisonReadyForEvidence,
+  assertGuooComparisonFrozenForEvidenceRefresh } from "./lib/guoo-route-comparison.mjs";
 import { BExactCommissionRecalculationError, assertCurrentBCommissionEvidence } from "./lib/real-a-b-c1-flow.mjs";
 import { createBExactCommissionRecalculationUseCase } from "./lib/b-exact-commission-recalculation-use-case.mjs";
 import { createFinalPricingReviewUseCase } from "./lib/final-pricing-review-use-case.mjs";
@@ -134,7 +135,8 @@ import {
   resolveLifecycleBProfitRule,
   assertLifecycleBCostsCurrent,
   inspectLifecycleBCostReadiness,
-  commitLifecycleBEvidencePacks
+  commitLifecycleBEvidencePacks,
+  commitLifecycleBFeeEvidenceRefresh
 } from "./lib/lifecycle-b-evidence-runtime.mjs";
 import { completeC1AndStartC2 } from "./lib/lifecycle-c-stage.mjs";
 import { createC1DraftRuntimeServices } from "./lib/c1-draft-runtime-services.mjs";
@@ -3764,6 +3766,113 @@ async function handleApi(req, res, pathname) {
       candidateStateChanged: false,
       dispatchesCreated: 0,
       platformWrites: 0
+    });
+  }
+
+  /**
+   * 「重新读一次费用证据」——主人点一次，只提交新的证据包，别的什么都不动。
+   *
+   * 这件商品的规格、货价、重量、包装、线路、运费、供货确认全部冻在 SKU 包里，这一步一个都不碰：
+   * 它只把佣金和 Schema（以及过期了的汇率）按**这件商品自己已经冻结的适用范围**重读一遍，交进
+   * `data.evidencePacks`。候选记录逐字节不变——包括 `dataRevision`，下面那道不变量当场兜住。
+   *
+   * 版本号必须原地不动，因为紧接着那一步（用更好的费用证据重算）把三件事钉死在当前这一版上：
+   * 停止记录的 `sourceRevision`、运行时的 `inputRevision/outputRevision`，以及官方费表命中行里
+   * 那个 `officialCommissionBinding.candidateRevision`。版本一涨，这三件当场全部过期，重读出来的
+   * 证据自己把自己顶没了。所以这条路不写候选、不落线路比较（`appendGuooRouteComparison` 会涨一格）。
+   *
+   * 结论也不在这里改：重读只换证据，利润仍然是那份 conditional。要不要用新证据重算，是主人的第二次
+   * 点击，那是另一个决定，不并到这一次里。
+   */
+  const lifecycleBEvidenceRefreshRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/b-evidence\/refresh$/);
+  if (req.method === "POST" && lifecycleBEvidenceRefreshRoute) {
+    const candidateId = lifecycleBEvidenceRefreshRoute[1];
+    const input = await readJsonRequestBody(req, { maxBytes: 8192, requireJsonContentType: true });
+    const fields = ["candidateId", "expectedRevision"];
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== fields.length ||
+        fields.some((field) => !Object.hasOwn(input, field)) || input.candidateId !== candidateId ||
+        !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 1) {
+      return json(res, 400, { code: "B_EVIDENCE_REFRESH_INPUT_INVALID", message: "请从当前商品卡提交一次费用证据重读。", platformWrites: 0 });
+    }
+    // 只主人触发，绝不自动：没有登录身份的调用到不了任何只读提供器。
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      return json(res, 403, { code: "B_EVIDENCE_REFRESH_OWNER_REQUIRED", message: "请先登录主人身份后重读费用证据。", platformWrites: 0 });
+    }
+    const snapshot = await readData();
+    const candidate = snapshot.candidates.find((item) => item.id === candidateId);
+    if (!candidate) throw httpError(404, "候选不存在");
+    if (candidate.dataRevision !== input.expectedRevision) throw httpError(409, "商品资料已变化，请刷新后重新读取一次费用证据");
+    if (activeDispatchForCandidate(snapshot, candidate.id)) {
+      throw httpError(409, "当前SKU已有负责人任务，不能同时重读费用证据");
+    }
+    assertCandidateStoreBinding(candidate, runtimeConfiguration.storeBindings);
+    try {
+      assertGuooComparisonFrozenForEvidenceRefresh(candidate, runtimeConfiguration.guooTariffRuleVersion);
+    } catch (error) {
+      if (!(error instanceof GuooRouteComparisonError)) throw error;
+      throw httpError(422, `${error.message}: 这件商品不满足重读费用证据的条件，未调用任何只读证据提供器。`);
+    }
+    const plannedAt = now();
+    const costReadiness = inspectLifecycleBCostReadiness({ candidate, rules: snapshot.rules, asOf: plannedAt });
+    if (!costReadiness.ready) throw httpError(422, `B_COST_POLICY_REQUIRED: ${costReadiness.missing.join("、")}`, { costPolicyReadiness: costReadiness });
+    const preparedCosts = buildLifecycleBExplicitOtherCosts(candidate, resolveLifecycleBProfitRule(candidate, snapshot.rules), { asOf: plannedAt });
+    // 不传 commissionEstimate：这条路只找比估算更好的证据。店里读不到实收、官方费表也命不中时，
+    // 它就地失败、什么都不提交，绝不把主人签过的同一个估算再签一次当成「读到了新证据」。
+    const providers = createLifecycleBRealEvidenceProviderRegistry({
+      ozonServiceUrl: runtimeConfiguration.ozonEvidenceServiceUrl,
+      guooFilePath: runtimeConfiguration.guooTariffFile,
+      cbrSourceUrl: process.env.SELECTION_REVIEW_CBR_FX_URL,
+      ozonCommissionReference: runtimeConfiguration.ozonCommissionReference,
+    });
+    const run = await runLifecycleBEvidencePreparation({
+      candidate,
+      evidencePacks: snapshot.evidencePacks || [],
+      currentCommissionCatalogs: snapshot.currentCommissionCatalogs ?? [],
+      providers,
+      plannedAt,
+    });
+    if (run.status !== "completed") {
+      throw httpError(422, `重读费用证据已停止：${run.failure?.reason || "未知失败"}`, { evidencePreparation: run });
+    }
+    const committed = run.evidencePacksToCommit.length === 0 ? [] : await mutateData((data) => {
+      const current = data.candidates.find((item) => item.id === candidateId);
+      if (!current) throw httpError(404, "候选不存在");
+      if (current.dataRevision !== input.expectedRevision) throw httpError(409, "重读期间商品资料已变化，本轮证据未保存");
+      if (activeDispatchForCandidate(data, current.id)) throw httpError(409, "重读期间SKU已被负责人领取，本轮证据未保存");
+      assertCandidateStoreBinding(current, runtimeConfiguration.storeBindings);
+      try { assertLifecycleBCostsCurrent({ candidate: current, rules: data.rules, otherCosts: preparedCosts, asOf: now() }); }
+      catch (error) {
+        if (error.code !== "B_EVIDENCE_COST_POLICY_INCOMPLETE" && !error.code?.startsWith("B_COST_POLICY_")) throw error;
+        throw httpError(409, error.message);
+      }
+      // 已冻结的那一份记录在这一步里逐字节不变，版本号也在里面。这不是一句承诺：真被改了就抛，整笔回滚。
+      return commitLifecycleBFeeEvidenceRefresh(data, candidateId, run.evidencePacksToCommit, {
+        createdAt: now(),
+        currentCommissionCatalogs: data.currentCommissionCatalogs ?? [],
+        createdBy: "owner_b_evidence_refresh"
+      });
+    });
+    const savedSnapshot = await readData();
+    const savedCandidate = savedSnapshot.candidates.find((item) => item.id === candidateId);
+    if (!savedCandidate) throw httpError(500, "重读结果待核对：未取得当前商品独立回读。");
+    return json(res, committed.length === 0 ? 200 : 201, {
+      evidencePreparation: run,
+      evidencePacks: committed.map((pack) => ({
+        id: pack.id,
+        kind: pack.kind,
+        scope: pack.scope,
+        summary: pack.summary,
+        sourceType: pack.sourceType,
+        sourceRef: pack.sourceRef,
+        checkedAt: pack.checkedAt,
+        expiresAt: pack.expiresAt,
+        ruleVersion: pack.ruleVersion,
+        status: pack.status
+      })),
+      candidateStateChanged: false,
+      platformWrites: 0,
+      candidate: publicCandidate(savedCandidate, savedSnapshot.rules, {}, savedSnapshot.evidencePacks || [], savedSnapshot.currentCommissionCatalogs ?? [])
     });
   }
 

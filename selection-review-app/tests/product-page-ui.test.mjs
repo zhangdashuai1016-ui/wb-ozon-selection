@@ -1435,3 +1435,44 @@ test('还没有更好的证据时，这一页照实说，不给按钮也不自�
   assert.match(blocked, /软件不会自己重试，也不会替你把估算当成实收/u);
   assert.doesNotMatch(blocked, /用更好的费用证据重算<\/button>/u);
 });
+
+/**
+ * 上面那一块说「还读不到」的时候，这一页必须同时给出那条出路，并且把它说成一次「读证据」，
+ * 不是一次「算利润」——两次点击是两个决定，页面上也得是两句话。
+ */
+test('读不到更好的证据时，这一页给出重读入口，并说清它不碰什么、读完还要做什么', async () => {
+  const stranded = await render({ candidate: recalculationCandidate({
+    ...readyRecalculationView('exact'), canRecalculate: false, status: 'evidence_required',
+    commissionEvidenceMode: null, commissionEvidenceLabel: null, commissionRate: null,
+    blockReason: 'B_EXACT_RECALCULATION_EVIDENCE_UNAVAILABLE', message: '服务端原话：还读不到。'
+  }), view: null, onRecalculateBWithExactCommission: forbidden, onOpenLegacyCard: forbidden,
+    onRefreshBFeeEvidence: forbidden });
+
+  assert.match(stranded, /<button[^>]*>重新读一次费用证据<\/button>/u);
+  // 一、这一步做什么。
+  assert.match(stranded, /重新读一次平台佣金和 Schema/u);
+  // 页面不自己诊断为什么用不了：为什么用不了是服务端那句原话，就在上面那一块里。
+  assert.match(stranded, /为什么用不了，服务端那句话就在上面/u);
+  assert.match(stranded, /软件不会自己去读/u);
+  // 二、这一步不做什么——三件都要说到。
+  assert.match(stranded, /不碰已经定下来的规格、货价、重量、包装、线路、运费和供货确认/u);
+  assert.match(stranded, /不向 Ozon 写任何东西/u);
+  assert.match(stranded, /不改这件商品的利润结论/u);
+  // 三、读完之后还要主人再点一次，两次点击不合并。
+  assert.match(stranded, /请再点一次上面的「用更好的费用证据重算」/u);
+  assert.match(stranded, /那是第二个决定，由主人自己按/u);
+});
+
+test('已经有可用证据时这一块还在，但说清它不是必须的；服务端没给重读入口就整块不出现', async () => {
+  const ready = await render({ candidate: recalculationCandidate(readyRecalculationView('official_reference')),
+    view: null, onRecalculateBWithExactCommission: forbidden, onOpenLegacyCard: forbidden,
+    onRefreshBFeeEvidence: forbidden });
+  assert.match(ready, /也可以重新读一次费用证据/u);
+  assert.match(ready, /这一步不是必须的/u);
+  assert.match(ready, /<button[^>]*>用更好的费用证据重算<\/button>/u);
+
+  // 页面不自己造这条路：没有接上重读处理时，这一块一个字都不出现。
+  const withoutHandler = await render({ candidate: recalculationCandidate(readyRecalculationView('exact')),
+    view: null, onRecalculateBWithExactCommission: forbidden, onOpenLegacyCard: forbidden });
+  assert.doesNotMatch(withoutHandler, /重新读一次费用证据/u);
+});

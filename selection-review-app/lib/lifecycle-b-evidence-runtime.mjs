@@ -173,3 +173,29 @@ export function commitLifecycleBEvidencePacks(data, packs, { createdAt, createdB
   data.evidencePacks = next;
   return prepared.map((pack) => structuredClone(next.find((item) => item.id === pack.id)));
 }
+
+/**
+ * 「重新读一次费用证据」那一步唯一允许的落盘动作：只往 evidencePacks 里提交，候选记录逐字节不变。
+ *
+ * 逐字节里最要紧的是 `dataRevision`。紧接着那一步（用更好的费用证据重算）把三样东西钉死在当前
+ * 这一版上：停止记录的 `sourceRevision`、运行时的 `inputRevision/outputRevision`，以及官方费率表
+ * 命中行里的 `officialCommissionBinding.candidateRevision`。版本涨一格，这三样同时失效——刚读回来
+ * 的证据会把自己顶过期，主人白按一次，还看不出为什么。
+ *
+ * 所以这里不是「记得别改」，而是改了就抛：调用方在一个事务里跑它，抛出去就整笔回滚。宁可这一次
+ * 白读，也不让重读悄悄动了规格、运费或版本号。
+ */
+export function commitLifecycleBFeeEvidenceRefresh(data, candidateId, packs, options) {
+  if (!isObject(data) || !Array.isArray(data.candidates)) throw new Error("B_EVIDENCE_REFRESH_INVALID_INPUT");
+  const find = () => data.candidates.find((item) => item?.id === candidateId);
+  const before = find();
+  if (!isObject(before)) throw new Error("B_EVIDENCE_REFRESH_CANDIDATE_MISSING");
+  const frozenBytes = JSON.stringify(before);
+  const committed = commitLifecycleBEvidencePacks(data, packs, options);
+  if (JSON.stringify(find()) !== frozenBytes) {
+    throw Object.assign(new Error("B_EVIDENCE_REFRESH_FROZEN_RECORD_CHANGED: 重读费用证据改动了已冻结的商品记录，本轮未保存"), {
+      code: "B_EVIDENCE_REFRESH_FROZEN_RECORD_CHANGED"
+    });
+  }
+  return committed;
+}

@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-14T16:09:33.754Z",
+  "frozenAt": "2026-09-15T02:36:21.480Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 667,
-      "sha256": "e34aefdf32a9ebf94e3cf1691c332df30647fc6d4a96186d6180c0babdfd13de",
+      "artifactCount": 668,
+      "sha256": "9d45a6b3b3a9c5b81ca5643c9f5629b3cc1595449d97db29bda72a52ce2cf2b3",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -328,7 +328,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "5a4a9946b7d5be07d23e2386fc9e8ac0c19daa57820ee4f490e8f42f90db7a0f"
+        "sha256": "b4e1979458f88014c6ebcb9b928daff781fa69f2a354d6b389f2ed76a2e23fcd"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -464,7 +464,7 @@
       },
       {
         "path": "lib/guoo-route-comparison.mjs",
-        "sha256": "26d209dddf9be02f1c3e0599db6ed2cd30dd4d6159ecf2c489546de43a48a29b"
+        "sha256": "66c14f172211b6592cf82d66ae2ea055523de83f6e48e1535d065819a044fcfe"
       },
       {
         "path": "lib/guoo-tariff-reader.mjs",
@@ -524,7 +524,7 @@
       },
       {
         "path": "lib/lifecycle-b-evidence-runtime.mjs",
-        "sha256": "ab44a05fc2982fb519646bcf74b5057e6ded29893aaea9c17b6b8a9cdbed8985"
+        "sha256": "182ae73c6845ee2210c41c6aad927a31d979204f2846acb363f06867604e8b3c"
       },
       {
         "path": "lib/lifecycle-b-input-bundle.mjs",
@@ -1200,11 +1200,11 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "50658a9befffbd8af630ff6bc1289b2cf4619b354fbeb9362f69cbc6bbac8912"
+        "sha256": "6ed266305cf6abc84e45f36baa6d11bae3ed708e716eff7e80474b97bd79811a"
       },
       {
         "path": "src/App.jsx",
-        "sha256": "55bf4cf21dbff07f40f55ed12251e5097600806cce1f2ea78a159aa6e65326f0"
+        "sha256": "127831698702746310ae92f9ac542d31099f4e508cf9a7b599eab6b1acda726e"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1216,11 +1216,11 @@
       },
       {
         "path": "src/api.js",
-        "sha256": "bcc0ba763629046696dae8bfc947d0f3ae88a149d9e92cf3c4f1eb7c85e8eb88"
+        "sha256": "52e3c1f8cfc1b1738d9e18dbc00df463596690d51dada02597dc15fbbaac1cdc"
       },
       {
         "path": "src/bExactCommissionInput.js",
-        "sha256": "a9d63864f87a5f16fc7bfc3f035242f7cff58ecc59afde638f33d4907ab22877"
+        "sha256": "3a396e57b4a4d83b79c39365319bcaf65dc081234277c681cd780f6fbaab1fba"
       },
       {
         "path": "src/c1PaidDraftInput.js",
@@ -1352,7 +1352,7 @@
       },
       {
         "path": "src/components/ProductPage.jsx",
-        "sha256": "c9b27c1431a44164374dd9769796a8d4e5be2a06a83f2e885b70193aac4e43b8"
+        "sha256": "8b6cdf71a14e999a0536fc73a17de70d99594a0e43e3a144d7d9e54262e5ba03"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1584,7 +1584,7 @@
       },
       {
         "path": "tests/b-exact-commission-recalculation-http.test.mjs",
-        "sha256": "b847bec30fc7d898e01eddb69c0614be07c9f7b879527cd7091f9445deb70b0a"
+        "sha256": "1b0ba7ff6f0e8feb0e78be1b1f4fc1fa8fb7948e6efd65041966604b909bae4d"
       },
       {
         "path": "tests/b-exact-commission-recalculation-use-case.test.mjs",
@@ -1593,6 +1593,10 @@
       {
         "path": "tests/b-exact-commission-runtime-view.test.mjs",
         "sha256": "7c34b314524ae79d48c6296ed4448a66d58cccdbbc0900a0daf03e51da352afe"
+      },
+      {
+        "path": "tests/b-fee-evidence-refresh.test.mjs",
+        "sha256": "5edbf325a5cd9518f37ab226e3e066c4613d57695125007bec1c42ffbf435408"
       },
       {
         "path": "tests/business-candidate-capacity.test.mjs",
@@ -2096,7 +2100,7 @@
       },
       {
         "path": "tests/fixtures/real-a-b-flow-fixture.mjs",
-        "sha256": "a0eb6c781a2ce2b61897179d69bcdeed62b3d0ce3a07bd90014177fc0505195d"
+        "sha256": "516748705c301984537d3c576a12d707c9c81d6ded225def453866359930e2d0"
       },
       {
         "path": "tests/fixtures/seerfar-discovery-runtime-fixture.mjs",
@@ -2468,7 +2472,7 @@
       },
       {
         "path": "tests/product-page-ui.test.mjs",
-        "sha256": "5c6576fe675dfcc5ddb0a91cd1df884c266312dc19ac530bc8c98bf1118c2a56"
+        "sha256": "5e4a47e608d11a5159becc4055351f5f72fd594476704849b0407f411215ff72"
       },
       {
         "path": "tests/production-owner-decision-api.test.mjs",
@@ -3436,6 +3440,10 @@
         },
         {
           "path": "tests/b-exact-commission-runtime-view.test.mjs",
+          "status": "present_in_integration_source"
+        },
+        {
+          "path": "tests/b-fee-evidence-refresh.test.mjs",
           "status": "present_in_integration_source"
         },
         {

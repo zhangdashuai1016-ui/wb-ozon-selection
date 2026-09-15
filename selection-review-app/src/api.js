@@ -58,6 +58,9 @@ export const api = {
   recalculateBWithExactCommission: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/b/exact-commission/recalculate`, {
     method: "POST", body: JSON.stringify(payload)
   }),
+  refreshBFeeEvidence: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/b-evidence/refresh`, {
+    method: "POST", body: JSON.stringify(payload)
+  }),
   saveFinalPricingReview: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/final-pricing/review`, {
     method: "POST", body: JSON.stringify(payload)
   }),
