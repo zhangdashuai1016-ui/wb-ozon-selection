@@ -4,6 +4,7 @@ import { storeLabel } from "../selectionDeskView.js";
 import { toggleLocalSupplierSkuSelection } from "../aSupplierCaptureSelection.js";
 import { profitStepGaps, profitStepSubmission } from "../../lib/profit-step-review.mjs";
 import { commissionEstimateProposal } from "../../lib/commission-estimate-authorization.mjs";
+import { buildBExactCommissionInput } from "../bExactCommissionInput.js";
 import EliminateControl from "./EliminateControl.jsx";
 
 /**
@@ -986,8 +987,8 @@ export function CommissionEstimateBlock({ estimate, authorized, saving, onAuthor
           "软件会把是你、在哪一版资料上、按哪个费率授权的一起存进记录。"}
       </p>
       <p className="product-profit-note">
-        {`等这条类目在${store}里有了第一件在售商品，精确佣金就读得到了。到那时打开这件商品的` +
-          "「条件测算已保存，等待精确佣金」那张卡，点「使用精确费用复算」，软件用真实费率把利润重算一次；" +
+        {`等这条类目在${store}里有了第一件在售商品，店里的实收费率就读得到了。到那时打开这件商品的` +
+          "「条件测算已保存，等更好的费用证据」那张卡，点「用更好的费用证据重算」，软件把利润重算一次；" +
           "已经确认过的货价和包装不用重填。"}
       </p>
       <label className="product-profit-check" htmlFor="profit-commission-estimate">
@@ -1300,10 +1301,48 @@ function Field({ id, label, hint, value, error, onChange, type = "text", placeho
   </label>;
 }
 
+/**
+ * 「算利润」停在条件测算之后，这件商品唯一的出路就摆在这一步里。
+ *
+ * 以前这一步对已确认的商品只剩一句「详细界面还在旧版页面里」，而那条出路的按钮恰恰只长在旧版 A 卡上——
+ * 主人在这一页看不到自己还能做什么，只能猜。这一块把服务端那份记录原样摆出来：能不能重算、这一次会用
+ * 哪一种费用证据、以及重算完了算不算能上架。
+ *
+ * 它不探测、不读平台：显示什么全部来自服务端已经保存的 bExactCommissionRuntimeView。
+ */
+function BetterCommissionEvidenceSection({ candidate, saving, onRecalculate, onOpenLegacyCard }) {
+  const recalculation = candidate.bExactCommissionRuntimeView;
+  const rate = finite(recalculation.commissionRate) === null ? null
+    : `${Number((recalculation.commissionRate * 100).toFixed(2))}%`;
+  const ready = recalculation.canRecalculate === true;
+  return <section className="product-section" aria-label="用更好的费用证据重算">
+    <h3>{ready ? "已经有更好的费用证据，可以重算利润" : "条件测算已保存，等更好的费用证据"}</h3>
+    <p>这件商品的利润是按估算佣金算出来的，停在「条件测算」：没有通过正式 B，也没有进「文案素材」。
+      已经确认过的货价和包装不用重填。</p>
+    <p className="product-profit-note">{recalculation.message}</p>
+    {ready ? <>
+      <p className="product-profit-note">
+        {`这一次会用：${recalculation.commissionEvidenceLabel}${rate === null ? "" : ` ${rate}`}。`}
+        {recalculation.commissionEvidenceMode === "official_reference"
+          ? "它是公开费率表上写着的数，不是这个店被扣过的钱——重算之后 B 会正式通过，但上架那道闸门只认店里的实收费率，这件商品还是上不了架。"
+          : "它就是这个店在这条类目上被实际扣掉的费率，重算通过之后这件商品可以继续往上架走。"}
+      </p>
+      <button type="button" className="button primary" disabled={saving} onClick={onRecalculate}>
+        {saving ? "正在重算正式利润…" : "用更好的费用证据重算"}
+      </button>
+      <p className="product-actions-note">重算只用已经保存下来的证据，不会打开平台，也不会产生任何费用。</p>
+    </> : <p className="product-actions-note">
+      {"现在还没有可用的更好证据，软件不会自己重试，也不会替你把估算当成实收。"}
+      {typeof onOpenLegacyCard === "function" ? "这一步的其余细节在「打开旧版A卡」里。" : ""}
+    </p>}
+  </section>;
+}
+
 export default function ProductPage({
   candidate, view = null, titleZh = null, extensionStatus = null,
   onSaveDraft, onChooseSkus, onRequestCapture, onReviewCaptureAndRequest, onRecaptureSource,
   onConfirmProfitStep, onDeclareCargoFacts, onReadOzonPage, onOpenLegacyCard, onBack, onEliminateCandidate,
+  onRecalculateBWithExactCommission = null,
   loadingLabel = "正在读取这件商品的找货资料…"
 }) {
   const draft = view?.supplierDraftV1 ?? null;
@@ -1335,6 +1374,10 @@ export default function ProductPage({
   const next = nextProductAction(view);
   const choosing = showsSkuChoice(candidate);
   const profitOpen = profitStepOpen(candidate, view);
+  // 服务端只在这件商品真的停在「条件测算，等更好的费用证据」时才给出这份记录（lib/b-exact-commission-runtime-view.mjs）。
+  // 页面不自己判断状态，也不去探测——有这份记录才有这一块。
+  const recalculationOpen = !profitOpen && isObject(candidate?.bExactCommissionRuntimeView) &&
+    typeof onRecalculateBWithExactCommission === "function";
   const estimate = estimateLines(view?.supplierDraftEstimateV1 ?? null);
   const reviewRequired = captureNeedsOwnerReview(candidate);
   const recapturable = captureRecaptureReady(candidate);
@@ -1543,6 +1586,19 @@ export default function ProductPage({
       dataRevision={candidate.dataRevision} saving={saving}
       onConfirm={confirmProfitStep} onDeclareCargoFacts={declareCargoFacts} onReadOzonPage={readOzonPage} /> : null}
 
+    {/* 算利润停在条件测算之后，这一步就只剩这一件事可做；它的按钮不能只长在旧版页面上。 */}
+    {recalculationOpen ? <BetterCommissionEvidenceSection candidate={candidate} saving={saving}
+      onOpenLegacyCard={onOpenLegacyCard}
+      onRecalculate={() => {
+        // 这份记录和眼前这一版资料对不上时，buildBExactCommissionInput 自己会拒绝。
+        // 拒绝要变成页面上那句话，不是一个没人接的异常——旧资料绝不会被提交出去。
+        let payload;
+        try { payload = buildBExactCommissionInput({ candidate, sourceRevision: candidate.dataRevision }); }
+        catch (cause) { setError(errorMessage(cause)); setNotice(null); return undefined; }
+        return run(onRecalculateBWithExactCommission, payload,
+          "已经用保存下来的费用证据把这件商品的利润重算了一次；没有打开平台，也没有向 Ozon 写任何东西。");
+      }} /> : null}
+
     {step === "find" ? <section className="product-section" aria-label="找货">
       <h3>找货</h3>
       {findBody}
@@ -1553,7 +1609,7 @@ export default function ProductPage({
     </details> : null}
 
     {PRODUCT_STEPS.filter(item => item.key !== "find" && !(choosing && item.key === "select") &&
-      !(profitOpen && item.key === "profit"))
+      !((profitOpen || recalculationOpen) && item.key === "profit"))
       .map(item => <details key={item.key} className="product-folded">
         <summary>{item.title}<span className="product-folded-state">{foldedStepState(item.key, step, candidate)}</span></summary>
         <p>{foldedStepLine(item.key, step, candidate)}</p>

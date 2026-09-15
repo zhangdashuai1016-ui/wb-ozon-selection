@@ -339,7 +339,7 @@ export const EXACT_COMMISSION_RECALCULATION_ACTION = 'b_exact_commission_recalcu
 /** 上架那道闸门拒绝时抛的错误。带稳定 ASCII 码和结构化标记，页面不靠中文字符串认它。 */
 export class ExactCommissionRequiredForProductionError extends Error {
   constructor({ commissionMode = null, skuPackageId = null } = {}) {
-    super(`${PRODUCTION_EXACT_COMMISSION_REQUIRED}: 佣金还是估算的，先做一次「使用精确费用复算」再上架`);
+    super(`${PRODUCTION_EXACT_COMMISSION_REQUIRED}: 佣金还是估算的，先用「用更好的费用证据重算」重算一次再上架`);
     this.name = 'ExactCommissionRequiredForProductionError';
     this.code = PRODUCTION_EXACT_COMMISSION_REQUIRED;
     this.exactCommissionRequiredForProduction = true;
@@ -437,7 +437,12 @@ export function buildEstimatedCommissionNoticeStep(candidate) {
           (release.conditionalOnEstimatedCommissionOnly
             ? '这两条和市场价这一条都已经过了——这不是一件有问题的商品，只是一件还差一道正式化手续的商品。'
             : ''),
-      '上架之前必须先做一次「使用精确费用复算」：软件用平台实际收的那个费率把利润重算一遍，正式 B 通过之后才能提交生产授权。' +
+      // 这里必须把两件事分开说。重算能用两种比估算更好的证据（店里的实收费率、官方费率表上的公开费率），
+      // 两种都能把 B 变成正式通过；但上架这道闸门只认店里的实收费率（assertExactCommissionBeforeProduction）。
+      // 少说这一句，主人就会拿官方费率表重算完、以为可以上架了，再在生产授权那一步被拦一次。
+      '上架之前必须先用「用更好的费用证据重算」把利润重算一次，正式 B 通过之后才能提交生产授权。' +
+        '重算认两种证据：你店里同类目在售商品的实收费率，和官方费率表上这条类目的公开费率；' +
+        '两种都能让 B 正式通过，但上架这道闸门只认店里的实收费率，用官方费率表重算过的仍然上不了架。' +
         '在那之前，这件商品不会有任何东西被写到平台上。'
     ]
   };

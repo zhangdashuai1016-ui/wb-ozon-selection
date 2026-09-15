@@ -736,9 +736,15 @@ export default function App() {
     if (!selected || payload.candidateId !== selected.id) throw new Error("当前商品已变化，未复算旧商品。");
     try {
       const result = await api.recalculateBWithExactCommission(selected.id, payload);
-      setNotice({ type: "success", message: result.result.status === "passed"
+      // 这一次用的是店里的实收费率还是官方费率表，必须跟着结果说出来。两种都算正式B，
+      // 可只有实收费率能上架；不说清楚，主人会以为这件商品已经可以提交生产授权了。
+      const official = result.result.commissionEvidenceMode === "official_reference";
+      const usedLine = official
+        ? "这一次用的是 Ozon 官方费率表上的公开费率，不是这个店被扣过的钱；上架之前仍然要读到店里的实收费率。"
+        : "这一次用的是店里同类目在售商品的实收费率。";
+      setNotice({ type: "success", message: (result.result.status === "passed"
         ? "正式利润已通过，上架准备已接收该商品；供货确认保持不变。"
-        : "正式利润未达到门槛，结果已保存；未进入上架准备。" });
+        : "正式利润未达到门槛，结果已保存；未进入上架准备。") + usedLine });
       await load(true);
       return result;
     } catch (error) {
@@ -1027,6 +1033,7 @@ export default function App() {
           onRecaptureSource={payload => recaptureProductSource(payload)}
           onReadOzonPage={payload => readOzonProductPage(payload)}
           onConfirmProfitStep={payload => confirmProductProfitStep(payload)}
+          onRecalculateBWithExactCommission={recalculateBWithExactCommission}
           onOpenLegacyCard={() => setView("review")}
           onEliminateCandidate={eliminateCandidate}
           onBack={() => setView("desk")}

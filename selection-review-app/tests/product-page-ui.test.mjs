@@ -1214,8 +1214,8 @@ test('精确佣金读不到才出现的那一块：说清四件事，主人勾�
   // 三、会被记成估算佣金，不是精确佣金，也不会进 C1。
   assert.match(html, /这一笔会记成估算佣金，不是精确佣金。这件商品的 B 会停在「条件测算」，不算正式通过，也不会进 C1/u);
   // 四、将来怎么复算：指向仓库里已经有的那条路，不另造一条。
-  assert.match(html, /等这条类目在Miska里有了第一件在售商品，精确佣金就读得到了/u);
-  assert.match(html, /「条件测算已保存，等待精确佣金」那张卡，点「使用精确费用复算」/u);
+  assert.match(html, /等这条类目在Miska里有了第一件在售商品，店里的实收费率就读得到了/u);
+  assert.match(html, /「条件测算已保存，等更好的费用证据」那张卡，点「用更好的费用证据重算」/u);
   // 那个勾，以及不勾会怎么样。
   assert.match(html, /<input type="checkbox" id="profit-commission-estimate"\/>/u);
   assert.doesNotMatch(html, /checked=""/u);
@@ -1374,4 +1374,64 @@ test('确认之后说的是服务端真的保存成什么样，同一个成功�
   // 页面读的是服务端那份回执本身，所以 App 里那条路必须把回执交回来，不能吞掉。
   assert.match(page, /profitStepOutcomeLine\(await onConfirmProfitStep\(input\)\)/u);
   assert.match(app, /return await runMutation\(\(\)=>api\.confirmRealAStage\(candidateId,payload\)/u);
+});
+
+/**
+ * 算利润停在条件测算之后，这一页必须把唯一的出路摆出来。
+ *
+ * 2026-09-14 主人第一件真货就卡在这一步：这一页对已确认的商品只剩一句「详细界面还在旧版页面里」，
+ * 而「重算」那个按钮只长在旧版 A 卡上——他在自己要用的这一页看不到还能做什么。
+ * 这一条钉的是：服务端给出那份记录时，这一页自己要有这一块，并且说得出这一次会用哪一种费用证据。
+ */
+function recalculationCandidate(runtimeView) {
+  return candidate({
+    workflowStatus: 'needs_user_data',
+    executionRuntime: { businessPhase: 'B' },
+    lifecycleV11: { status: 'b_conditional_awaiting_exact_commission',
+      aConfirmationReceipt: { decision: 'confirm' } },
+    bExactCommissionRuntimeView: runtimeView
+  });
+}
+
+const readyRecalculationView = (mode) => ({
+  schemaVersion: 'b-exact-commission-runtime-view-v1',
+  candidateId: 'candidate:synthetic-product-page', expectedRevision: 4,
+  skuPackageId: 'sku-lifecycle:synthetic', failureId: 'failure:synthetic',
+  canRecalculate: true, automaticRetryAllowed: false, externalRequests: 0,
+  status: 'ready', evidencePackIds: [], blockReason: null,
+  commissionEvidenceMode: mode,
+  commissionEvidenceLabel: mode === 'exact' ? '店里同类目在售商品的实收费率' : 'Ozon 官方费率表上这条类目的公开费率',
+  commissionRate: 0.12,
+  message: '服务端原话：可以重算。'
+});
+
+test('条件测算停下来之后，这一页自己就有重算入口，并说明这一次用的是哪一种费用证据', async () => {
+  const official = await render({ candidate: recalculationCandidate(readyRecalculationView('official_reference')),
+    view: null, onRecalculateBWithExactCommission: forbidden, onOpenLegacyCard: forbidden });
+  assert.match(official, /已经有更好的费用证据，可以重算利润/u);
+  assert.match(official, /<button[^>]*>用更好的费用证据重算<\/button>/u);
+  assert.match(official, /这一次会用：Ozon 官方费率表上这条类目的公开费率 12%。/u);
+  // 官方费率表能让 B 正式通过，但上不了架——这一句不许省。
+  assert.match(official, /上架那道闸门只认店里的实收费率，这件商品还是上不了架/u);
+  assert.match(official, /服务端原话：可以重算。/u);
+  // 这一块在场时，算利润那一步不再折叠成「详细界面还在旧版页面里」。
+  assert.doesNotMatch(official, /算利润<span class="product-folded-state">/u);
+
+  const exact = await render({ candidate: recalculationCandidate(readyRecalculationView('exact')),
+    view: null, onRecalculateBWithExactCommission: forbidden, onOpenLegacyCard: forbidden });
+  assert.match(exact, /这一次会用：店里同类目在售商品的实收费率 12%。/u);
+  assert.match(exact, /重算通过之后这件商品可以继续往上架走/u);
+  assert.doesNotMatch(exact, /上架那道闸门只认店里的实收费率/u);
+});
+
+test('还没有更好的证据时，这一页照实说，不给按钮也不自己重试', async () => {
+  const blocked = await render({ candidate: recalculationCandidate({
+    ...readyRecalculationView('exact'), canRecalculate: false, status: 'evidence_required',
+    commissionEvidenceMode: null, commissionEvidenceLabel: null, commissionRate: null,
+    blockReason: 'B_EXACT_RECALCULATION_EVIDENCE_UNAVAILABLE', message: '服务端原话：还读不到。'
+  }), view: null, onRecalculateBWithExactCommission: forbidden, onOpenLegacyCard: forbidden });
+  assert.match(blocked, /条件测算已保存，等更好的费用证据/u);
+  assert.match(blocked, /服务端原话：还读不到。/u);
+  assert.match(blocked, /软件不会自己重试，也不会替你把估算当成实收/u);
+  assert.doesNotMatch(blocked, /用更好的费用证据重算<\/button>/u);
 });

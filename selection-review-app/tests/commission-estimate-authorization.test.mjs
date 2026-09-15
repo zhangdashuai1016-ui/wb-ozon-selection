@@ -465,10 +465,12 @@ test('「佣金还是估算的」那一块跟着商品走，语气是还差一�
   assert.equal(step.ownerNextStep, EXACT_COMMISSION_RECALCULATION_ACTION);
   assert.equal(step.release.conditionalOnEstimatedCommissionOnly, true);
   assert.equal(step.sentences.length, 3);
-  // 三件事说全：佣金是估算的、现在只是条件测算、上架之前必须先做精确费用复算。
+  // 四件事说全：佣金是估算的、现在只是条件测算、上架之前必须先重算一次、重算的两种证据里只有店里实收能上架。
   assert.match(step.sentences[0], /平台佣金还是估算的/u);
   assert.match(step.sentences[1], /条件测算/u);
-  assert.match(step.sentences[2], /使用精确费用复算/u);
+  assert.match(step.sentences[2], /用更好的费用证据重算/u);
+  // 重算能用官方费率表收尾，可上架那道闸门只认店里的实收费率——少说这一句，主人会白高兴一场。
+  assert.match(step.sentences[2], /上架这道闸门只认店里的实收费率/u);
   // 不吓唬人：门槛本来就过了，这三句里不许出现这几个字眼。
   for (const sentence of step.sentences) {
     assert.doesNotMatch(sentence, /失败|异常|错误|风险|警告/u, sentence);

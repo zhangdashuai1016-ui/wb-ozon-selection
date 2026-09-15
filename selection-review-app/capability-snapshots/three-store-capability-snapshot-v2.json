@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-14T12:05:46.285Z",
+  "frozenAt": "2026-09-14T16:09:33.754Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 667,
-      "sha256": "9aba8463d373752054194963cedee64c1b0ef5f31669a5dd6ff63aa3dff339f9",
+      "sha256": "e34aefdf32a9ebf94e3cf1691c332df30647fc6d4a96186d6180c0babdfd13de",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -152,11 +152,11 @@
       },
       {
         "path": "lib/b-exact-commission-recalculation-use-case.mjs",
-        "sha256": "10a877160214b048f0cb634ae6aeb776d02caa7ae672cddacfc05d0105bb3c74"
+        "sha256": "ad441e7893cbfa34a0b00e34495192792bf45fe80b7fabd5164750c63a906c31"
       },
       {
         "path": "lib/b-exact-commission-runtime-view.mjs",
-        "sha256": "017f9468513a2c68742414d9e6cdc086b33b47522e7b518ccbb480c44597636a"
+        "sha256": "3747291eea9a0f855e2e6910dd02a0187b7defa8cc0d57f40c048ccb1bcedc4d"
       },
       {
         "path": "lib/business-mutation-transaction.mjs",
@@ -348,7 +348,7 @@
       },
       {
         "path": "lib/commission-estimate-authorization.mjs",
-        "sha256": "02a7dcecb87fc4567a5618a824b219074950846276440fa0ca315026f7e75d87"
+        "sha256": "c6d47eb6b8c913f70b8e4bdcbbbdf8afa6a2f6b6fb767436467ccf5e378f18ba"
       },
       {
         "path": "lib/d-asset-transport-software-use-case.mjs",
@@ -772,11 +772,11 @@
       },
       {
         "path": "lib/real-a-b-c1-flow.mjs",
-        "sha256": "fd14dde38af74a73baa74df284aed23aa89e30f5850da8447f6f4bf19eadc7c4"
+        "sha256": "22ba7721d9488671d4a9b2fb3b5231aa04b62ad157225b1cfb72c14e98f69f8a"
       },
       {
         "path": "lib/real-a-b-evidence-orchestration.mjs",
-        "sha256": "335793922db2eaf48daffd1a4d46c321c67fdba2b814fa774077808c56dae964"
+        "sha256": "eb480d8a9bdb11ace1060eb57ccc7e7d7e716da045b3502df7f79317d2c098e2"
       },
       {
         "path": "lib/real-a-confirmation-card.mjs",
@@ -1204,7 +1204,7 @@
       },
       {
         "path": "src/App.jsx",
-        "sha256": "069e7a02405fcdce1566f791f32d23502c155207d8bc6afb95c121546db296c7"
+        "sha256": "55bf4cf21dbff07f40f55ed12251e5097600806cce1f2ea78a159aa6e65326f0"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1352,7 +1352,7 @@
       },
       {
         "path": "src/components/ProductPage.jsx",
-        "sha256": "fd699c75137b74e7e2cb87135b204b6fb4613597dae3d989611031ad9cbcf9ec"
+        "sha256": "c9b27c1431a44164374dd9769796a8d4e5be2a06a83f2e885b70193aac4e43b8"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1380,7 +1380,7 @@
       },
       {
         "path": "src/components/UserInspector.jsx",
-        "sha256": "c91e6f94f81dfa027b1abf91c109919177e7b54b7b427859d90aee6d7886b847"
+        "sha256": "e4c42e8e675d887972a77a0cbe6d2d5899c3b39f801c235a7d30803d19efe296"
       },
       {
         "path": "src/components/WorkflowMap.jsx",
@@ -1588,7 +1588,7 @@
       },
       {
         "path": "tests/b-exact-commission-recalculation-use-case.test.mjs",
-        "sha256": "a3f1e916a57dba6407b725bd2042e04cfd4c898b2089f16f5a5950ee3040b8a7"
+        "sha256": "98af1bd0bdf15fbb6b38f7682352b07ed352ae9e5aabd76b2e7b9ae2b648fc83"
       },
       {
         "path": "tests/b-exact-commission-runtime-view.test.mjs",
@@ -1820,11 +1820,11 @@
       },
       {
         "path": "tests/commission-estimate-authorization.test.mjs",
-        "sha256": "59a0725f80c01f109859e98035fa30c284ae330656f85f5d16b6e6438b9de464"
+        "sha256": "79d0434b0c88fb5d3c92a579c2135115ccc9bbf63873d2bcc740f7cbfe662fa9"
       },
       {
         "path": "tests/cross-stage-contract-schema.test.mjs",
-        "sha256": "5e7ce5afc085a73a24dd17738a0bac7ffdb149184cc7d01ce512821ab27dce43"
+        "sha256": "67cbffef4f1992b5fcca0c95e6fc84216e73148e5b72ec57aaae58bc69ae6bcb"
       },
       {
         "path": "tests/d-asset-transport-saved-job.test.mjs",
@@ -2112,7 +2112,7 @@
       },
       {
         "path": "tests/frontend-review-behavior.test.mjs",
-        "sha256": "4cee563fc734eda95b78cbde5fb2aaeca2eecc5edcc2a8e76484f6d6ffc7fe06"
+        "sha256": "c0f3756afcb4ba6b996b4c35ccefd130f8fd8a402c68d1bbe06e57b3e86714a7"
       },
       {
         "path": "tests/global-pricing-policy.test.mjs",
@@ -2468,7 +2468,7 @@
       },
       {
         "path": "tests/product-page-ui.test.mjs",
-        "sha256": "c1096262b20202e4868b8a3f9ee22be3fe8dd858dc668c188855feaacca1374d"
+        "sha256": "5c6576fe675dfcc5ddb0a91cd1df884c266312dc19ac530bc8c98bf1118c2a56"
       },
       {
         "path": "tests/production-owner-decision-api.test.mjs",
@@ -2508,7 +2508,7 @@
       },
       {
         "path": "tests/real-a-b-evidence-orchestration.test.mjs",
-        "sha256": "d037b1e64a1bf7c712cee32338dd4528ac4aecf3bd21cb9a20500864a6dc10ac"
+        "sha256": "240fe45de901d2459f57eb69eb4f7a717fcc380219069a17130aff938c0797cc"
       },
       {
         "path": "tests/real-a-confirmation-card.test.mjs",

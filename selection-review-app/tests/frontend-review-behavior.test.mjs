@@ -78,7 +78,7 @@ test("估算佣金停在条件测算时页面不要求重复填写供货数据",
     } } };
   const before = JSON.stringify(candidate);
   const html = renderInspector(candidate);
-  assert.match(html, /条件测算已保存，等待精确佣金/);
+  assert.match(html, /条件测算已保存，等更好的费用证据/);
   assert.match(html, /条件单件利润/);
   assert.match(html, /未通过正式B，也未进入C1/);
   assert.doesNotMatch(html, /只需你完成这一项|旧资料提示|保存资料/);
@@ -92,11 +92,14 @@ test("精确证据齐备时同一商品卡提供本地复算按钮并遵守主�
     bExactCommissionRuntimeView: buildBExactCommissionRuntimeView({ candidate: f.candidate, evidencePacks: f.evidencePacks, rules: f.document.rules, observedAt: f.at }) };
   const before = structuredClone(candidate);
   const ready = renderInspector(candidate, { authenticated: true, roles: ["owner"] }, true);
-  assert.match(ready, /精确费用已齐，可以复算正式利润/);
-  assert.match(ready, /使用精确费用复算/);
-  assert.doesNotMatch(ready, /<button[^>]*disabled[^>]*>使用精确费用复算/);
+  assert.match(ready, /已经有更好的费用证据，可以重算利润/);
+  assert.match(ready, /用更好的费用证据重算/);
+  assert.doesNotMatch(ready, /<button[^>]*disabled[^>]*>用更好的费用证据重算/);
+  // 用的是哪一种证据，按钮旁边就说了：这一份固定件走的是店里的实收费率。
+  assert.match(ready, /这一次会用：店里同类目在售商品的实收费率/);
+  assert.doesNotMatch(ready, /公开费率表上写着的数/);
   const unauthenticated = renderInspector(candidate, { authenticated: false, roles: [] }, true);
-  assert.match(unauthenticated, /<button[^>]*disabled[^>]*>使用精确费用复算/);
+  assert.match(unauthenticated, /<button[^>]*disabled[^>]*>用更好的费用证据重算/);
   assert.doesNotMatch(ready, /保存资料|尚待接通|一次付费/);
   assert.deepEqual(candidate, before);
 });

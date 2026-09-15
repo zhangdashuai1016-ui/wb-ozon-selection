@@ -350,19 +350,28 @@ function NeedsDataPanel({ candidate, onUpdate, identity, onRecalculateBWithExact
       !saving && !guard.conflict && Boolean(onRecalculateBWithExactCommission);
     return (
       <section className="workflow-card needs-card" aria-label="B条件测算">
-        <h3>{view?.canRecalculate ? "精确费用已齐，可以复算正式利润" : "条件测算已保存，等待精确佣金"}</h3>
+        {/* 这条路能用两种证据收尾（店里实收 / 官方费率表），所以名字不能再叫「精确费用」——
+            那是在替软件许一个它不一定做得到的承诺。标题、按钮和下面那一行说的是同一件事。 */}
+        <h3>{view?.canRecalculate ? "已经有更好的费用证据，可以重算利润" : "条件测算已保存，等更好的费用证据"}</h3>
         <p>供货方案已确认。当前保存的仍是条件测算，未通过正式B，也未进入C1。</p>
         {conditional ? <p>估算佣金率 {formatPercent(profit.commissionRate, 2)} · 条件单件利润 {formatMoney(profit.unitProfitRmb)} · 条件利润率 {formatPercent(profit.profitMargin, 2)}</p>
           : <p>当前条件测算记录待核对，暂不展示利润数字。</p>}
-        <p>无需重新填写已确认的供货价格和包装。{view?.message || "精确费用证据尚未核对，系统不会自动重试。"}</p>
+        <p>无需重新填写已确认的供货价格和包装。{view?.message || "还没有比估算更好的费用证据可用，系统不会自动重试。"}</p>
         {view?.canRecalculate ? <>
+          {/* 这一次会用哪一种证据，点之前就摆在按钮上面，不是点完才说。 */}
+          {view.commissionEvidenceLabel
+            ? <p>这一次会用：{view.commissionEvidenceLabel}
+              {view.commissionRate === null ? "" : ` ${formatPercent(view.commissionRate, 2)}`}。
+              {view.commissionEvidenceMode === "official_reference"
+                ? "这不是你这个店被扣过的钱，是公开费率表上写着的数；上架之前仍然要读到店里的实收费率。" : ""}</p>
+            : null}
           <FormRevisionNotice guard={guard} disabled={saving} />
-          {!ownerAuthenticated ? <p>请先登录主人身份后复算。</p> : null}
+          {!ownerAuthenticated ? <p>请先登录主人身份后重算。</p> : null}
           <button type="button" className="button primary" disabled={!canRecalculate}
             onClick={() => run(async () => {
               guard.assertCurrent();
               await onRecalculateBWithExactCommission(buildBExactCommissionInput({ candidate, sourceRevision: guard.sourceRevision }));
-            })}>{saving ? "正在复算正式利润…" : "使用精确费用复算"}</button>
+            })}>{saving ? "正在重算正式利润…" : "用更好的费用证据重算"}</button>
         </> : null}
         {error ? <p role="alert">{error}</p> : null}
       </section>

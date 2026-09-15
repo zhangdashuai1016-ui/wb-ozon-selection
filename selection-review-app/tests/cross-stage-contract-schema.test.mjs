@@ -1293,7 +1293,7 @@ test("server只接原子授权处理器且旧入口永久零派发", async () =>
   assert.match(lifecycleRoute, /ExactCommissionRequiredForProductionError/);
   assert.match(lifecycleRoute, /code: error\.code, ownerNextStep: error\.ownerNextStep/);
   assert.match(lifecycleRoute, /exactCommissionRequiredForProduction: true/);
-  assert.match(lifecycleRoute, /使用精确费用复算/u);
+  assert.match(lifecycleRoute, /用更好的费用证据重算/u);
   assert.doesNotMatch(lifecycleRoute, /createCandidateDispatch|deliverDispatch|createProductionPlan|ExecutionIntent/);
   const legacyStart = source.indexOf('if (req.method === "POST" && productionAuthorizationRoute)');
   const legacyEnd = source.indexOf('const dispatchClaimRoute', legacyStart);

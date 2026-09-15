@@ -506,7 +506,19 @@ export function prepareSavedConditionalBExactInputs({ candidate, evidencePacks, 
   }
   if (!inspectLifecycleBInputReadiness({ candidate, evidencePacks, currentCommissionCatalogs, asOf: processedAt }).ready) rejectB("B_EXACT_RECALCULATION_EVIDENCE_UNAVAILABLE");
   const evidence = createLifecycleBInputBundle({ candidate, evidencePacks, currentCommissionCatalogs, otherCosts, normalizedSubmission, createdAt: processedAt });
-  if (evidence.platformFeeEvidence.commissionEvidenceMode !== "exact") rejectB("B_EXACT_RECALCULATION_EXACT_EVIDENCE_REQUIRED");
+  // 复算的本意是「拿比主人签下的估算更好的证据，把那一次条件测算换掉」。比估算更好的证据有两种：
+  // 店里同类目在售商品的实收费率（exact），和主人保存的那一版Ozon官方费率表命中的费率（official_reference）。
+  // 两种都能形成正式B（lib/profit-model.mjs 里 conditional 只认 estimated），所以两种都放进来。
+  //
+  // 读取顺序没有被这里放宽：createLifecycleBInputBundle 仍然按 COMMISSION_EVIDENCE_STRENGTH 先挑 exact，
+  // 店里读得到实收就轮不到官方费表——这一行只决定「读回来的是什么就接不接」，不决定「先读谁」。
+  //
+  // estimated 仍然拒绝：用估算复算等于把主人已经签过的同一个数原样再签一次，换不出正式B，只会白走一遍。
+  // 上架那道闸门（lib/commission-estimate-authorization.mjs 的 assertExactCommissionBeforeProduction）
+  // 不受这里影响，仍然只认 exact；官方费表算出来的正式B照样到不了平台。
+  if (!["exact", "official_reference"].includes(evidence.platformFeeEvidence.commissionEvidenceMode)) {
+    rejectB("B_EXACT_RECALCULATION_EXACT_EVIDENCE_REQUIRED");
+  }
   return deepFreeze({ opportunityPackage: structuredClone(opportunity), skuPackage: structuredClone(sku),
     salesSelection: { salesSnapshotId }, evidence, priorTechnicalFailure: structuredClone(failure) });
 }
