@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-15T11:01:54.190Z",
+  "frozenAt": "2026-09-15T16:53:35.984Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 670,
-      "sha256": "46c5fe0186ef593f764fd2f9bbf21952c4e580686c4f8db98e4e7fe9974295c8",
+      "sha256": "aa1973f774b536308a42e7e44f0c6325e22714529e7a16258fb2ee5825b79de5",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -608,7 +608,7 @@
       },
       {
         "path": "lib/ozon-account-read-evidence.mjs",
-        "sha256": "bc62ba344c348f15ad9141da2b61217bc94d00a61057bbf0b8d50ef923868ec7"
+        "sha256": "1207a4b48ae5724b60647c0302ffa9a99157c8b1af07587e85cb4ecca0e55ceb"
       },
       {
         "path": "lib/ozon-account-read-preparation.mjs",
@@ -2360,7 +2360,7 @@
       },
       {
         "path": "tests/ozon-account-read-integration.test.mjs",
-        "sha256": "8016a52ac19bf0ad1a90afc386d65fd1997f60725bed0aace844ecb07a9f5d31"
+        "sha256": "ed175f0ebb7d2103f0260a439aea733c5f3353c2925f01ae1cd77e26e1f2bfac"
       },
       {
         "path": "tests/ozon-account-read-runtime.test.mjs",

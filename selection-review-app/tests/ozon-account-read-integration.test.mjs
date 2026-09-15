@@ -14,6 +14,7 @@ import { createOzonAccountReadServices } from '../lib/ozon-account-read-services
 import { commitSingleOwnerProductionAuthorization } from '../lib/production-authorization.mjs';
 import { OZON_DE_READBACK_ENDPOINTS, OZON_DE_LEGACY_READBACK_ENDPOINTS, OZON_PRODUCT_IMPORT_INFO_ENDPOINT } from '../lib/ozon-seller-api-de-adapter.mjs';
 import { createOzonAccountReadRuntime } from '../lib/ozon-account-read-runtime.mjs';
+import { PRODUCTION_WRITE_FIELDS } from '../lib/production-authorization-preparation.mjs';
 
 async function fixture({ clockOffsetMs = 0 } = {}) {
   const base = await productionOwnerDecisionHttpFixture(), clock = () => new Date(Date.parse(base.owner.formal.at) + clockOffsetMs).toISOString();
@@ -87,7 +88,7 @@ test('real local transport, pre-PA read and later PA use the same saved source w
   assert.deepEqual(await f.reader(record.scope), record);
   assert.equal(record.inspection.connections.api.status, 'connected');
   assert.equal(record.inspection.permissionStatus, 'verified');
-  assert.equal(record.inspection.storeIdentityStatus, 'unverified'); assert.equal(record.inspection.priceFieldCurrency, 'unknown');
+  assert.equal(record.inspection.storeIdentityStatus, 'unverified'); assert.equal(record.inspection.priceFieldCurrency, 'CNY');
   assert.equal(record.inspection.connections.sellerBackend.status, 'unknown'); assert.equal(record.protocols.productImport, null);
   assert.equal(record.schemaVersion, 'ozon-de-preflight-evidence-v3');
   assert.deepEqual(record.protocols,{productImport:null,inventoryWrite:null,independentReadback:null});
@@ -99,6 +100,99 @@ test('real local transport, pre-PA read and later PA use the same saved source w
   await f.source.publish({ scope: record.scope, jobId: read.jobId });
   assert.deepEqual(await f.repository.readSnapshot(), before, 'same source publication is idempotent');
   assert.equal(Object.hasOwn(sku, 'dAssetTransport'), false); assert.equal(Object.hasOwn(sku, 'dSoftwareExecution'), false);
+});
+
+// Reads the account once through the real transport and returns the completed receipt plus the composed evidence.
+async function composedEvidence(f) {
+  const read = await f.services.authorizeAndRun({ actor: f.base.owner.args.actor, input: f.input });
+  assert.equal(read.status, 'completed');
+  const saved = await authorizeProduction(f), authorization = saved.candidate.lifecycleV11.skuPackage.productionAuthorization;
+  await f.services.continueProduction({ candidateId: f.input.candidateId, jobId: saved.result.softwareJobRef.jobId,
+    expectedRevision: saved.candidate.dataRevision });
+  const document = await f.repository.readSnapshot();
+  const record = document.runtime.ozonDEPreflightEvidence[authorization.authorizationId];
+  return { read, authorization, document, record, receipt: document.runtime.ozonAccountReadReceipts[read.jobId] };
+}
+
+test('the price field currency is the company currency actually read back, on the seller_info step receipt', async () => {
+  const f = await fixture(), { record, receipt } = await composedEvidence(f);
+  assert.equal(receipt.steps[1].method, 'seller_info');
+  assert.equal(receipt.steps[1].result.facts.companyCurrency, 'CNY');
+  assert.equal(record.inspection.priceFieldCurrency, 'CNY', 'the currency is wired to the fact, not hard-coded');
+  assert.equal(record.inspection.priceCurrencyEvidenceRef, `${receipt.receiptId}:seller-info`);
+  const codes = record.inspection.risks.map(risk => risk.code);
+  assert.equal(codes.includes('account_backend_price_currency_unverified'), false, 'the withdrawn risk is gone');
+  assert.ok(codes.includes('account_price_currency_from_company_currency'), 'the evidence says where this belief comes from');
+  assert.equal(codes.includes('account_price_currency_unsupported'), false);
+  assert.equal(f.requests.length, 3);
+});
+
+test('a company currency outside the writable set stays unknown and is recorded as a risk, never forced through', async () => {
+  const f = await fixture();
+  f.responses['/v1/seller/info'] = { company: { currency: 'KZT' } };
+  const { record, receipt } = await composedEvidence(f);
+  assert.equal(receipt.steps[1].result.facts.companyCurrency, 'KZT');
+  assert.equal(record.inspection.priceFieldCurrency, 'unknown');
+  const risk = record.inspection.risks.find(value => value.code === 'account_price_currency_unsupported');
+  assert.ok(risk); assert.ok(risk.message.includes('KZT'));
+  assert.equal((await f.source.verifySourceReceipt(record, record.scope)).status, 'verified');
+});
+
+test('platform writable fields follow the granted roles: one missing method removes exactly that method\'s fields', async () => {
+  const importFields = ['create_product', 'title', 'description', 'attributes', 'price', 'assets.finalUploads', 'publish_scope'];
+  const full = await fixture(), complete = await composedEvidence(full);
+  assert.deepEqual(complete.record.inspection.platformWritableFields, [...PRODUCTION_WRITE_FIELDS]);
+  assert.deepEqual([...PRODUCTION_WRITE_FIELDS].sort(), [...importFields, 'stock'].sort());
+
+  const noStock = await fixture();
+  noStock.responses['/v1/roles'].roles[0].methods = ['/v3/product/import', OZON_PRODUCT_IMPORT_INFO_ENDPOINT, ...Object.values(OZON_DE_READBACK_ENDPOINTS)];
+  const withoutStock = await composedEvidence(noStock);
+  assert.deepEqual(withoutStock.record.inspection.platformWritableFields, importFields);
+
+  const noImport = await fixture();
+  noImport.responses['/v1/roles'].roles[0].methods = ['/v2/products/stocks', OZON_PRODUCT_IMPORT_INFO_ENDPOINT, ...Object.values(OZON_DE_READBACK_ENDPOINTS)];
+  const withoutImport = await composedEvidence(noImport);
+  assert.deepEqual(withoutImport.record.inspection.platformWritableFields, ['stock']);
+
+  const none = await fixture();
+  none.responses['/v1/roles'].roles[0].methods = [OZON_PRODUCT_IMPORT_INFO_ENDPOINT];
+  assert.deepEqual((await composedEvidence(none)).record.inspection.platformWritableFields, []);
+});
+
+test('the scoped warehouse read back is checked: a non-realFBS, paused or different warehouse each lands in risks', async () => {
+  const f = await fixture();
+  f.responses['/v2/warehouse/list'].warehouses[0].is_rfbs = false;
+  f.responses['/v2/warehouse/list'].warehouses[0].pause_at = '2026-10-01T00:00:00.000Z';
+  const { record, receipt, authorization } = await composedEvidence(f);
+  const facts = receipt.steps[2].result.facts;
+  assert.equal(receipt.steps[2].method, 'warehouse_list');
+  assert.equal(facts.warehouses[0].warehouseId, record.scope.warehouseId, 'the receipt contract already pins the scoped id');
+  const codes = record.inspection.risks.map(risk => risk.code);
+  assert.ok(codes.includes('account_warehouse_not_rfbs'));
+  assert.ok(codes.includes('account_warehouse_paused'));
+  assert.equal(codes.includes('account_warehouse_scope_mismatch'), false);
+
+  // The id check is defensive: a completed receipt can never carry another warehouse, so drive the composer directly.
+  const clean = await fixture(), source = await composedEvidence(clean);
+  assert.equal(source.record.inspection.risks.some(risk => risk.code.startsWith('account_warehouse_')), false);
+  const strayed = structuredClone(source.receipt);
+  strayed.steps[2].result.facts.warehouses[0].warehouseId = '999999';
+  const strayedRecord = composeOzonAccountPreflightEvidence({ scope: source.record.scope, receipt: strayed, authorization: source.authorization });
+  assert.ok(strayedRecord.inspection.risks.some(risk => risk.code === 'account_warehouse_scope_mismatch'));
+  const emptied = structuredClone(source.receipt);
+  emptied.steps[2].result.facts.warehouses = [];
+  assert.ok(composeOzonAccountPreflightEvidence({ scope: source.record.scope, receipt: emptied, authorization: source.authorization })
+    .inspection.risks.some(risk => risk.code === 'account_warehouse_scope_mismatch'));
+  assert.ok(authorization);
+});
+
+test('the store identity stays unverified because the official seller_info contract returns no store number', async () => {
+  const f = await fixture(), { record, receipt } = await composedEvidence(f);
+  assert.equal(record.inspection.storeIdentityStatus, 'unverified');
+  assert.equal(record.inspection.observedStoreRef, null);
+  assert.ok(record.inspection.risks.some(risk => risk.code === 'account_store_identity_not_provided'));
+  assert.deepEqual(Object.keys(receipt.steps[1].result.facts), ['companyCurrency'],
+    'seller_info keeps only the company currency; no store or seller identifier exists to promote');
 });
 
 test('versioned source keeps old method evidence unchanged and never expands it to the exact warehouse method', async () => {

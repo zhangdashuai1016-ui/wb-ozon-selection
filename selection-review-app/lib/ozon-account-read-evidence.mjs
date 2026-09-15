@@ -8,6 +8,7 @@ import { sameAccountReadRouting, currentOzonAccountReadJobs } from './ozon-accou
 import { createSoftwareJobResultEnvelope } from './software-job-contract.mjs';
 import { OZON_PRODUCT_IMPORT_ENDPOINT, OZON_PRODUCT_IMPORT_INFO_ENDPOINT, OZON_INVENTORY_WRITE_ENDPOINT,
   OZON_DE_READBACK_ENDPOINTS } from './ozon-seller-api-de-adapter.mjs';
+import { PRODUCTION_WRITE_FIELDS } from './production-authorization-preparation.mjs';
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 function requireValue(value, code) { if (!value) throw new OzonDEPreflightEvidenceError(code); }
@@ -19,6 +20,17 @@ const HISTORICAL_ACCOUNT_SOURCE_METHODS=Object.freeze({
   'ozon-de-preflight-evidence-v2':Object.freeze(['/v3/product/import','/v1/product/import/info','/v2/products/stocks',
     '/v4/product/info/attributes','/v3/product/info/list','/v5/product/info/prices','/v2/product/info/stocks-by-warehouse/fbs'])
 });
+
+// Each production write field is unlocked by exactly the granted method that performs it. A field with no declared
+// method stays absent: an unmapped write field is never claimed writable without a granted method behind it.
+const WRITE_FIELD_METHODS = Object.freeze({
+  create_product: OZON_PRODUCT_IMPORT_ENDPOINT, title: OZON_PRODUCT_IMPORT_ENDPOINT, description: OZON_PRODUCT_IMPORT_ENDPOINT,
+  attributes: OZON_PRODUCT_IMPORT_ENDPOINT, price: OZON_PRODUCT_IMPORT_ENDPOINT, 'assets.finalUploads': OZON_PRODUCT_IMPORT_ENDPOINT,
+  publish_scope: OZON_PRODUCT_IMPORT_ENDPOINT, stock: OZON_INVENTORY_WRITE_ENDPOINT
+});
+// Owner decision 2026-09-15: the company currency read from the account is taken as the backend price field currency;
+// no second independent currency evidence is required. Currencies outside the writable set stay 'unknown' with a risk.
+const WRITABLE_PRICE_CURRENCIES = Object.freeze(['CNY', 'RUB']);
 
 function readAccountSource(document, jobId, scope, loadCurrentReadBinding) {
   assertOzonDEPreflightEvidenceScope(scope);
@@ -62,12 +74,21 @@ function readAccountSource(document, jobId, scope, loadCurrentReadBinding) {
   return { receipt, authorization };
 }
 
-/** Only facts established by these three official methods are promoted. Other evidence remains explicitly absent. */
+/** Only facts established by these three official methods are promoted: granted methods from roles, the company currency
+ * from seller_info, and the single scoped warehouse from warehouse_list. Other evidence remains explicitly absent —
+ * the store identity in particular, which the official /v1/seller/info contract does not return. */
 export function composeOzonAccountPreflightEvidence({ scope, receipt, authorization, schemaVersion = 'ozon-de-preflight-evidence-v3' }) {
   requireValue(['ozon-de-preflight-evidence-v1','ozon-de-preflight-evidence-v2','ozon-de-preflight-evidence-v3'].includes(schemaVersion), 'RECORD_INVALID');
   const historical = schemaVersion === 'ozon-de-preflight-evidence-v1';
-  const roles = receipt.steps[0].result.facts;
+  requireValue(receipt.steps.length === 3, 'RECORD_INVALID');
+  const roles = receipt.steps[0].result.facts, seller = receipt.steps[1].result.facts, warehouse = receipt.steps[2].result.facts;
   const availableMethods = new Set(roles.roles.flatMap(role => role.methods));
+  const platformWritableFields = PRODUCTION_WRITE_FIELDS.filter(field => availableMethods.has(WRITE_FIELD_METHODS[field]));
+  const companyCurrency = seller.companyCurrency;
+  const priceFieldCurrency = WRITABLE_PRICE_CURRENCIES.includes(companyCurrency) ? companyCurrency : 'unknown';
+  const observedWarehouses = warehouse.warehouses ?? [];
+  const observed = observedWarehouses.length === 1 ? observedWarehouses[0] : null;
+  const warehouseMismatch = warehouse.hasNext !== false || observed === null || observed.warehouseId !== scope.warehouseId;
   const neededMethods = Object.hasOwn(HISTORICAL_ACCOUNT_SOURCE_METHODS,schemaVersion) ? HISTORICAL_ACCOUNT_SOURCE_METHODS[schemaVersion]
     : [...new Set([OZON_PRODUCT_IMPORT_ENDPOINT,OZON_PRODUCT_IMPORT_INFO_ENDPOINT,OZON_INVENTORY_WRITE_ENDPOINT,...Object.values(OZON_DE_READBACK_ENDPOINTS)])];
   const missingMethod = neededMethods.some(method => !availableMethods.has(method));
@@ -88,12 +109,19 @@ export function composeOzonAccountPreflightEvidence({ scope, receipt, authorizat
         api: { status: 'connected', checkedVia: 'controlled_account_read', evidenceRef },
         sellerBackend: { status: 'unknown', checkedVia: 'not_checked', evidenceRef: `${evidenceRef}:backend-not-checked` }
       },
-      platformWritableFields: [], imagePermissionStatus: 'unknown', imagePermissionEvidenceRef: `${evidenceRef}:image-protocol-missing`,
-      priceFieldCurrency: 'unknown', priceCurrencyEvidenceRef: `${evidenceRef}:backend-price-currency-unverified`,
+      platformWritableFields, imagePermissionStatus: 'unknown', imagePermissionEvidenceRef: `${evidenceRef}:image-protocol-missing`,
+      priceFieldCurrency, priceCurrencyEvidenceRef: `${evidenceRef}:seller-info`,
       risks: [
         ...(missingMethod ? [{ code: 'account_method_permissions_incomplete', message: '当前方法权限未完整覆盖生产与独立回读所需接口。' }] : []),
         { code: 'account_store_identity_not_provided', message: '账户接口未返回店铺编号，仍需当前店铺身份的独立官方证据。' },
-        { code: 'account_backend_price_currency_unverified', message: '已读取公司币种，后台写入价格的币种仍需独立证据。' },
+        { code: 'account_price_currency_from_company_currency', message: '主人2026-09-15决定：账户读取的公司币种即后台价格字段币种，不再要求另一份独立证据。' },
+        ...(priceFieldCurrency === 'unknown'
+          ? [{ code: 'account_price_currency_unsupported', message: `账户公司币种${companyCurrency ?? '缺失'}不在当前可写入币种范围内，价格字段币种按未知保存。` }] : []),
+        ...(warehouseMismatch ? [{ code: 'account_warehouse_scope_mismatch', message: '账户读取观测到的仓库与当前生产范围的仓库编号不一致。' }] : []),
+        ...(!warehouseMismatch && observed.isRfbs !== true
+          ? [{ code: 'account_warehouse_not_rfbs', message: '观测仓库未标记为realFBS，当前库存写入路线以该仓库为准。' }] : []),
+        ...(!warehouseMismatch && observed.pauseAt !== null
+          ? [{ code: 'account_warehouse_paused', message: '观测仓库带有暂停时间，库存写入可能不被接受。' }] : []),
         ...(historical ? [{ code: 'account_seller_backend_not_checked', message: '卖家后台连接尚未经过获准的独立核验。' }] : []),
         { code: 'account_write_protocols_missing', message: '商品导入、图片、库存与独立回读协议仍需适用证据。' }
       ]
