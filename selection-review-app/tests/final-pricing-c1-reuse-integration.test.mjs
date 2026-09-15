@@ -108,9 +108,8 @@ test('repricing rebinds a ready registered upload draft while preserving files s
       uploadId, fileName: asset.fileName, mediaType: asset.mediaType, contentType: 'image/jpeg', startedAt: f.observedAt });
     source.lifecycleV11.c2UploadDraft = settleC2Upload(draft, { uploadId, asset: { ...asset, stagedAt: f.observedAt }, settledAt: f.observedAt });
   }
-  const slots = source.lifecycleV11.skuPackage.c2FinalAssets.mediaRequirements.imageSlots;
   source.lifecycleV11.c2UploadDraft = saveC2UploadSelection(source, { dataRevision: source.dataRevision, draftRevision: source.lifecycleV11.c2UploadDraft.revision,
-    selection: assets.map((asset, index) => ({ assetId: asset.assetId, slotId: slots.find(slot => slot.role === asset.role).slotId, order: index + 1 })) });
+    selection: assets.map((asset, index) => ({ assetId: asset.assetId, order: index + 1 })) });
   const originalDraft = JSON.stringify(source.lifecycleV11.c2UploadDraft);
   await f.repository.transact(document => { document.candidates[0] = source; return { changed: true, document, result: null }; });
   await f.usecase.review({ actor: f.actor, input: f.input });

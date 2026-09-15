@@ -19,7 +19,7 @@ const REQUIRED_KINDS = Object.freeze([
 // are derived from the scope-checked evidence pack, never from its payload.
 const C1_SCHEMA_CONTENT_FIELDS = Object.freeze([
   "categoryId", "categoryName", "descriptionCategoryId", "typeId", "writeBindings",
-  "mediaRequirements", "categoryRestrictions", "platformCompliance"
+  "categoryRestrictions", "platformCompliance"
 ]);
 
 function isObject(value) {

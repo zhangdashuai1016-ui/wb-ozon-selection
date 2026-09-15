@@ -807,8 +807,11 @@ test("正式C1从B实际创建和核验，经已保存AI回执合并自然进入
   assert.deepEqual(merged.skuPackage.selectedSupplySnapshot, before.selectedSupplySnapshot);
   assert.deepEqual(merged.skuPackage.g1Identity, before.g1Identity);
   assert.equal(c2.skuPackage.businessPhase, "C2");
-  assert.equal(c2.skuPackage.c2FinalAssets.mediaRequirements.sourceDataRevision, merged.skuPackage.dataRevision);
-  assert.equal(Object.hasOwn(schema.mediaRequirements, "sourceDataRevision"), false);
+  assert.equal(c2.skuPackage.c2FinalAssets.targetContext.sourceDataRevision, merged.skuPackage.dataRevision);
+  assert.equal(c2.skuPackage.c2FinalAssets.targetContext.schemaEvidenceRef, schema.evidenceId);
+  // 槽位合同已废止：冻结 Schema 不再携带任何媒体槽位，C1 也不再产出媒体摘要。
+  assert.equal(Object.hasOwn(schema, "mediaRequirements"), false);
+  assert.equal(Object.hasOwn(c2.skuPackage.c1ProductPlan, "mediaRequirements"), false);
   assert.deepEqual(c2.skuPackage.c1ProductPlan.inputSnapshots.platformSchemaRules, schema);
   assert.deepEqual(c2.skuPackage.profitModels, before.profitModels);
   assert.equal(c2.skuPackage.productionAuthorization, null);

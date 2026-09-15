@@ -63,7 +63,6 @@ function assertFactsUnchanged(source, target) {
   const oldProfit = `${source.inputRefs.profitModelVersion}#/result`, newProfit = `${target.inputRefs.profitModelVersion}#/result`;
   for (const field of ["status", "profitGate"]) expected.platformCompliance[field].sourceRefs = expected.platformCompliance[field].sourceRefs.map(ref => ref === oldProfit ? newProfit : ref);
   for (const key of FACTS) if (!equal(expected[key], target[key])) fail("C1_PRICING_REUSE_FACT_CHANGED");
-  if (!equal(source.mediaRequirements, target.mediaRequirements)) fail("C1_PRICING_REUSE_SCHEMA_CHANGED");
 }
 
 /** Pure replay validation of a historical result reuse record, including frozen C2 reads. */

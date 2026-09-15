@@ -34,9 +34,9 @@ async function fixture(t) {
     skuPackage: source.skuPackage,
     c2UploadDraft: { schemaVersion: "c2-upload-draft-v1", candidateId: source.candidateId,
       skuPackageId: source.skuPackage.skuPackageId, sourceC1Fingerprint: authorization.sourceC1Fingerprint,
-      requirementsFingerprint: authorization.lockedScope.mediaRequirementsFingerprint,
+      schemaEvidenceRef: authorization.lockedScope.schemaEvidenceRef,
       uploads: registrations.map(asset => ({ ...asset, status: "ready" })),
-      selection: registrations.map(({ assetId, slotId, order }) => ({ assetId, slotId, order })) }
+      selection: registrations.map(({ assetId, order }) => ({ assetId, order })) }
   } };
   return { store, candidate, assets: authorization.lockedScope.finalUploads };
 }

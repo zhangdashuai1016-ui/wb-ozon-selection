@@ -414,7 +414,7 @@
         "publishScope",
         "allowedWriteFields",
         "exclusions",
-        "mediaRequirementsFingerprint",
+        "authorizedMediaFingerprint",
         "finalManifestSha256",
         "finalUploadsFingerprint",
         "mainImageAssetId",
@@ -495,7 +495,7 @@
             "$ref": "#/$defs/nonEmpty"
           }
         },
-        "mediaRequirementsFingerprint": {
+        "authorizedMediaFingerprint": {
           "$ref": "#/$defs/sha256"
         },
         "finalManifestSha256": {
@@ -579,7 +579,6 @@
         "sourceType",
         "order",
         "role",
-        "slotId",
         "byteSize",
         "width",
         "height",
@@ -637,10 +636,10 @@
           "minimum": 1
         },
         "role": {
-          "$ref": "#/$defs/nonEmpty"
-        },
-        "slotId": {
-          "$ref": "#/$defs/nonEmpty"
+          "enum": [
+            "main_image",
+            "gallery_image"
+          ]
         },
         "byteSize": {
           "type": [
@@ -799,13 +798,12 @@
         "credentialAlias",
         "schemaRevision",
         "schemaEvidenceRef",
-        "schemaEvidenceVersion",
         "activeProfitModelVersion",
         "buyerTargetPrice",
         "platformWritePrice",
         "priceConversion",
         "stock",
-        "mediaRequirementsFingerprint",
+        "authorizedMediaFingerprint",
         "finalManifestVersion",
         "finalManifestSha256",
         "finalUploadsFingerprint",
@@ -852,9 +850,6 @@
         "schemaEvidenceRef": {
           "$ref": "#/$defs/nonEmpty"
         },
-        "schemaEvidenceVersion": {
-          "$ref": "#/$defs/nonEmpty"
-        },
         "activeProfitModelVersion": {
           "$ref": "#/$defs/nonEmpty"
         },
@@ -871,7 +866,7 @@
           "type": "integer",
           "minimum": 0
         },
-        "mediaRequirementsFingerprint": {
+        "authorizedMediaFingerprint": {
           "$ref": "#/$defs/sha256"
         },
         "finalManifestVersion": {

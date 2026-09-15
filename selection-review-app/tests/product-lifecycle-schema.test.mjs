@@ -1,5 +1,6 @@
 import { phase7PassedState } from "./fixtures/formal-c1-flow-fixture.mjs";
-import { syntheticContentRules, productionAuthorizationInputFixture } from "./helpers/c2-software-fixture.mjs";
+import { productionAuthorizationInputFixture } from "./helpers/c2-software-fixture.mjs";
+import { fingerprintAuthorizedMedia } from "../lib/production-authorization-preparation.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -151,6 +152,7 @@ function authorizedSku() {
   const c1Snapshot = {
     status: "seo_draft_ready",
     unknownManifest: [],
+    inputSnapshots: { platformSchemaRules: { evidenceId: "schema:evidence:1", schemaRevision: "schema-v1" } },
     seoEvidenceLayer: structuredClone(providerJobEvidence),
     draftOnlySeo: structuredClone(providerJobEvidence)
   };
@@ -171,6 +173,7 @@ function authorizedSku() {
     canonicalC1: {
       identity: structuredClone(sourceIdentity),
       unknownManifest: [],
+      schemaSnapshotRef: "schema:evidence:1",
       draftOnlySeo: structuredClone(providerJobEvidence)
     }
   };
@@ -188,7 +191,6 @@ function authorizedSku() {
     sourceType: "owner_provided_final_upload",
     order: 1,
     role: "main_image",
-    slotId: "main",
     byteSize: 1024,
     width: 1000,
     height: 1000,
@@ -197,28 +199,12 @@ function authorizedSku() {
     ownerConfirmed: true,
     productionEligible: true
   }];
-  const effectiveVideoRequirement = { status: "not_required", requiredBy: "schema", evidenceRefs: ["schema:evidence:1"] };
-  const mediaRequirements = {
-    contentRules: syntheticContentRules([{ slotId: "main", mediaType: "image" }, { slotId: "video", mediaType: "video" }]),
-    schemaVersion: "c2-media-requirements-v1",
-    evidenceRef: "schema:evidence:1",
-    evidenceVersion: "schema-evidence-v1",
-    platform: "ozon",
-    targetStore: sourceIdentity.storeRef.stableStoreId,
-    storeRef: sourceIdentity.storeRef.stableStoreId,
-    categoryId: "category:ozon:model",
-    schemaRevision: "schema-v1",
-    sourceDataRevision: 7,
-    imageSlots: [{ slotId: "main", mediaType: "image", role: "main_image", minCount: 1, maxCount: 1 }],
-    videoSlots: [{ slotId: "video", mediaType: "video", role: "product_video", minCount: 0, maxCount: 1 }],
-    schemaVideoRequirement: { status: "not_required" }
-  };
-  mediaRequirements.requirementsFingerprint = fingerprintCanonicalRecord(mediaRequirements);
-  const mediaRequirementsFingerprint = mediaRequirements.requirementsFingerprint;
+  const effectiveVideoRequirement = { status: "not_required", requiredBy: "default", evidenceRefs: [] };
+  const authorizedMediaFingerprint = fingerprintAuthorizedMedia(finalUploads);
   const finalUploadsFingerprint = fingerprintCanonicalRecord({ collected: [], aiDrafts: [], finalUploads });
   const finalManifestSha256 = fingerprintCanonicalRecord({
     schemaVersion: "c2-final-manifest-v1",
-    mediaRequirementsFingerprint,
+    authorizedMediaFingerprint,
     effectiveVideoRequirement,
     mainImageAssetId: "final-1",
     videoDisposition: "excludes_video",
@@ -231,7 +217,7 @@ function authorizedSku() {
     sourceDataRevision: 7,
     resultDataRevision: 8,
     sourceC1Fingerprint,
-    mediaRequirementsFingerprint,
+    authorizedMediaFingerprint,
     finalManifestVersion: "c2-final-manifest-v1",
     finalManifestSha256,
     finalUploadsFingerprint,
@@ -242,14 +228,10 @@ function authorizedSku() {
       platform: "ozon",
       targetStore: sourceIdentity.storeRef.stableStoreId,
       storeRef: sourceIdentity.storeRef.stableStoreId,
-      categoryId: "category:ozon:model",
       schemaRevision: "schema-v1",
-      schemaEvidenceRef: "schema:evidence:1",
-      schemaEvidenceVersion: "schema-evidence-v1",
-      mediaRequirementsFingerprint
+      schemaEvidenceRef: "schema:evidence:1"
     },
     frozenC1Handoff: structuredClone(finalCardInputSnapshot.canonicalC1),
-    mediaRequirements: structuredClone(mediaRequirements),
     finalUploads: structuredClone(finalUploads),
     effectiveVideoRequirement: structuredClone(effectiveVideoRequirement),
     ownerVideoRequirement: null,
@@ -259,7 +241,7 @@ function authorizedSku() {
       confirmedAt: NOW,
       approvedManifestVersion: "c2-final-manifest-v1",
       approvedManifestSha256: finalManifestSha256,
-      approvedMediaRequirementsFingerprint: mediaRequirementsFingerprint,
+      approvedAuthorizedMediaFingerprint: authorizedMediaFingerprint,
       approvedAssetIds: ["final-1"],
       approvedMainImageAssetId: "final-1",
       approvedVideoDisposition: "excludes_video",
@@ -309,7 +291,7 @@ function authorizedSku() {
     publishScope: "create_draft_only",
     allowedWriteFields: ["title", "price", "stock", "assets.finalUploads"],
     exclusions: [],
-    mediaRequirementsFingerprint,
+    authorizedMediaFingerprint,
     finalManifestSha256,
     finalUploadsFingerprint,
     mainImageAssetId: "final-1",
@@ -372,13 +354,12 @@ function authorizedSku() {
       credentialAlias: identity.credentialAlias,
       schemaRevision: "schema-v1",
       schemaEvidenceRef: "schema:evidence:1",
-      schemaEvidenceVersion: "schema-evidence-v1",
       activeProfitModelVersion: "profit-v1",
       buyerTargetPrice: { amount: 1831, currency: "RUB" },
       platformWritePrice: { amount: 151.78, currency: "CNY" },
       priceConversion: { rubPerCny: 12.0637, evidenceRef: "fx:cbr:2026-08-07:RUB-CNY", checkedAt: "2026-08-07T00:00:00.000Z" },
       stock: 37,
-      mediaRequirementsFingerprint,
+      authorizedMediaFingerprint,
       finalManifestVersion: "c2-final-manifest-v1",
       finalManifestSha256,
       finalUploadsFingerprint,
@@ -735,7 +716,7 @@ test("B1持久授权严格拒绝空身份、范围漂移、秘密、旧revision�
     (value) => { value.sourceCandidateRevision -= 1; },
     (value) => { value.sourcePreparationFingerprint = "f".repeat(64); },
     (value) => { value.sourceFinalCardInputFingerprint = "f".repeat(64); },
-    (value) => { value.lockedScope.mediaRequirementsFingerprint = "f".repeat(64); },
+    (value) => { value.lockedScope.authorizedMediaFingerprint = "f".repeat(64); },
     (value) => { value.lockedScope.stock = 1.5; },
     (value) => { value.lockedScope.buyerTargetPrice.currency = "CNY"; },
     (value) => { value.lockedScope.finalUploads = []; },
@@ -754,7 +735,7 @@ test("B1持久授权严格拒绝空身份、范围漂移、秘密、旧revision�
     (value) => { value.ownerDecisionSnapshot.publishScope = "create_and_allow_validation_moderation"; },
     (value) => { value.ownerDecisionSnapshot.allowedWriteFields = ["create_product"]; },
     (value) => { value.ownerDecisionSnapshot.exclusions = ["no_inventory_write"]; },
-    (value) => { value.ownerDecisionSnapshot.mediaRequirementsFingerprint = "f".repeat(64); },
+    (value) => { value.ownerDecisionSnapshot.authorizedMediaFingerprint = "f".repeat(64); },
     (value) => { value.ownerDecisionSnapshot.mainImageAssetId = "final-other"; },
     (value) => { value.ownerDecisionSnapshot.videoDisposition = "includes_video"; },
     (value) => { value.lockedScope.finalCardInputSnapshot.extra = true; },

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { fingerprintAuthorizedMedia } from "./production-authorization-preparation.mjs";
 
 export const OZON_SELLER_API_ADAPTER_VERSION = "ozon-seller-api-production-adapter-v1";
 
@@ -106,6 +107,48 @@ function assertRemoteAssets(finalUploads) {
   }
 }
 
+/**
+ * 发出去之前的最后一道：即将写进 import 请求的这批地址，必须就是主人授权的那批，
+ * 顺序一字不差、第一张是主图。中途被换掉任何一张，这里的指纹立刻对不上。
+ */
+function assertAuthorizedMediaIsWhatWeSend(authorizedMedia, primaryImage, images) {
+  if (!isObject(authorizedMedia) || !nonEmpty(authorizedMedia.fingerprint) ||
+      !nonEmpty(authorizedMedia.primaryImage) || !Array.isArray(authorizedMedia.images)) {
+    throw new Error("OZON_ADAPTER_AUTHORIZED_MEDIA_MISSING: 缺少主人授权的图片地址清单，不能发出");
+  }
+  if (authorizedMedia.primaryImage !== primaryImage ||
+      images.length !== authorizedMedia.images.length ||
+      images.some((url, index) => url !== authorizedMedia.images[index])) {
+    throw new Error("OZON_ADAPTER_AUTHORIZED_MEDIA_DRIFT: 即将发出的图片地址或顺序与主人授权的不一致");
+  }
+  if (fingerprintAuthorizedMedia([primaryImage, ...images]) !== authorizedMedia.fingerprint) {
+    throw new Error("OZON_ADAPTER_AUTHORIZED_MEDIA_DRIFT: 图片地址清单指纹与主人授权的不一致");
+  }
+}
+
+/**
+ * 主人的话是「确认都是 https 且能访问」。https 由 assertRemoteAssets 把关；
+ * 「能访问」必须真的去碰一下每个地址——没给探针就直接拒绝，不许默认放行。
+ */
+export async function assertFinalAssetUrlsReachable({ finalUploads, probeAssetUrl }) {
+  if (typeof probeAssetUrl !== "function") {
+    throw new Error("OZON_ADAPTER_ASSET_REACHABILITY_PROBE_REQUIRED: 没有可用的地址可达性校验手段，不能发出");
+  }
+  for (const asset of finalUploads) {
+    const url = String(asset?.assetRef || "");
+    let result = null;
+    try {
+      result = await probeAssetUrl({ assetId: asset?.assetId, url, order: asset?.order });
+    } catch (error) {
+      throw new Error(`OZON_ADAPTER_ASSET_NOT_REACHABLE: ${url}访问失败（${error?.message || "unknown"}）`);
+    }
+    if (!isObject(result) || result.reachable !== true || !Number.isInteger(result.statusCode) ||
+        result.statusCode < 200 || result.statusCode >= 300) {
+      throw new Error(`OZON_ADAPTER_ASSET_NOT_REACHABLE: ${url}不是公网可访问的图片地址`);
+    }
+  }
+}
+
 function evidenceRef(prefix, value) {
   return `${prefix}:${createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16)}`;
 }
@@ -146,6 +189,7 @@ export function buildOzonSellerImportRequest(payload) {
   if (new Set(allIds).size !== allIds.length) throw new Error("OZON_ADAPTER_SCHEMA_BINDING_MISMATCH: 内容字段与必填属性ID冲突");
   const byId = new Map([...required, ...generated].map((item) => [item.id, item]));
   const urls = payload.finalUploads.map((asset) => asset.assetRef);
+  assertAuthorizedMediaIsWhatWeSend(payload.authorizedMedia, urls[0], urls.slice(1));
   const item = {
     attributes: [...byId.values()],
     barcode: "",
@@ -190,12 +234,13 @@ function importItem(payload, offerId) {
   return Array.isArray(items) ? items.find((item) => String(item?.offer_id || "") === offerId) : null;
 }
 
-export function createOzonSellerApiProductionAdapter({ requestJson }) {
+export function createOzonSellerApiProductionAdapter({ requestJson, probeAssetUrl }) {
   if (typeof requestJson !== "function") throw new Error("OZON_ADAPTER_TRANSPORT_REQUIRED: 缺少受控店铺传输器");
   const submitted = new Map();
   return Object.freeze({
     async createPlatformDraft(payload) {
       const request = buildOzonSellerImportRequest(payload);
+      await assertFinalAssetUrlsReachable({ finalUploads: payload.finalUploads, probeAssetUrl });
       const offerId = payload.merchantSku;
       const imported = await requestJson({ store: payload.store, method: "POST", endpoint: request.endpoint, body: request.body, write: true });
       const taskId = imported?.result?.task_id;

@@ -188,7 +188,7 @@ export function platformSchemaEvidence({ storeRef } = {}) {
 /** Synthetic evidence and receipt for the real B/C1 functions; this is not a persisted or platform completion. */
 export function createFormalC1DraftFixture({ at = FORMAL_C1_CREATED_AT, candidateRevision = 27,
   softwareJobId = "software-job:formal-c1:1", gatewayJobId = "gateway-job:synthetic:1",
-  authorizationId = "authorization:c1-ai-draft:FORMAL-C1", detailImageLimit = 3,
+  authorizationId = "authorization:c1-ai-draft:FORMAL-C1",
   categoryName = "3D-пазл", rightsReviewOptions = { brand: SYNTHETIC_LICENSED_BRAND, rights: SYNTHETIC_LICENSED_RIGHTS }, ...sourceOptions
 } = {}) {
   const state = phase7PassedState({ ...sourceOptions, fullC1Facts: true });
@@ -201,10 +201,6 @@ export function createFormalC1DraftFixture({ at = FORMAL_C1_CREATED_AT, candidat
   schema.platformCompliance = { status: "clear" };
   const declared = packageFixture({ executableOzon: true }).c1ProductPlan.inputSnapshots.platformSchemaRules;
   schema.writeBindings = { ...structuredClone(declared.writeBindings), evidenceRef: schema.evidenceId, schemaRevision: schema.schemaRevision };
-  schema.mediaRequirements = { ...structuredClone(declared.mediaRequirements), evidenceRef: schema.evidenceId,
-    platform: schema.platform, targetStore: schema.store, storeRef: structuredClone(schema.storeRef),
-    categoryId: schema.categoryId, schemaRevision: schema.schemaRevision };
-  schema.mediaRequirements.imageSlots.find(slot => slot.role === "detail_image").maxCount = detailImageLimit;
   const before = structuredClone(state.skuPackage);
   const created = createC1ProductPlan({ ...state, platformSchemaEvidence: schema, createdAt: at });
   const skuRightsReview = rightsReviewOptions === null ? null : syntheticSkuRightsReview({ ...rightsReviewOptions,

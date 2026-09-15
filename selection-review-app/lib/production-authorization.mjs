@@ -5,7 +5,7 @@ import { assertCurrentC1SkuRightsReview } from "./c1-sku-rights-review.mjs";
 import { authorizeOperation } from "./runtime-identity.mjs";
 import { assertValidFinalProductPlanConfirmationCard, createFinalProductPlanConfirmationCard } from "./final-product-plan-confirmation-card.mjs";
 import { assertFinalPricingReviewCurrent } from "./final-pricing-review.mjs";
-import { assertC2FinalMediaContent } from "./c2-media-content-rules.mjs";
+import { assertAuthorizedMediaUnchanged } from "./production-authorization-preparation.mjs";
 import {
   assertValidLifecyclePackage,
   validateLifecycleTransition,
@@ -27,7 +27,7 @@ export {
   fingerprintFinalCardInputSnapshot,
   fingerprintFinalManifest,
   fingerprintFinalUploads,
-  fingerprintMediaRequirements,
+  fingerprintAuthorizedMedia,
   fingerprintProductionAuthorizationPreparation,
   validateProductionAuthorizationPreparation
 } from "./production-authorization-preparation.mjs";
@@ -237,7 +237,7 @@ export function buildProductionOwnerDecisionSnapshot({ candidateId, sourceCandid
     publishScope: ownerDecision.publishScope,
     allowedWriteFields: structuredClone(ownerDecision.allowedWriteFields),
     exclusions: structuredClone(ownerDecision.exclusions),
-    mediaRequirementsFingerprint: preparation.mediaRequirementsFingerprint,
+    authorizedMediaFingerprint: preparation.authorizedMediaFingerprint,
     finalManifestSha256: preparation.finalManifestSha256,
     finalUploadsFingerprint: preparation.finalUploadsFingerprint,
     mainImageAssetId: preparation.mainImageAssetId,
@@ -280,7 +280,8 @@ export function createProductionAuthorization({ candidateId, sourceCandidateRevi
   if (Date.parse(ownerActor.authenticatedAt) > Date.parse(authorizedAt) || Date.parse(card.createdAt) > Date.parse(authorizedAt)) throw new Error("PRODUCTION_OWNER_CLOCK_INVALID");
   const preparation = skuPackage.c2FinalAssets?.productionAuthorizationPreparation;
   assertCurrentC1MatchesProductionPreparation({ preparation, candidateId, skuPackage });
-  assertC2FinalMediaContent({ mediaRequirements: preparation.mediaRequirements, assets: preparation.finalUploads, checkedAt: authorizedAt });
+  // 授权落库前最后一次确认：要授权的就是主人确认过的那批地址和那个顺序。
+  assertAuthorizedMediaUnchanged(preparation.finalUploads, preparation.authorizedMediaFingerprint, "createProductionAuthorization");
   const profit = preparation.finalCardInputSnapshot.activeProfitModel;
   if (commercialDecision.buyerTargetPrice?.amount !== profit.recommendedSalePriceRub || commercialDecision.platformWritePrice?.amount !== profit.recommendedSalePriceCny ||
       !sameJson(commercialDecision.priceConversion, profit.priceConversion)) throw new Error("PRODUCTION_AUTHORIZATION_FROZEN_PRICE_DRIFT");
@@ -344,13 +345,12 @@ export function createProductionAuthorization({ candidateId, sourceCandidateRevi
       credentialAlias: ownerDecision.credentialAlias,
       schemaRevision: preparation.targetContext.schemaRevision,
       schemaEvidenceRef: preparation.targetContext.schemaEvidenceRef,
-      schemaEvidenceVersion: preparation.targetContext.schemaEvidenceVersion,
       activeProfitModelVersion: preparation.finalCardInputSnapshot.activeProfitModelVersion,
       buyerTargetPrice: structuredClone(ownerDecision.buyerTargetPrice),
       platformWritePrice: structuredClone(ownerDecision.platformWritePrice),
       priceConversion: structuredClone(ownerDecision.priceConversion),
       stock: ownerDecision.stock,
-      mediaRequirementsFingerprint: preparation.mediaRequirementsFingerprint,
+      authorizedMediaFingerprint: preparation.authorizedMediaFingerprint,
       finalManifestVersion: preparation.finalManifestVersion,
       finalManifestSha256: preparation.finalManifestSha256,
       finalUploadsFingerprint: preparation.finalUploadsFingerprint,

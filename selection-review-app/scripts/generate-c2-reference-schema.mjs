@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PRODUCTION_EXECUTION_BINDING_SCHEMA } from "../lib/production-authorization-preparation.mjs";
-import { C2_MEDIA_CONTENT_RULES_SCHEMA } from "../lib/c2-media-content-rules.mjs";
 
 import {
   C2_ASSET_LIFECYCLE_REFERENCE_SCHEMA_DEFS,
@@ -180,9 +179,6 @@ export function generateC2ReferenceSchema(schema) {
     generated.$defs.referenceValue.oneOf[0] = { $ref: "#/$defs/c2SecretCheckedContractString" };
   }
   applyExplicitSemanticContracts(generated, semanticKey);
-  const media = semanticKey === "c2AssetLifecycle" ? generated.properties.mediaRequirements : generated.$defs.detailedMediaRequirements;
-  if (!media?.properties) throw new Error("C2_MEDIA_SCHEMA_PATH_MISSING");
-  media.properties.contentRules = clone(C2_MEDIA_CONTENT_RULES_SCHEMA);
   return generated;
 }
 

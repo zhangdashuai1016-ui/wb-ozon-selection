@@ -126,7 +126,7 @@ test("非火车SKU从正式C1回执经HTTP持久素材确认和单主人授权�
   const afterUpload = await savedCandidate();
   assert.equal(afterUpload.dataRevision, 1);
   assert.deepEqual(afterUpload.lifecycleV11.skuPackage, sourceSku);
-  const selection = [{ assetId: main.body.asset.assetId, slotId: "main", order: 1 }, { assetId: detail.body.asset.assetId, slotId: "detail", order: 2 }];
+  const selection = [{ assetId: main.body.asset.assetId, order: 1 }, { assetId: detail.body.asset.assetId, order: 2 }];
   const selected = await post(`${route}/c2/upload-draft`, { dataRevision: 1, draftRevision: detail.body.draft.revision, selection });
   assert.equal(selected.status, 200, selected.body.message);
   const draftRevision = selected.body.draft.revision;

@@ -1,4 +1,3 @@
-import { syntheticContentRules } from "./helpers/c2-software-fixture.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
@@ -130,18 +129,18 @@ test("商品实际显示保留未知采购价，中文缺口与素材标签不�
   c2.candidate.lifecycleV11.c2UploadDraft = {
     candidateId: c2.candidate.id, sourceCandidateRevision: c2.candidate.dataRevision, revision: 3,
     uploads: c2.assets.map(asset => ({ ...asset, status: "ready" })),
-    selection: c2.assets.map((asset, index) => ({ assetId: asset.assetId, slotId: asset.slotId, order: index + 1 }))
+    selection: c2.assets.map((asset, index) => ({ assetId: asset.assetId, order: index + 1 }))
   };
   const c2Before = structuredClone(c2.candidate);
   const c2Html = renderC2(c2.candidate);
-  assert.match(c2Html, /value="hero"[^>]*>主图 · 1–1<\/option>/);
-  assert.match(c2Html, /value="side"[^>]*>详情图 · 1–2<\/option>/);
+  // 槽位合同已废止：界面不再让主人挑槽位，排第一张就是主图。
+  assert.doesNotMatch(c2Html, /槽位|请选择用途/);
+  assert.match(c2Html, />主图 · /);
+  assert.match(c2Html, />图库图 · /);
   assert.doesNotMatch(c2Html, /main_image|detail_image/);
   for (const label of ["上移", "下移", "移出清单"]) assert.ok(c2Html.includes(`>${label}</button>`));
   assert.match(c2Html, /<label class="c2-owner-confirmation"><input type="checkbox"[^>]*\/><span>我确认/);
   assert.deepEqual(c2.candidate, c2Before);
-  c2.candidate.lifecycleV11.skuPackage.c2FinalAssets.mediaRequirements.imageSlots[1].role = "尺寸示意图";
-  assert.match(renderC2(c2.candidate), /尺寸示意图/);
 });
 
 test("新增商品实际表单提交符合服务契约，尺寸不重复且未知运费不变零", async () => {
@@ -386,54 +385,39 @@ test("D2/D6 A只回传明确选择和输入，不伪造证据与确认身份", (
 });
 
 function c2Fixture() {
-  const candidate={id:"A",dataRevision:8,lifecycleV11:{skuPackage:{c2FinalAssets:{mediaRequirements:{imageSlots:[{slotId:"hero",role:"main_image",mediaType:"image",minCount:1,maxCount:1},{slotId:"side",role:"detail_image",mediaType:"image",minCount:1,maxCount:2}],videoSlots:[],schemaVideoRequirement:{status:"not_required"}}}}}};
-  const assets=["hero","side"].map((slotId,i)=>({assetId:`asset:${i}`,slotId,mediaType:"image",fileName:`${i}.jpg`,assetRef:`/staged/${i}.jpg`,assetVersion:"v1",sha256:String(i).repeat(64),byteSize:2,width:2,height:3,sourceEvidenceRef:`upload:${i}`,sourceType:"owner_provided_final_upload",stagedAt:"2026-09-03T01:00:00Z"}));
-  candidate.lifecycleV11.skuPackage.c2FinalAssets.mediaRequirements.contentRules = syntheticContentRules([{slotId:"hero",mediaType:"image"},{slotId:"side",mediaType:"image"}]);
+  const candidate={id:"A",dataRevision:8,lifecycleV11:{skuPackage:{c2FinalAssets:{targetContext:{schemaEvidenceRef:"schema:evidence:1"}}}}};
+  const assets=[0,1].map((i)=>({assetId:`asset:${i}`,mediaType:"image",fileName:`${i}.jpg`,assetRef:`/staged/${i}.jpg`,assetVersion:"v1",sha256:String(i).repeat(64),byteSize:2,width:2,height:3,sourceEvidenceRef:`upload:${i}`,sourceType:"owner_provided_final_upload",stagedAt:"2026-09-03T01:00:00Z"}));
   return {candidate,assets,sourceRevision:8,draftRevision:3,ownerChecked:true};
 }
 
-test("D4 C2从Schema明确映射槽位，排序不能自动改角色，素材确认零授权", () => {
+test("D4 C2按主人给的顺序定主图，软件不重排也不改选，素材确认零授权", () => {
   const fixture=c2Fixture(), before=structuredClone(fixture);
   const input=buildC2FinalAssetInput(fixture);
   assert.deepEqual(fixture,before);assert.deepEqual(input.approvedAssetIds,["asset:0","asset:1"]);
   assert.equal(input.approvedMainImageAssetId,"asset:0");assert.equal(input.approvedVideoDisposition,"excludes_video");
-  assert.deepEqual(input.finalUploadAssets, [{ assetId: "asset:0", slotId: "hero", order: 1 }, { assetId: "asset:1", slotId: "side", order: 2 }]);
+  assert.deepEqual(input.finalUploadAssets, [{ assetId: "asset:0", order: 1 }, { assetId: "asset:1", order: 2 }]);
   assert.equal(input.draftRevision, 3);
   assert.equal(Object.hasOwn(input.finalUploadAssets[0], "assetRef"), false, "文件位置和证据必须由服务端已保存登记取得");
   assert.equal(Object.hasOwn(input,"productionAuthorization"),false);assert.equal(Object.hasOwn(input,"ownerConfirmation"),false);
-  for(const [change, reason] of [[v=>v.assets.reverse(),/首图/],[v=>delete v.assets[0].slotId,/槽位/],[v=>v.ownerChecked=false,/明确确认/],[v=>v.sourceRevision=7,/修订/],[v=>v.assets.push(v.assets[0]),/重复/]]) {
+  // 主人换顺序，主图就跟着换——软件照单执行，不自作主张。
+  const reordered=c2Fixture();reordered.assets.reverse();
+  assert.equal(buildC2FinalAssetInput(reordered).approvedMainImageAssetId,"asset:1");
+  for(const [change, reason] of [[v=>{v.assets[0].mediaType="video";},/第1位/],[v=>v.ownerChecked=false,/明确确认/],[v=>v.sourceRevision=7,/修订/],[v=>v.assets.push(v.assets[0]),/重复/],[v=>{v.assets.length=0;},/为空/]]) {
     const v=c2Fixture();change(v);assert.throws(()=>buildC2FinalAssetInput(v),reason);
   }
 });
 
-test("D4 条件视频、未选槽位及数量边界不能绕过", () => {
-  for (const ownerRequired of [false, true]) {
-    const fixture = c2Fixture();
-    const c2 = fixture.candidate.lifecycleV11.skuPackage.c2FinalAssets;
-    if (ownerRequired) c2.ownerVideoRequirement = { required: true };
-    else c2.mediaRequirements.schemaVideoRequirement.status = "required";
-    assert.throws(() => buildC2FinalAssetInput(fixture), /缺少视频/);
-    c2.mediaRequirements.videoSlots.push({ slotId: "demo", role: "video", mediaType: "video", minCount: 0, maxCount: 1 });
-    fixture.assets.push({ ...fixture.assets[0], assetId: "video:1", slotId: "demo", mediaType: "video", fileName: "demo.mp4" });
-    c2.mediaRequirements.contentRules.slotRules.push(...syntheticContentRules([{slotId:"demo",mediaType:"video"}]).slotRules);
-    const input = buildC2FinalAssetInput(fixture);
-    assert.equal(input.approvedVideoDisposition, "includes_video");
-    assert.equal(input.finalUploadAssets[2].order, 3);
-    assert.equal(Object.hasOwn(input, "productionAuthorization"), false);
-  }
-  for (const change of [
-    slots => slots.push({ slotId: "missing", role: "detail_image", mediaType: "image" }),
-    slots => slots.push({ ...slots[0] }),
-    slots => { slots[1].minCount = -1; },
-    slots => { slots[1].maxCount = 0; }
-  ]) {
-    const fixture = c2Fixture(); change(fixture.candidate.lifecycleV11.skuPackage.c2FinalAssets.mediaRequirements.imageSlots);
-    assert.throws(() => buildC2FinalAssetInput(fixture), /完整数量边界/);
-  }
-  const missing = c2Fixture(); missing.assets.pop();
-  assert.throws(() => buildC2FinalAssetInput(missing), /槽位 side 需要/);
-  const excess = c2Fixture(); excess.assets.push(...[2, 3].map(i => ({ ...excess.assets[1], assetId: `extra:${i}` })));
-  assert.throws(() => buildC2FinalAssetInput(excess), /槽位 side 需要/);
+test("D4 主人要求视频时缺少视频不能绕过", () => {
+  const fixture = c2Fixture();
+  const c2 = fixture.candidate.lifecycleV11.skuPackage.c2FinalAssets;
+  c2.ownerVideoRequirement = { required: true };
+  assert.throws(() => buildC2FinalAssetInput(fixture), /缺少视频/);
+  fixture.assets.push({ ...fixture.assets[0], assetId: "video:1", sha256: "9".repeat(64), mediaType: "video", fileName: "demo.mp4" });
+  const input = buildC2FinalAssetInput(fixture);
+  assert.equal(input.approvedVideoDisposition, "includes_video");
+  assert.equal(input.finalUploadAssets[2].order, 3);
+  assert.equal(input.finalUploadAssets[2].assetId, "video:1");
+  assert.equal(Object.hasOwn(input, "productionAuthorization"), false);
 });
 
 test("生产确认只读取服务端当前准备资料，旧决定和不完整默认值不能解锁", () => {

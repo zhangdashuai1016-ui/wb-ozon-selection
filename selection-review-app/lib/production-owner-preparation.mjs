@@ -9,7 +9,7 @@ import { evidenceScopeMatches } from "./lifecycle-evidence-scope.mjs";
 import { validateProfitModel } from "./profit-model.mjs";
 import { validateSkuLifecyclePackage } from "./product-lifecycle-schema.mjs";
 import { createFinalProductPlanConfirmationCard, validateFinalProductPlanConfirmationCard } from "./final-product-plan-confirmation-card.mjs";
-import { assertC2FinalMediaContent } from "./c2-media-content-rules.mjs";
+import { assertAuthorizedMediaUnchanged } from "./production-authorization-preparation.mjs";
 import { assertCurrentC1MatchesProductionPreparation, PRODUCTION_AUTHORIZATION_VERSION, PRODUCTION_WRITE_FIELDS,
   VALIDATION_MODERATION_PUBLISH_SCOPE } from "./production-authorization-preparation.mjs";
 
@@ -60,7 +60,7 @@ function inspectFrozenSource(candidate, observedAt) {
     const withoutCard = structuredClone(sku); withoutCard.productionConfirmationCard = null;
     expectedCard = createFinalProductPlanConfirmationCard({ skuPackage: withoutCard, createdAt: card.createdAt }).confirmationCard;
     if (!isDeepStrictEqual(card, expectedCard)) reject("PRODUCTION_FINAL_CARD_CHANGED", "最终商品确认卡与冻结事实不一致");
-    assertC2FinalMediaContent({ mediaRequirements: preparation.mediaRequirements, assets: preparation.finalUploads, checkedAt: observedAt });
+    assertAuthorizedMediaUnchanged(preparation.finalUploads, preparation.authorizedMediaFingerprint, "ownerPreparation");
   } catch (error) {
     if (error instanceof ProductionOwnerPreparationError) throw error;
     if (error.message === "PRODUCTION_AUTHORIZATION_PREPARATION_DRIFT:currentC1Snapshot") {

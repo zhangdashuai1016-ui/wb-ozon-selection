@@ -5,7 +5,7 @@ import { optionalNumber, candidatePlatform, safeWebUrl } from "../formState.js";
 import { finiteDisplayNumber, formatMoney, formatPercent } from "../finiteDisplay.js";
 import { buildCandidateCommentInput, shouldClearSubmittedComment } from "../commentInput.js";
 import { selectedC2DraftAssets } from "../../lib/c2-upload-draft.mjs";
-import { buildC2FinalAssetInput, c2MediaSlots } from "../c2FinalAssetInput.js";
+import { buildC2FinalAssetInput } from "../c2FinalAssetInput.js";
 import { productionAuthorizationInputFromCard } from "../productionAuthorizationInput.js";
 import ProductionOwnerDecisionForm from "./ProductionOwnerDecisionForm.jsx";
 import FinalPricingReviewForm from "./FinalPricingReviewForm.jsx";
@@ -546,10 +546,8 @@ function formatAssetSize(byteSize) {
   return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
-function assetRoleLabel(role) {
-  if (role === "main_image") return "主图";
-  if (role === "detail_image") return "详情图";
-  return role || "槽位待选择";
+function assetRoleLabel(index) {
+  return index === 0 ? "主图" : "图库图";
 }
 
 export function C2FinalAssetsPanel({ candidate, onUpload, onSave, onConfirm }) {
@@ -559,14 +557,12 @@ export function C2FinalAssetsPanel({ candidate, onUpload, onSave, onConfirm }) {
   const saved = candidate.lifecycleV11?.c2UploadDraft;
   const draft = lastReceipt?.candidateId === candidate.id && lastReceipt.revision > (saved?.revision ?? 0) ? lastReceipt : saved;
   const assets = selectedC2DraftAssets(draft);
-  const slots = c2MediaSlots(candidate);
-  const maximum = slots.reduce((total, slot) => total + slot.maxCount, 0);
   const dataRevision = draft?.sourceCandidateRevision ?? candidate.dataRevision;
   const draftRevision = draft?.revision ?? 0;
   const sourceChanged = dataRevision !== candidate.dataRevision || (draft && (
     draft.skuPackageId !== candidate.lifecycleV11?.skuPackage?.skuPackageId ||
     draft.sourceSkuRevision !== candidate.lifecycleV11?.skuPackage?.dataRevision ||
-    draft.requirementsFingerprint !== candidate.lifecycleV11?.skuPackage?.c2FinalAssets?.mediaRequirements?.requirementsFingerprint));
+    draft.schemaEvidenceRef !== candidate.lifecycleV11?.skuPackage?.c2FinalAssets?.targetContext?.schemaEvidenceRef));
   const unfinished = draft?.uploads.filter(upload => upload.status !== "ready") || [];
   const disabled = operation.saving || sourceChanged || unfinished.some(upload => upload.status === "uploading");
   const identity = `${candidate.id}:${dataRevision}:${draftRevision}`;
@@ -588,7 +584,6 @@ export function C2FinalAssetsPanel({ candidate, onUpload, onSave, onConfirm }) {
     event.target.value = "";
     if (!files.length || disabled) return;
     return operation.run(async () => {
-      if (files.length + assets.length > maximum) throw new Error(`当前平台素材槽位合计最多${maximum}个，请减少本次选择数量。`);
       let revision = draftRevision;
       setOwnerChecked(false);
       for (const file of files) {
@@ -601,7 +596,7 @@ export function C2FinalAssetsPanel({ candidate, onUpload, onSave, onConfirm }) {
   function saveSelection(next) {
     return operation.run(async () => {
       setOwnerChecked(false);
-      const selection = next.map((asset, index) => ({ assetId: asset.assetId, slotId: asset.slotId || null, order: index + 1 }));
+      const selection = next.map((asset, index) => ({ assetId: asset.assetId, order: index + 1 }));
       acceptReceipt(await onSave({ dataRevision, draftRevision, selection }));
     });
   }
@@ -627,11 +622,11 @@ export function C2FinalAssetsPanel({ candidate, onUpload, onSave, onConfirm }) {
       {sourceChanged && <p role="alert">商品或C1资料已变化。旧素材清单已保留，请先核对绑定；不会自动挪到新SKU。</p>}
       {operation.error && <p role="alert">{operation.error}；本轮已停止，没有自动重试。已保存的文件可刷新查看。</p>}
       <div className="c2-final-assets-heading">
-        <div><b>C2 最终上传素材</b><span>上传、槽位和顺序会保存在本地；最后一次确认才锁定最终素材。</span></div>
-        <span className="c2-asset-count">{assets.length}/{Number.isFinite(maximum) ? maximum : "待取得"}</span>
+        <div><b>C2 最终上传素材</b><span>上传和顺序会保存在本地；排第一张的就是主图，最后一次确认才锁定最终素材。</span></div>
+        <span className="c2-asset-count">{assets.length}</span>
       </div>
       <label className={`c2-file-picker ${disabled ? "disabled" : ""}`}>
-        <input type="file" multiple accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" disabled={disabled || !onUpload || !maximum} onChange={chooseFiles} />
+        <input type="file" multiple accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" disabled={disabled || !onUpload} onChange={chooseFiles} />
         <b>{operation.saving ? "正在保存素材清单…" : "添加最终图片"}</b>
         <small>可一次多选JPG、PNG、WEBP静态图片；每文件不超过100MB、2000万像素。视频内容校验尚未配置。平台最终要求另行核验。</small>
       </label>
@@ -639,19 +634,12 @@ export function C2FinalAssetsPanel({ candidate, onUpload, onSave, onConfirm }) {
       {assets.length ? (
         <ol className="c2-final-asset-list">
           {assets.map((asset, index) => (
-            <li key={asset.assetId} className={slots.find(slot => slot.slotId === asset.slotId)?.role === "main_image" ? "is-main" : ""}>
+            <li key={asset.assetId} className={index === 0 ? "is-main" : ""}>
               <div className="c2-final-asset-order">{index + 1}</div>
               {asset.mediaType === "image" && <img className="c2-local-preview" src={`/api/candidates/${encodeURIComponent(candidate.id)}/lifecycle/c2/local-assets/${encodeURIComponent(asset.assetId)}`} alt={asset.fileName} />}
               <div className="c2-final-asset-copy">
                 <b>{asset.fileName}</b>
-                <span>{assetRoleLabel(slots.find(slot => slot.slotId === asset.slotId)?.role)} · {formatAssetSize(asset.byteSize)}</span>
-                <label>素材用途
-                  <select aria-label={`素材${index + 1}槽位`} value={asset.slotId || ""} disabled={disabled || !onSave}
-                    onChange={event => saveSelection(assets.map(item => item.assetId === asset.assetId ? { ...item, slotId: event.target.value || null } : item))}>
-                    <option value="">请选择用途</option>
-                    {slots.filter(slot => slot.mediaType === asset.mediaType).map(slot => <option key={slot.slotId} value={slot.slotId}>{assetRoleLabel(slot.role)} · {slot.minCount}–{slot.maxCount}</option>)}
-                  </select>
-                </label>
+                <span>{assetRoleLabel(index)} · {formatAssetSize(asset.byteSize)}</span>
               </div>
               <div className="c2-final-asset-actions">
                 <button type="button" className="button secondary" disabled={index === 0 || disabled || !onSave} onClick={() => moveAsset(index, -1)}>上移</button>

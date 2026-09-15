@@ -183,7 +183,6 @@ test("B preserves actual C1 Schema content without importing payload identity or
   const actualContent = {
     categoryId: "category:synthetic:music-box", categoryName: "Music box", descriptionCategoryId: "17001", typeId: "93001",
     writeBindings: { schemaRevision: "ozon-music-box-2026-08-18", evidenceRef: "EP-SCHEMA", content: {} },
-    mediaRequirements: { schemaVersion: "c2-media-requirements-v1", imageSlots: [{ slotId: "main", minCount: 1, maxCount: 1 }] },
     categoryRestrictions: { status: "confirmed", restrictions: [] }, platformCompliance: { status: "confirmed", assessment: "allowed" }
   };
   Object.assign(evidencePacks[3].evidenceData, actualContent, {
@@ -201,7 +200,7 @@ test("B preserves actual C1 Schema content without importing payload identity or
   assert.equal(bundle.platformSchemaEvidence.collectedAt, createdAt);
   assert.equal(Object.hasOwn(bundle.platformSchemaEvidence, "productionAuthorized"), false);
   assert.equal(Object.hasOwn(bundle.platformSchemaEvidence, "confirmedBy"), false);
-  assert.equal(Object.isFrozen(bundle.platformSchemaEvidence.mediaRequirements.imageSlots), true);
+  assert.equal(Object.hasOwn(bundle.platformSchemaEvidence, "mediaRequirements"), false);
   assert.deepEqual(evidencePacks, before);
   const absent = createLifecycleBInputBundle({ otherCosts: currentCosts(), candidate: candidate(), evidencePacks: packs(), normalizedSubmission: normalizedSubmission(), createdAt });
   for (const field of Object.keys(actualContent)) assert.equal(Object.hasOwn(absent.platformSchemaEvidence, field), false);

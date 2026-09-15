@@ -248,7 +248,7 @@ function factSnapshot(plan) {
 
 function frozenInputSnapshot(plan) {
   return Object.fromEntries(["inputRefs", "inputSnapshots", "revisionRefs", "frozenInputRefs", "schemaSnapshotRef",
-    "mediaRequirements", "unknownManifest"].map(field => [field, structuredClone(plan[field])]));
+    "unknownManifest"].map(field => [field, structuredClone(plan[field])]));
 }
 
 function assertUnchangedC1RequestInputs(plan, request) {

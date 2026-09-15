@@ -279,8 +279,13 @@ export function validateC1ProductPlan(plan) {
     if (!Array.isArray(plan.keywordEvidenceRefs) || !Array.isArray(plan.unknownManifest)) {
       push(errors, "canonical", "必须显式保存关键词引用与unknown清单");
     }
-    if (plan.status === "inputs_ready" && (plan.mediaRequirements !== null || plan.draftOnlySeo !== null)) {
-      push(errors, "canonical", "C1创建时不得冒充媒体已核验或provider已完成");
+    // 槽位合同已废止。主人机器上更早写下的记录里还留着一个 mediaRequirements: null 的空壳，
+    // 那里面没有任何槽位主张，照单放行，不逼主人去改自己的业务数据；但任何非 null 的槽位摘要一律拒收。
+    if (Object.hasOwn(plan, "mediaRequirements") && plan.mediaRequirements !== null) {
+      push(errors, "mediaRequirements", "槽位合同已废止：C1不得再保存平台媒体槽位摘要");
+    }
+    if (plan.status === "inputs_ready" && plan.draftOnlySeo !== null) {
+      push(errors, "canonical", "C1创建时不得冒充provider已完成");
     }
   }
   return { valid: errors.length === 0, errors };
@@ -324,7 +329,6 @@ function buildC1InputPlan({ skuPackage, activeProfitModel, salesSnapshot, confir
     schemaSnapshotRef: platformSchemaEvidence.evidenceId,
     draftOnlySeo: null,
     keywordEvidenceRefs: [],
-    mediaRequirements: null,
     unknownManifest: [],
     inputRefs: {
       salesSnapshotId,
@@ -621,25 +625,6 @@ export function validateC1FactVerification(plan) {
 /**
  * 第9A阶段：只读取C1已冻结的四类输入，为每个事实保存值、状态和具体来源路径。
  */
-export function normalizePlatformMediaSlot(slot, mediaType, index) {
-  const path = `${mediaType}Slots[${index}]`;
-  if (!isObject(slot) || !nonEmptyString(slot.slotId) || !nonEmptyString(slot.role)) {
-    throw new Error(`C1_MEDIA_REQUIREMENTS_INVALID: ${path}缺少slotId或role`);
-  }
-  if (!Number.isInteger(slot.minCount) || slot.minCount < 0 ||
-      !Number.isInteger(slot.maxCount) || slot.maxCount < slot.minCount || slot.maxCount < 1) {
-    throw new Error(`C1_MEDIA_REQUIREMENTS_INVALID: ${path}数量边界无效`);
-  }
-  return {
-    slotId: slot.slotId,
-    mediaType,
-    role: slot.role,
-    minCount: slot.minCount,
-    maxCount: slot.maxCount
-  };
-}
-
-
 export const C1_UNKNOWN_CLASSIFICATION_VERSION = 'c1-schema-aware-unknown-v1';
 
 /** Classification is derived from frozen schema and SKU facts, never from a client-provided exemption. */
@@ -889,38 +874,14 @@ export function verifyC1ProductFacts({ skuPackage, skuRightsReview = null, verif
   };
 
   if (plan.contractVersion === C1_CANONICAL_CONTRACT_VERSION) {
-    const media = schema.mediaRequirements;
-    const mediaReady = isObject(media) && media.schemaVersion === "c2-media-requirements-v1" &&
-      media.evidenceRef === schema.evidenceId && nonEmptyString(media.evidenceVersion) &&
-      media.platform === skuPackage.targetPlatform && media.targetStore === skuPackage.targetStore &&
-      sameStoreRef(schema.storeRef, skuPackage.g1Identity.storeRef) &&
-      sameStoreRef(media.storeRef, skuPackage.g1Identity.storeRef) &&
-      media.categoryId === schema.categoryId && media.schemaRevision === schema.schemaRevision &&
-      Array.isArray(media.imageSlots) && media.imageSlots.length > 0 && Array.isArray(media.videoSlots) &&
-      ["required", "not_required"].includes(media.schemaVideoRequirement?.status);
-    plan.mediaRequirements = {
-      status: mediaReady ? "confirmed" : "unknown",
-      schemaSnapshotRef: schema.evidenceId,
-      sourceRefs: [schema.evidenceId],
-      requiredSlots: mediaReady ? [
-        ...media.imageSlots.map((slot, index) => normalizePlatformMediaSlot(slot, "image", index)),
-        ...media.videoSlots.map((slot, index) => normalizePlatformMediaSlot(slot, "video", index))
-      ].filter(slot => slot.minCount > 0).map(slot => ({ slotId: slot.slotId, mediaType: slot.mediaType, required: true })) : [],
-      videoRequirement: mediaReady ? media.schemaVideoRequirement.status : "unknown",
-      reason: mediaReady ? null : "platform_media_rules_or_scope_not_confirmed"
-    };
+    // 槽位合同已整体废止（主人 2026-09-15 批准）：真实 import 只写 primary_image = urls[0] 和
+    // images = urls.slice(1)（lib/ozon-seller-api-production-adapter.mjs），从不读槽位；而槽位所依赖的
+    // schema.mediaRequirements 全仓库无人赋值、Ozon 证据服务也不返回。C1 不再产出任何媒体摘要，
+    // 哪些图上架由主人在 C2 逐张确认，顺序即主人给的顺序，第一张就是主图。
     plan.unknownManifest = collectC1UnknownManifest(plan);
     if (!sameStoreRef(schema.storeRef, skuPackage.g1Identity.storeRef)) {
       plan.unknownManifest.push({ fieldPath: "schemaSnapshot.storeRef", reason: "full_store_scope_not_confirmed",
         sourceRefs: [schema.evidenceId], blockingScope: "required_field", blocksC2Handoff: true });
-    }
-    if (!mediaReady) {
-      // 这条槽位合同是我们自己编的，不是平台要求：真实 import 只写 primary_image = urls[0] 和
-      // images = urls.slice(1)（lib/ozon-seller-api-production-adapter.mjs），从不读槽位。
-      // 而它挂靠的 schema.mediaRequirements 全仓库无人赋值、证据服务也不返回，永远是 unknown。
-      // 如实留一条 informational 记着“平台媒体规则还没问过 Ozon”，但不再拿它挡 C1→C2。
-      plan.unknownManifest.push({ fieldPath: "mediaRequirements", reason: plan.mediaRequirements.reason,
-        sourceRefs: [schema.evidenceId], blockingScope: "informational", blocksC2Handoff: false });
     }
   }
 

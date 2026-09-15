@@ -71,8 +71,8 @@ test("C2 upload and saved order survive restart, then local confirmation produce
   assert.deepEqual(Buffer.from(await preview.arrayBuffer()), PNG);
   const detail = await upload(2, "detail.png", DETAIL_PNG);
   const selection = [
-    { assetId: uploaded.asset.assetId, slotId: "main", order: 1 },
-    { assetId: detail.asset.assetId, slotId: "detail", order: 2 }
+    { assetId: uploaded.asset.assetId, order: 1 },
+    { assetId: detail.asset.assetId, order: 2 }
   ];
   const save = await fetch(`${base}${route}/upload-draft`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify({ dataRevision: 12, draftRevision: 4, selection }) });

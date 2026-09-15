@@ -4,8 +4,24 @@ import {
   buildOzonSellerImportRequest,
   createOzonSellerApiProductionAdapter
 } from "../lib/ozon-seller-api-production-adapter.mjs";
+import { fingerprintAuthorizedMedia } from "../lib/production-authorization-preparation.mjs";
+
+// 本轮不许真发请求：可达性探针一律打桩。
+const reachable = async () => ({ reachable: true, statusCode: 200 });
+
+function authorizedMediaFor(finalUploads) {
+  return {
+    fingerprint: fingerprintAuthorizedMedia(finalUploads.map((asset) => asset.assetRef)),
+    primaryImage: finalUploads[0].assetRef,
+    images: finalUploads.slice(1).map((asset) => asset.assetRef)
+  };
+}
 
 function payload(overrides = {}) {
+  const finalUploads = overrides.finalUploads ?? [
+    { assetId: "main", assetRef: "https://assets.example/main.jpg", ownerConfirmed: true, productionEligible: true },
+    { assetId: "detail", assetRef: "https://assets.example/detail.jpg", ownerConfirmed: true, productionEligible: true }
+  ];
   return {
     mode: "single_sku_create_and_moderate",
     platform: "ozon",
@@ -49,10 +65,8 @@ function payload(overrides = {}) {
       typeId: { value: 92849, verificationStatus: "confirmed" }
     },
     platformWritePrice: { amount: 117.85, currency: "CNY" },
-    finalUploads: [
-      { assetId: "main", assetRef: "https://assets.example/main.jpg", ownerConfirmed: true, productionEligible: true },
-      { assetId: "detail", assetRef: "https://assets.example/detail.jpg", ownerConfirmed: true, productionEligible: true }
-    ],
+    finalUploads,
+    authorizedMedia: authorizedMediaFor(finalUploads),
     publishScope: "create_and_allow_validation_moderation",
     ...overrides
   };
@@ -80,7 +94,12 @@ test("rejects draft-only, local assets, unknown attributes and wrong currency be
   assert.throws(() => buildOzonSellerImportRequest(payload({ mode: "single_sku_draft_only", publishScope: "create_draft_only" })), /SCOPE_REJECTED/);
   const local = payload();
   local.finalUploads[0].assetRef = "/tmp/main.jpg";
+  local.authorizedMedia = authorizedMediaFor(local.finalUploads);
   assert.throws(() => buildOzonSellerImportRequest(local), /REMOTE_ASSET_REQUIRED/);
+  const httpOnly = payload();
+  httpOnly.finalUploads[0].assetRef = "http://assets.example/main.jpg";
+  httpOnly.authorizedMedia = authorizedMediaFor(httpOnly.finalUploads);
+  assert.throws(() => buildOzonSellerImportRequest(httpOnly), /REMOTE_ASSET_REQUIRED/);
   const unknown = payload();
   unknown.attributes.requiredPlatformFields[0].fact = { value: "unknown", verificationStatus: "unknown" };
   assert.throws(() => buildOzonSellerImportRequest(unknown), /REQUIRED_ATTRIBUTE_UNKNOWN/);
@@ -97,6 +116,7 @@ test("rejects draft-only, local assets, unknown attributes and wrong currency be
 test("uses one import call, one terminal-status call and independent readback without inventory write", async () => {
   const calls = [];
   const adapter = createOzonSellerApiProductionAdapter({
+    probeAssetUrl: reachable,
     requestJson: async (request) => {
       calls.push(request);
       if (request.endpoint === "/v3/product/import") return { result: { task_id: "task-1" } };
@@ -123,6 +143,7 @@ test("uses one import call, one terminal-status call and independent readback wi
 test("stops on pending import and never polls or reads another product", async () => {
   let calls = 0;
   const adapter = createOzonSellerApiProductionAdapter({
+    probeAssetUrl: reachable,
     requestJson: async ({ endpoint }) => {
       calls += 1;
       if (endpoint === "/v3/product/import") return { result: { task_id: "task-pending" } };
@@ -131,4 +152,50 @@ test("stops on pending import and never polls or reads another product", async (
   });
   await assert.rejects(() => adapter.createPlatformDraft(payload()), /PENDING_UNKNOWN_OUTCOME/);
   assert.equal(calls, 2);
+});
+
+test("发出去的图必须就是主人授权的那批：地址被换掉、顺序被动过都要拦下", () => {
+  const swapped = payload();
+  swapped.finalUploads[1].assetRef = "https://assets.example/other.jpg";
+  assert.throws(() => buildOzonSellerImportRequest(swapped), /AUTHORIZED_MEDIA_DRIFT/);
+
+  const reordered = payload();
+  reordered.finalUploads.reverse();
+  assert.throws(() => buildOzonSellerImportRequest(reordered), /AUTHORIZED_MEDIA_DRIFT/);
+
+  const forgedFingerprint = payload();
+  forgedFingerprint.authorizedMedia = { ...forgedFingerprint.authorizedMedia, fingerprint: "0".repeat(64) };
+  assert.throws(() => buildOzonSellerImportRequest(forgedFingerprint), /AUTHORIZED_MEDIA_DRIFT/);
+
+  const missing = payload();
+  delete missing.authorizedMedia;
+  assert.throws(() => buildOzonSellerImportRequest(missing), /AUTHORIZED_MEDIA_MISSING/);
+});
+
+test("主人说过要确认都能访问：没有探针或访问不到都不许发出", async () => {
+  const noProbe = createOzonSellerApiProductionAdapter({ requestJson: async () => ({ result: { task_id: "task-1" } }) });
+  await assert.rejects(() => noProbe.createPlatformDraft(payload()), /ASSET_REACHABILITY_PROBE_REQUIRED/);
+
+  const notFound = createOzonSellerApiProductionAdapter({
+    requestJson: async () => ({ result: { task_id: "task-1" } }),
+    probeAssetUrl: async () => ({ reachable: true, statusCode: 404 })
+  });
+  await assert.rejects(() => notFound.createPlatformDraft(payload()), /ASSET_NOT_REACHABLE/);
+
+  const refused = createOzonSellerApiProductionAdapter({
+    requestJson: async () => ({ result: { task_id: "task-1" } }),
+    probeAssetUrl: async () => { throw new Error("ECONNREFUSED"); }
+  });
+  await assert.rejects(() => refused.createPlatformDraft(payload()), /ASSET_NOT_REACHABLE/);
+
+  const probed = [];
+  const ok = createOzonSellerApiProductionAdapter({
+    requestJson: async ({ endpoint }) => {
+      if (endpoint === "/v3/product/import") return { result: { task_id: "task-1" } };
+      return { result: { items: [{ offer_id: "MERCHANT-MUSIC-001", product_id: 9001, status: "imported", errors: [] }] } };
+    },
+    probeAssetUrl: async ({ url }) => { probed.push(url); return { reachable: true, statusCode: 200 }; }
+  });
+  await ok.createPlatformDraft(payload());
+  assert.deepEqual(probed, ["https://assets.example/main.jpg", "https://assets.example/detail.jpg"]);
 });

@@ -682,22 +682,19 @@ async function verifyAndAuthorizeStagedC2Assets({ candidate, dataRevision, draft
   const { draft } = assertCurrentC2UploadDraft(candidate, { dataRevision, draftRevision });
   const selections = draft?.selection;
   if (!Array.isArray(assets) || !selections?.length || assets.length !== selections.length ||
-      assets.some((asset, index) => !asset || Object.keys(asset).some(key => !["assetId", "slotId", "order"].includes(key)) ||
-        asset.assetId !== selections[index].assetId || asset.slotId !== selections[index].slotId || asset.order !== selections[index].order)) {
-    throw httpError(409, "确认内容必须与已保存的素材、槽位和顺序完全一致", { code: "c2_upload_selection_changed" });
+      assets.some((asset, index) => !asset || Object.keys(asset).some(key => !["assetId", "order"].includes(key)) ||
+        asset.assetId !== selections[index].assetId || asset.order !== selections[index].order)) {
+    throw httpError(409, "确认内容必须与已保存的素材和顺序完全一致", { code: "c2_upload_selection_changed" });
   }
-  const slots = [...candidate.lifecycleV11.skuPackage.c2FinalAssets.mediaRequirements.imageSlots,
-    ...candidate.lifecycleV11.skuPackage.c2FinalAssets.mediaRequirements.videoSlots];
   const verified = [];
-  for (const asset of selectedC2DraftAssets(draft)) {
+  for (const [index, asset] of selectedC2DraftAssets(draft).entries()) {
     await c2LocalAssetStore.read(asset, { verifyContent: true });
-    const slot = slots.find(slot => slot.slotId === asset.slotId && slot.mediaType === asset.mediaType);
-    if (!slot) throw httpError(422, "每个最终素材必须选择当前平台的明确槽位");
     const item = {};
-    for (const key of ["assetId", "mediaType", "assetRef", "fileName", "assetVersion", "sha256", "byteSize", "sourceEvidenceRef", "stableUrlEvidenceRef", "sourceType", "width", "height", "slotId", "order"]) {
+    for (const key of ["assetId", "mediaType", "assetRef", "fileName", "assetVersion", "sha256", "byteSize", "sourceEvidenceRef", "stableUrlEvidenceRef", "sourceType", "width", "height", "order"]) {
       if (asset[key] !== undefined) item[key] = structuredClone(asset[key]);
     }
-    verified.push({ ...item, role: slot.role, addedAt: asset.stagedAt,
+    // 主人排第一张的就是主图，软件不重排也不改选。
+    verified.push({ ...item, role: index === 0 ? "main_image" : "gallery_image", addedAt: asset.stagedAt,
       usageAuthorization: { status: "owner_authorized_for_listing", evidenceRef: `owner-confirmation:c2:${candidate.id}:${dataRevision}` }
     });
   }
@@ -5961,7 +5958,7 @@ async function handleApi(req, res, pathname) {
             approvedManifestVersion: manifest.schemaVersion,
             approvedManifestSha256: manifest.manifestSha256,
             approvedAssetIds: manifest.approvedAssetIds,
-            approvedMediaRequirementsFingerprint: manifest.mediaRequirementsFingerprint,
+            approvedAuthorizedMediaFingerprint: manifest.authorizedMediaFingerprint,
             approvedMainImageAssetId: input.approvedMainImageAssetId,
             approvedVideoDisposition: input.approvedVideoDisposition,
             confirmationNote: input.confirmationNote || null

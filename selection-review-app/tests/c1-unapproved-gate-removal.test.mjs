@@ -48,7 +48,6 @@ const RETIRED_GATES = Object.freeze([
   "categoryRestrictions.restrictions",
   "platformCompliance.status",
   "platformCompliance.assessment",
-  "mediaRequirements"
 ]);
 
 /** 删完之后还该挡着的四条：三个字典属性取不到值，加上真实 import 非要不可的写入绑定。 */

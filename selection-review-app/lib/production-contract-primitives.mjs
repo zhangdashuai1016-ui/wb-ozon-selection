@@ -86,7 +86,6 @@ export const C2_REFERENCE_FIELD_SEMANTICS = Object.freeze({
   schemaSnapshotRef: "canonicalFrozenRef",
   selectedSupplySnapshotId: "canonicalFrozenRef",
   skuPackageId: "canonicalFrozenRef",
-  slotId: "canonicalFrozenRef",
   sourceConfirmationCardId: "canonicalFrozenRef",
   sourceEvidenceRef: "canonicalFrozenRef",
   stableStoreId: "canonicalFrozenRef",
@@ -106,9 +105,9 @@ const C2_REFERENCE_SEMANTIC_KINDS = new Set(Object.values(C2_REFERENCE_FIELD_SEM
 const C2_DIAGNOSTIC_STATIC_FIELDS = new Set([
   "assets", "collected", "aiDrafts", "finalUploads", "assetId", "mediaType", "assetRef", "assetVersion",
   "sha256", "addedAt", "sourcePlatform", "sourceEvidenceRef", "usageAuthorization", "sourceType",
-  "generatorRef", "fileName", "byteSize", "width", "height", "order", "role", "slotId",
+  "generatorRef", "fileName", "byteSize", "width", "height", "order", "role",
   "stableUrlEvidenceRef", "ownerConfirmed", "productionEligible", "status", "evidenceRef",
-  "mediaRequirements", "unknownManifest", "softwareState", "productionAuthorizationPreparation",
+  "targetContext", "unknownManifest", "softwareState", "productionAuthorizationPreparation",
   "skuPackage", "c2SourceSnapshots", "selectedSupplySnapshot", "activeProfitModel", "c1ProductPlan",
   "technicalFailureRecord", "failure", "ownerDecision",
   "frozenC1Handoff", "seoEvidenceLayer", "draftOnlySeo", "providerJobRef", "authorizationRef",
@@ -119,7 +118,7 @@ const C2_DIAGNOSTIC_STATIC_FIELDS = new Set([
   "lockedScope", "c1", "seoDraft", "evidenceLayer", "targetContext", "candidateId", "skuPackageId",
   "variantKey", "platform", "storeRef", "merchantSku", "supplierSkuId", "warehouseRef", "credentialAlias",
   "sourceDataRevision", "resultRevision", "sourceC1Fingerprint", "requirementsFingerprint", "schemaVersion",
-  "blockingItems", "finalUploadsFingerprint", "mediaRequirementsFingerprint", "cardId", "value", "inputRefs",
+  "blockingItems", "finalUploadsFingerprint", "authorizedMediaFingerprint", "cardId", "value", "inputRefs",
   ...Object.keys(C2_REFERENCE_FIELD_SEMANTICS)
 ]);
 

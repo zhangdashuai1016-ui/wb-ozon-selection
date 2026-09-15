@@ -165,6 +165,11 @@ export async function executeSingleSkuDraftCreation({
     priceConversion: structuredClone(inputs.priceConversion),
     stock: inputs.stock,
     finalUploads: structuredClone(inputs.finalUploads),
+    authorizedMedia: {
+      fingerprint: inputs.authorizedMediaFingerprint,
+      primaryImage: inputs.finalUploads[0]?.assetRef,
+      images: inputs.finalUploads.slice(1).map(asset => asset.assetRef)
+    },
     publishScope: inputs.publishScope,
     batchSize: 1,
     publish: false,
