@@ -16,7 +16,8 @@ async function pageModule() {
       import Page, {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload,
         captureRecaptureReady, captureRecaptureConfirmLine, captureRecapturePayload, CAPTURE_RECAPTURE_REASONS,
         currentProductStep, skuChoiceReady, skuChoiceSaved, showsSkuChoice, skuChoiceHeadline, skuChoiceSwing,
-        skuChoiceSummary, selectAllState, skuChoicePayload, skuWeightGapNotice, foldedStepLine, foldedStepState,
+        skuChoiceSummary, selectAllState, skuChoicePayload, skuWeightGapNotice, skuUniformSupplyNotice,
+        skuUniformSupplyPayload, foldedStepLine, foldedStepState,
         profitStepOpen, profitStepFirstSkuId, profitStepThresholdLine, profitStepCohortHeadline, profitStepExcludedLine,
         profitStepSuggestionLine, profitStepPriceDeltaLine, profitStepCommissionLine, profitStepSubmitState,
         profitStepOutcomeLine, cargoFactsFormState, cargoFactsPayload, cargoFactsStepGaps, cargoFactsHeadline,
@@ -26,7 +27,8 @@ async function pageModule() {
       export {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload,
         captureRecaptureReady, captureRecaptureConfirmLine, captureRecapturePayload, CAPTURE_RECAPTURE_REASONS,
         currentProductStep, skuChoiceReady, skuChoiceSaved, showsSkuChoice, skuChoiceHeadline, skuChoiceSwing,
-        skuChoiceSummary, selectAllState, skuChoicePayload, skuWeightGapNotice, foldedStepLine, foldedStepState,
+        skuChoiceSummary, selectAllState, skuChoicePayload, skuWeightGapNotice, skuUniformSupplyNotice,
+        skuUniformSupplyPayload, foldedStepLine, foldedStepState,
         profitStepOpen, profitStepFirstSkuId, profitStepThresholdLine, profitStepCohortHeadline, profitStepExcludedLine,
         profitStepSuggestionLine, profitStepPriceDeltaLine, profitStepCommissionLine, profitStepSubmitState,
         profitStepOutcomeLine, cargoFactsFormState, cargoFactsPayload, cargoFactsStepGaps, cargoFactsHeadline,
@@ -720,6 +722,115 @@ test('采到的规格没有重量时，页面直说算不出运费和利润，�
   const complete = await render(choosingProps({ onRecaptureSource: forbidden }, {}, fullWeightTable()));
   assert.doesNotMatch(complete, /product-sku-weight-gap/u);
   assert.match(complete, /product-sku-recapture/u);
+});
+
+/* ── 同重同价声明 ──────────────────────────────────────────────────────────────────────────────────────────────────
+ * 2026-09-16 那件小猫战术背心：5 个规格全是「均码」只差颜色，重量和货价一个都没采到，而主人在「找货」里早就填了。
+ * 软件不许自己去借那个数，所以页面上给他一个签字的地方——一个按钮、一句大白话，签完之后表里标着「你填的」。
+ */
+const uniformStep = (extra = {}) => ({
+  schemaVersion: 'sku-uniform-supply-step-v1', candidateId: 'candidate:synthetic-product-page', dataRevision: 4,
+  label: '同重同价声明', status: 'absent', declared: false, offered: true, blockedReason: '', lapsedReason: '',
+  total: 3, gapCount: 3, weightGapCount: 3, priceGapCount: 0, basis: { packedWeightKg: 0.2, goodsPriceRmb: 18 },
+  declaredAt: null, declaredRevision: null, basisAtDeclaration: null,
+  appliedWeightCount: 0, appliedPriceCount: 0, sourceRef: null, ...extra
+});
+const uniformProps = (step, table = noWeightTable(), extra = {}) => choosingProps({
+  view: { supplierDraftV1: draft, supplierDraftEstimateV1: okEstimate, marketSnapshot, skuChoiceTableV1: table,
+    skuUniformSupplyStepV1: step },
+  onRecaptureSource: forbidden, onDeclareUniformSupply: forbidden, ...extra
+});
+
+test('规格没采到重量时，页面除了「重新采集」还给主人一个签字的地方：同重同价按他填的算', async () => {
+  const { skuUniformSupplyNotice, skuUniformSupplyPayload } = await pageModule();
+  // 缺东西才提议，而且说清楚这是「你填的」不是「采到的」。
+  const offer = skuUniformSupplyNotice(uniformStep());
+  assert.equal(offer.mode, 'offer');
+  assert.equal(offer.heading, '这些规格是同一件货吗？');
+  assert.match(offer.message, /3 个规格没采到重量/u);
+  assert.match(offer.message, /按你在「找货」里填的 0\.2 公斤 \/ ¥18\.00 算/u);
+  assert.match(offer.message, /这是你自己填的数，不是采到的/u);
+  assert.match(offer.message, /采到了真实重量或货价的规格仍然按采到的算/u);
+  assert.equal(offer.buttonLabel, '这些规格同重同价，按我填的算');
+  assert.deepEqual(skuUniformSupplyPayload(uniformStep(), offer.uniform), { dataRevision: 4, uniform: true });
+
+  // 签过之后：改说他签了什么、顶了几行，并且随时能撤回。
+  const declared = skuUniformSupplyNotice(uniformStep({
+    status: 'in_force', declared: true, offered: false, gapCount: 0, weightGapCount: 0,
+    appliedWeightCount: 3, appliedPriceCount: 3, declaredAt: '2026-09-16T14:40:00.000Z'
+  }));
+  assert.equal(declared.mode, 'declared');
+  assert.equal(declared.heading, '这些规格按你填的算');
+  assert.match(declared.message, /3 个规格的重量 和 3 个规格的货价用的是你在「找货」里填的 0\.2 公斤 \/ ¥18\.00/u);
+  assert.match(declared.message, /采到了真实数字的规格还是按采到的算/u);
+  assert.equal(declared.buttonLabel, '撤回这个声明');
+  assert.deepEqual(skuUniformSupplyPayload(uniformStep(), declared.uniform), { dataRevision: 4, uniform: false });
+
+  // 找货还没填那两个数：不给签，只说先去哪儿填。
+  const blocked = skuUniformSupplyNotice(uniformStep({ offered: false, blockedReason: '先在上面「找货」里填好打包重量和货价。' }));
+  assert.equal(blocked.mode, 'blocked');
+  assert.equal(blocked.buttonLabel, null);
+  // 规格齐全、没有事要他做：这一块整个不出现。
+  assert.equal(skuUniformSupplyNotice(uniformStep({ offered: false, gapCount: 0 })), null);
+  assert.equal(skuUniformSupplyNotice(null), null);
+
+  // 页面上：这句话和那个按钮在表前面，「重新采集」照旧还在，两条出路并排。
+  const html = await render(uniformProps(uniformStep()));
+  assert.match(html, /<div class="product-sku-uniform" role="status">/u);
+  assert.match(html, /<h4>这些规格是同一件货吗？<\/h4>/u);
+  assert.match(html, /这些规格同重同价，按我填的算<\/button>/u);
+  assert.ok(html.indexOf('product-sku-uniform') < html.indexOf('product-sku-table'));
+  assert.equal((html.match(/product-recapture-button/gu) ?? []).length, 1);
+  // 没签字的时候，表里一个「你填的」都不许出现。
+  assert.doesNotMatch(html, /product-sku-declared/u);
+});
+
+test('签过字之后表里每一行都标明这个数是「你填的」，采到的那几行一个字都不加', async () => {
+  const mixed = choiceTable({
+    rows: [
+      // 采到的：一个字都不加。
+      choiceRow('sku-xl-yellow', '黄色', 'XL（背长35cm）', 20.5, 6.26, 59.47, 0.467, 0.103, 494,
+        { weightBasis: 'captured', priceBasis: 'captured' }),
+      // 只缺重量：重量是他填的，货价还是采到的。
+      choiceRow('sku-8xl-beige', '米色', '8XL（背长72cm）', 41.5, 9.0, 20.0, 0.16, 0.2, 479,
+        { status: 'ok', missing: [], weightBasis: 'owner_declared', priceBasis: 'captured' })
+    ],
+    total: 2, pricedCount: 2, weightMissingCount: 0,
+    uniformSupply: {
+      schemaVersion: 'candidate-sku-uniform-supply-v1', declaredBy: 'owner', declaredAt: '2026-09-16T14:40:00.000Z',
+      captureId: 'SCJ-synthetic-choice', sourceRef: 'owner-sku-uniform-supply:x:3:2026-09-16T14:40:00.000Z',
+      packedWeightKg: 0.2, goodsPriceRmb: 18, weightSource: 'owner_declared:supplierDraftV1.packedWeightKg',
+      priceSource: 'owner_declared:supplierDraftV1.goodsPriceRmb',
+      appliedWeightSkuIds: ['sku-8xl-beige'], appliedPriceSkuIds: []
+    }
+  });
+  const html = await render(uniformProps(uniformStep({
+    status: 'in_force', declared: true, offered: false, total: 2, gapCount: 0, weightGapCount: 0,
+    appliedWeightCount: 1, appliedPriceCount: 0, declaredAt: '2026-09-16T14:40:00.000Z'
+  }), mixed));
+  // 主人的原话：表里要标明「你填的」。他填的那个重量标了，采到的货价没标。
+  assert.equal((html.match(/product-sku-declared/gu) ?? []).length, 1);
+  assert.match(html, /0\.2 公斤<span class="product-sku-declared"> · 你填的<\/span>/u);
+  assert.doesNotMatch(html, /¥41\.50<span class="product-sku-declared">/u);
+  // 「数字来源」那一栏也说得出这一次签字：几行按他填的算、什么时候签的。
+  assert.match(html, /<dt>你声明的同重同价<\/dt>/u);
+  assert.match(html, /1 个规格按你填的 0\.2 公斤算运费/u);
+  assert.match(html, /2026-09-16 你声明的/u);
+  // 缺重量那条黄框已经不该再出现，取而代之的是「这些规格按你填的算」和撤回。
+  assert.doesNotMatch(html, /product-sku-weight-gap/u);
+  assert.match(html, /<h4>这些规格按你填的算<\/h4>/u);
+  assert.match(html, /撤回这个声明<\/button>/u);
+});
+
+/* 这条路本身（仅主人、封闭输入、修订号不符 409、存档、不派发）由 tests/supplier-draft-api.test.mjs 对着真服务端证。
+ * 这里只证页面走的是那一条，别自己另开一条。 */
+test('同重同价声明走商品页原有的那条保存通道，页面自己不另开一条路', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const apiClient = await readFile(fileURLToPath(new URL('../src/api.js', import.meta.url)), 'utf8');
+  const app = await readFile(fileURLToPath(new URL('../src/App.jsx', import.meta.url)), 'utf8');
+  assert.match(apiClient, /declareSkuUniformSupply: \(candidateId, payload\) =>/u);
+  assert.match(apiClient, /lifecycle\/sku-uniform-supply/u);
+  assert.match(app, /onDeclareUniformSupply=\{payload => runProductStep\(api\.declareSkuUniformSupply, payload\)\}/u);
 });
 
 test('重新采集有自己的处理函数：写操作不经读取守卫，拿到回执后复用今天那条开始信号', async () => {

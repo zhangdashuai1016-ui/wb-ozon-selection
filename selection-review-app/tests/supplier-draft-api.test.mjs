@@ -351,3 +351,138 @@ test('选规格只接受已登录主人的封闭输入和当前修订号，保�
   assert.match(rechosen.history.at(-1).detail, /其中1个规格页面没有给出重量，运费与利润留空未补/u);
   await api.assertClean();
 });
+
+/**
+ * 同重同价声明 — the owner's own statement about one capture: 「这些规格是同一件货的不同规格，缺的重量和货价按我在
+ * 找货里填的算」.
+ *
+ * 2026-09-16 那件小猫战术背心：采回来 5 个规格全是「均码」只差颜色，重量和货价一个都没采到，整张表整列「待补」，而他
+ * 在「找货」里早就填了。软件不许自己去借那个数（2026-09-13 狗雨衣八个尺码 103 克到 240 克），所以这条路做的是把签字
+ * 权交给他：仅主人、封闭输入、认当前修订号、一条存档，不派发、不联系供应商、不碰平台。
+ */
+const colourOnlySku = (id, colour) => ({
+  sourceSkuId: id, propPath: `1627207:${id}`, attributes: { 颜色: colour, 尺码: '均码' },
+  priceCny: null, priceSource: null, stock: 498, stockSource: 'tradeModel.skuMap.canBookCount', inStock: true,
+  weight: null, weightSource: null, imageUrl: null
+});
+
+test('同重同价声明只接受已登录主人的封闭输入和当前修订号，签了字才按他填的算，采到的真实值不受影响', async t => {
+  const fixture = await productionOwnerDecisionHttpFixture();
+  const candidate = createMusicBoxCandidate();
+  delete candidate.lifecycleV11;
+  candidate.workflowStatus = 'needs_user_data';
+  candidate.storeRef = structuredClone(fixture.binding.storeRef);
+  candidate.targetStore = fixture.binding.storeRef.stableStoreId;
+  candidate.sourceUrl = 'https://detail.1688.com/offer/876240928352.html';
+  candidate.sourceCapture = {
+    ...waitingSourceCapture(),
+    captureId: 'SCJ-synthetic-uniform',
+    skuChoices: [
+      colourOnlySku('6222816678019', '黑色'),
+      colourOnlySku('6222816678021', '卡其色'),
+      // 这一个页面给了重量和货价：签了字也必须还是按采到的算。
+      capturedSku('6222816678022', '军绿色', '均码', 19.5, 7849, 0.18)
+    ]
+  };
+  const document = { ...fixture.document, candidates: [candidate], evidencePacks: [structuredClone(FX_PACK)],
+    runtime: { softwareJobs: [], softwareJobAuthorizationRecords: [], softwareJobCredentialBindings: [], operationAudit: [], idempotencyRecords: [] } };
+  const directory = await mkdtemp(path.join(tmpdir(), 'sku-uniform-api-'));
+  const port = await freePort();
+  let dependencyPort = await freePort();
+  while (port === dependencyPort) dependencyPort = await freePort();
+  const closedPort = await freePort();
+  const env = { SELECTION_REVIEW_TEST_GATEWAY_PORT: String(dependencyPort),
+    SELECTION_REVIEW_GUOO_TARIFF_FILE: path.join(directory, 'GUOO-2026.8.19-absent.xlsx'),
+    SELECTION_REVIEW_CBR_FX_URL: `http://127.0.0.1:${closedPort}/scripts/XML_daily.asp`,
+    SELECTION_REVIEW_A_DISCOVERY_SERVICE_BINDINGS_JSON: '[]', SELECTION_REVIEW_A_DISCOVERY_CONNECTOR_BINDINGS_JSON: '[]',
+    SELECTION_REVIEW_A_DISCOVERY_CREDENTIAL_BINDINGS_JSON: '[]', SELECTION_REVIEW_A_DISCOVERY_PLANS_JSON: '[]',
+    SELECTION_REVIEW_A_PRODUCT_DETAIL_SERVICE_BINDINGS_JSON: '[]', SELECTION_REVIEW_A_PRODUCT_DETAIL_CONNECTOR_BINDINGS_JSON: '[]',
+    SELECTION_REVIEW_A_PRODUCT_DETAIL_CREDENTIAL_BINDINGS_JSON: '[]' };
+  const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
+  let api;
+  try { Object.assign(process.env, env); api = await startSavedDEApi(t, { directory, port, document, binding: fixture.binding }); }
+  finally { for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } }
+  const draftRoute = `/api/candidates/${candidate.id}/lifecycle/supplier-draft`;
+  const route = `/api/candidates/${candidate.id}/lifecycle/sku-uniform-supply`;
+
+  assert.equal((await api.post(route, { dataRevision: candidate.dataRevision, uniform: true }, { authenticated: false })).status, 401);
+  await api.authenticate();
+
+  const saved = await api.post(draftRoute, draftInput(candidate.dataRevision,
+    { sourceUrl: 'https://detail.1688.com/offer/876240928352.html', goodsPriceRmb: 18, domesticShippingRmb: 6.5,
+      packedWeightKg: 0.2, dimensionsCm: { length: 20, width: 30, height: 5 }, targetSalePriceRub: 848 }));
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  const revision = saved.body.dataRevision;
+
+  // 签字之前：两个没采到的规格整行「待补」，一个字都没有被借。
+  const before = saved.body.skuChoiceTableV1;
+  assert.equal(before.weightMissingCount, 2);
+  assert.equal(before.uniformSupply, null);
+  const beforeGap = before.rows.find(row => row.sourceSkuId === '6222816678019');
+  assert.equal(beforeGap.status, 'weight_missing');
+  assert.deepEqual([beforeGap.weightKg, beforeGap.priceCny, beforeGap.weightBasis, beforeGap.priceBasis], [null, null, null, null]);
+  const step = saved.body.skuUniformSupplyStepV1;
+  assert.equal(step.schemaVersion, 'sku-uniform-supply-step-v1');
+  assert.equal(step.status, 'absent');
+  assert.equal(step.offered, true);
+  assert.deepEqual(step.basis, { packedWeightKg: 0.2, goodsPriceRmb: 18 });
+
+  // 封闭输入、认修订号、不收第三种答案；被拒绝的一次一个字节都不许落盘。
+  const bytesBeforeRejects = await api.readBytes();
+  assert.equal((await api.post(route, { dataRevision: revision })).status, 400);
+  assert.equal((await api.post(route, { dataRevision: revision, uniform: true, note: 'x' })).status, 400);
+  assert.equal((await api.post(route, { dataRevision: revision, uniform: 'yes' })).status, 400);
+  assert.equal((await api.post(route, { dataRevision: revision + 1, uniform: true })).status, 409);
+  assert.equal((await api.post(route, { dataRevision: revision, uniform: false })).status, 409, '没签过就没得撤回');
+  assert.equal((await api.post(route, { dataRevision: revision, uniform: true }, { headers: { 'Content-Type': 'text/plain' } })).status, 415);
+  assert.equal((await api.post(route, { dataRevision: revision, uniform: true },
+    { headers: { Origin: 'https://untrusted.invalid', 'Sec-Fetch-Site': 'cross-site' } })).status, 403);
+  assert.deepEqual(await api.readBytes(), bytesBeforeRejects, '被拒绝的声明不得写入任何数据');
+
+  const declared = await api.post(route, { dataRevision: revision, uniform: true });
+  assert.equal(declared.status, 200, JSON.stringify(declared.body));
+  assert.equal(declared.body.schemaVersion, 'supplier-draft-view-v1');
+  const after = declared.body.skuChoiceTableV1;
+  assert.equal(after.weightMissingCount, 0, '签了字之后没有一行再卡在缺重量上');
+  assert.equal(after.uniformSupply.captureId, 'SCJ-synthetic-uniform');
+  assert.deepEqual(after.uniformSupply.appliedWeightSkuIds.sort(), ['6222816678019', '6222816678021']);
+  const filled = after.rows.find(row => row.sourceSkuId === '6222816678019');
+  assert.equal(filled.weightKg, 0.2);
+  assert.equal(filled.priceCny, 18);
+  assert.equal(filled.weightSource, 'owner_declared:supplierDraftV1.packedWeightKg');
+  assert.equal(filled.priceSource, 'owner_declared:supplierDraftV1.goodsPriceRmb');
+  assert.deepEqual([filled.weightBasis, filled.priceBasis], ['owner_declared', 'owner_declared']);
+  // 采到了的那一个：签了字也还是采到的那一份。
+  const captured = after.rows.find(row => row.sourceSkuId === '6222816678022');
+  assert.equal(captured.weightKg, 0.18);
+  assert.equal(captured.priceCny, 19.5);
+  assert.deepEqual([captured.weightBasis, captured.priceBasis], ['captured', 'captured']);
+  assert.equal(captured.weightSource, 'detailDescription.freightInfo.skuWeight');
+  assert.equal(declared.body.skuUniformSupplyStepV1.declared, true);
+
+  const persisted = (await api.readDocument()).candidates[0];
+  assert.equal(persisted.dataRevision, revision + 1);
+  assert.equal(persisted.skuUniformSupplyV1.schemaVersion, 'candidate-sku-uniform-supply-v1');
+  assert.equal(persisted.skuUniformSupplyV1.declaredBy, 'owner');
+  assert.equal(persisted.skuUniformSupplyV1.captureId, 'SCJ-synthetic-uniform');
+  assert.deepEqual(persisted.skuUniformSupplyV1.basisAtDeclaration, { packedWeightKg: 0.2, goodsPriceRmb: 18 });
+  // 采集记录本身一个字都没被改：声明是主人的话，不是采到的证据。
+  assert.deepEqual(persisted.sourceCapture.skuChoices.map(sku => sku.weight), [null, null, { value: 0.18, unit: 'kg' }]);
+  assert.deepEqual(persisted.sourceCapture.skuChoices.map(sku => sku.priceCny), [null, null, 19.5]);
+  const history = persisted.history.filter(entry => entry.action === 'ownerSkuUniformSupplyDeclared');
+  assert.equal(history.length, 1);
+  assert.match(history[0].detail, /主人声明了本商品这一次采集（SCJ-synthetic-uniform）的 3 个规格同重同价/u);
+  assert.match(history[0].detail, /未派发任务、未联系供应商、未向平台写入任何内容/u);
+  assert.deepEqual((await api.readDocument()).dispatches ?? [], []);
+  assert.equal(persisted.lifecycleV11 ?? null, null);
+
+  // 撤回：同一条路，回到「待补」，记录被删掉。
+  const withdrawn = await api.post(route, { dataRevision: revision + 1, uniform: false });
+  assert.equal(withdrawn.status, 200, JSON.stringify(withdrawn.body));
+  assert.equal(withdrawn.body.skuChoiceTableV1.weightMissingCount, 2);
+  assert.equal(withdrawn.body.skuChoiceTableV1.uniformSupply, null);
+  const back = (await api.readDocument()).candidates[0];
+  assert.equal(back.skuUniformSupplyV1 ?? null, null);
+  assert.match(back.history.at(-1).detail, /主人撤回了本商品的同重同价声明/u);
+  await api.assertClean();
+});

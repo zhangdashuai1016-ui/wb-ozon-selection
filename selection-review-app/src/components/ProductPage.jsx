@@ -319,6 +319,16 @@ function PricingGuidance({ guidance }) {
 const PENDING = "待补";
 const yuanOr = value => money(value) ?? PENDING;
 
+/**
+ * 「你填的」那个小标记。
+ * 每一格数字都要能说出自己是采到的还是主人声明的，所以这里只认服务端给的 basis，不去猜、也不去认来源字符串。
+ * `captured` 和没有 basis 的格子一个字都不加——2026-09-16 之前的表长什么样，没签字的表还长什么样。
+ */
+function declaredMark(basis) {
+  if (basis === "owner_declared") return <span className="product-sku-declared">{" · 你填的"}</span>;
+  return basis === "mixed" ? <span className="product-sku-declared">{" · 部分你填的"}</span> : null;
+}
+
 /** The one-line conclusion, in the table's own two numbers. */
 export function skuChoiceHeadline(table) {
   const drop = finite(table?.profitDropRate);
@@ -380,6 +390,59 @@ export function skuWeightGapNotice(table) {
       ? `这 ${total} 个规格是早先采的，那一次没有读到每个规格的重量，所以运费、单件利润、利润率整列都是「${PENDING}」，现在没法按利润挑。点「重新采集」把这个1688页面重新读一遍，就能按每个规格自己的重量算给你看。`
       : `这 ${total} 个规格里有 ${missing} 个是早先采的，没有重量，它们那几行的运费和利润是「${PENDING}」；另外 ${total - missing} 个照常。点「重新采集」重新读一遍这个1688页面，就能把缺的那几个补上。`
   };
+}
+
+/**
+ * 同重同价声明那一小块要说的话，整份来自服务端那份记录。
+ *
+ * 主人 2026-09-16：小猫战术背心采回来 5 个规格全是「均码」，只差颜色，重量和货价一个都没采到。同一件货的五个颜色，
+ * 重量本来就该一样，可他在「找货」里填过的数，软件不许自己拿来用——所以这里给他一个签字的地方，而不是替他签。
+ * 没有缺项、或者他还没在「找货」里填那两个数的时候，这一块不出现：没有事要他做。
+ */
+export function skuUniformSupplyNotice(step) {
+  if (!isObject(step)) return null;
+  const basis = isObject(step.basis) ? step.basis : {};
+  const declared = `${basis.packedWeightKg} 公斤 / ${money(basis.goodsPriceRmb) ?? "—"}`;
+  if (step.declared === true) {
+    const weight = Number.isInteger(step.appliedWeightCount) ? step.appliedWeightCount : 0;
+    const price = Number.isInteger(step.appliedPriceCount) ? step.appliedPriceCount : 0;
+    const filled = [weight > 0 ? `${weight} 个规格的重量` : null, price > 0 ? `${price} 个规格的货价` : null]
+      .filter(Boolean).join(" 和 ");
+    return {
+      mode: "declared",
+      heading: "这些规格按你填的算",
+      message: `你声明过这 ${step.total} 个规格是同一件货的不同规格。${filled === ""
+        ? "这一次采到的重量和货价都齐全，所以这份声明一行都没有用上——表里的数字全是采到的。"
+        : `所以${filled}用的是你在「找货」里填的 ${declared}，表里标成「你填的」；采到了真实数字的规格还是按采到的算。`}`,
+      buttonLabel: "撤回这个声明",
+      uniform: false
+    };
+  }
+  if (step.offered !== true) {
+    const blocked = textOf(step.blockedReason);
+    return blocked === "" ? null
+      : { mode: "blocked", heading: "这些规格缺重量或货价", message: blocked, buttonLabel: null, uniform: null };
+  }
+  const parts = [
+    step.weightGapCount > 0 ? `${step.weightGapCount} 个规格没采到重量` : null,
+    step.priceGapCount > 0 ? `${step.priceGapCount} 个规格没采到货价` : null
+  ].filter(Boolean).join("，");
+  const lapsed = textOf(step.lapsedReason);
+  return {
+    mode: "offer",
+    heading: "这些规格是同一件货吗？",
+    message: `这一次采集里${parts}，那几行的运费和利润只能写「${PENDING}」。如果这 ${step.total} 个规格就是同一件货的` +
+      `不同规格（比如只差颜色），点下面这个按钮，就是你声明：它们同重同价，按你在「找货」里填的 ${declared} 算。` +
+      `这是你自己填的数，不是采到的，表里会照实标成「你填的」；采到了真实重量或货价的规格仍然按采到的算。` +
+      `${lapsed === "" ? "" : `（${lapsed}）`}`,
+    buttonLabel: "这些规格同重同价，按我填的算",
+    uniform: true
+  };
+}
+
+/** Closed submission: the current revision and 声明 or 撤回 — nothing else travels with it. */
+export function skuUniformSupplyPayload(step, uniform) {
+  return { dataRevision: step?.dataRevision ?? null, uniform: uniform === true };
 }
 
 /** Closed submission: the current revision and the specifications the owner ticked, in the order they are listed. */
@@ -752,6 +815,12 @@ function SkuChoiceSources({ table }) {
       {" "}破损{percent(parts.damageLossReserveRate)} 提现{percent(parts.withdrawalFeeRate)}</dd></div>
     <div><dt>规格重量</dt><dd>来自采集到的页面 · 每个规格各自的重量{table.weightMissingCount > 0
       ? `（有 ${table.weightMissingCount} 个规格页面没给，运费和利润留空）` : ""}</dd></div>
+    {/* 签过字才有这一行：这张表里哪几个数不是采到的，是主人自己声明的。没签字的时候这一行不存在。 */}
+    {isObject(table.uniformSupply) ? <div><dt>{"你声明的同重同价"}</dt><dd>
+      {`${table.uniformSupply.appliedWeightSkuIds.length} 个规格按你填的 ${table.uniformSupply.packedWeightKg} 公斤算运费，`}
+      {`${table.uniformSupply.appliedPriceSkuIds.length} 个规格按你填的 ${money(table.uniformSupply.goodsPriceRmb)} 算货价`}
+      {dayOf(table.uniformSupply.declaredAt) ? ` · ${dayOf(table.uniformSupply.declaredAt)} 你声明的` : " · 你声明的"}
+    </dd></div> : null}
   </dl>;
 }
 
@@ -760,13 +829,15 @@ function SkuChoiceSources({ table }) {
  * The owner ticks specifications and presses one button. Nothing here starts work, contacts anyone, or reaches a
  * platform; the checkboxes are local until that button is pressed.
  */
-function SkuChoiceSection({ candidate, table, chosen, saving, recapturable = false, onRecapture, onToggle, onToggleAll, onSubmit }) {
+function SkuChoiceSection({ candidate, table, chosen, saving, recapturable = false, onRecapture, onToggle, onToggleAll,
+  onSubmit, uniformStep = null, onDeclareUniformSupply = null }) {
   const capture = candidate.sourceCapture;
   const swing = skuChoiceSwing(table);
   const allState = selectAllState(chosen, table.rows);
   const columns = table.columns.length > 0 ? table.columns : ["规格"];
   const savedIds = Array.isArray(capture.selectedSkuIds) ? capture.selectedSkuIds : [];
   const gap = skuWeightGapNotice(table);
+  const uniform = skuUniformSupplyNotice(uniformStep);
   return <section className="product-section product-sku-choice" aria-label="选规格">
     <h3>选哪个规格上架</h3>
     {/* 一个重量都没采到时，「按利润挑」这句话就是假的，不能照说。 */}
@@ -786,6 +857,20 @@ function SkuChoiceSection({ candidate, table, chosen, saving, recapturable = fal
       {recapturable
         ? <RecaptureControl candidate={candidate} disabled={saving} onRecapture={onRecapture} />
         : <span className="product-actions-note">这件商品当前的采集状态不能重读；先看下面「找货」里的采集状态。</span>}
+    </div>}
+
+    {/* 重采不是唯一的出路：同一件货的不同颜色本来就同重同价，主人可以自己签这个字。软件不许替他签，所以这里只有一个
+        按钮和一句大白话，签完之后这一块改说他签了什么，并且随时能撤回。 */}
+    {uniform === null ? null : <div className="product-sku-uniform" role="status">
+      <div className="product-sku-uniform-words">
+        <h4>{uniform.heading}</h4>
+        <p>{uniform.message}</p>
+      </div>
+      {uniform.buttonLabel === null ? null
+        : <button type="button" className={uniform.mode === "declared" ? "button secondary" : "button"}
+          disabled={saving || typeof onDeclareUniformSupply !== "function"}
+          onClick={() => onDeclareUniformSupply(skuUniformSupplyPayload(uniformStep, uniform.uniform))}>
+          {uniform.buttonLabel}</button>}
     </div>}
 
     {/* 一个规格都算不出利润时，「最赚 / 最少」只会显示两个「待补」，那不是结论，就不显示。 */}
@@ -833,8 +918,9 @@ function SkuChoiceSection({ candidate, table, chosen, saving, recapturable = fal
               {table.columns.length > 0
                 ? table.columns.map((key, index) => <td key={key}>{textOf(row.values[index]) || "—"}</td>)
                 : <td>{row.label}</td>}
-              <td>{yuanOr(row.priceCny)}</td>
-              <td>{finite(row.chargeableKg) === null ? PENDING : `${row.chargeableKg} 公斤`}</td>
+              {/* 主人的原话：表里要标明「你填的」而不是「采到的」。这两个数只要不是这次采到的，就当场说出来。 */}
+              <td>{yuanOr(row.priceCny)}{declaredMark(row.priceBasis)}</td>
+              <td>{finite(row.chargeableKg) === null ? PENDING : `${row.chargeableKg} 公斤`}{declaredMark(row.weightBasis)}</td>
               <td>{yuanOr(row.freightRmb)}</td>
               {/* 待补 is not a profit, so it never wears the profit's colour. */}
               <td className={row.unitProfitRmb === null ? "product-sku-pending" : "product-sku-profit"}>{yuanOr(row.unitProfitRmb)}</td>
@@ -1330,8 +1416,8 @@ function ProfitStepSection({ review, cargoStep, categoryStep, extraHandlingStep 
                   {index === 0 && isFirst ? <b>{" · 先上"}</b> : null}
                 </td>)
                 : <td>{row.label}{isFirst ? <b>{" · 先上"}</b> : null}</td>}
-              <td>{yuanOr(row.priceCny)}</td>
-              <td>{finite(row.chargeableKg) === null ? PENDING : `${row.chargeableKg} 公斤`}</td>
+              <td>{yuanOr(row.priceCny)}{declaredMark(row.priceBasis)}</td>
+              <td>{finite(row.chargeableKg) === null ? PENDING : `${row.chargeableKg} 公斤`}{declaredMark(row.weightBasis)}</td>
               <td>{yuanOr(row.freightRmb)}</td>
               <td>{finite(row.breakEvenRub) === null ? PENDING : RUB(row.breakEvenRub)}</td>
               <td>{finite(row.thresholdRub) === null ? PENDING : RUB(row.thresholdRub)}</td>
@@ -1583,7 +1669,7 @@ function RefreshFeeEvidenceSection({ candidate, saving, onRefresh }) {
 export default function ProductPage({
   candidate, view = null, titleZh = null, extensionStatus = null,
   onSaveDraft, onChooseSkus, onRequestCapture, onReviewCaptureAndRequest, onRecaptureSource,
-  onConfirmProfitStep, onDeclareCargoFacts, onDeclareExtraHandlingFees, onReadOzonPage, onOpenLegacyCard,
+  onConfirmProfitStep, onDeclareCargoFacts, onDeclareExtraHandlingFees, onDeclareUniformSupply, onReadOzonPage, onOpenLegacyCard,
   onBack, onEliminateCandidate,
   onRecalculateBWithExactCommission = null, onRefreshBFeeEvidence = null,
   loadingLabel = "正在读取这件商品的找货资料…"
@@ -1592,6 +1678,8 @@ export default function ProductPage({
   const marketSnapshot = view?.marketSnapshot ?? null;
   const skuTable = view?.skuChoiceTableV1 ?? null;
   const profitReview = view?.profitStepV1 ?? null;
+  // 同重同价：这一批采到的规格缺不缺重量和货价、主人签过没有。整份来自服务端那份记录，页面自己不判断。
+  const uniformStep = view?.skuUniformSupplyStepV1 ?? null;
   const cargoStep = view?.cargoFactsStepV1 ?? null;
   const categoryStep = view?.ozonCategoryReadStepV1 ?? null;
   // 每单额外操作费那一块整份来自服务端那份记录：这件商品声明过没有、声明的是哪几笔、合计多少、还缺什么。
@@ -1664,6 +1752,13 @@ export default function ProductPage({
    */
   const declareExtraHandlingFees = payload => run(onDeclareExtraHandlingFees, payload,
     "已记下这件商品每单要另外花的钱，上面的利润已经按它重算过；没有下单、没有联系供应商、也没有向 Ozon 写任何东西。");
+  /**
+   * 同重同价声明。它只记下主人对这一次采集说的那句话：缺的重量和货价按他在「找货」里填的算。采到了真实数字的规格
+   * 仍然按采到的算，重新采集之后这句话自动失效。不下单、不联系供应商、不碰平台。
+   */
+  const declareUniformSupply = payload => run(onDeclareUniformSupply, payload, payload?.uniform === true
+    ? "已记下你的声明：没采到重量和货价的规格按你在「找货」里填的算，表里标着「你填的」；采到了真实数字的规格不受影响。"
+    : "已撤回这个声明：没采到重量和货价的规格回到「待补」，不再按你填的数算。");
   /**
    * 读一次这个 Ozon 商品页。目标地址不从这里传：服务端只认这件商品自己已经保存的那个地址。回来的那句话是服务端
    * 和插件实际说的（含插件自己的拒绝码），页面原样显示，不改写、不概括，也不承诺重试。
@@ -1812,6 +1907,7 @@ export default function ProductPage({
       </section>
       : <SkuChoiceSection candidate={candidate} table={skuTable} chosen={chosen} saving={saving}
         recapturable={recapturable} onRecapture={recapture}
+        uniformStep={uniformStep} onDeclareUniformSupply={declareUniformSupply}
         onToggle={(id, checked) => { setChosen(current => toggleLocalSupplierSkuSelection(current, id, checked)); setNotice(null); }}
         onToggleAll={checked => { setChosen(checked ? skuTable.rows.map(row => String(row.sourceSkuId)) : []); setNotice(null); }}
         onSubmit={() => run(onChooseSkus, skuChoicePayload(skuTable, chosen, candidate.dataRevision),

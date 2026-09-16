@@ -57,3 +57,6 @@ id_ed25519
 # Nested browser artifacts are local only
 **/.playwright-cli/
 **/output/
+
+# 个人权限配置，不进仓库
+.claude/settings.local.json

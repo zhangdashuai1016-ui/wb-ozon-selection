@@ -10,7 +10,10 @@ import { createADiscoveryTitleTranslationUseCase } from './lib/discovery-title-t
 import { createADiscoveryEstimateInputs, createADiscoveryEstimateUseCase } from './lib/a-discovery-estimate-store.mjs';
 import { ensureDiscoveryMarketSalesSnapshot, readDiscoveryMarketRecord, currentSalesSnapshot } from './lib/discovery-market-snapshot.mjs';
 import { SupplierDraftError, buildSupplierDraftEstimate, buildSupplierDraftV1, normalizeSupplierDraftInput } from './lib/supplier-draft.mjs';
-import { buildSkuChoiceTable } from './lib/sku-choice-estimate.mjs';
+import {
+  SKU_UNIFORM_SUPPLY_LABEL, buildSkuChoiceTable, buildSkuUniformSupplyStep,
+  buildOwnerSkuUniformSupplyRecord, inForceSkuUniformSupply, readSkuUniformSupplyDeclaration
+} from './lib/sku-choice-estimate.mjs';
 import { buildProfitStepReview } from './lib/profit-step-review.mjs';
 import {
   CARGO_FACT_KEYS, buildCargoFactsStep, buildOwnerCargoFactsRecord, validateOwnerCargoFactsDeclaration
@@ -2720,7 +2723,9 @@ function supplierSkuChoiceTableFrom(candidate, draft, resolved) {
     choices, draft, storeRule: resolved.storeRule, fx: resolved.fx, commission: resolved.commission,
     tariffRows: resolved.freight.rows, assumptions: resolved.assumptions, marketProduct: resolved.marketProduct,
     selectedSkuIds: Array.isArray(capture.selectedSkuIds) ? capture.selectedSkuIds : [],
-    builtAt: resolved.at, inputs: resolved.inputs
+    builtAt: resolved.at, inputs: resolved.inputs,
+    // 同重同价声明：只有主人自己签过、而且签的就是这一次采集，才会有东西传进去。没签过是 null，整张表一如从前。
+    uniformSupply: inForceSkuUniformSupply(candidate)
   });
 }
 
@@ -2740,6 +2745,8 @@ async function supplierDraftView(document, candidate) {
     supplierDraftV1: draft === null ? null : structuredClone(draft),
     supplierDraftEstimateV1: estimate,
     skuChoiceTableV1: table,
+    // 同重同价声明那一小块：这一批采到的规格缺不缺重量和货价、主人签过没有、签的是不是这一次。它自己不算钱。
+    skuUniformSupplyStepV1: table === null ? null : buildSkuUniformSupplyStep({ candidate, draft, table }),
     // 算利润 reads the very card the page is handed, so what the owner confirms and what the server validates are the
     // same record. Nothing is computed a second time here: the specification table above already priced every row.
     profitStepV1: table === null ? null : buildProfitStepReview({
@@ -5105,6 +5112,78 @@ async function handleApi(req, res, pathname) {
         `主人确认了本商品的${EXTRA_HANDLING_FEE_LABEL}：${record.headline}` +
         `这一步只记录这份声明并把合计写进本商品的成本事实，未派发任务、未联系供应商、未向平台写入任何内容，也未形成利润结论。`,
         timestamp);
+      return current.dataRevision;
+    });
+    const savedDocument = await readData();
+    const savedCandidate = savedDocument.candidates.find((item) => item.id === candidateId);
+    if (!savedCandidate) throw httpError(404, "候选不存在");
+    return json(res, 200, await supplierDraftView(savedDocument, savedCandidate));
+  }
+
+  /**
+   * 同重同价声明 — 主人对某一次采集说的一句话：「这些规格是同一件货的不同规格，缺的重量和货价按我在找货里填的算」。
+   *
+   * 2026-09-16 那件小猫战术背心：采回来 5 个规格全是「均码」，只差颜色，重量和货价一个都没采到，整张表整列「待补」，
+   * 而他在「找货」里早就填了 0.2 公斤和 ¥18。软件不能自己去借那个数——2026-09-13 的狗雨衣八个尺码 103 克到 240 克，
+   * 借一个数会把小码的运费全算错——所以这里做的是把签字权交给他，而不是把借数的口子开给软件。
+   *
+   * 这条路只写一份声明：写的是「按我在找货里填的算」，不是把数字抄成事实。所以「找货」改了那张表跟着改，两处永远是
+   * 同一个数；采到了真实重量的规格永远用采到的；重新采过之后这份声明自动失效，他重新看一眼再签。
+   * uniform:false 就是撤回。不派任务、不联系供应商、不向平台写任何东西，也不形成利润结论。
+   */
+  const skuUniformSupplyRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/sku-uniform-supply$/);
+  if (req.method === "POST" && skuUniformSupplyRoute) {
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      throw httpError(403, `请先登录主人身份后声明${SKU_UNIFORM_SUPPLY_LABEL}。`);
+    }
+    const candidateId = decodeURIComponent(skuUniformSupplyRoute[1]);
+    const input = await readJsonRequestBody(req, { maxBytes: 4096, requireJsonContentType: true });
+    if (input === null || typeof input !== "object" || Array.isArray(input) ||
+        Object.keys(input).length !== 2 || !Object.hasOwn(input, "dataRevision") || !Object.hasOwn(input, "uniform")) {
+      throw httpError(400, `${SKU_UNIFORM_SUPPLY_LABEL}只接受当前数据修订号和一个「声明／撤回」`);
+    }
+    if (!Number.isInteger(input.dataRevision) || input.dataRevision < 0) {
+      throw httpError(400, `${SKU_UNIFORM_SUPPLY_LABEL}必须提供当前数据修订号`);
+    }
+    if (typeof input.uniform !== "boolean") {
+      throw httpError(400, `${SKU_UNIFORM_SUPPLY_LABEL}要么声明、要么撤回，没有第三种`);
+    }
+    const timestamp = now();
+    await mutateData((data) => {
+      const current = data.candidates.find((item) => item.id === candidateId);
+      if (!current) throw httpError(404, "候选不存在");
+      if (Number(current.dataRevision) !== input.dataRevision) {
+        throw httpError(409, `商品资料已变化，请刷新后重新声明${SKU_UNIFORM_SUPPLY_LABEL}`, { currentRevision: current.dataRevision });
+      }
+      if (current.lifecycleV11?.skuPackage) {
+        throw httpError(409, `这件商品的供货方案已经冻结，${SKU_UNIFORM_SUPPLY_LABEL}不能再改`, { code: "sku_uniform_supply_frozen" });
+      }
+      if (activeDispatchForCandidate(data, current.id)) throw httpError(409, "当前商品已有任务正在等待或运行");
+      let line;
+      if (input.uniform === false) {
+        if (readSkuUniformSupplyDeclaration(current).status === "absent") {
+          throw httpError(409, `这件商品没有${SKU_UNIFORM_SUPPLY_LABEL}可以撤回`, { code: "sku_uniform_supply_absent" });
+        }
+        delete current.skuUniformSupplyV1;
+        line = `主人撤回了本商品的${SKU_UNIFORM_SUPPLY_LABEL}：没采到重量和货价的规格重新回到「待补」，运费和利润不再按他填的算。`;
+      } else {
+        let record;
+        try { record = buildOwnerSkuUniformSupplyRecord({ candidate: current, declaredAt: timestamp }); }
+        catch (error) {
+          throw httpError(422, String(error?.message ?? error).replace(/^SKU_UNIFORM_SUPPLY_[A-Z_]+: /u, ""),
+            { code: "sku_uniform_supply_invalid" });
+        }
+        current.skuUniformSupplyV1 = record;
+        line = `主人声明了本商品这一次采集（${record.captureId}）的 ${record.sourceSkuIds.length} 个规格同重同价：` +
+          `${record.headline}采到了真实重量或货价的规格仍按采到的算，这份声明只补页面没给的那一半；重新采集之后它自动失效。`;
+      }
+      current.dataRevision = Number(current.dataRevision || 0) + 1;
+      current.updatedAt = timestamp;
+      current.lastModifiedBy = "user";
+      assertSafeBusinessMutationCandidate(current, "businessMutation.candidate");
+      addHistory(current, "user", "ownerSkuUniformSupplyDeclared",
+        `${line}这一步只记录这份声明，未派发任务、未联系供应商、未向平台写入任何内容，也未形成利润结论。`, timestamp);
       return current.dataRevision;
     });
     const savedDocument = await readData();

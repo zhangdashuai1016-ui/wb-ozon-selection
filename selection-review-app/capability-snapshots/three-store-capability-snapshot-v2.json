@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-16T06:01:29.759Z",
+  "frozenAt": "2026-09-16T15:39:37.652Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 670,
-      "sha256": "6a75da762d3354f61c5373b7dd39a55f4bced89ca25fe13a4613c7deef5cefbc",
+      "sha256": "d0493492d8e07352ccbdf76284f8189f9854d1fa9af0deaf50152460057bd4be",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -324,7 +324,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "0d207291971a680f706c07413aca1977943af5391f5945ebaf58fc7f80e33aec"
+        "sha256": "b69938363d3df21014e5f0b6ec2f05c44a291db1eea97dcaa95701213bd771d6"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -764,7 +764,7 @@
       },
       {
         "path": "lib/profit-step-review.mjs",
-        "sha256": "b31ff66192bdc827d7d6c14b5f9b9cfade885b30965fa97e15a79f716b400588"
+        "sha256": "82481c37d249dbaba7f9bc20a0c42115d638e8efff83f7160c54a130d6b8fbbe"
       },
       {
         "path": "lib/profit-threshold-policy.mjs",
@@ -828,7 +828,7 @@
       },
       {
         "path": "lib/sku-choice-estimate.mjs",
-        "sha256": "67aab4f71686b0858e3ebfc4e1f18016bbc6ffeb08b381b87c9c9cce700b90a9"
+        "sha256": "1fb6515b01f404e9f28209ce5ae84a46213709b0d58cfcbf859a0da9c7c5b80e"
       },
       {
         "path": "lib/software-execution-state.mjs",
@@ -1200,11 +1200,11 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "b62bd7c0f0bf6c2cbbdfe8b8ba43218d963082622a132a3d74eb31b5279167da"
+        "sha256": "ea1efc08589a08ca3d30485928893078b628f03b4076c20edb03b066944f5054"
       },
       {
         "path": "src/App.jsx",
-        "sha256": "2cf672552269968b2ba5dfb579ed89e802679e06974560a28abce47d618e3e61"
+        "sha256": "6cabfb21cb1f138db9cdd8db5aaa873f853429de4095dcc091bee07779f34bf0"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1216,7 +1216,7 @@
       },
       {
         "path": "src/api.js",
-        "sha256": "d536e2b439160f72464982b1fd4d453e9f10d1925ba3f76db4ea5712ac0d5b91"
+        "sha256": "b2062c3cb0295e289880b3ce940edd7752010f33c628cb36d3bb967dd86c154b"
       },
       {
         "path": "src/bExactCommissionInput.js",
@@ -1352,7 +1352,7 @@
       },
       {
         "path": "src/components/ProductPage.jsx",
-        "sha256": "78d3a441ffc70f9f408c70da0c175ba6d07278924f661ed109a51f476048cc82"
+        "sha256": "436610d57424bac9c047fd7ba440a0bdce4ed0062f800630bacb9ab9e1a8027c"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1452,7 +1452,7 @@
       },
       {
         "path": "src/styles.css",
-        "sha256": "60e18a7a871227c5fcb005d3222694023c12f36f5f0bd2da927ea94c3735474e"
+        "sha256": "e5df479d0f8bed8595f66e624971bf322b011de757f0eded7e2a4713ae718116"
       },
       {
         "path": "src/wbPresentation.js",
@@ -2480,7 +2480,7 @@
       },
       {
         "path": "tests/product-page-ui.test.mjs",
-        "sha256": "d2418a08325e26a6829c9c26f54a4c13e8dc9568005919127d37048bb1c11e41"
+        "sha256": "d482482b7babbe6423340ca97b7ca588ff4b29b42c229f3c470018c7da0d164f"
       },
       {
         "path": "tests/production-owner-decision-api.test.mjs",
@@ -2604,7 +2604,7 @@
       },
       {
         "path": "tests/sku-choice-estimate.test.mjs",
-        "sha256": "b3057196f9f1538f29c113e29113a1cee0cea0b57453a0dc953ad1926d0f0eba"
+        "sha256": "c0eec7c35375e762697053b2d8d3d45eb405dafd37296a1debd2c28912bd195a"
       },
       {
         "path": "tests/software-execution-state.test.mjs",
@@ -2660,7 +2660,7 @@
       },
       {
         "path": "tests/supplier-draft-api.test.mjs",
-        "sha256": "a367ab5900cae6d112af9499061812cd977764dcc4e62a7df02864aa2e2c0729"
+        "sha256": "1f9df5ad4201f8ef9a00893b6233e3a5cd229e15e81f84bdf5bba15f6f243a3e"
       },
       {
         "path": "tests/supplier-draft.test.mjs",

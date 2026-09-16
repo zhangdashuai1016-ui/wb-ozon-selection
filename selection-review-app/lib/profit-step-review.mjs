@@ -226,6 +226,10 @@ export function groupQueuedSpecifications(rows, columns) {
       label: label === '' ? head.label : label,
       values,
       priceCny: head.priceCny, weightKg: head.weightKg, chargeableKg: head.chargeableKg,
+      // 这一行的货价和重量是采到的还是主人自己声明的。同价同重可以并成一行，「这个数哪儿来的」不可以并掉：
+      // 一组里有的是采到的、有的是主人声明的，就说 mixed，不挑一个替另一个说话。
+      priceBasis: members.every(row => row.priceBasis === head.priceBasis) ? head.priceBasis ?? null : 'mixed',
+      weightBasis: members.every(row => row.weightBasis === head.weightBasis) ? head.weightBasis ?? null : 'mixed',
       freightRmb: head.freightRmb, allInPurchaseRmb: head.allInPurchaseRmb,
       unitProfitRmb: head.unitProfitRmb, marginRate: head.marginRate,
       breakEvenRub: head.breakEvenRub ?? null, thresholdRub: head.thresholdRub ?? null,

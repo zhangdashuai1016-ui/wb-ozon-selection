@@ -1237,6 +1237,16 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 .product-sku-weight-gap-words { min-width: 0; flex: 1 1 320px; }
 .product-sku-weight-gap h4 { margin: 0 0 3px; font-size: 14px; color: var(--amber); }
 .product-sku-weight-gap p { margin: 0; font-size: 12px; line-height: 1.6; }
+/* 同重同价声明：重采不是唯一的出路，同一件货的不同颜色主人可以自己签字。软件不替他签，所以这里只有一个按钮。 */
+.product-sku-uniform {
+  display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--blue, #4a7bd0); border-radius: 12px; background: #f7f9fc;
+}
+.product-sku-uniform-words { min-width: 0; flex: 1 1 320px; }
+.product-sku-uniform h4 { margin: 0 0 3px; font-size: 14px; }
+.product-sku-uniform p { margin: 0; font-size: 12px; line-height: 1.6; }
+/* 「你填的」：这一格的数字不是采到的。它必须一眼看得出来，但不能盖过数字本身。 */
+.product-sku-declared { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .product-sku-recapture { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
 .product-sku-recapture > span { color: var(--muted); font-size: 11px; line-height: 1.55; }
 .product-sku-verdict-lede { min-width: 0; flex: 1 1 250px; }

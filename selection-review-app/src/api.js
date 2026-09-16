@@ -137,6 +137,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  // 同重同价声明 — 主人对某一次采集说的一句话：「这些规格是同一件货的不同规格，缺的重量和货价按我在找货里填的算」。
+  // 它只记录这句话：采到了真实重量或货价的规格仍按采到的算，重新采集之后它自动失效。uniform:false 就是撤回。
+  // 不派任务、不联系供应商、不碰平台。
+  declareSkuUniformSupply: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/sku-uniform-supply`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   // 淘汰 / 恢复 are the owner's own soft delete: one status, one instant, one history line, no dispatch, no platform.
   eliminateCandidate: (candidateId, payload) =>
     request(`/api/candidates/${encodeURIComponent(candidateId)}/workflow/eliminate`, {
