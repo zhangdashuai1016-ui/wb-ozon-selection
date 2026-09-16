@@ -393,6 +393,14 @@ r24 引入的 `freezeResolvedCompetitorCategory` 会改写上下文类目，而�
 4. 待裁决：1688 起步的反查路线（Ozon 以图搜款 + 插件采集结果页 → 自动价格带）排在本轮之后。
 5. 待裁决：两项既有隔离测试失败（旧派发 claim 路由 409 vs 期望 200；拒绝文案正则）改路由还是改期望。
 6. 未做：全店能力地图挪到顶栏叫"小地图"；AI 选品层；C1/C2 首跑；D 上架（先 /v1/roles 只读核验）；E 回读；Codex 残留清理；WB 联动。
+### 部署记录 r30（2026-09-16 12:59，主人确认部署卡后执行）
+
+- 上线 `20260916-store-identity-r30`（提交 `ab3e067`）：仓库反推这条店铺身份锚点贯通到真正写入前的每一道门；plist 只改程序路径与工作目录，38 个环境变量一个未改。
+- 回读全绿：`state=running` pid 36158、health/首页 200、r29 进程无残留、8 个业务数据文件 sha256 **逐条一致**、stderr 自 09-08 起零新增。前端包名与 r29 相同（本批只改后端，符合预期）。
+- **完整确认卡与回读明细见 `~/.local/share/wb-ozon-engineering/deploy-cards/20260916-store-identity-r30.md`**，此处不重复。接班入口节已 387 行、一天涨 58 行，**今后部署记录一律只留摘要 + 指针**。
+- 坑（下次照做）：`bootout` 之后立刻 `bootstrap` 会连报 `Bootstrap failed: 5: Input/output error`，连试 5 次全废。先确认旧 pid 已退出、4317 无监听、`launchctl print` 查不到该标签，再 bootstrap，第一次就成。
+- 这次上线**不证明** `/v3/product/import` 调得通——那把 Key 的上架权限至今一次未验。首件仍卡在 C，差 `writeBindings` 映射、三个字典属性、SEO 文案正式稿。
+
 
 ## 历史接班入口（2026-09-10 上午，Claude Code：PR #4 已合并；Seerfar 会员网页路线严格合同落地；旧"自动选品"来源已核实，路线待主人拍板）
 
