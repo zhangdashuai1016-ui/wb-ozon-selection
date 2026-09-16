@@ -1142,7 +1142,9 @@ D/E 领域执行、独立终态审查和保存任务视图已完成本段工程�
 - 第一组发现并修复 E 当前来源冲突、C1 rights坏字段和C2事务回执保留问题；早期测试数量不能替代上方最终定向结果。
 - 后续依赖仍为：正式C1配置及入口 → 同一生产确认后的PA→D→E软件执行 → 完整隔离验收 → 准备可审核的真实执行和部署范围。撤回的预算、新端点方案不进入该顺序。
 
-### 当前工程模型分工（本轮记录，非生产网关配置）
+以下为停写交接基线，保留追溯；上面记录是当前工程状态。
+
+### Codex 时代的模型分工（历史，仅供追溯——当前工具没有 effort 参数，勿照此分档）
 
 来源已核实总控启动配置为gpt-6-astra／xhigh；本轮三个子任务创建时采用全历史继承且未覆盖模型，因此继续继承该配置。现有followup工具无模型／effort更新参数，不强行中断正在落代码或验证的工作。
 
@@ -1166,8 +1168,6 @@ D/E 领域执行、独立终态审查和保存任务视图已完成本段工程�
 - `node scripts/run-local-api-tests.mjs lifecycle-e-readback-generic-api.test.mjs`：2/2通过；隔离实际HTTP同时读取冲突商品和其他商品，重启前后保存文件逐字不变，旧身份／授权拒绝仍通过，无stderr／warning。
 - `node --test tests/d-e-software-runtime-view.test.mjs`：5/5通过，0失败／skip／warning；E和生命周期冲突不显示当前已验证。
 - 权利负责人：`node --test tests/c1-sku-rights-review.test.mjs tests/c1-product-plan.test.mjs`最终53/53通过，4个责任文件`node --check`、定向`git diff --check`通过。完整CI、最终build及页面仍未验证。
-
-以下为停写交接基线，保留追溯；上面记录是当前工程状态。
 
 来源沟通任务为“施工前讨论语音三”，ID `01a0798d-edfb-73f3-9e65-ae12c804f002`，host `local`。老板只与来源沟通。新总控不由本任务创建。原总控与三个子任务均退出工程写者角色；本文件和仓库外交接保全是最后写入。
 
