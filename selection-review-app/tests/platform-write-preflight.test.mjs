@@ -279,7 +279,7 @@ test("店铺身份只认两条锚：观测到的店铺引用，或仓库反推�
   const drifted = await run({ observedStoreRef: { ...projectProductionPlanInputs(plan).storeRef, platformStoreId: "seller-miska-001" } });
   assert.equal(drifted.storeIdentity.verifiedVia, "platform_store_id");
   assert.equal(drifted.storeIdentity.status, "mismatched");
-  assert.ok(noneVia.risks.some((risk) => risk.code === "store_identity_not_verified"));
+  assert.ok(drifted.risks.some((risk) => risk.code === "store_identity_not_verified"));
   const forgedNone = structuredClone(noneVia); forgedNone.storeIdentity.status = "matched";
   assert.equal(validatePlatformWritePreflight(forgedNone).valid, false, "'none' 配一个对得上的店铺引用仍然不算锚住");
   assert.equal(warehouse.platformWrites, 0);

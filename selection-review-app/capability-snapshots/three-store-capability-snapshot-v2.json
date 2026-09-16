@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-16T04:16:41.598Z",
+  "frozenAt": "2026-09-16T06:01:29.759Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 670,
-      "sha256": "cb9c6083da8b27d5166ec809efd77efcec40141d2a330300aecf564e215787cb",
+      "sha256": "6a75da762d3354f61c5373b7dd39a55f4bced89ca25fe13a4613c7deef5cefbc",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -736,7 +736,7 @@
       },
       {
         "path": "lib/production-contract-primitives.mjs",
-        "sha256": "3b2ba11a84335417b25cbccd6e084d055a49b1359029eb1aae650d140c8346c8"
+        "sha256": "b01fa34e7b7b2da1ef4a08fa97097636db1c75add58ba11bc9724426a145eab6"
       },
       {
         "path": "lib/production-execution-failure.mjs",
@@ -2468,7 +2468,7 @@
       },
       {
         "path": "tests/platform-write-preflight.test.mjs",
-        "sha256": "38055b938c2c221d9ff46be91c949ef71485607c5c8f3da11e696b7c5e470682"
+        "sha256": "68cff7bb9402171dca428d27e9f9b71330f2fdb7e22fad54b74e43f875ad2008"
       },
       {
         "path": "tests/post-launch-observation.test.mjs",
@@ -2476,7 +2476,7 @@
       },
       {
         "path": "tests/product-lifecycle-schema.test.mjs",
-        "sha256": "e27866afba86beeed7d1aebb31befe96e0f972b5090b9e2e0388a5fb59c69497"
+        "sha256": "be3bee5ec20a1880e96f9d97caba7e6180d0b056a93c52c780765bd30bc63545"
       },
       {
         "path": "tests/product-page-ui.test.mjs",

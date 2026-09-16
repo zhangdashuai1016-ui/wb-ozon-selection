@@ -439,16 +439,49 @@ export const C2_REFERENCE_SEMANTICS = Object.freeze({
 });
 export const C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS = C2_REFERENCE_SEMANTICS.c1OpaqueAuthorizationId;
 
+// The allowed paths are the frozen prefix x path cross product (84 pairs).  It
+// never changes at runtime, so materialize it once and bucket it by segment
+// count.  Every string in a production record is checked against this table, and
+// rebuilding all 84 expected paths per string accounted for about a third of the
+// scan's self time.  The membership test below answers exactly what the old one
+// answered: same order (path first, canonical id second), same element-wise
+// `===` comparison, just without the per-string allocation.
+const C1_OPAQUE_AUTHORIZATION_ID_ALLOWED_PATHS_BY_LENGTH = (() => {
+  const byLength = new Map();
+  for (const prefix of C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS.runtimeRootPrefixes) {
+    for (const path of C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS.runtimePaths) {
+      const expected = Object.freeze([...prefix, ...path]);
+      const bucket = byLength.get(expected.length);
+      if (bucket) bucket.push(expected);
+      else byLength.set(expected.length, [expected]);
+    }
+  }
+  for (const [length, bucket] of byLength) byLength.set(length, Object.freeze(bucket));
+  return byLength;
+})();
+
 function isAllowedC1OpaqueAuthorizationId(value, pathSegments) {
   const text = String(value);
-  const allowedPath = C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS.runtimeRootPrefixes.some((prefix) =>
-    C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS.runtimePaths.some((path) => {
-      const expected = [...prefix, ...path];
-      return expected.length === pathSegments.length && expected.every(
-        (segment, index) => segment === pathSegments[index]
-      );
-    })
-  );
+  // Read the segment count unconditionally, as the old comparison did, so a
+  // malformed `pathSegments` still fails loudly instead of quietly answering
+  // "not allowed".
+  const expectedPaths = C1_OPAQUE_AUTHORIZATION_ID_ALLOWED_PATHS_BY_LENGTH.get(pathSegments.length);
+  let allowedPath = false;
+  if (expectedPaths !== undefined) {
+    for (const expected of expectedPaths) {
+      let matches = true;
+      for (let index = 0; index < expected.length; index += 1) {
+        if (expected[index] !== pathSegments[index]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        allowedPath = true;
+        break;
+      }
+    }
+  }
   if (!allowedPath ||
       !isCanonicalC1AuthorizationId(text)) {
     return false;
@@ -456,9 +489,38 @@ function isAllowedC1OpaqueAuthorizationId(value, pathSegments) {
   return true;
 }
 
-function secretValueReason(value, pathSegments) {
-  if (hasPercentEncodingBeyondDecodeDepth(value)) return "encoded content exceeds approved depth";
+// One document walk sees the same string value many times over: a real business
+// record holds about 8000 strings but only about 480 distinct ones.  Every part
+// of the scan except the C1 opaque-authorization allowance is a pure function of
+// the string, and the allowance is a plain boolean, so `(value, allowance)` is a
+// complete cache key — nothing about the path leaks past it and a repeated
+// secret is still reported at every path it appears on.
+//
+// The cache is scoped to a single `collectProductionSecretErrors` call on
+// purpose, not to the module: a module-level cache in a long-running server
+// would grow without bound and carry one request's strings into the next.  This
+// one dies with the walk and is bounded by the walk's own node limit
+// (PRODUCTION_CONTRACT_MAX_NODES / BUSINESS_CANDIDATE_MAX_NODES).
+function createSecretScanCache() {
+  return { encodingDepth: new Map(), scan: [new Map(), new Map()] };
+}
+
+function secretValueReason(value, pathSegments, cache = createSecretScanCache()) {
+  let beyondDecodeDepth = cache.encodingDepth.get(value);
+  if (beyondDecodeDepth === undefined) {
+    beyondDecodeDepth = hasPercentEncodingBeyondDecodeDepth(value);
+    cache.encodingDepth.set(value, beyondDecodeDepth);
+  }
+  if (beyondDecodeDepth) return "encoded content exceeds approved depth";
   const allowedOpaqueAuthorizationId = isAllowedC1OpaqueAuthorizationId(value, pathSegments);
+  const scanned = cache.scan[allowedOpaqueAuthorizationId ? 1 : 0];
+  if (scanned.has(value)) return scanned.get(value);
+  const reason = secretScanReason(value, allowedOpaqueAuthorizationId);
+  scanned.set(value, reason);
+  return reason;
+}
+
+function secretScanReason(value, allowedOpaqueAuthorizationId) {
   for (const text of secretScanCandidates(value)) {
     if (/\b(?:bearer|basic)\s+(?!(?:plant|extract|required|documentation|material|design)\b)[A-Za-z0-9._~+/=-]{3,}/i.test(text)) {
       return "authorization value";
@@ -495,6 +557,14 @@ function secretValueReason(value, pathSegments) {
     if (text.startsWith("//")) candidates.push(`https:${text}`);
     else if (/^[/?#]/.test(text) || /[?#]/.test(text)) candidates.push(`https://schema.invalid/${text}`);
     for (const candidate of candidates) {
+      // `URL.canParse(x)` is specified as exactly "would `new URL(x)` not
+      // throw", so this skips only the strings the `catch` below already
+      // ignored — it never decides what counts as a URL, and every string that
+      // does parse still goes through the full check.  It is here because most
+      // business text is not a URL and building the thrown exception cost more
+      // than the parse itself.  `try`/`catch` stays: it is the guarantee, the
+      // pre-check is only the fast path.
+      if (!URL.canParse(candidate)) continue;
       try {
         const parsed = new URL(candidate);
         if (parsed.username || parsed.password) return "URL userinfo";
@@ -516,6 +586,7 @@ export function collectProductionSecretErrors(value, path, errors, pathSegments 
   const maxNodes = resourceLimitForScope(resourceScope);
   if (resourceScope === "business_candidate") assertBusinessCandidateResourceBounds(value);
   const stack = [{ kind: "value", value, path, pathSegments, depth: 0 }];
+  const secretScanCache = createSecretScanCache();
   let nodeCount = 0;
   while (stack.length > 0) {
     const current = stack.pop();
@@ -544,7 +615,7 @@ export function collectProductionSecretErrors(value, path, errors, pathSegments 
       return;
     }
     if (typeof current.value === "string") {
-      const reason = secretValueReason(current.value, current.pathSegments);
+      const reason = secretValueReason(current.value, current.pathSegments, secretScanCache);
       if (reason) errors.push({ path: current.path, message: `不得保存秘密：${reason}` });
       continue;
     }

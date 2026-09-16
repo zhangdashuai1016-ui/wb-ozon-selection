@@ -607,6 +607,42 @@ test("B1秘密门有界解码且保留合法相似商品文本和opaque引用", 
     { providerJobRef: { authorizationRef: { authorizationId: legalAuthorizationId } } },
     { "frozenC1Handoff.draftOnlySeo.providerJobRef.authorizationRef.authorizationId": legalAuthorizationId }
   ]) assert.throws(() => assertNoProductionSecrets(wrongPath), /SECRET_REJECTED/);
+  // 扫描器按字符串值缓存结论，下面三条钉住它绝不能顺手把别的东西一起缓存掉。
+  // 一：同一次扫描里，允许路径上的那次放行不得顺带放行别处的同一个值。
+  const mixedPlacement = {
+    ...canonicalAuthorizationRecords(legalAuthorizationId),
+    note: legalAuthorizationId,
+    targetContext: { note: legalAuthorizationId }
+  };
+  assert.throws(() => assertNoProductionSecrets(mixedPlacement), (error) => {
+    assert.doesNotMatch(error.message, /frozenC1Handoff/, "允许路径上的那次被误报");
+    assert.match(error.message, /productionAuthorization\.\[unknown\]/);
+    assert.match(error.message, /productionAuthorization\.targetContext\.\[unknown\]/);
+    return true;
+  });
+  // 二：同一个秘密在一次扫描里出现几次，就要被点名几次。
+  assert.throws(() => assertNoProductionSecrets({
+    note: "token=abc",
+    targetContext: { note: "token=abc" },
+    scope: { value: "token=abc" }
+  }), (error) => {
+    for (const path of [
+      "productionAuthorization.[unknown]",
+      "productionAuthorization.targetContext.[unknown]",
+      "productionAuthorization.scope.value"
+    ]) assert.ok(error.message.includes(path), `重复出现的秘密漏报 ${path}：${error.message}`);
+    return true;
+  });
+  // 三：段数相同但不是那条路径，仍然是别处。
+  assert.throws(() => assertNoProductionSecrets({
+    frozenC1Handoff: { draftOnlySeo: { providerJobRef: { authorizationRef: { authorizationIdX: legalAuthorizationId } } } }
+  }), /SECRET_REJECTED/);
+  // 四：有些秘密只有 URL 解析看得见——query/hash 的键光秃秃没有等号，赋值模式抓不到。
+  // 这一支不得被任何"先判断能不能解析"的快路径跳过。
+  for (const urlOnlySecret of [
+    "https://x.test/p?sig", "https://x.test/p?Signature", "https://x.test/p?x-amz-security-token",
+    "https://x.test/p#access-token", "//x.test/p?sig", "?sig"
+  ]) assert.throws(() => assertNoProductionSecrets({ note: urlOnlySecret }), /SECRET_REJECTED/);
   for (const unsafeAuthorizationId of [
     "authorization:Bearer",
     "authorization:abc",
