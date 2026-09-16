@@ -32,6 +32,16 @@ const WRITE_FIELD_METHODS = Object.freeze({
 // no second independent currency evidence is required. Currencies outside the writable set stay 'unknown' with a risk.
 const WRITABLE_PRICE_CURRENCIES = Object.freeze(['CNY', 'RUB']);
 
+// Owner decision 2026-09-16: store identity is inferred from the warehouse, never from a store number.
+// The official account contract (docs/contracts/ozon-account-read-20260908.json) returns no store or seller id at all,
+// so observedStoreRef stays null forever — claiming an observed store number here would be a fabricated observation.
+// Fact (1), independent of this software: the scoped warehouse belongs to this store. Established by the owner's own
+//   seller-backend browser session (2026-09-15) and frozen in the production binding's verification.evidenceRef, which
+//   scope.bindingId + scope.configurationVersion + scope.warehouseId pin to exactly one binding row.
+// Fact (2), observed here: this key reads that warehouse back (receipt step 3, id already pinned by the receipt contract).
+// (1) + (2) => this key belongs to that store. Not circular: (1) comes from the owner's login, not from configuration.
+const STORE_IDENTITY_VIA_WAREHOUSE = 'scoped_warehouse';
+
 function readAccountSource(document, jobId, scope, loadCurrentReadBinding) {
   assertOzonDEPreflightEvidenceScope(scope);
   const candidate = document.candidates.find(value => value.id === scope.candidateId);
@@ -75,8 +85,9 @@ function readAccountSource(document, jobId, scope, loadCurrentReadBinding) {
 }
 
 /** Only facts established by these three official methods are promoted: granted methods from roles, the company currency
- * from seller_info, and the single scoped warehouse from warehouse_list. Other evidence remains explicitly absent —
- * the store identity in particular, which the official /v1/seller/info contract does not return. */
+ * from seller_info, and the single scoped warehouse from warehouse_list. Other evidence remains explicitly absent.
+ * The store identity is the one inferred conclusion: no store number is observed (none exists to observe), so it is
+ * derived from the warehouse check — see STORE_IDENTITY_VIA_WAREHOUSE above for the two facts it rests on. */
 export function composeOzonAccountPreflightEvidence({ scope, receipt, authorization, schemaVersion = 'ozon-de-preflight-evidence-v3' }) {
   requireValue(['ozon-de-preflight-evidence-v1','ozon-de-preflight-evidence-v2','ozon-de-preflight-evidence-v3'].includes(schemaVersion), 'RECORD_INVALID');
   const historical = schemaVersion === 'ozon-de-preflight-evidence-v1';
@@ -86,24 +97,32 @@ export function composeOzonAccountPreflightEvidence({ scope, receipt, authorizat
   const platformWritableFields = PRODUCTION_WRITE_FIELDS.filter(field => availableMethods.has(WRITE_FIELD_METHODS[field]));
   const companyCurrency = seller.companyCurrency;
   const priceFieldCurrency = WRITABLE_PRICE_CURRENCIES.includes(companyCurrency) ? companyCurrency : 'unknown';
-  const observedWarehouses = warehouse.warehouses ?? [];
+  // Three-way: usable facts that match the scope establish identity, usable facts that disagree refute it,
+  // and absent facts establish nothing. Only the middle case is reachable through a completed receipt today —
+  // the receipt contract already pins the scoped id — so the other two branches are deliberately defensive.
+  const warehouseFactsAvailable = Array.isArray(warehouse?.warehouses) && typeof warehouse?.hasNext === 'boolean';
+  const observedWarehouses = warehouseFactsAvailable ? warehouse.warehouses : [];
   const observed = observedWarehouses.length === 1 ? observedWarehouses[0] : null;
-  const warehouseMismatch = warehouse.hasNext !== false || observed === null || observed.warehouseId !== scope.warehouseId;
+  const warehouseVerified = warehouseFactsAvailable && warehouse.hasNext === false && observed !== null &&
+    observed.warehouseId === scope.warehouseId;
+  const warehouseMismatch = !warehouseVerified;
+  const storeIdentityStatus = !warehouseFactsAvailable ? 'unverified' : warehouseVerified ? 'matched' : 'mismatched';
   const neededMethods = Object.hasOwn(HISTORICAL_ACCOUNT_SOURCE_METHODS,schemaVersion) ? HISTORICAL_ACCOUNT_SOURCE_METHODS[schemaVersion]
     : [...new Set([OZON_PRODUCT_IMPORT_ENDPOINT,OZON_PRODUCT_IMPORT_INFO_ENDPOINT,OZON_INVENTORY_WRITE_ENDPOINT,...Object.values(OZON_DE_READBACK_ENDPOINTS)])];
   const missingMethod = neededMethods.some(method => !availableMethods.has(method));
   const evidenceRef = receipt.receiptId;
   const expiresAt = Date.parse(roles.expiresAt) < Date.parse(receipt.scope.expiresAt) ? roles.expiresAt : receipt.scope.expiresAt;
-  const record = {
+  const body = {
     schemaVersion,
-    evidenceId: `ozon-account-preflight:${fingerprintCanonicalRecord({ authorizationId: authorization.authorizationId, receiptId: receipt.receiptId,
-      ...(historical ? {} : { schemaVersion }) })}`,
     scope: structuredClone(scope), collectedAt: receipt.steps.at(-1).result.observedAt, expiresAt,
     provenance: { sourceKind: 'controlled_platform_verification', readAuthorizationRef: receipt.scope.authorizationRef,
       softwareJobRef: receipt.jobId, officialContractRefs: Object.values(receipt.scope.officialContractRefs) },
     inspection: {
-      observedStore: scope.storeRef.stableStoreId, observedStoreRef: null, storeIdentityStatus: 'unverified',
-      storeIdentityEvidenceRef: `${evidenceRef}:store-identity-not-provided`,
+      // Never observed: the account contract has no store number to observe. The conclusion below is inferred.
+      observedStore: scope.storeRef.stableStoreId, observedStoreRef: null, storeIdentityStatus,
+      storeIdentityVia: warehouseFactsAvailable ? STORE_IDENTITY_VIA_WAREHOUSE : 'none',
+      storeIdentityEvidenceRef: warehouseFactsAvailable ? `${evidenceRef}:warehouse-list:${scope.warehouseId}`
+        : `${evidenceRef}:store-identity-not-provided`,
       permissionStatus: missingMethod ? 'denied' : 'verified', permissionEvidenceRef: `${evidenceRef}:roles`,
       connections: {
         api: { status: 'connected', checkedVia: 'controlled_account_read', evidenceRef },
@@ -113,11 +132,16 @@ export function composeOzonAccountPreflightEvidence({ scope, receipt, authorizat
       priceFieldCurrency, priceCurrencyEvidenceRef: `${evidenceRef}:seller-info`,
       risks: [
         ...(missingMethod ? [{ code: 'account_method_permissions_incomplete', message: '当前方法权限未完整覆盖生产与独立回读所需接口。' }] : []),
-        { code: 'account_store_identity_not_provided', message: '账户接口未返回店铺编号，仍需当前店铺身份的独立官方证据。' },
+        // Stays on every record, matched included: the platform never returned a store number, and the record must
+        // never read as if one had been observed.
+        { code: 'account_store_identity_not_provided', message: '账户接口未返回店铺编号，本记录的店铺身份不是观测到的编号。' },
+        ...(storeIdentityStatus === 'matched'
+          ? [{ code: 'account_store_identity_from_scoped_warehouse', message: '主人2026-09-16决定：店铺身份由仓库反推——本密钥读回了本生产范围的仓库，该仓库属于本店由主人2026-09-15卖家后台会话核验，见本范围生产绑定的verification.evidenceRef。' }] : []),
         { code: 'account_price_currency_from_company_currency', message: '主人2026-09-15决定：账户读取的公司币种即后台价格字段币种，不再要求另一份独立证据。' },
         ...(priceFieldCurrency === 'unknown'
           ? [{ code: 'account_price_currency_unsupported', message: `账户公司币种${companyCurrency ?? '缺失'}不在当前可写入币种范围内，价格字段币种按未知保存。` }] : []),
-        ...(warehouseMismatch ? [{ code: 'account_warehouse_scope_mismatch', message: '账户读取观测到的仓库与当前生产范围的仓库编号不一致。' }] : []),
+        ...(!warehouseFactsAvailable ? [{ code: 'account_warehouse_facts_unavailable', message: '账户读取未取得可用的仓库事实，店铺身份无法反推，按未核验保存。' }] : []),
+        ...(warehouseFactsAvailable && warehouseMismatch ? [{ code: 'account_warehouse_scope_mismatch', message: '账户读取观测到的仓库与当前生产范围的仓库编号不一致。' }] : []),
         ...(!warehouseMismatch && observed.isRfbs !== true
           ? [{ code: 'account_warehouse_not_rfbs', message: '观测仓库未标记为realFBS，当前库存写入路线以该仓库为准。' }] : []),
         ...(!warehouseMismatch && observed.pauseAt !== null
@@ -128,6 +152,11 @@ export function composeOzonAccountPreflightEvidence({ scope, receipt, authorizat
     },
     protocols: { productImport: null, inventoryWrite: null, independentReadback: null }
   };
+  // The id covers the content, not just the coordinates. Without this, editing this composer would leave the id
+  // unchanged while the content moved: verifySnapshot would report ACCOUNT_SOURCE_CONTENT_MISMATCH on old records
+  // and republishing the same receipt would hit EVIDENCE_VERSION_CONFLICT, blocking both ways out.
+  const record = { evidenceId: `ozon-account-preflight:${fingerprintCanonicalRecord({ authorizationId: authorization.authorizationId,
+    receiptId: receipt.receiptId, schemaVersion, contentFingerprint: fingerprintCanonicalRecord(body) })}`, ...body };
   return assertOzonDEPreflightEvidence(record);
 }
 

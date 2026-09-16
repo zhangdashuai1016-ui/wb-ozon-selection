@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-15T16:53:35.984Z",
+  "frozenAt": "2026-09-16T04:16:41.598Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 670,
-      "sha256": "aa1973f774b536308a42e7e44f0c6325e22714529e7a16258fb2ee5825b79de5",
+      "sha256": "cb9c6083da8b27d5166ec809efd77efcec40141d2a330300aecf564e215787cb",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -360,7 +360,7 @@
       },
       {
         "path": "lib/d-e-software-closure.mjs",
-        "sha256": "de8474a3313bc38bdf548e25eb072e3d1279e66ac8f462c81ed4ef8c97f61ddd"
+        "sha256": "5323df975c74804a7adb4e9dbd73be7a8a3e75ae8fcbe91b1a86f59cf32d99fd"
       },
       {
         "path": "lib/d-e-software-integration.mjs",
@@ -408,7 +408,7 @@
       },
       {
         "path": "lib/d-production-preparation-contract.mjs",
-        "sha256": "3e1d1b25d6ea7a385c3e21efcaca4b6ebd2ff37684749a2795b92cfd05993f2e"
+        "sha256": "f373cae2c144c4da72c8b0a31517f1a5f1bde159b6426659ed3ebb74f46bdff4"
       },
       {
         "path": "lib/discovery-market-snapshot.mjs",
@@ -424,7 +424,7 @@
       },
       {
         "path": "lib/draft-production-execution.mjs",
-        "sha256": "3d12043d393c74d73e35b428c988f241ec5f9b79e49e6930a45ae6ac56564ac2"
+        "sha256": "b10d469f8b818150a0e35da9d32f5cd631ab010a1ac706eaafec9f9468cb5411"
       },
       {
         "path": "lib/e-readback-attempt.mjs",
@@ -608,7 +608,7 @@
       },
       {
         "path": "lib/ozon-account-read-evidence.mjs",
-        "sha256": "1207a4b48ae5724b60647c0302ffa9a99157c8b1af07587e85cb4ecca0e55ceb"
+        "sha256": "389915f68055299d2ad13cae32dadb78dbc4edb2696bce3164f5aa2c8021c724"
       },
       {
         "path": "lib/ozon-account-read-preparation.mjs",
@@ -644,7 +644,7 @@
       },
       {
         "path": "lib/ozon-de-preflight-provider.mjs",
-        "sha256": "b4a0da62316cb62a99017535aac8745c126de8d34173e1b38d2c3b319581886a"
+        "sha256": "11107d8769fee768f7439d8d0772560e16562206635a2174acff22cf333043bf"
       },
       {
         "path": "lib/ozon-de-readonly-capability-probe.mjs",
@@ -668,7 +668,7 @@
       },
       {
         "path": "lib/ozon-seller-api-de-adapter.mjs",
-        "sha256": "b2619c6931405184e83d45cb5f8a003e78916b4756a734bedb2e77bb7dfc39ce"
+        "sha256": "0524ba65ce64349609f2c3907f801c4d0ca82378f72fc11b03023f60c85e7cba"
       },
       {
         "path": "lib/ozon-seller-api-production-adapter.mjs",
@@ -708,11 +708,11 @@
       },
       {
         "path": "lib/platform-write-preflight-contract.mjs",
-        "sha256": "8e8bc3ce2750475ea870cfc74884ff016b8ef53eb4af9c83a6370ad81b27a8e7"
+        "sha256": "d827d9a86f3f2a4ab7daa387c939f56fd8e3bfc2fa4a6e98b8ec541e75e4fde6"
       },
       {
         "path": "lib/platform-write-preflight.mjs",
-        "sha256": "ae66c8991509e64c8189890c53013c1363f7b0fd405357264347b3e82c5e222d"
+        "sha256": "37a3f91e618e6ae2e8b3a8ad9de523a24b0fbc413c0ede2b540b49d8c0ab86e4"
       },
       {
         "path": "lib/post-launch-observation.mjs",
@@ -1084,7 +1084,7 @@
       },
       {
         "path": "schema/platform-write-preflight-v1.2.schema.json",
-        "sha256": "cc356d288fa71a43cd4bce904c543fbc9c69e9bf0cbbbfd5a924abefeb7c10f9"
+        "sha256": "e49cdc64d06e763ed760103245892a0862c54579a2ebb90e99fda08c356a2000"
       },
       {
         "path": "schema/product-lifecycle-v1.1.schema.json",
@@ -1852,7 +1852,7 @@
       },
       {
         "path": "tests/d-e-software-closure.test.mjs",
-        "sha256": "69290fb4505c41014887cf41d553eb3a470b0cd32a5455f40834d141330081cc"
+        "sha256": "054e82d78230d503ee7fa4782ff924ebbe9c1641394a2b35547c9c49425d24c1"
       },
       {
         "path": "tests/d-e-software-integration.test.mjs",
@@ -1936,7 +1936,7 @@
       },
       {
         "path": "tests/draft-production-execution.test.mjs",
-        "sha256": "4cfeb7a1fb4dfbd0e5d51c7250cb8c3d425f99b8077329f6f2c04460f6db0977"
+        "sha256": "47a3f861abc4eb65d84ae5b54812b66d028446ea785e0507b81be35e1f4e720b"
       },
       {
         "path": "tests/e-readback-job-terminal-guards.test.mjs",
@@ -2156,7 +2156,7 @@
       },
       {
         "path": "tests/helpers/d-software-fixture.mjs",
-        "sha256": "20a4f5963a96de0c821b8b0c7edefbd9f10ea03aa29bd2e73915e10abf76e876"
+        "sha256": "85dbb218fed1b4978f2726d2b0fd8b42b0a546c632275b01aa4b375f0c5001d5"
       },
       {
         "path": "tests/helpers/d-synthetic-completion-adapter.mjs",
@@ -2360,7 +2360,7 @@
       },
       {
         "path": "tests/ozon-account-read-integration.test.mjs",
-        "sha256": "ed175f0ebb7d2103f0260a439aea733c5f3353c2925f01ae1cd77e26e1f2bfac"
+        "sha256": "6ace3614ad1b0e5e0d56d910513de858336f6a54cdef38f76056b57fc92e8aae"
       },
       {
         "path": "tests/ozon-account-read-runtime.test.mjs",
@@ -2388,7 +2388,7 @@
       },
       {
         "path": "tests/ozon-de-preflight-provider.test.mjs",
-        "sha256": "94db5763c57a882b0005037b2a2571441061f92ccc9d86053d6d3a41671459d4"
+        "sha256": "5aabc880a7302e1c4391b3c4e6e565904e9ce23ee901c47637fcade4ae8143b0"
       },
       {
         "path": "tests/ozon-de-readonly-capability-probe.test.mjs",
@@ -2416,7 +2416,7 @@
       },
       {
         "path": "tests/ozon-seller-api-de-adapter.test.mjs",
-        "sha256": "350a95759547989bd64c96305c1f0c20d04c2d6e99b3e8000c7139f53d60ed6e"
+        "sha256": "59f586132eaa47d5260a004c28030c8d1264ea5038df040147c62023617c3feb"
       },
       {
         "path": "tests/ozon-seller-api-production-adapter.test.mjs",
@@ -2468,7 +2468,7 @@
       },
       {
         "path": "tests/platform-write-preflight.test.mjs",
-        "sha256": "b4636f0bbbbcd5dbd72fc44104c836042ed16cfe8758f6497423967c4a19e7eb"
+        "sha256": "38055b938c2c221d9ff46be91c949ef71485607c5c8f3da11e696b7c5e470682"
       },
       {
         "path": "tests/post-launch-observation.test.mjs",

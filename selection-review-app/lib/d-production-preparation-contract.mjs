@@ -38,7 +38,9 @@ function preflightShape(value) {
   const keys = ['schemaVersion','preflightId','sourceProductionPlanId','sourceProductionPlanFingerprint','targetPlatform','storeIdentity','permission','connectionStatus','authorizedWriteFields','platformWritableFields','effectiveWritableFields','imagePermission','priceCurrency','risks','technicalStatus','businessStateEffect','checkedAt','readyForPlatformWrite','productCreated','imagesUploaded','inventoryModified','storeDataModified','productionRecordCreated','platformWrites'];
   if (value?.schemaVersion === PLATFORM_WRITE_PREFLIGHT_VERSION) keys.push('connectionRequirements');
   requireValue(closed(value, keys) && boundedStrings(value) && validatePlatformWritePreflight(value).valid, 'PREFLIGHT_INVALID');
-  requireValue(closed(value.storeIdentity, ['expectedStore','observedStore','status','evidenceRef','expectedStoreRef','observedStoreRef']) &&
+  // verifiedVia names the anchor the identity stands on; results written before owner decision 2026-09-16 omit it.
+  const identityKeys = ['expectedStore','observedStore','status','evidenceRef','expectedStoreRef','observedStoreRef'];
+  requireValue((closed(value.storeIdentity, identityKeys) || closed(value.storeIdentity, [...identityKeys, 'verifiedVia'])) &&
     [value.storeIdentity.expectedStoreRef,value.storeIdentity.observedStoreRef].every(store=>store===null || closed(store,['stableStoreId','platformStoreId','mappingVersion'])) &&
     closed(value.permission, ['status','evidenceRef']) && closed(value.imagePermission, ['status','evidenceRef']) &&
     closed(value.priceCurrency, ['expected','observed','status','evidenceRef']) && closed(value.connectionStatus, ['api','sellerBackend']) &&

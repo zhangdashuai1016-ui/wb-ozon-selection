@@ -100,6 +100,44 @@ test("D rejects missing authorization, authorization drift, and cross-store pref
   assert.ok(crossStore.prepared.gaps.some((item) => item.code === "store_identity_not_ready"));
 });
 
+test("D 收口认两条身份锚：仓库反推放行，非仓库锚点仍要求观察到的店铺引用", async () => {
+  const identityBlocked = (prepared) => prepared.gaps.some((item) => item.code === "store_identity_not_ready");
+
+  // 放行方向：仓库反推下 observedStoreRef 恒为 null，这是正确状态，不该再挡住 D 收口。
+  const warehouse = await preparedFixture({ preflight: { identityVia: "scoped_warehouse" } });
+  assert.equal(warehouse.preflight.storeIdentity.verifiedVia, "scoped_warehouse");
+  assert.equal(warehouse.preflight.storeIdentity.observedStoreRef, null);
+  assert.equal(warehouse.prepared.status, "ready");
+  assert.equal(identityBlocked(warehouse.prepared), false);
+
+  // 仓库反推不放过跨店：店铺名对不上仍然拦。
+  const crossStore = await preparedFixture({ preflight: { identityVia: "scoped_warehouse", store: "miska" } });
+  assert.equal(crossStore.prepared.status, "not_ready");
+  assert.ok(identityBlocked(crossStore.prepared));
+
+  // 拦截方向：没声明仓库反推、又没有观察引用，按原规则就是没验过，必须拦住。
+  const bare = await preparedFixture({ preflight: { identityVia: "none" } });
+  assert.equal(bare.preflight.storeIdentity.status, "unverified");
+  assert.equal(bare.prepared.status, "not_ready");
+  assert.ok(identityBlocked(bare.prepared));
+
+  // 事后改锚点不算数：把仓库反推的结果篡改成别的锚，或补上店铺引用，都不得放行。
+  // 最后一条钉住 'none'：它的字面意思就是没有锚点，旁边补一个真实可对上的 observedStoreRef
+  // （Ozon 从不返回店铺编号，只可能是人手填的）仍然不算锚住。
+  const { authorization, plan } = await preparedFixture({ preflight: { identityVia: "scoped_warehouse" } });
+  const inputs = projectProductionPlanInputs(plan);
+  for (const patch of [{ verifiedVia: "platform_store_id" }, { verifiedVia: "none" },
+    { observedStoreRef: structuredClone(inputs.storeRef) },
+    { verifiedVia: "none", observedStoreRef: structuredClone(inputs.storeRef) }]) {
+    const forged = structuredClone(warehouse.preflight);
+    Object.assign(forged.storeIdentity, patch);
+    assert.throws(() => prepareSingleSkuDExecution({ productionPlan: plan, productionAuthorization: authorization,
+      platformWritePreflight: forged, adapterCapabilities: capabilities(inputs.store, inputs.finalUploads, inputs),
+      currentProductionBinding: warehouse.currentProductionBinding, preparedAt: "2026-08-22T07:15:00.000Z" }),
+    /PlatformWritePreflight校验失败/, JSON.stringify(patch));
+  }
+});
+
 test("D intent is deterministic, persisted before write, and idempotent per authorization and plan", async () => {
   const first = await preparedFixture();
   const second = await preparedFixture();

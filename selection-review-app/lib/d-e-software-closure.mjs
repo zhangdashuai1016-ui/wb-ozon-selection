@@ -13,7 +13,7 @@ import {
   fingerprintProductionPlan,
   validateProductionPlanAuthorizationBinding
 } from "./production-plan.mjs";
-import { assertCurrentPlatformWritePreflight, assertCurrentProductionExecutionBinding, assertCurrentDExecutionContext } from "./platform-write-preflight.mjs";
+import { assertCurrentPlatformWritePreflight, assertCurrentProductionExecutionBinding, assertCurrentDExecutionContext, isStoreIdentityAnchored } from "./platform-write-preflight.mjs";
 import { buildOzonSellerImportRequest } from "./ozon-seller-api-production-adapter.mjs";
 import { resolveFinalUploads as resolveOzonFinalUploads } from "./ozon-seller-api-de-adapter.mjs";
 import { formatDReadbackMismatchReason } from "./production-execution-failure.mjs";
@@ -66,9 +66,11 @@ function validPreflight(plan, inputs, preflight, gaps) {
       preflight.sourceProductionPlanFingerprint !== fingerprintProductionPlan(plan)) {
     gaps.push(gap("preflight_stale", "platformWritePreflight", "前检不属于当前ProductionPlan"));
   }
+  // 同 draft 写入口：仓库反推下 observedStoreRef 恒为 null，身份靠 verifiedVia 那条锚成立；其余路径不变。
   if (preflight.targetPlatform !== inputs.platform || preflight.storeIdentity.expectedStore !== inputs.store ||
       preflight.storeIdentity.observedStore !== inputs.store || preflight.storeIdentity.status !== "matched" ||
-      !sameStoreRef(preflight.storeIdentity.expectedStoreRef, inputs.storeRef) || !sameStoreRef(preflight.storeIdentity.observedStoreRef, inputs.storeRef)) {
+      !sameStoreRef(preflight.storeIdentity.expectedStoreRef, inputs.storeRef) ||
+      !isStoreIdentityAnchored({ via: preflight.storeIdentity.verifiedVia, observedStoreRef: preflight.storeIdentity.observedStoreRef, expectedStoreRef: inputs.storeRef })) {
     gaps.push(gap("store_identity_not_ready", "platformWritePreflight.storeIdentity", "Seller API店铺身份未与授权店铺一致"));
   }
   if (preflight.permission.status !== "verified" || preflight.connectionStatus.api.status !== "connected") {

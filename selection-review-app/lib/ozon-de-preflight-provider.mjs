@@ -11,9 +11,14 @@ import { inspectAdapterCapabilities, resolveFinalUploads, OZON_DE_READBACK_ENDPO
 import { assertDPlatformObservationScope } from './d-platform-observation-contract.mjs';
 import { decodeAttempt } from './d-execution-request-codec.mjs';
 import { ozonProductionConnectionRequirements } from './ozon-production-strategy.mjs';
+import { STORE_IDENTITY_PATHS, canStoreIdentityPathAnchor } from './platform-write-preflight-contract.mjs';
 
 const scopeFields = ['candidateId','skuPackageId','supplierSkuId','authorizationId','sourceCandidateRevision','storeRef','warehouseRef','warehouseId','credentialAlias','bindingId','configurationVersion'];
 const inspectionFields = ['observedStore','observedStoreRef','storeIdentityStatus','storeIdentityEvidenceRef','permissionStatus','permissionEvidenceRef','connections','platformWritableFields','imagePermissionStatus','imagePermissionEvidenceRef','priceFieldCurrency','priceCurrencyEvidenceRef','risks'];
+// Which anchor established the store identity. The list of names and which of them can anchor at all both come from
+// the preflight contract, so this gate and the ones downstream cannot drift apart. 'platform_store_id' requires an
+// observed store ref; 'scoped_warehouse' (owner decision 2026-09-16) requires the absence of one, because Ozon returns
+// no store number to observe. Optional: an inspection without the field reads as the original 'platform_store_id' rule.
 const writeFields = PRODUCTION_WRITE_FIELDS;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const closed = (value, fields) => object(value) && Object.keys(value).length === fields.length && fields.every(field => Object.hasOwn(value, field));
@@ -45,7 +50,7 @@ export function assertOzonDEPreflightEvidenceScope(scope) {
   return structuredClone(scope);
 }
 function assertInspection(value) {
-  requireValue(closed(value, inspectionFields) && text(value.observedStore) && (value.observedStoreRef === null || isCompleteStoreRef(value.observedStoreRef, value.observedStore)) &&
+  requireValue((closed(value, inspectionFields) || closed(value, [...inspectionFields, 'storeIdentityVia'])) && text(value.observedStore) && (value.observedStoreRef === null || isCompleteStoreRef(value.observedStoreRef, value.observedStore)) &&
     ['matched','mismatched','unverified'].includes(value.storeIdentityStatus) && permission(value.permissionStatus) && permission(value.imagePermissionStatus) &&
     inspectionFields.filter(field => field.endsWith('EvidenceRef')).every(field => ref(value[field])) &&
     ['CNY','RUB','unknown'].includes(value.priceFieldCurrency) && closed(value.connections, ['api','sellerBackend']) &&
@@ -54,7 +59,16 @@ function assertInspection(value) {
     Array.isArray(value.risks) && value.risks.length <= 100 && value.risks.every(risk => closed(risk,['code','message']) && ref(risk.code) && text(risk.message)), 'INSPECTION_INVALID');
   for (const connection of Object.values(value.connections)) requireValue(closed(connection,['status','checkedVia','evidenceRef']) &&
     ['connected','unavailable','system_error','permission_required','unknown'].includes(connection.status) && ref(connection.checkedVia) && ref(connection.evidenceRef), 'INSPECTION_INVALID');
-  requireValue(value.storeIdentityStatus !== 'matched' || value.observedStoreRef !== null, 'INSPECTION_INVALID');
+  const via = value.storeIdentityVia ?? 'platform_store_id';
+  requireValue(STORE_IDENTITY_PATHS.has(via), 'INSPECTION_INVALID');
+  // 'scoped_warehouse' asserts that no store number exists to observe, so carrying one alongside it is a
+  // contradiction, not stronger evidence — in any status.
+  requireValue(via !== 'scoped_warehouse' || value.observedStoreRef === null, 'INSPECTION_INVALID');
+  // 'matched' 必须站在一条真能锚住的路径上，而且那条路径的锚点材料在场。'none' 的字面意思就是没有锚点，
+  // 旁边再挂一个 observedStoreRef 也不算——Ozon 从不返回店铺编号，那个引用只可能是人手填进去的。
+  // 这道门只判"锚在不在"，不判"锚上的引用对不对得上"：后者要预期引用，由持有它的能力检查判（见 drifted 用例）。
+  requireValue(value.storeIdentityStatus !== 'matched' ||
+    (canStoreIdentityPathAnchor(via) && (via === 'scoped_warehouse' || value.observedStoreRef !== null)), 'INSPECTION_INVALID');
 }
 function assertProtocols(protocols, schemaVersion) {
   requireValue(closed(protocols,['productImport','inventoryWrite','independentReadback']), 'PROTOCOL_INVALID');
@@ -148,7 +162,7 @@ function prerequisiteScope(request, continuation) {
 }
 function unknownInspection(scope, preparationId, reason, systemError) {
   const evidenceRef = `${preparationId}:${reason}`;
-  return {observedStore:scope.storeRef.stableStoreId,observedStoreRef:null,storeIdentityStatus:'unverified',storeIdentityEvidenceRef:evidenceRef,
+  return {observedStore:scope.storeRef.stableStoreId,observedStoreRef:null,storeIdentityStatus:'unverified',storeIdentityVia:'none',storeIdentityEvidenceRef:evidenceRef,
     permissionStatus:'unknown',permissionEvidenceRef:evidenceRef,connections:{api:{status:systemError ? 'system_error' : 'unknown',checkedVia:'persisted_evidence',evidenceRef},sellerBackend:{status:'unknown',checkedVia:'persisted_evidence',evidenceRef}},
     platformWritableFields:[],imagePermissionStatus:'unknown',imagePermissionEvidenceRef:evidenceRef,priceFieldCurrency:'unknown',priceCurrencyEvidenceRef:evidenceRef,
     risks:[{code:reason,message:systemError ? '持久账户证据校验失败，本轮停止' : '账户、权限或协议的当前持久证据不完整，本轮停止'}]};
@@ -172,8 +186,12 @@ function assetEvidence(candidate, authorization) {
 export function inspectOzonDEPreflightCapabilities({candidate,authorization,scope,record,reason,now}) {
   const inspection = record?.inspection;
   const result = inspectAdapterCapabilities({store:scope.storeRef.stableStoreId,storeRef:scope.storeRef,warehouseRef:scope.warehouseRef,credentialAlias:scope.credentialAlias,warehouseId:scope.warehouseId,
+    // verifiedVia 必须跟着身份一起往下走：丢了它，下游只能看见一个恒为 null 的 observedStoreRef，
+    // 无从分辨"仓库反推成立"和"什么都没查到"。命名沿用前检记录里 storeIdentity.verifiedVia（扁平的
+    // inspection 才需要 storeIdentity 前缀去和 permissionStatus 之类区分）。
     inspectedAt:now,storeIdentity:inspection === undefined ? null : {status:inspection.storeIdentityStatus === 'matched' ? 'verified' : 'unknown',expectedStore:scope.storeRef.stableStoreId,
-      observedStore:inspection.observedStore,observedStoreRef:inspection.observedStoreRef,credentialAlias:scope.credentialAlias,evidenceRef:inspection.storeIdentityEvidenceRef},
+      observedStore:inspection.observedStore,observedStoreRef:inspection.observedStoreRef,verifiedVia:inspection.storeIdentityVia ?? 'platform_store_id',
+      credentialAlias:scope.credentialAlias,evidenceRef:inspection.storeIdentityEvidenceRef},
     productImport:record?.protocols.productImport ?? null,inventoryWrite:record?.protocols.inventoryWrite ?? null,independentReadback:record?.protocols.independentReadback ?? null,
     assetTransport:assetEvidence(candidate,authorization)});
   const gaps = [...structuredClone(result.gaps)];

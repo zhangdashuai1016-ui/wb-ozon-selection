@@ -15,6 +15,8 @@ import { commitSingleOwnerProductionAuthorization } from '../lib/production-auth
 import { OZON_DE_READBACK_ENDPOINTS, OZON_DE_LEGACY_READBACK_ENDPOINTS, OZON_PRODUCT_IMPORT_INFO_ENDPOINT } from '../lib/ozon-seller-api-de-adapter.mjs';
 import { createOzonAccountReadRuntime } from '../lib/ozon-account-read-runtime.mjs';
 import { PRODUCTION_WRITE_FIELDS } from '../lib/production-authorization-preparation.mjs';
+import { createProductionPlan } from '../lib/production-plan.mjs';
+import { runPlatformWritePreflight } from '../lib/platform-write-preflight.mjs';
 
 async function fixture({ clockOffsetMs = 0 } = {}) {
   const base = await productionOwnerDecisionHttpFixture(), clock = () => new Date(Date.parse(base.owner.formal.at) + clockOffsetMs).toISOString();
@@ -88,7 +90,7 @@ test('real local transport, pre-PA read and later PA use the same saved source w
   assert.deepEqual(await f.reader(record.scope), record);
   assert.equal(record.inspection.connections.api.status, 'connected');
   assert.equal(record.inspection.permissionStatus, 'verified');
-  assert.equal(record.inspection.storeIdentityStatus, 'unverified'); assert.equal(record.inspection.priceFieldCurrency, 'CNY');
+  assert.equal(record.inspection.storeIdentityStatus, 'matched'); assert.equal(record.inspection.priceFieldCurrency, 'CNY');
   assert.equal(record.inspection.connections.sellerBackend.status, 'unknown'); assert.equal(record.protocols.productImport, null);
   assert.equal(record.schemaVersion, 'ozon-de-preflight-evidence-v3');
   assert.deepEqual(record.protocols,{productImport:null,inventoryWrite:null,independentReadback:null});
@@ -186,13 +188,91 @@ test('the scoped warehouse read back is checked: a non-realFBS, paused or differ
   assert.ok(authorization);
 });
 
-test('the store identity stays unverified because the official seller_info contract returns no store number', async () => {
+test('the store identity is inferred from the warehouse, never from a store number Ozon does not publish', async () => {
   const f = await fixture(), { record, receipt } = await composedEvidence(f);
-  assert.equal(record.inspection.storeIdentityStatus, 'unverified');
-  assert.equal(record.inspection.observedStoreRef, null);
-  assert.ok(record.inspection.risks.some(risk => risk.code === 'account_store_identity_not_provided'));
+  // Fact (2), observed: this key read the scoped warehouse back on step 3.
+  assert.equal(receipt.steps[2].method, 'warehouse_list');
+  assert.equal(receipt.steps[2].result.facts.warehouses[0].warehouseId, record.scope.warehouseId);
+  assert.equal(record.inspection.storeIdentityStatus, 'matched');
+  assert.equal(record.inspection.storeIdentityVia, 'scoped_warehouse');
+  assert.equal(record.inspection.storeIdentityEvidenceRef, `${receipt.receiptId}:warehouse-list:${record.scope.warehouseId}`,
+    'the conclusion points at the warehouse step, never at a store lookup that does not exist');
+  // Fact (1), the owner's own seller-backend session: the record does not copy it, it pins the one binding row that
+  // carries it. scope.bindingId + configurationVersion + warehouseId resolve to exactly that row.
+  const binding = f.configuration.productionBindings.filter(value => value.bindingId === record.scope.bindingId &&
+    value.configurationVersion === record.scope.configurationVersion && value.warehouseId === record.scope.warehouseId);
+  assert.equal(binding.length, 1, 'the scope resolves to exactly one production binding');
+  assert.equal(binding[0].verification.evidenceRef, f.base.binding.verification.evidenceRef,
+    'and that row is where the owner-verified warehouse-to-store evidence lives');
+  // seller_info still returns nothing to observe, and the record never reads as if it had.
   assert.deepEqual(Object.keys(receipt.steps[1].result.facts), ['companyCurrency'],
     'seller_info keeps only the company currency; no store or seller identifier exists to promote');
+  assert.equal(record.inspection.observedStoreRef, null);
+  const codes = record.inspection.risks.map(risk => risk.code);
+  assert.ok(codes.includes('account_store_identity_not_provided'), 'the record still says no store number was returned');
+  assert.ok(codes.includes('account_store_identity_from_scoped_warehouse'), 'and says where the identity actually came from');
+});
+
+test('the warehouse check decides the identity three ways, and observedStoreRef stays null in every one', async () => {
+  const f = await fixture(), source = await composedEvidence(f);
+  // A completed receipt can only carry the scoped warehouse, so the other two verdicts are driven directly.
+  const compose = receipt => composeOzonAccountPreflightEvidence({ scope: source.record.scope, receipt, authorization: source.authorization });
+  assert.equal(source.record.inspection.storeIdentityStatus, 'matched');
+
+  const strayed = structuredClone(source.receipt);
+  strayed.steps[2].result.facts.warehouses[0].warehouseId = '999999';
+  const mismatched = compose(strayed);
+  assert.equal(mismatched.inspection.storeIdentityStatus, 'mismatched');
+  assert.equal(mismatched.inspection.storeIdentityVia, 'scoped_warehouse');
+  assert.equal(mismatched.inspection.risks.some(risk => risk.code === 'account_store_identity_from_scoped_warehouse'), false,
+    'a refuted warehouse never claims the store');
+
+  const absent = structuredClone(source.receipt);
+  absent.steps[2].result.facts = { hasNext: null, warehouses: null };
+  const unverified = compose(absent);
+  assert.equal(unverified.inspection.storeIdentityStatus, 'unverified');
+  assert.equal(unverified.inspection.storeIdentityVia, 'none');
+  assert.equal(unverified.inspection.storeIdentityEvidenceRef, `${source.receipt.receiptId}:store-identity-not-provided`);
+  assert.ok(unverified.inspection.risks.some(risk => risk.code === 'account_warehouse_facts_unavailable'));
+
+  // Pinned on purpose: Ozon publishes no store number, so nobody may ever "complete" this field later.
+  for (const value of [source.record, mismatched, unverified]) {
+    assert.equal(value.inspection.observedStoreRef, null);
+    assert.ok(value.inspection.risks.some(risk => risk.code === 'account_store_identity_not_provided'));
+  }
+
+  // Same authorization, same receipt, same schema version, three different contents: three different ids.
+  // An id that only covered those coordinates would collide here, and a changed composer would then leave old
+  // records unverifiable (ACCOUNT_SOURCE_CONTENT_MISMATCH) and unrepublishable (EVIDENCE_VERSION_CONFLICT).
+  const ids = [source.record, mismatched, unverified].map(value => value.evidenceId);
+  assert.equal(new Set(ids).size, 3, 'the evidence id covers the content, not only the receipt coordinates');
+  assert.deepEqual(compose(structuredClone(source.receipt)).evidenceId, source.record.evidenceId, 'and is still stable for one content');
+});
+
+test('the warehouse path fills the preflight store identity cell and completes the technical status', async () => {
+  const f = await fixture(), { record, authorization, document } = await composedEvidence(f);
+  const candidate = document.candidates.find(value => value.id === f.input.candidateId);
+  const at = f.base.owner.formal.at;
+  const plan = createProductionPlan({ productionAuthorization: authorization, candidateId: candidate.id,
+    candidateRevision: candidate.dataRevision, skuPackage: candidate.lifecycleV11.skuPackage, createdAt: at });
+  const run = inspection => runPlatformWritePreflight({ productionPlan: plan, checkedAt: at, inspectPlatform: async () => inspection });
+
+  const preflight = await run(structuredClone(record.inspection));
+  assert.equal(preflight.storeIdentity.status, 'matched');
+  assert.equal(preflight.storeIdentity.observedStoreRef, null, 'matched without ever observing a store ref');
+  assert.equal(preflight.storeIdentity.verifiedVia, 'scoped_warehouse');
+  assert.equal(preflight.storeIdentity.evidenceRef, record.inspection.storeIdentityEvidenceRef);
+  assert.equal(preflight.technicalStatus, 'completed');
+  const codes = preflight.risks.map(risk => risk.code);
+  assert.equal(codes.includes('store_identity_not_verified'), false);
+  assert.ok(codes.includes('account_store_identity_not_provided'), 'the preflight still carries that no store number exists');
+  assert.ok(codes.includes('account_store_identity_from_scoped_warehouse'), 'and that the identity is warehouse-inferred');
+
+  // The same reading without the warehouse verdict is exactly where this field used to sit.
+  const blind = { ...structuredClone(record.inspection), storeIdentityStatus: 'unverified', storeIdentityVia: 'none' };
+  const before = await run(blind);
+  assert.equal(before.storeIdentity.status, 'unverified');
+  assert.equal(before.technicalStatus, 'data_unavailable');
 });
 
 test('versioned source keeps old method evidence unchanged and never expands it to the exact warehouse method', async () => {

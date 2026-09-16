@@ -6,7 +6,7 @@ import { isCanonicalFrozenRef, assertNoProductionSecrets } from "./production-co
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { observedMediaSequence, observedWarehouseAvailableStock, isObservedHttpsMediaUrl } from "./e-stage-readback.mjs";
-import { assertCurrentDExecutionContext, productionExecutionPrewriteFailure } from "./platform-write-preflight.mjs";
+import { assertCurrentDExecutionContext, isStoreIdentityAnchored, productionExecutionPrewriteFailure } from "./platform-write-preflight.mjs";
 
 export const OZON_SELLER_API_DE_ADAPTER_VERSION = "ozon-seller-api-de-adapter-v3";
 export const OZON_PRODUCT_IMPORT_ENDPOINT = "/v3/product/import";
@@ -106,9 +106,12 @@ export function inspectAdapterCapabilities({
   if (!isPersistedNumericId(warehouseId)) gaps.push(gap("warehouse_missing", "warehouseId", "缺少当前店铺的准确仓库ID"));
   if (!nonEmpty(inspectedAt) || Number.isNaN(Date.parse(inspectedAt))) gaps.push(gap("inspection_time_invalid", "inspectedAt", "能力检查时间无效"));
 
+  // 身份锚点由 isStoreIdentityAnchored 统一判定：仓库反推要求 observedStoreRef 恒为 null（Ozon 不发店铺编号），
+  // 其余路径（含未声明和未知值）仍按原来的店铺引用比对。
   if (!isObject(storeIdentity) || storeIdentity.status !== "verified" ||
       normalizeStore(storeIdentity.expectedStore) !== normalizedStore ||
-      normalizeStore(storeIdentity.observedStore) !== normalizedStore || !sameStoreRef(storeIdentity.observedStoreRef, storeRef) ||
+      normalizeStore(storeIdentity.observedStore) !== normalizedStore ||
+      !isStoreIdentityAnchored({ via: storeIdentity.verifiedVia, observedStoreRef: storeIdentity.observedStoreRef, expectedStoreRef: storeRef }) ||
       storeIdentity.credentialAlias !== credentialAlias || !nonEmpty(storeIdentity.evidenceRef)) {
     gaps.push(gap("store_identity_not_verified", "storeIdentity", "店铺身份证据未与目标店铺一致"));
   }

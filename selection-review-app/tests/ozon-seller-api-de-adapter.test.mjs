@@ -202,6 +202,49 @@ test("capability inspection requires exact store, warehouse, protocols, and four
   assert.equal(inspectAdapterCapabilities(crossStore).status, "not_ready");
 });
 
+test("能力检查认两条身份锚：仓库反推要求观察引用为空，其余路径仍比对店铺引用", () => {
+  const identityBlocked = (input) => inspectAdapterCapabilities(input).gaps.some((item) => item.code === "store_identity_not_verified");
+
+  // 仓库反推（主人2026-09-16决定）：Ozon 不发店铺编号，observedStoreRef 恒为 null 才是正确状态，放行。
+  const warehouse = capabilityInput();
+  Object.assign(warehouse.storeIdentity, { verifiedVia: "scoped_warehouse", observedStoreRef: null });
+  assert.equal(inspectAdapterCapabilities(warehouse).status, "ready");
+  assert.equal(inspectAdapterCapabilities(warehouse).storeIdentity.verifiedVia, "scoped_warehouse");
+
+  // 锁：声称仓库反推、同时又带着店铺引用，是矛盾不是更强的证据，必须仍然拦住。
+  const contradictory = capabilityInput();
+  contradictory.storeIdentity.verifiedVia = "scoped_warehouse";
+  assert.ok(identityBlocked(contradictory), "仓库反推不得同时声称观测到店铺引用");
+
+  // 非仓库锚点维持原规则：没有观察引用就是没锚住（未声明、明写原路径、none、未知值都一样）。
+  for (const via of [undefined, "platform_store_id", "none", "owner_says_so"]) {
+    const bare = capabilityInput();
+    bare.storeIdentity.observedStoreRef = null;
+    if (via !== undefined) bare.storeIdentity.verifiedVia = via;
+    assert.ok(identityBlocked(bare), `非仓库锚点下空引用必须拦住：${String(via)}`);
+  }
+  const otherStoreRef = capabilityInput();
+  otherStoreRef.storeIdentity.observedStoreRef = { ...otherStoreRef.storeIdentity.observedStoreRef, platformStoreId: "seller-miska-001" };
+  assert.ok(identityBlocked(otherStoreRef), "非仓库锚点下引用不一致必须拦住");
+
+  // 锁：'none' 就是没有锚点。旁边挂一个真实可对上的 observedStoreRef 也不放行——Ozon 从不返回店铺
+  // 编号，那个引用只可能是人手填的。认不出来的锚点名同样不放行（这道门自己不查取值合法性）。
+  for (const via of ["none", "owner_says_so"]) {
+    const refWithoutAnchor = capabilityInput();
+    refWithoutAnchor.storeIdentity.verifiedVia = via;
+    assert.deepEqual(refWithoutAnchor.storeIdentity.observedStoreRef, executionBinding("dandanshu").storeRef);
+    assert.ok(identityBlocked(refWithoutAnchor), `${via} 配一个对得上的店铺引用仍然不算锚住`);
+  }
+
+  // 仓库反推只替换"店铺引用比对"这一项，其余身份条件一个都不放过。
+  for (const patch of [{ status: "unknown" }, { observedStore: "miska" }, { expectedStore: "miska" },
+    { credentialAlias: "credential-alias:another" }, { evidenceRef: "" }]) {
+    const partial = capabilityInput();
+    Object.assign(partial.storeIdentity, { verifiedVia: "scoped_warehouse", observedStoreRef: null }, patch);
+    assert.ok(identityBlocked(partial), JSON.stringify(patch));
+  }
+});
+
 test("final upload resolution accepts only capability-approved stable HTTPS URLs", () => {
   const assets = finalUploads();
   const ready = readyCapabilities({ assets });
