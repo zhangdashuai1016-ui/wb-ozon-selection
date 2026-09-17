@@ -164,8 +164,12 @@ export function extraHandlingBreakPoint({ row, policy, currentRmb }) {
  * Owner ruling 2026-09-13: the price this step charges is the page's own price for this specification, not the one
  * figure typed into 找货 — but the difference between them has to be said out loud, because 找货 priced one imagined
  * average parcel and this specification carries its own. Equal prices have no difference to report.
+ *
+ * 2026-09-17: 主人签了同重同价声明之后，这一行的货价本来就是他在找货里填的那一个数，页面从来没给过这个规格一个价。
+ * 那不是「页面价和你填的一致」，是根本没有页面价可比——所以这里明说没有可比的两个数，而不是让相减得 0 替它说话。
  */
 export function pagePriceDelta({ row, draft }) {
+  if (row?.priceBasis === 'owner_declared') return null;
   const pageRmb = finite(row?.priceCny);
   const declaredRmb = finite(draft?.goodsPriceRmb);
   if (pageRmb === null || declaredRmb === null) return null;
@@ -173,30 +177,90 @@ export function pagePriceDelta({ row, draft }) {
   return deltaRmb === 0 ? null : { pageRmb, declaredRmb, deltaRmb };
 }
 
+/** 这一次采集里所有「一件起订」的报价行。挑哪一条、要不要求它们彼此一致，由每个分支自己定。 */
+function quantityOneRanges(capture) {
+  return (Array.isArray(capture?.priceRanges) ? capture.priceRanges : [])
+    .filter(range => finite(range?.minimumQuantity) === 1);
+}
+
+/**
+ * 页面在整个商品层面报的那个「1 件价」，以及拿不到它的时候是哪一种拿不到。
+ * 必须唯一：几条 1 件报价互相打架，就没有「页面的 1 件价」可言，软件也不会替页面挑一条。
+ */
+function quantityOnePageQuote(capture) {
+  const ranges = quantityOneRanges(capture);
+  if (ranges.length === 0) return { status: 'none', priceCny: null, sources: [] };
+  const quoted = ranges.filter(range => finite(range?.priceCny) !== null && range.priceCny > 0);
+  if (quoted.length === 0) return { status: 'no_price', priceCny: null, sources: [] };
+  const priceCny = quoted[0].priceCny;
+  if (quoted.some(range => Math.round(range.priceCny * 100) !== Math.round(priceCny * 100))) {
+    return { status: 'conflict', priceCny: null, sources: [] };
+  }
+  return { status: 'ok', priceCny,
+    sources: [...new Set(quoted.map(range => textOf(range.source)).filter(value => value !== null))] };
+}
+
 /**
  * Where the "one piece is buyable, at this price" check actually came from, written out of the capture's own saved
  * fields. The A confirmation refuses a browser capture without it, and it must never be a sentence the software made
  * up: no saved quantity-one price range, or no captured price for this specification, means no note and a gap.
+ *
+ * `sku` 是「选规格」那张表自己的一行，所以它的 priceCny／priceSource／priceBasis 就是这一行真正算钱用的那三样。
+ *
+ * 2026-09-17 加的第二种情形，规矩一个字没松：主人签了同重同价声明之后，这一行的货价是他自己填的，页面从没按规格
+ * 分列过价格。那句话于是照实说清价格的归属——页面给的是整个商品的 1 件价，按规格同价是主人声明的——绝不能让读的人
+ * 以为页面按规格给过价。而且只有页面那个 1 件价和他声明的货价确实是同一个数，这句话才成立：不是同一个数，页面这份
+ * 证据就撑不住他要提交的那个单价，那就没有凭据，报缺项。
  */
 export function quantityOneEvidenceNote({ capture, sku, label }) {
-  const ranges = Array.isArray(capture?.priceRanges) ? capture.priceRanges : [];
-  const one = ranges.find(range => finite(range?.minimumQuantity) === 1);
   const priceCny = finite(sku?.priceCny);
-  if (!one || priceCny === null) return null;
+  if (priceCny === null) return null;
   const day = dayOf(capture?.observedAt);
   const offerId = textOf(capture?.offerId);
+  const name = textOf(label) ?? textOf(sku?.sourceSkuId) ?? '这个规格';
+  const head = `按${day === null ? '' : ` ${day} `}采到的 1688 页面${offerId === null ? '' : `（商品 ${offerId}）`}核对：`;
+
+  if (sku?.priceBasis === 'owner_declared') {
+    const quote = quantityOnePageQuote(capture);
+    if (quote.status !== 'ok' || Math.round(quote.priceCny * 100) !== Math.round(priceCny * 100)) return null;
+    return `${head}页面报的起订量是 1 件、单价 ¥${quote.priceCny.toFixed(2)}` +
+      `${quote.sources.length === 0 ? '' : `（来源 ${quote.sources.join('、')}）`}` +
+      `；页面未按规格分列价格，${name} 这一个规格没有自己的页面价，` +
+      `这一批规格同价是主人在「找货」里声明的 ¥${priceCny.toFixed(2)}，不是页面给的。`;
+  }
+
+  const one = quantityOneRanges(capture)[0];
+  if (!one) return null;
   const moqSource = textOf(one.source);
   const priceSource = textOf(sku?.priceSource);
-  const name = textOf(label) ?? textOf(sku?.sourceSkuId) ?? '这个规格';
   return [
-    `按${day === null ? '' : ` ${day} `}采到的 1688 页面`,
-    offerId === null ? '' : `（商品 ${offerId}）`,
-    `核对：页面报的起订量是 1 件`,
+    head,
+    `页面报的起订量是 1 件`,
     moqSource === null ? '' : `（来源 ${moqSource}）`,
     `；${name} 这一个规格的单价 ¥${priceCny.toFixed(2)} 取自同一次采集`,
     priceSource === null ? '' : `（来源 ${priceSource}）`,
     '。'
   ].join('');
+}
+
+/**
+ * 拿不出那句话的时候，如实说是哪一种拿不出来。原来只有一种情形，所以原来只有一句话；现在有第二种，
+ * 而那一句对第二种情形是假的——页面明明报了 1 件价，让主人再去采一次只会让他白跑。
+ */
+function quantityOneEvidenceWhy({ capture, sku }) {
+  const MISSING = '这一次采集没有读到「一件起订」的报价，软件不会替你写这句话；重新采集一次这个 1688 页面再来。';
+  if (sku?.priceBasis !== 'owner_declared') return MISSING;
+  const quote = quantityOnePageQuote(capture);
+  // 页面根本没报 1 件价，和报了却没带出一个可用的数，对主人来说是同一件事：这一次采集撑不起这句话，得重采。
+  if (quote.status === 'none' || quote.status === 'no_price') return MISSING;
+  if (quote.status === 'conflict') {
+    return '这一次采集读到的「一件起订」报价不止一个价，软件不会替你挑一个当凭据；重新采集一次这个 1688 页面再来。';
+  }
+  const priceCny = finite(sku?.priceCny);
+  return `页面报的 1 件价是 ¥${quote.priceCny.toFixed(2)}，你在「找货」里填的货价是 ` +
+    `${priceCny === null ? '空的' : `¥${priceCny.toFixed(2)}`}。页面没有按规格分列价格，` +
+    '所以这个规格的单价只能靠页面那个 1 件价撑着；两个数不一样，这份采集就撑不住你要提交的价。' +
+    '把「找货」里的货价改成和页面一致，或者重新采集一次这个 1688 页面。';
 }
 
 /**
@@ -347,21 +411,26 @@ export function buildProfitStepReview({
     const id = String(row.sourceSkuId);
     const cardSku = cardSkus.find(sku => String(sku.sourceSkuId) === id) ?? null;
     const variantKey = textOf(cardSku?.variantKey);
-    const unitProductPrice = finite(cardSku?.priceCny) ?? finite(row.priceCny);
+    // 提交的单价必须就是这一行算利润用的那个数。「选规格」那张表已经把「采到的优先、声明只填页面没给的那一半」定完了，
+    // 所以这里认表的那一行，不再从原始采集记录里另取一个——两处各取各的，正是会让页面和提交对不上的那条缝。
+    const unitProductPrice = finite(row.priceCny) ?? finite(cardSku?.priceCny);
     const weightKg = finite(row.weightKg);
-    const note = quantityOneEvidenceNote({ capture, sku: cardSku ?? { priceCny: row.priceCny }, label: row.label });
+    const note = quantityOneEvidenceNote({ capture, sku: row, label: row.label });
     const gaps = [];
     if (cardSku === null || variantKey === null) gaps.push(gap('variantKey', '规格标识', '这一次的采集记录里没有这个规格的标识，重新采集一次再来。'));
     if (unitProductPrice === null || unitProductPrice <= 0) gaps.push(gap('unitProductPrice', '这个规格的货价', '这一次采集没有读到这个规格自己的价格。'));
     if (weightKg === null || weightKg <= 0) gaps.push(gap('weightKg', '这个规格的重量', '这一次采集没有读到这个规格自己的重量，运费和利润都算不出来。'));
     if (note === null) gaps.push(gap('quantityOneEvidenceSourceNote', '一件可买的凭据',
-      '这一次采集没有读到「一件起订」的报价，软件不会替你写这句话；重新采集一次这个 1688 页面再来。'));
+      quantityOneEvidenceWhy({ capture, sku: row })));
     return {
       sourceSkuId: id,
       label: row.label,
       values: Array.isArray(row.values) ? [...row.values] : [],
       attributes: isObject(row.attributes) ? { ...row.attributes } : {},
       priceCny: row.priceCny, weightKg, chargeableKg: row.chargeableKg, route: row.route,
+      // 这个规格的货价和重量是采到的还是主人声明的。页面那句「这个规格在 1688 页面上自己的价」只有前者成立，
+      // 所以这两格必须跟着规格一起过去——不然确认框里的那句话就是软件替页面说的。
+      priceBasis: row.priceBasis ?? null, weightBasis: row.weightBasis ?? null,
       freightRmb: row.freightRmb, allInPurchaseRmb: row.allInPurchaseRmb,
       unitProfitRmb: row.unitProfitRmb, marginRate: row.marginRate,
       breakEvenRub: row.breakEvenRub, thresholdRub: row.thresholdRub, thresholdBasis: row.thresholdBasis,

@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { readGuooTariffCatalog } from '../lib/guoo-tariff-reader.mjs';
 import { resolveLifecycleBProfitRule } from '../lib/lifecycle-b-evidence-runtime.mjs';
 import { DEFAULT_RULES } from '../lib/workflow.mjs';
-import { buildSkuChoiceTable } from '../lib/sku-choice-estimate.mjs';
+import {
+  buildOwnerSkuUniformSupplyRecord, buildSkuChoiceTable, inForceSkuUniformSupply
+} from '../lib/sku-choice-estimate.mjs';
 import { buildDiscoveryMarketSalesSnapshot } from '../lib/discovery-market-snapshot.mjs';
 import { buildRealAConfirmationCard, validateRealAConfirmationSubmission } from '../lib/real-a-confirmation-card.mjs';
 import {
@@ -106,7 +108,8 @@ const COMMISSION_TIERS = Object.freeze({ tiers: [
 
 function reviewOf({ captureState = capture(), candidateExtra = {}, draftInput = draft, commissionTiers = COMMISSION_TIERS } = {}) {
   const candidate = candidateOf(captureState, candidateExtra);
-  const table = tableOf(captureState);
+  // 同重同价声明：没签过的时候 inForceSkuUniformSupply 给 null，这张表和 2026-09-16 之前逐字相同。
+  const table = tableOf(captureState, { uniformSupply: inForceSkuUniformSupply(candidate) });
   const estimate = { estimate: { costPolicy: { ...storeRule, thresholdPolicy: storeRule.thresholdPolicy ?? 'either' }, fx } };
   return buildProfitStepReview({
     candidate, draft: draftInput, table, estimate,
@@ -384,4 +387,200 @@ test('还没选定规格、或者已经确认过的商品，都没有这一步',
   // 已经确认过一次的商品不能再看到这张确认表：采集记录仍旧停在「等你选规格」，但这一步已经过去了。
   assert.equal(reviewOf({ candidateExtra: { lifecycleV11: { aConfirmationReceipt: { decision: 'confirm' } } } }), null);
   assert.equal(reviewOf({ candidateExtra: { lifecycleV11: { skuPackage: { businessPhase: 'B' } } } }), null);
+});
+
+/* ── 同重同价声明走到「算利润」 ──────────────────────────────────────────────────────────────────────────────────────
+ * 主人 2026-09-17 的场景：小猫战术背心采回来几个「均码」只差颜色，重量和货价一个规格都没采到，页面只给了整个商品
+ * 的阶梯价。r32 让他签字之后「选规格」那张表通了，可是「算利润」有它自己一套 gap 检查，没认这份声明，点
+ * 「确认，进入文案素材」照旧报「缺少一件可买的凭据」。
+ *
+ * 这一组把那条路钉死，同时钉住它不许越界的地方：凭据那句话必须照实说清「页面没有按规格分列价格，这几个规格同价
+ * 是主人声明的」，绝不能让读的人以为页面按规格给过价。
+ */
+const UNIFORM_SKUS = ['黑色', '红色', '蓝色'].map((colour, index) => ({
+  sourceSkuId: `sku-uniform-${index}`, propPath: `1627207:uniform-${index}`,
+  attributes: { 规格: `${colour}>均码`, 颜色: colour, 尺码: '均码' },
+  priceCny: null, priceSource: null,
+  stock: 300, stockSource: 'tradeModel.skuMap.canBookCount', inStock: true,
+  weight: null, weightSource: null, imageUrl: null
+}));
+
+/** 页面只报了整件商品的阶梯价：1 件 ¥20.50（两个独立来源都这么说），100 件 ¥19。规格一列价都没有。 */
+const uniformCapture = (extra = {}) => capture({
+  skuChoices: UNIFORM_SKUS.map(item => structuredClone(item)),
+  selectedSkuIds: UNIFORM_SKUS.map(item => item.sourceSkuId),
+  priceRanges: [
+    { minimumQuantity: 1, priceCny: 20.5, source: 'tradeModel.disPriceRanges' },
+    { minimumQuantity: 1, priceCny: 20.5, source: 'tradeModel.offerPriceModel.currentPrices' },
+    { minimumQuantity: 100, priceCny: 19, source: 'tradeModel.disPriceRanges' }
+  ],
+  ...extra
+});
+
+const declarationFor = (captureState, draftInput = draft) => buildOwnerSkuUniformSupplyRecord({
+  candidate: candidateOf(captureState, { supplierDraftV1: draftInput }), declaredAt: '2026-09-17T02:00:00.000Z'
+});
+
+/** 走 draft 不是模块那一份的时候，表和这一步要读同一个 draft，不然两处各说各的。 */
+function declaredReviewOf(captureState, draftInput, candidateExtra = {}) {
+  const candidate = candidateOf(captureState, { supplierDraftV1: draftInput, ...candidateExtra });
+  const table = tableOf(captureState, { draft: draftInput, uniformSupply: inForceSkuUniformSupply(candidate) });
+  return buildProfitStepReview({
+    candidate, draft: draftInput, table,
+    estimate: { estimate: { costPolicy: { ...storeRule, thresholdPolicy: storeRule.thresholdPolicy ?? 'either' }, fx } },
+    card: buildRealAConfirmationCard(candidate), commissionTiers: COMMISSION_TIERS, builtAt: '2026-09-17T02:00:02.000Z'
+  });
+}
+
+test('没签同重同价：整套还是待补，「算利润」这一步和 2026-09-16 之前逐字相同', () => {
+  const review = reviewOf({ captureState: uniformCapture() });
+  // 一个规格都定不了价，所以没有规格可确认——这正是主人卡住的那张表。
+  assert.equal(review.passCount, 0);
+  assert.equal(review.specifications.length, 0);
+  assert.deepEqual(review.queue, []);
+  assert.deepEqual(review.excluded.map(item => item.kind), ['not_priced', 'not_priced', 'not_priced']);
+
+  // 采到了价、但采集里没有「一件起订」报价的那条老路，一个字都不许变。
+  const noRanges = capture({ priceRanges: [{ minimumQuantity: 2, priceCny: 20.5, source: 'tradeModel.offerPriceModel.currentPrices' }] });
+  assert.deepEqual(profitStepGaps(reviewOf({ captureState: noRanges }), 'sku-8xl-yellow'),
+    [{ field: 'quantityOneEvidenceSourceNote', label: '一件可买的凭据',
+      why: '这一次采集没有读到「一件起订」的报价，软件不会替你写这句话；重新采集一次这个 1688 页面再来。' }]);
+  // 采到了真实价的那一份凭据，措辞也一个字都不许变。
+  assert.equal(quantityOneEvidenceNote({ capture: capture(), sku: EIGHT_YELLOW, label: '8XL · 黄色' }),
+    '按 2026-09-13 采到的 1688 页面（商品 943009939489）核对：页面报的起订量是 1 件' +
+    '（来源 tradeModel.offerPriceModel.currentPrices）；8XL · 黄色 这一个规格的单价 ¥41.50 取自同一次采集' +
+    '（来源 tradeModel.skuMap.price）。');
+  assert.equal(quantityOneEvidenceNote({ capture: uniformCapture(), sku: { priceCny: null }, label: '黑色' }), null);
+});
+
+test('签了同重同价：「缺少一件可买的凭据」解开，而那句话照实说价格是主人声明的', () => {
+  const captureState = uniformCapture();
+  const review = reviewOf({ captureState, candidateExtra: { skuUniformSupplyV1: declarationFor(captureState) } });
+  assert.equal(review.passCount, 3);
+  assert.equal(review.specifications.length, 3);
+
+  const spec = review.specifications[0];
+  assert.deepEqual(spec.gaps, []);
+  assert.deepEqual(profitStepGaps(review, spec.sourceSkuId), []);
+  // 这一步用的货价和重量，就是主人在「找货」里填的那两个数，且每一格都说得出自己是哪儿来的。
+  assert.equal(spec.unitProductPrice, draft.goodsPriceRmb);
+  assert.equal(spec.weightKg, draft.packedWeightKg);
+  assert.equal(spec.actualPurchaseCost, Math.round((draft.goodsPriceRmb + draft.domesticShippingRmb) * 100) / 100);
+  assert.deepEqual([spec.priceBasis, spec.weightBasis], ['owner_declared', 'owner_declared']);
+
+  const note = spec.quantityOneEvidenceSourceNote;
+  // 页面那一半是真的：起订量 1 件、单价 ¥20.50，两个独立来源都列出来。
+  assert.match(note, /采到的 1688 页面（商品 943009939489）核对：页面报的起订量是 1 件、单价 ¥20\.50/u);
+  assert.match(note, /tradeModel\.disPriceRanges、tradeModel\.offerPriceModel\.currentPrices/u);
+  // 主人那一半也是真的，而且必须说出来：页面没有按规格分列价格，同价是他自己声明的。
+  assert.match(note, /页面未按规格分列价格/u);
+  assert.match(note, /这一批规格同价是主人在「找货」里声明的 ¥20\.50，不是页面给的/u);
+  // 绝不许出现「这个规格的单价取自同一次采集」那种说法——页面从没给过这个规格一个价。
+  assert.doesNotMatch(note, /取自同一次采集/u);
+  assert.ok(note.length <= 1000 && !/[\u0000-\u001f\u007f]/u.test(note), '这句话要过得了服务端自己的校验');
+
+  // 声明之后没有「页面价和你填的差多少」可说：页面从来没给过这个规格一个价，不是「两个数一致」。
+  assert.equal(spec.priceDelta, null);
+  assert.equal(pagePriceDelta({ row: { priceCny: 20.5, priceBasis: 'owner_declared' }, draft }), null);
+  assert.equal(pagePriceDelta({ row: { priceCny: 99, priceBasis: 'owner_declared' }, draft }), null);
+
+  // 三个规格同价同重，合成一行，而且这一行说得出这个数是主人填的。
+  assert.equal(review.queue.length, 1);
+  assert.equal(review.queue[0].count, 3);
+  assert.equal(review.queue[0].priceCny, draft.goodsPriceRmb);
+  assert.deepEqual([review.queue[0].priceBasis, review.queue[0].weightBasis], ['owner_declared', 'owner_declared']);
+
+  // 整份确认组装得出来，而且服务端自己的校验收得下。
+  const payload = profitStepSubmission(review, spec.sourceSkuId, { comparabilityConfirmed: true, supplyConfirmed: true });
+  assert.equal(payload.supplierConfirmation.unitProductPrice, draft.goodsPriceRmb);
+  assert.equal(payload.supplierConfirmation.weightKg, draft.packedWeightKg);
+  assert.equal(payload.supplierConfirmation.quantityOneEvidenceSourceNote, note);
+  const validation = validateRealAConfirmationSubmission(
+    buildRealAConfirmationCard(candidateOf(captureState, { skuUniformSupplyV1: declarationFor(captureState) })), payload);
+  assert.deepEqual(validation.errors, []);
+  assert.equal(validation.valid, true);
+});
+
+test('采到了真实值的规格，声明盖不掉它；一半采集一半声明就各说各的', () => {
+  // 第一个规格页面给了自己的价和自己的重量，另外两个什么都没给。
+  const mixed = uniformCapture({
+    skuChoices: [
+      { ...structuredClone(UNIFORM_SKUS[0]), priceCny: 41.5, priceSource: 'tradeModel.skuMap.price',
+        weight: { value: 0.24, unit: 'kg' }, weightSource: 'detailDescription.freightInfo.skuWeight' },
+      structuredClone(UNIFORM_SKUS[1]), structuredClone(UNIFORM_SKUS[2])
+    ]
+  });
+  const review = reviewOf({ captureState: mixed, candidateExtra: { skuUniformSupplyV1: declarationFor(mixed) } });
+  assert.equal(review.specifications.length, 3);
+
+  const captured = review.specifications.find(item => item.sourceSkuId === 'sku-uniform-0');
+  const declared = review.specifications.find(item => item.sourceSkuId === 'sku-uniform-1');
+  // 采到的那一行用采到的：¥41.50 / 0.24 公斤，一份声明盖不掉一个真实数据。
+  assert.equal(captured.unitProductPrice, 41.5);
+  assert.equal(captured.weightKg, 0.24);
+  assert.deepEqual([captured.priceBasis, captured.weightBasis], ['captured', 'captured']);
+  // 而且它的凭据还是原来那句「取自同一次采集」——它确实是。
+  assert.match(captured.quantityOneEvidenceSourceNote, /这一个规格的单价 ¥41\.50 取自同一次采集/u);
+  assert.doesNotMatch(captured.quantityOneEvidenceSourceNote, /页面未按规格分列价格/u);
+  // 采到的那一行照旧要报「页面价比你填的贵多少」。
+  assert.deepEqual(captured.priceDelta, { pageRmb: 41.5, declaredRmb: 20.5, deltaRmb: 21 });
+
+  // 没采到的那一行走声明，凭据照实说是主人声明的。
+  assert.deepEqual([declared.priceBasis, declared.weightBasis], ['owner_declared', 'owner_declared']);
+  assert.match(declared.quantityOneEvidenceSourceNote, /这一批规格同价是主人在「找货」里声明的/u);
+  assert.equal(declared.priceDelta, null);
+  assert.deepEqual(declared.gaps, []);
+
+  // 两种来源的规格价钱不同，本来就不该并成一行。
+  assert.equal(review.queue.length, 2);
+  const group = review.queue.find(row => row.count === 2);
+  assert.deepEqual([group.priceBasis, group.weightBasis], ['owner_declared', 'owner_declared']);
+});
+
+test('「找货」里没填数的时候，签了也补不出来——声明说的是「按我填的算」，没有可指的数就什么都不算', () => {
+  const captureState = uniformCapture();
+  const blank = { ...draft, goodsPriceRmb: null, packedWeightKg: null };
+  // 连签都签不下去：签一份指不到任何数字的字，不如当场说清为什么。
+  assert.throws(() => declarationFor(captureState, blank), /SKU_UNIFORM_SUPPLY_DRAFT_MISSING/u);
+
+  // 先签了字、后来又把「找货」清空：声明不把数字抄在自己身上，所以这里一个数都补不出来，整套照旧是待补。
+  const review = declaredReviewOf(captureState, blank, { skuUniformSupplyV1: declarationFor(captureState) });
+  assert.equal(review.passCount, 0);
+  assert.equal(review.specifications.length, 0);
+});
+
+test('声明的货价和页面的 1 件价对不上，就没有凭据——软件不替页面说一个它没说过的价', () => {
+  // 页面 1 件报 ¥20.50，主人在「找货」里填的是 ¥26。页面这份证据撑不住他要提交的那个单价。
+  const captureState = uniformCapture();
+  const higher = { ...draft, goodsPriceRmb: 26 };
+  const review = declaredReviewOf(captureState, higher, { skuUniformSupplyV1: declarationFor(captureState, higher) });
+  const spec = review.specifications[0];
+  assert.equal(spec.quantityOneEvidenceSourceNote, null);
+  assert.deepEqual(spec.gaps.map(item => item.field), ['quantityOneEvidenceSourceNote']);
+  // 缺项那句话要说出两个数，别让主人去重采一次本来就采对了的页面。
+  assert.match(spec.gaps[0].why, /页面报的 1 件价是 ¥20\.50，你在「找货」里填的货价是 ¥26\.00/u);
+  assert.doesNotMatch(spec.gaps[0].why, /这一次采集没有读到「一件起订」的报价/u);
+  assert.equal(profitStepSubmission(review, spec.sourceSkuId, { comparabilityConfirmed: true, supplyConfirmed: true }), null);
+
+  // 页面自己的两条 1 件报价互相打架时，也不许挑一条当凭据。
+  const conflicting = uniformCapture({ priceRanges: [
+    { minimumQuantity: 1, priceCny: 20.5, source: 'tradeModel.disPriceRanges' },
+    { minimumQuantity: 1, priceCny: 22, source: 'tradeModel.offerPriceModel.currentPrices' }
+  ] });
+  const split = reviewOf({ captureState: conflicting, candidateExtra: { skuUniformSupplyV1: declarationFor(conflicting) } });
+  assert.equal(split.specifications[0].quantityOneEvidenceSourceNote, null);
+  assert.match(split.specifications[0].gaps[0].why, /报价不止一个价，软件不会替你挑一个当凭据/u);
+
+  // 页面连 1 件价都没报过、或者报了 1 件起订却没带出一个可用的数，说的都还是原来那句「重新采集一次」。
+  for (const priceRanges of [
+    [{ minimumQuantity: 100, priceCny: 19, source: 'tradeModel.disPriceRanges' }],
+    [{ minimumQuantity: 1, priceCny: null, source: 'tradeModel.disPriceRanges' }],
+    [{ minimumQuantity: 1, priceCny: 0, source: 'tradeModel.disPriceRanges' }]
+  ]) {
+    const none = uniformCapture({ priceRanges });
+    const noQuote = reviewOf({ captureState: none, candidateExtra: { skuUniformSupplyV1: declarationFor(none) } });
+    assert.equal(noQuote.specifications[0].gaps[0].why,
+      '这一次采集没有读到「一件起订」的报价，软件不会替你写这句话；重新采集一次这个 1688 页面再来。',
+      JSON.stringify(priceRanges));
+  }
 });

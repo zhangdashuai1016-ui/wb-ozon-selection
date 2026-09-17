@@ -329,6 +329,25 @@ function declaredMark(basis) {
   return basis === "mixed" ? <span className="product-sku-declared">{" · 部分你填的"}</span> : null;
 }
 
+/**
+ * 同一个标记的纯文字版。要拼进一整句话里的时候用它：拆成相邻的两个文本节点，服务端渲染会在中间插进一段注释，
+ * 那句话就不再是一句话了。
+ */
+function declaredText(basis) {
+  return basis === "owner_declared" ? "（你填的）" : basis === "mixed" ? "（部分你填的）" : "";
+}
+
+/**
+ * 这个规格的货价是哪儿来的。
+ * 只有页面真的按规格给了价，才可以说「这个规格在 1688 页面上自己的价」。主人签过同重同价之后，页面从来没有给过
+ * 这个规格一个价，那句话就是软件替页面说的——所以这里照实换成他自己填的那一个数。
+ */
+export function profitStepPriceOriginText(basis) {
+  return basis === "owner_declared"
+    ? "（页面没有按规格分列价格，这是你在「找货」里填的）"
+    : "（这个规格在 1688 页面上自己的价）";
+}
+
 /** The one-line conclusion, in the table's own two numbers. */
 export function skuChoiceHeadline(table) {
   const drop = finite(table?.profitDropRate);
@@ -1454,7 +1473,8 @@ function ProfitStepSection({ review, cargoStep, categoryStep, extraHandlingStep 
             {textOf(benchmark.collectedOn) ? `，快照采于 ${benchmark.collectedOn}` : ""}。
           </p>
           <p>{`你的货：1688 ${textOf(supply.offerId) || "编号未取得"}`}
-            {spec === null ? "，还没指定变体" : ` ${spec.label}，货价 ${money(spec.priceCny) ?? PENDING}，打包 ${spec.weightKg} 公斤 · ${size}`}。</p>
+            {spec === null ? "，还没指定变体" : ` ${spec.label}，货价 ${money(spec.priceCny) ?? PENDING}${declaredText(spec.priceBasis)}` +
+              `，打包 ${spec.weightKg} 公斤${declaredText(spec.weightBasis)} · ${size}`}。</p>
         </span>
       </label>
       <label className="product-profit-check" htmlFor="profit-supply">
@@ -1464,11 +1484,11 @@ function ProfitStepSection({ review, cargoStep, categoryStep, extraHandlingStep 
           <b>链接、规格、成本、包装是同一套采购方案</b>
           <p>{textOf(supply.productUrl) || "1688 链接未取得"}</p>
           <p>
-            {`货价 ${spec === null ? PENDING : money(spec.priceCny)}（这个规格在 1688 页面上自己的价）`}
+            {`货价 ${spec === null ? PENDING : money(spec.priceCny)}${profitStepPriceOriginText(spec?.priceBasis)}`}
             {` ＋ 国内运费 ${money(supply.unitDomesticFreight) ?? PENDING}（你填的）`}
             {` ＋ 其他采购费用 ${money(supply.otherPurchaseCosts) ?? PENDING}`}
             {` ＝ 到手 ${spec === null ? PENDING : money(spec.actualPurchaseCost)}`}
-            {`；打包 ${spec === null ? PENDING : `${spec.weightKg} 公斤`} · ${size}。`}
+            {`；打包 ${spec === null ? PENDING : `${spec.weightKg} 公斤${declaredText(spec.weightBasis)}`} · ${size}。`}
           </p>
           {/* 这句话说的是软件替你报了 ¥0；报不出来的时候它就不能说，缺什么由下面那张缺项单说。 */}
           {supply.otherPurchaseCosts !== 0 ? null

@@ -1118,6 +1118,21 @@ test('两个勾选都勾上才能提交，页面价与找货价的差额就写�
   assert.match(html, /两件都确认后才能进入下一步。/u);
   // 渲染这一步不会向服务端发任何东西。
   assert.doesNotMatch(html, /RENDER_MUST_NOT_START_WORK/u);
+
+  // 主人签过同重同价之后，页面从来没给过这个规格一个价，这句话就不许再说成「页面上自己的价」。
+  const declared = await render(profitProps({
+    specifications: profitReview().specifications.map(item => item.sourceSkuId === 'sku-8xl-yellow'
+      ? { ...item, priceCny: 20.5, unitProductPrice: 20.5, actualPurchaseCost: 24, priceDelta: null,
+        priceBasis: 'owner_declared', weightBasis: 'owner_declared' }
+      : item)
+  }));
+  assert.match(declared,
+    /货价 ¥20\.50（页面没有按规格分列价格，这是你在「找货」里填的） ＋ 国内运费 ¥3\.50（你填的） ＋ 其他采购费用 ¥0\.00 ＝ 到手 ¥24\.00/u);
+  assert.match(declared, /打包 0\.24 公斤（你填的） · 25×22×2\.5 厘米/u);
+  assert.match(declared, /你的货：1688 943009939489 8XL · 黄色，货价 ¥20\.50（你填的），打包 0\.24 公斤（你填的）/u);
+  assert.doesNotMatch(declared, /¥20\.50（这个规格在 1688 页面上自己的价）/u);
+  // 页面从没给过这个规格一个价，所以也没有「页面价比你填的差多少」这句话。
+  assert.doesNotMatch(declared, /<p class="product-profit-delta">/u);
 });
 
 test('资料凑不齐就如实列出来并禁用提交，页面不替主人补一个像样的数字', async () => {
