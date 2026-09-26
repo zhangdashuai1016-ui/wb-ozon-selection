@@ -523,6 +523,15 @@ export default function App() {
     }
   }
 
+  async function createSiblingSku(payload) {
+    const parentCandidateId = selectedId;
+    const navigationToken = selectionGuard.current.capture();
+    const result = await api.createSiblingSku(parentCandidateId, payload);
+    await load(true);
+    navigateResult(result.candidate, navigationToken);
+    return result;
+  }
+
   async function updateSelected(payload) {
     const navigationToken = selectionGuard.current.capture();
     if (!selected) return;
@@ -1272,6 +1281,9 @@ export default function App() {
           loadingLabel={productDraftError ? `读取这件商品的找货资料失败：${productDraftError}` : "正在读取这件商品的找货资料…"}
           onSaveDraft={payload => runProductStep(api.saveSupplierDraft, payload)}
           onChooseSkus={payload => runProductStep(api.chooseSourceSkus, payload)}
+          onCreateSiblingSku={createSiblingSku}
+          siblingSkuIds={state.candidates.filter(item => item.siblingSourceV1?.parentCandidateId === productCandidate?.id)
+            .map(item => item.siblingSourceV1.supplierSkuId)}
           onDeclareCargoFacts={payload => runProductStep(api.declareCargoFacts, payload)}
           onDeclareExtraHandlingFees={payload => runProductStep(api.declareExtraHandlingFees, payload)}
           onDeclareUniformSupply={payload => runProductStep(api.declareSkuUniformSupply, payload)}

@@ -27,6 +27,52 @@ export const PRODUCT_STEPS = Object.freeze([
   { key: "readback", title: "回读" }
 ]);
 
+function SiblingSkuSection({ candidate, siblingSkuIds, onCreate }) {
+  const [supplierSkuId, setSupplierSkuId] = useState('');
+  const [productName, setProductName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const parentSkuId = candidate.lifecycleV11?.skuPackage?.supplierSkuId;
+  const choices = candidate.sourceCapture.skuChoices.filter(choice =>
+    candidate.sourceCapture.selectedSkuIds.includes(choice.sourceSkuId) &&
+    choice.sourceSkuId !== parentSkuId && !siblingSkuIds.includes(choice.sourceSkuId));
+  if (choices.length === 0) return null;
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      await onCreate({ dataRevision: candidate.dataRevision, supplierSkuId, productName: productName.trim() });
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+  return <section className="product-section" aria-label="追加同款规格">
+    <h3>追加同款规格</h3>
+    <p className="product-section-hint">一次只建立一个独立 A 阶段规格。市场、采集和主人同重同价声明保留来源；供货确认、利润、素材与生产授权要逐规格完成。</p>
+    <form onSubmit={submit}>
+      <label>供应规格
+        <select value={supplierSkuId} onChange={event => setSupplierSkuId(event.target.value)} required disabled={saving}>
+          <option value="">请选择</option>
+          {choices.map(choice => <option key={choice.sourceSkuId} value={choice.sourceSkuId}>
+            {choice.attributes?.颜色 || choice.variantName || choice.sourceSkuId} · {choice.sourceSkuId}
+          </option>)}
+        </select>
+      </label>
+      <label>这件规格的商品名称
+        <input value={productName} onChange={event => setProductName(event.target.value)} maxLength={200}
+          placeholder="请写明这个颜色，勿沿用上一色名称" required disabled={saving} />
+      </label>
+      <button className="button secondary" type="submit" disabled={saving || !supplierSkuId || !productName.trim()}>
+        {saving ? '正在建立…' : '建立独立规格'}
+      </button>
+    </form>
+    {error ? <p role="alert">{error}</p> : null}
+  </section>;
+}
+
 const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const finite = value => (typeof value === "number" && Number.isFinite(value) ? value : null);
 const money = value => (finite(value) === null ? null : `¥${value.toFixed(2)}`);
@@ -1710,7 +1756,7 @@ function SavedC2Assets({ skuPackage }) {
 
 export default function ProductPage({
   candidate, view = null, titleZh = null, extensionStatus = null,
-  onSaveDraft, onChooseSkus, onRequestCapture, onReviewCaptureAndRequest, onRecaptureSource,
+  onSaveDraft, onChooseSkus, onCreateSiblingSku = null, siblingSkuIds = [], onRequestCapture, onReviewCaptureAndRequest, onRecaptureSource,
   onConfirmProfitStep, onDeclareCargoFacts, onDeclareExtraHandlingFees, onDeclareUniformSupply, onReadOzonPage, onOpenLegacyCard,
   onBack, onEliminateCandidate,
   productionIdentity = null, onPrepareC1Local = null,
@@ -1938,6 +1984,14 @@ export default function ProductPage({
 
     {error ? <p role="alert">{error}</p> : null}
     {notice ? <p role="status" className="product-notice">{notice}</p> : null}
+
+    {typeof onCreateSiblingSku === 'function' &&
+      candidate.sourceCapture?.mode === 'a_supplier_capture' &&
+      candidate.sourceCapture?.status === 'captured_waiting_owner_selection' &&
+      Array.isArray(candidate.sourceCapture?.skuChoices) &&
+      Array.isArray(candidate.sourceCapture?.selectedSkuIds) &&
+      candidate.lifecycleV11?.skuPackage?.dSoftwareExecution?.checkpoints?.some(checkpoint => checkpoint.kind === 'import_task_received')
+      ? <SiblingSkuSection key={candidate.id} candidate={candidate} siblingSkuIds={siblingSkuIds} onCreate={onCreateSiblingSku} /> : null}
 
     {/* 选规格：插件采回来的每个规格，按它自己的重量算出来的运费和利润。这里只勾选，不开始任何工作。 */}
     {choosing ? (skuTable === null

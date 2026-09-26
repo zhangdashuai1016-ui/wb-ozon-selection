@@ -13,6 +13,7 @@ import { validateProfitModel } from "./profit-model.mjs";
 import { validateSkuLifecyclePackage } from "./product-lifecycle-schema.mjs";
 import { createFinalProductPlanConfirmationCard, validateFinalProductPlanConfirmationCard } from "./final-product-plan-confirmation-card.mjs";
 import { assertAuthorizedMediaUnchanged } from "./production-authorization-preparation.mjs";
+import { assertSiblingSkuFinalCard } from './sibling-sku-card-guard.mjs';
 import { assertCurrentC1MatchesProductionPreparation, PRODUCTION_AUTHORIZATION_VERSION, PRODUCTION_WRITE_FIELDS,
   VALIDATION_MODERATION_PUBLISH_SCOPE } from "./production-authorization-preparation.mjs";
 
@@ -56,6 +57,13 @@ function inspectFrozenSource(candidate, observedAt) {
   }
   if (sku.g1Identity.candidateId !== candidate.id || !isCompleteStoreRef(candidate.storeRef, candidate.targetStore) ||
       !sameStoreRef(sku.g1Identity.storeRef, candidate.storeRef)) reject("PRODUCTION_STORE_SCOPE_CHANGED", "当前候选与冻结商品的店铺身份不一致");
+  try { assertSiblingSkuFinalCard(candidate); }
+  catch (error) {
+    if (error.message === 'SIBLING_CARD_GROUPING_MISMATCH') reject('SIBLING_CARD_GROUPING_MISMATCH', '追加规格的型号、类目、类型或品牌与原商品导入不一致');
+    if (error.message === 'SIBLING_MAIN_IMAGE_NOT_DISTINCT') reject('SIBLING_MAIN_IMAGE_NOT_DISTINCT', '本色主图与原商品的已确认图片重复');
+    if (error.message === 'SIBLING_COLOR_BINDING_INVALID') reject('SIBLING_COLOR_BINDING_INVALID', '追加规格缺少与供应颜色对应的已确认 Ozon 字典值或实际导入属性');
+    throw error;
+  }
   const preparation = sku.c2FinalAssets.productionAuthorizationPreparation;
   let expectedCard;
   try {

@@ -290,6 +290,10 @@ export const api = {
     }),
   addCandidate: (payload) =>
     request("/api/candidates", { method: "POST", body: JSON.stringify(payload) }),
+  createSiblingSku: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/sibling-sku`, {
+      method: 'POST', body: JSON.stringify(payload)
+    }),
   updateCandidate: (id, payload) =>
     request(`/api/candidates/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
   saveUserEvaluation: (id, payload) =>

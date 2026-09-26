@@ -221,6 +221,25 @@ test('confirmed optional attributes reach the real import payload without unknow
   assert.throws(() => buildOzonSellerImportRequest(input), /OZON_OPTIONAL_ATTRIBUTE_SCHEMA_MISMATCH/);
 });
 
+test('the confirmed broad and exact color values both reach the one-item import projection', () => {
+  const input = payload({ supplierSkuId: 'synthetic-black-cp', merchantSku: 'synthetic-black-cp' });
+  input.attributes.ozonAttributes = [
+    { fieldKey: '10096', fact: { verificationStatus: 'confirmed', sourceRefs: ['synthetic:owner', 'synthetic:dictionary'],
+      value: { value: 'synthetic broad black', dictionaryValueId: 1234 } } },
+    { fieldKey: '10097', fact: { verificationStatus: 'confirmed', sourceRefs: ['synthetic:owner'],
+      value: 'synthetic exact black cp' } }
+  ];
+  input.platformSchemaAttributes = [
+    { fieldKey: '10096', required: false, complexId: 0, dictionaryId: 1 },
+    { fieldKey: '10097', required: false, complexId: 0, dictionaryId: 0 }
+  ];
+  const item = buildOzonSellerImportRequest(input).body.items[0];
+  assert.deepEqual(item.attributes.find(attribute => attribute.id === 10096).values,
+    [{ dictionary_value_id: 1234, value: 'synthetic broad black' }]);
+  assert.deepEqual(item.attributes.find(attribute => attribute.id === 10097).values,
+    [{ dictionary_value_id: 0, value: 'synthetic exact black cp' }]);
+});
+
 // Ozon 的 23171 是 Хештеги（类目属性表里的 label 就写着 "#Хештеги"），不是自由搜索词框。
 // 规则：每个标签以 # 开头、标签之间用空格分隔、标签内部不能有空格。
 // 背心那张卡发出去的是 "хаки Оксфорд Для кошек"（一条、没有 #、内部全是空格），

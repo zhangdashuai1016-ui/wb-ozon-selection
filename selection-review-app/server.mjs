@@ -1,4 +1,6 @@
 import { createInitialCandidate, queuedProcessing } from "./lib/candidate-initialization.mjs";
+import { createSiblingSkuCandidate, siblingSkuCandidateInput, SiblingSkuCandidateError } from './lib/sibling-sku-candidate.mjs';
+import { assertSiblingSkuFinalCard } from './lib/sibling-sku-card-guard.mjs';
 import { createADiscoveryRuntimeServices, A_DISCOVERY_DECLINE_REASONS } from './lib/a-discovery-runtime-services.mjs';
 import { supplierImageSearchAvailability, readSupplierImageSearchPreparation, requireSupplierImageSearchPreparation,
   SupplierImageSearchPreparationError } from './lib/a-supplier-image-search-runtime-services.mjs';
@@ -6887,6 +6889,7 @@ async function handleApi(req, res, pathname) {
           skuPackage: confirmed.skuPackage,
           createdAt: timestamp
         });
+        assertSiblingSkuFinalCard({ ...current, lifecycleV11: { ...current.lifecycleV11, skuPackage: card.skuPackage } });
         result = {
           skuPackage: card.skuPackage,
           confirmationCard: card.confirmationCard,
@@ -8123,6 +8126,35 @@ async function handleApi(req, res, pathname) {
     });
     return json(res, 200, { candidate });
     /* c8 ignore stop */
+  }
+
+  const siblingSkuRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/sibling-sku$/);
+  if (req.method === 'POST' && siblingSkuRoute) {
+    const origin = String(req.headers.origin || '');
+    if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, '追加规格拒绝其他网页来源');
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== 'authenticated_identity_provider' || actor.actorType !== 'human' || !actor.roles.includes('owner')) {
+      throw httpError(403, '请先登录主人身份后追加规格');
+    }
+    const parentCandidateId = decodeURIComponent(siblingSkuRoute[1]);
+    const body = await readJsonRequestBody(req, { maxBytes: 4096, requireJsonContentType: true });
+    let result;
+    try {
+      const input = siblingSkuCandidateInput(body);
+      result = await mutateDataWhenChanged(data => {
+        const outcome = createSiblingSkuCandidate({ document: data, parentCandidateId, input,
+          id: nextCandidateId(data.candidates, 'USR'), timestamp: now(), storeBindings: runtimeConfiguration.storeBindings });
+        if (outcome.created) addHistory(outcome.candidate, 'user', 'siblingSkuCreated',
+          `已从原商品的只读证据建立供应 SKU ${input.supplierSkuId} 的独立 A 阶段；未继承利润、素材或生产授权`, now());
+        return { changed: outcome.created, result: { candidate: publicCandidate(outcome.candidate, data.rules), created: outcome.created } };
+      });
+    } catch (error) {
+      if (error instanceof SiblingSkuCandidateError) {
+        throw httpError(error.code === 'SIBLING_INPUT_INVALID' ? 400 : 409, error.message, { code: error.code });
+      }
+      throw error;
+    }
+    return json(res, result.created ? 201 : 200, result);
   }
 
   if (req.method === "POST" && pathname === "/api/candidates") {
