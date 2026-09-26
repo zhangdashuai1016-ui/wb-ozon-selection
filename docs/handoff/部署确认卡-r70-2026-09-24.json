@@ -1,0 +1,236 @@
+{
+  "schemaVersion": "deployment-card-r70-v1",
+  "packageDirectory": "/private/tmp/claude-501/-Users-shuaizhang--local-share-wb-ozon-engineering-github-checkpoint-20260909/fe1d16a9-1f0c-4390-8ec0-d108d711e1d6/scratchpad/iso-r70/app",
+  "packageVerifiedAtCardIssue": true,
+  "packageNote": "本卡出具时已打好并核过；部署时只允许复制这个包，不许现场重新打包。包内关键文件与工作树逐个同哈希，dist 逐字节一致。",
+  "installedVersion": "/Users/shuaizhang/Library/Application Support/今日选品评审台-versions/20260924-owner-stock-registration-r69",
+  "targetVersion": "/Users/shuaizhang/Library/Application Support/今日选品评审台-versions/20260924-import-error-detail-r70",
+  "launchAgent": "/Users/shuaizhang/Library/LaunchAgents/com.shuaizhang.selection-review-app.plist",
+  "persistentData": "/Users/shuaizhang/Library/Application Support/今日选品评审台/data/candidates.json",
+  "dataBaselineSha256_16": "9c48a6ed51b3e1d0",
+  "dataBaselineBytes": 16673562,
+  "dataBaselineNote": "已由 r69 卡记录的 c14c3807d4647aba 变为 9c48a6ed51b3e1d0——主人 2026-09-24 点「对账并登记」后恢复与观察的正常落盘，不是异常。",
+  "launchAgentBaselineSha256_16": "436d3211db4333b3",
+  "launchAgentBaselineBytes": 15943,
+  "launchEnvironmentChange": "只有一项：SELECTION_REVIEW_D_PLATFORM_OBSERVATION_JSON 新增 defaults（Miska 绑定的店铺级默认策略）。背心那条逐品策略原样不动。其余环境变量一律不动。",
+  "policyReadback": {
+    "perSkuRefCount": 1,
+    "storeDefaultRefCount": 1,
+    "oldRefCount": 0,
+    "method": "ps eww 后只 grep -c，三条都要核，只打印数字"
+  },
+  "candidateId": "candidate:b8909f27-49e2-4a94-8c40-1a2fc2139ce7",
+  "candidateDataRevision": 78,
+  "skuDataRevision": 15,
+  "productionAuthorizationRoundV1": 2,
+  "productionRecord": null,
+  "platformWrites": 1,
+  "ozonDEPreflightEvidenceKeys": 2,
+  "rootCause": {
+    "1": "ozon-seller-api-de-adapter.mjs 原 458 行：status 非 failed 且 errors 非空即判 unknown_outcome，完全不看级别；警告与致命错误一视同仁。",
+    "2": "同文件原 436 行只取 item.errors.length，错误正文当场丢弃；而 E 侧 observedErrors() 整份保留——两侧口径长期不一致。"
+  },
+  "changedApplicationFiles": [
+    {
+      "path": "lib/capability-registry.mjs",
+      "r69": "599c4172c9c5737a",
+      "r70": "333f8e65beefc972",
+      "bytes": 99
+    },
+    {
+      "path": "lib/d-e-runtime-view.mjs",
+      "r69": "d96d9b0506ac0a91",
+      "r70": "772596107197346a",
+      "bytes": 4567
+    },
+    {
+      "path": "lib/d-platform-observation-contract.mjs",
+      "r69": "a0f12af7c57d7b91",
+      "r70": "7895cc7439a49388",
+      "bytes": 5705
+    },
+    {
+      "path": "lib/d-production-job-cursor.mjs",
+      "r69": "c3d742d6a2d268af",
+      "r70": "7815256c31fb0959",
+      "bytes": 466
+    },
+    {
+      "path": "lib/ozon-seller-api-de-adapter.mjs",
+      "r69": "80cbe1e6364ce09f",
+      "r70": "e246ef57b35b7849",
+      "bytes": 1784
+    },
+    {
+      "path": "lib/runtime-configuration.mjs",
+      "r69": "4503b16e9d925aa1",
+      "r70": "7393e9fa231e5454",
+      "bytes": 2357
+    },
+    {
+      "path": "schema/d-software-execution-state-v2.schema.json",
+      "r69": "7da8a0f986f1078d",
+      "r70": "5728249c212854df",
+      "bytes": 8586
+    },
+    {
+      "path": "server.mjs",
+      "r69": "a8840a939533e48c",
+      "r70": "cf1144163eedefe4",
+      "bytes": 2332
+    }
+  ],
+  "addedApplicationFiles": [
+    {
+      "path": "lib/d-unknown-outcome-reobservation-use-case.mjs",
+      "r70": "0a5b8b1f10aebdeb",
+      "bytes": 7961
+    },
+    {
+      "path": "lib/ozon-import-error-level.mjs",
+      "r70": "a47cef91fc7ba9eb",
+      "bytes": 1609,
+      "note": "级别判定只此一份，适配器与观察合同共用"
+    }
+  ],
+  "removedApplicationFiles": [
+    {
+      "path": "dist/assets/index-4UlBjdmS.js",
+      "note": "被 index-D0Tyb7k6.js 取代"
+    },
+    {
+      "path": "dist/assets/C1PaidDraftPanel-BhXm9wwj.js"
+    },
+    {
+      "path": "dist/assets/ProductPage-MP1Cs4b-.js"
+    },
+    {
+      "path": "dist/assets/UserInspector-Bg24_7ay.js"
+    }
+  ],
+  "frontendBundle": {
+    "previousMain": "index-4UlBjdmS.js",
+    "main": "index-D0Tyb7k6.js",
+    "replacedChunks": [
+      "C1PaidDraftPanel",
+      "ProductPage",
+      "UserInspector"
+    ],
+    "changedSourceFiles": {
+      "src/api.js": "db9e5e20c7182276",
+      "src/dESoftwareRuntimeView.js": "c678a589d941d924",
+      "src/components/DESoftwareRuntimeCard.jsx": "a798f42eddb6cd74",
+      "src/components/CandidateDetail.jsx": "cf57cf919c18299c",
+      "src/App.jsx": "5e405042936e0f01"
+    },
+    "note": "主包名没变即界面未上线、重新观察按钮不会出现。"
+  },
+  "testFileHashes": {
+    "tests/d-platform-observation-runtime.test.mjs": "77a0b7c55498e0ec",
+    "tests/d-e-runtime-configuration.test.mjs": "b0f6dcd6027ee762",
+    "tests/ozon-account-discovery-configuration.test.mjs": "3038c81602f4a0f7"
+  },
+  "capabilitySnapshot": {
+    "path": "capability-snapshots/three-store-capability-snapshot-v2.json",
+    "sha256_16": "fac2f49a65d4259a",
+    "artifacts": 798
+  },
+  "dProductionJobsMustRemainUnchanged": [
+    {
+      "idSuffix": "57fa511833023da3b4390d6a",
+      "status": "failed",
+      "externalRequestState": "not_sent",
+      "failureClass": "service_restart_before_external_request"
+    },
+    {
+      "idSuffix": "833023da3b4390d6a:round2",
+      "status": "failed",
+      "externalRequestState": "not_sent",
+      "failureClass": "d-assets-error-before-external-request"
+    },
+    {
+      "idSuffix": "f8076a88703363a76c3c6085",
+      "status": "failed",
+      "externalRequestState": "not_sent",
+      "failureClass": "d-production-preflight-not-ready"
+    },
+    {
+      "idSuffix": "8703363a76c3c6085:round2",
+      "status": "unknown_outcome",
+      "externalRequestState": "unknown_outcome",
+      "failureClass": "d-platform-unknown-outcome",
+      "note": "重新观察按钮对的就是这条"
+    }
+  ],
+  "observationJobs": [
+    {
+      "status": "completed",
+      "externalRequestState": "succeeded"
+    }
+  ],
+  "eReadbackJobs": 0,
+  "platformFact": {
+    "taskId": "5693032397",
+    "productId": "6440150538",
+    "importStatus": "imported",
+    "errorCount": 2,
+    "note": "平台已把商品建出来，但导入任务上挂着 2 条错误；其明细在 r70 之前未落盘，须由 ③ 补齐。"
+  },
+  "isolatedSmoke": {
+    "port": 45971,
+    "health": "HTTP 200",
+    "servedMainBundle": "index-D0Tyb7k6.js",
+    "buttons": {
+      "canReobserveUnknownOutcome": true,
+      "canRecoverInitialImport": false,
+      "canContinueSaved": false,
+      "canDispatchNewRound": false,
+      "canRollbackAuthorization": false
+    },
+    "writeAttempt": "HTTP 403 api_origin_required",
+    "dataCopyUnchanged": true
+  },
+  "ownerClickSequenceAfterDeploy": [
+    "按新分类重新观察一次（只此一下）"
+  ],
+  "expectedOutcomes": {
+    "allWarnings": "按 imported 继续，走到登记终态（因主人已填 100，登记而不写库存）",
+    "containsRealError": "仍停在 unknown_outcome，但错误明细逐条显示；不要重签授权、不要重新导入"
+  },
+  "notAPromise": "③ 不保证一点就通。若确实含真错误，它还会停——但这一次能一眼看懂卡在哪。先留证，其次才是往下走。",
+  "ciFullSuite": {
+    "command": "node scripts/run-ci-tests.mjs（不经管道，退出码单独落文件）",
+    "tests": 2756,
+    "pass": 2742,
+    "fail": 14,
+    "cancelled": 0,
+    "skipped": 0,
+    "realExitCode": 1,
+    "baselineRed": 14,
+    "baselineMatch": "逐条一致，无新增、无消失",
+    "baselineBreakdown": {
+      "c1Draft": 9,
+      "dESoftwarePersistence": 2,
+      "finalPricingC1Reuse": 2,
+      "eReadbackSoftwareUseCase": 1
+    },
+    "newTestsThisRound": 9,
+    "log": "/private/tmp/claude-501/-Users-shuaizhang--local-share-wb-ozon-engineering-github-checkpoint-20260909/fe1d16a9-1f0c-4390-8ec0-d108d711e1d6/scratchpad/ci-r70b.log",
+    "exitCodeFile": "/private/tmp/claude-501/-Users-shuaizhang--local-share-wb-ozon-engineering-github-checkpoint-20260909/fe1d16a9-1f0c-4390-8ec0-d108d711e1d6/scratchpad/ci-r70b-exit.txt",
+    "interimRun": {
+      "fail": 15,
+      "newlyRed": 1,
+      "detail": "ozon-account-discovery-configuration:65 断言规范化结果的精确形状；④ 使其固定带 defaults 键。不是回归，是预期内的形状变化；把新字段写进期望值，仍逐字段精确比对。"
+    },
+    "voidedRuns": "一跑被整机重启打断；另一跑用 nohup & 挂后台忘了捕获退出码（踩坑第 9 条），均已作废重来。本节只认 ci-r70b。"
+  },
+  "externalRequests": 0,
+  "platformWrites_thisDeployment": 0,
+  "productionAuthorizationCreated": false,
+  "note": "部署成功不等于背心已上架。平台事实以独立回读为准；本轮不生成 productionRecord，E 由主人人工核对。",
+  "environmentNote": {
+    "reboot": "2026-09-24 21:48 整机重启，非部署；三个 LaunchAgent 于 22:06:17 自动拉起；评审台 PID 760，仍指向 r69，plist sha 未变（436d3211db4333b3）。重启时无在飞作业，无损害。",
+    "dataMtime": "2026-09-24 19:39:35（观察作业结算那一刻，此后无写入）",
+    "transientValueNotUsed": "d587af27b80f653b 是恢复与观察之间的瞬时值，不作基线；部署前须再实测一次。"
+  }
+}

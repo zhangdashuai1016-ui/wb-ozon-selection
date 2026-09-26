@@ -1,6 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { persistJsonThroughRealTarget } from "./atomic-json-persistence.mjs";
+import { isDeepStrictEqual } from "node:util";
+import { normalizeProductionEntities, createProductionEntityResolver, PRODUCTION_ENTITY_REFERENCE_VERSION } from "./production-entity-storage.mjs";
+import { assertSafeBusinessMutationCandidate, assertSafeRuntimeRecord, assertSafeStoredProductionEntityRecord, assertRuntimeProductionEntityReferenceContext } from "./runtime-identity.mjs";
 
 export const CENTRAL_PERSISTENCE_ERROR = "Production state has no central persistence boundary.";
 
@@ -10,6 +13,137 @@ function clone(value) {
 
 function validDocument(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+const PRODUCTION_RECORDS_FIELD = "productionEntityRecords";
+
+function hasFinalCardSnapshot(value) {
+  return value?.schemaVersion === "c2-final-card-input-snapshot-v1" || value?.schemaVersion === PRODUCTION_ENTITY_REFERENCE_VERSION;
+}
+
+function hasStoredSkuProductionEntities(sku) {
+  const version = sku?.productionAuthorization?.schemaVersion;
+  return version === "production-authorization-v1.2" || version === PRODUCTION_ENTITY_REFERENCE_VERSION ||
+    hasFinalCardSnapshot(sku?.c2FinalAssets?.productionAuthorizationPreparation?.finalCardInputSnapshot);
+}
+
+function hasCandidateProductionEntities(candidate) {
+  return hasStoredSkuProductionEntities(candidate?.lifecycleV11?.skuPackage) ||
+    (Array.isArray(candidate?.lifecycleV11?.finalPricingRevisionHistory) && candidate.lifecycleV11.finalPricingRevisionHistory.some(history =>
+      history?.previousSkuPackage?.entityType === "SkuLifecyclePackage" && hasStoredSkuProductionEntities(history.previousSkuPackage)));
+}
+
+function hasDetachedProductionHistory(record) {
+  return record?.schemaVersion === "c1-final-plan-revision-history-v1" &&
+    record.previousSkuPackage?.entityType === "SkuLifecyclePackage" && hasStoredSkuProductionEntities(record.previousSkuPackage);
+}
+
+function hasProductionResult(result) {
+  return result !== null && typeof result === "object" &&
+    (result.productionAuthorization !== undefined || result.productionPlan !== undefined ||
+      ["production-authorization-v1.2", "production-plan-v1.1", PRODUCTION_ENTITY_REFERENCE_VERSION].includes(result.schemaVersion));
+}
+
+// Only production aggregates and their exact idempotent replies are encoded.
+// Research material, paid receipts and unrelated candidates are not fingerprinted
+// or rewritten by the production entity store.
+function mapProductionSlots(document, transform) {
+  if (Array.isArray(document.candidates)) {
+    document.candidates = document.candidates.map((candidate, index) => hasCandidateProductionEntities(candidate)
+      ? transform(candidate, candidate.id, "candidate", `candidate:${index}`) : candidate);
+  }
+  if (Array.isArray(document.c1FinalPlanRevisionHistoryRecords)) {
+    document.c1FinalPlanRevisionHistoryRecords = document.c1FinalPlanRevisionHistoryRecords.map((record, index) => hasDetachedProductionHistory(record)
+      ? transform(record, record.candidateId, "history", `final-plan-history:${index}`) : record);
+  }
+  if (Array.isArray(document.runtime?.idempotencyRecords)) {
+    document.runtime.idempotencyRecords = document.runtime.idempotencyRecords.map((record, index) => {
+      const hasCandidate = hasCandidateProductionEntities(record.candidateSnapshot);
+      const hasResult = hasProductionResult(record.result);
+      if (!hasCandidate && !hasResult) return record;
+      return { ...record,
+        ...(hasCandidate ? { candidateSnapshot: transform(record.candidateSnapshot, record.candidateId, "candidate", `idempotency:${index}:candidate`) } : {}),
+        ...(hasResult ? { result: transform(record.result, record.candidateId, "result", `idempotency:${index}:result`) } : {}) };
+    });
+  }
+  return document;
+}
+
+function assertSafeProductionSlot(value, kind) {
+  if (kind === "candidate" || kind === "history") assertSafeBusinessMutationCandidate(value);
+  else assertSafeRuntimeRecord(value);
+}
+
+function productionResolver(records) {
+  return createProductionEntityResolver(records, { validateRecord: assertSafeStoredProductionEntityRecord });
+}
+
+function readProductionDocument(stored) {
+  const document = clone(stored);
+  const records = Object.hasOwn(document, PRODUCTION_RECORDS_FIELD) ? document[PRODUCTION_RECORDS_FIELD] : [];
+  if (!Array.isArray(records)) throw new Error("BUSINESS_STATE_PRODUCTION_ENTITY_STORE_INVALID");
+  delete document[PRODUCTION_RECORDS_FIELD];
+  const resolver = productionResolver(records);
+  return mapProductionSlots(document, (value, candidateId, kind) => {
+    assertSafeProductionSlot(value, kind);
+    const restored = resolver.restore(value, { candidateId });
+    assertRuntimeProductionEntityReferenceContext(restored);
+    return restored;
+  });
+}
+
+// Retain only production slots before the mutator runs: mutators may change
+// their input in place. Untouched slots reuse their exact previous encoding,
+// including legacy inline records, without re-fingerprinting their snapshots.
+function productionSlotBaseline(current, stored) {
+  const encoded = new Map();
+  mapProductionSlots({ ...stored, runtime: { ...stored.runtime } }, (value, _id, _kind, key) => {
+    encoded.set(key, value);
+    return value;
+  });
+  const baseline = new Map();
+  mapProductionSlots({ ...current, runtime: { ...current.runtime } }, (value, _id, _kind, key) => {
+    baseline.set(key, { value: clone(value), encoded: encoded.get(key) });
+    return value;
+  });
+  return baseline;
+}
+
+function writeProductionDocument(domain, previousStored, baseline) {
+  if (Object.hasOwn(domain, PRODUCTION_RECORDS_FIELD)) throw new Error("BUSINESS_STATE_PRODUCTION_ENTITY_STORE_RESERVED");
+  const records = clone(Object.hasOwn(previousStored, PRODUCTION_RECORDS_FIELD) ? previousStored[PRODUCTION_RECORDS_FIELD] : []);
+  if (!Array.isArray(records)) throw new Error("BUSINESS_STATE_PRODUCTION_ENTITY_STORE_INVALID");
+  const byId = new Map();
+  for (const record of records) {
+    if (byId.has(record.entityId)) throw new Error("BUSINESS_STATE_PRODUCTION_ENTITY_DUPLICATE");
+    byId.set(record.entityId, record);
+  }
+  const changedSlots = [];
+  const document = mapProductionSlots(clone(domain), (value, candidateId, kind, key) => {
+    const previous = baseline.get(key);
+    if (previous && isDeepStrictEqual(previous.value, value)) return clone(previous.encoded);
+    assertSafeProductionSlot(value, kind);
+    const projected = normalizeProductionEntities(value, { candidateId });
+    for (const record of projected.records) {
+      const existing = byId.get(record.entityId);
+      if (existing) {
+        if (!isDeepStrictEqual(existing, record)) throw new Error("BUSINESS_STATE_PRODUCTION_ENTITY_CONFLICT");
+      } else {
+        byId.set(record.entityId, record);
+        records.push(record);
+      }
+    }
+    changedSlots.push({ value, candidateId, encoded: projected.value });
+    return projected.value;
+  });
+  if (records.length > 0) document[PRODUCTION_RECORDS_FIELD] = records;
+  const resolver = productionResolver(records);
+  for (const slot of changedSlots) {
+    if (!isDeepStrictEqual(resolver.restore(slot.encoded, { candidateId: slot.candidateId }), slot.value)) {
+      throw new Error("BUSINESS_STATE_PRODUCTION_ENTITY_ROUNDTRIP_CONFLICT");
+    }
+  }
+  return document;
 }
 
 function validateTransactionResult(outcome) {
@@ -56,14 +190,17 @@ function createRepository({ adapter, concurrencyScope, read, replace }) {
     async readSnapshot() {
       const document = await read();
       if (!validDocument(document)) throw new Error("BUSINESS_STATE_REPOSITORY_DOCUMENT_INVALID");
-      return clone(document);
+      return readProductionDocument(document);
     },
     transact(mutator) {
       if (typeof mutator !== "function") throw new Error("BUSINESS_STATE_REPOSITORY_MUTATOR_REQUIRED");
       const operation = queue.then(async () => {
-        const current = await repository.readSnapshot();
+        const stored = await read();
+        if (!validDocument(stored)) throw new Error("BUSINESS_STATE_REPOSITORY_DOCUMENT_INVALID");
+        const current = readProductionDocument(stored);
+        const baseline = productionSlotBaseline(current, stored);
         const outcome = validateTransactionResult(await mutator(current));
-        if (outcome.changed) await replace(clone(outcome.document));
+        if (outcome.changed) await replace(writeProductionDocument(outcome.document, stored, baseline));
         return outcome.result;
       });
       // `operation`仍原样返回给调用者并保留失败；这里只重置串行队列尾部，

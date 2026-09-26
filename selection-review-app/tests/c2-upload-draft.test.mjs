@@ -149,9 +149,13 @@ test("D读取仅接受当前授权的登记文件，保留解码所需MIME并拒
   } };
   const frozen = authorization.lockedScope.finalUploads[0];
   assert.equal(resolveRegisteredC2FinalAsset(source, frozen).contentType, "image/jpeg");
+  // 2026-09-23 主人决定：C1 改版后复用原素材确认是正常路径，登记仍指向旧 C1 不再据此拒绝；
+  // 下面 candidateId、sha256、width、order、status 五条继续逐条兜住文件身份。
+  const afterC1Revision = structuredClone(source);
+  afterC1Revision.lifecycleV11.c2UploadDraft.sourceC1Fingerprint = "b".repeat(64);
+  assert.equal(resolveRegisteredC2FinalAsset(afterC1Revision, frozen).contentType, "image/jpeg");
   for (const change of [
     value => { value.lifecycleV11.c2UploadDraft.candidateId = "another"; },
-    value => { value.lifecycleV11.c2UploadDraft.sourceC1Fingerprint = "b".repeat(64); },
     value => { value.lifecycleV11.c2UploadDraft.uploads[0].sha256 = "c".repeat(64); },
     value => { value.lifecycleV11.c2UploadDraft.uploads[0].width += 1; },
     value => { value.lifecycleV11.c2UploadDraft.selection[0].order = 2; },

@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "deployment-receipt-r66-v1",
+  "deployedAt": "2026-09-23T09:51:10.630Z",
+  "targetVersion": "/Users/shuaizhang/Library/Application Support/今日选品评审台-versions/20260923-listing-fixes-r66",
+  "previousVersion": "/Users/shuaizhang/Library/Application Support/今日选品评审台-versions/20260923-production-round-r65",
+  "previousVersionRetained": true,
+  "backupDirectory": "/Users/shuaizhang/Library/Application Support/今日选品评审台/backups/r66-20260923T094839Z",
+  "processId": 14453,
+  "restartMethod": "launchctl bootout → 确认旧进程退出 → ping 延时缓一拍 → bootstrap（改了 plist，kickstart 不重读；bootout 后立刻 bootstrap 会 I/O error）",
+  "changedApplicationFiles": [
+    "lib/aliyun-oss-runtime-provider.mjs",
+    "lib/c2-upload-draft.mjs",
+    "lib/d-e-runtime-services.mjs",
+    "lib/runtime-configuration.mjs"
+  ],
+  "launchConfigChanges": {
+    "c1EditorialProposalFile": {
+      "from": "…-versions/20260921-final-plan-review-r58/private/c1-editorial-proposal.json",
+      "to": "…/今日选品评审台/private/c1-editorial-proposal.json",
+      "sha256": "cf9c272373603ad6f1212bdbd89029fd5377807c61ec72d25256b85e341f91d3",
+      "sourceRetained": true,
+      "copiedNotMoved": true
+    },
+    "versionPointer": {
+      "programArguments": true,
+      "workingDirectory": true
+    }
+  },
+  "readback": {
+    "health": 200,
+    "frontendBundle": "assets/index-WvVpjq0b.js",
+    "newStderrLines": 0,
+    "proposalFileFromProcessEnvironment": "…/今日选品评审台/private/c1-editorial-proposal.json",
+    "proposalStillInsideVersionDirectory": false,
+    "dataFile": {
+      "sha256": "4151cb59d2cd202062b69cc7eded6b4d95ffb82fe1e95d94216c1c07818fb9a2",
+      "matchesPreDeployBackup": true,
+      "modifiedAt": "2026-09-23T03:15:10.129Z"
+    },
+    "launchAgentSha256After": "48f31edfc7cd12e1002a9853eda2da1dc61e8f96a620006e221b768373c721c9",
+    "candidateRevision": 73,
+    "skuRevision": 15,
+    "dProductionRounds": [
+      {
+        "round": 1,
+        "status": "failed",
+        "externalRequestState": "not_sent",
+        "failureClass": "service_restart_before_external_request"
+      },
+      {
+        "round": 2,
+        "status": "failed",
+        "externalRequestState": "not_sent",
+        "failureClass": "d-assets-error-before-external-request"
+      }
+    ],
+    "lockedScope": {
+      "platformWritePrice": "63.85 CNY",
+      "buyerTargetPrice": "801 RUB",
+      "stock": 100,
+      "finalUploads": 15
+    },
+    "productionRecord": null,
+    "eVerificationRecord": null
+  },
+  "vestRescueStarted": false,
+  "platformWrites": 0,
+  "externalRequests": 0,
+  "isolatedVerificationInstance": {
+    "processId": 11224,
+    "startedAt": "2026-09-23T09:42:12Z",
+    "purpose": "打包后的隔离启动验证（127.0.0.1:45901，--api-only）",
+    "dataFile": "/var/folders/.../T/tmp.niclTxaoSr/c.json",
+    "usedProductionData": false,
+    "note": "用的是 candidates.json 的临时副本；该临时目录在验证结束时已 rm -rf，进程持有的是已删除的 inode，未触及任何现存文件",
+    "stoppedAt": "2026-09-23T09:53:37.974Z",
+    "stopped": true,
+    "portListeningAfterStop": false,
+    "otherIsolatedInstancesRemaining": 0
+  },
+  "postDeployVersionCleanup": {
+    "performedBy": "另一会话（Claude 开机启动项设置）",
+    "ownerConfirmedPreciseePaths": 55,
+    "deletedVersionDirectories": 55,
+    "retained": [
+      "20260923-listing-fixes-r66（在跑）",
+      "20260923-production-round-r65",
+      "20260922-production-evidence-r64"
+    ],
+    "diskAfter": "635M（清理前约 12G）",
+    "independentlyVerifiedHere": {
+      "versionDirectoriesRemaining": 3,
+      "servicePid": 14453,
+      "serviceRestartedDuringCleanup": false,
+      "launchctlRuns": 1,
+      "health": 200,
+      "liveProposalFileSha256": "cf9c272373603ad6f1212bdbd89029fd5377807c61ec72d25256b85e341f91d3",
+      "archivedR56ProposalSha256": "fe314311349bdddd…（95,227 字节，private/archive/，无配置引用）",
+      "processStillReadsLiveProposalFile": true
+    },
+    "danglingHistoricalReference": {
+      "file": "selection-review-app/docs/first-sku-activation-environment-20260908.json",
+      "field": "targetAppDirectory",
+      "pointsAt": "20260908-product-discovery-v6（已随本次清理删除）",
+      "codeOrConfigConsumers": 0,
+      "recordStatus": "review_only_not_applied —— 从未被应用的只读评审记录",
+      "actionTaken": "不修改该文件：它是 2026-09-08 的冻结记录，当时属实；把今天的状态写进冻结记录会破坏证据链。事实记在本回执，主人已单独知悉。"
+    }
+  }
+}

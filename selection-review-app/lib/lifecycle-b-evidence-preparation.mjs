@@ -1,3 +1,4 @@
+import { inspectLifecycleEvidenceValidity } from "./lifecycle-evidence-validity.mjs";
 import { buildExpectedEvidenceScope, evidenceScopeMatches } from "./lifecycle-evidence-scope.mjs";
 import {
   inspectLifecycleBInputReadiness,
@@ -111,7 +112,8 @@ function validatePreparedPack(pack, kind, context, preparedAt, currentCommission
   if (isoDateTime(pack.checkedAt) && isoDateTime(pack.expiresAt) && Date.parse(pack.expiresAt) <= Date.parse(pack.checkedAt)) {
     problems.push("失效时间必须晚于取得时间");
   }
-  if (isoDateTime(pack.expiresAt) && Date.parse(pack.expiresAt) <= Date.parse(preparedAt)) problems.push("证据在本轮冻结时已经过期");
+  const validity = inspectLifecycleEvidenceValidity(pack, { asOf: preparedAt });
+  if (!validity.usable) problems.push(validity.reason);
   if (!evidenceScopeMatches(kind, pack.scope, buildExpectedEvidenceScope(kind, context))) problems.push("证据适用范围不一致");
   const catalog = inspectCommissionCatalogValidity({ pack, currentCommissionCatalogs, asOf: preparedAt });
   if (!catalog.available) problems.push(catalog.message);

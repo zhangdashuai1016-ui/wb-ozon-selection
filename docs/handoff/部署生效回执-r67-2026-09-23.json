@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "deployment-receipt-r67-v1",
+  "deployedAt": "2026-09-23T13:31:29.378Z",
+  "confirmedBy": "owner",
+  "deploymentCard": [
+    "docs/handoff/部署确认卡-r67-2026-09-23.md",
+    "docs/handoff/部署确认卡-r67-2026-09-23.json"
+  ],
+  "targetVersion": "/Users/shuaizhang/Library/Application Support/今日选品评审台-versions/20260923-authorization-rollback-r67",
+  "previousVersion": "/Users/shuaizhang/Library/Application Support/今日选品评审台-versions/20260923-listing-fixes-r66",
+  "previousVersionRetained": true,
+  "backupDirectory": "/Users/shuaizhang/Library/Application Support/今日选品评审台/backups/r67-20260923T132926Z",
+  "processId": 35319,
+  "restartMethod": "launchctl bootout → 确认旧进程 14453 退出且 4317 无监听 → ping 缓一拍 → bootstrap（plist 版本指针有变，kickstart 不重读）",
+  "applicationFileCount": 325,
+  "changedApplicationFiles": [
+    "dist/index.html",
+    "lib/capability-registry.mjs",
+    "lib/d-e-runtime-view.mjs",
+    "lib/production-authorization.mjs",
+    "server.mjs"
+  ],
+  "addedApplicationFiles": [
+    "dist/assets/C1PaidDraftPanel-Dl6pIC1b.js",
+    "dist/assets/index-ChEaeIVu.js",
+    "dist/assets/ProductPage-CoXnnOX2.js",
+    "dist/assets/UserInspector-BYpVQqdf.js",
+    "lib/production-authorization-rollback-use-case.mjs",
+    "lib/production-authorization-rollback.mjs"
+  ],
+  "removedApplicationFiles": [
+    "dist/assets/C1PaidDraftPanel-CmPI5P60.js",
+    "dist/assets/index-WvVpjq0b.js",
+    "dist/assets/ProductPage-CUhUNTbi.js",
+    "dist/assets/UserInspector-C20qkROa.js"
+  ],
+  "launchConfigChanges": {
+    "environmentVariables": "无增删改",
+    "versionPointer": {
+      "programArguments": true,
+      "workingDirectory": true,
+      "replacedOccurrences": 2,
+      "plutilLint": "OK",
+      "shaBefore": "48f31edfc7cd12e1002a9853eda2da1dc61e8f96a620006e221b768373c721c9",
+      "shaAfter": "03a8e73ee1382f668942b7d7f9d962c9611d407f77e341bba5041bb9ee267877",
+      "bytesBefore": 15921,
+      "bytesAfter": 15939
+    }
+  },
+  "readback": {
+    "health": 200,
+    "frontendBundle": "assets/index-ChEaeIVu.js",
+    "frontendBundleChanged": true,
+    "previousFrontendBundle": "assets/index-WvVpjq0b.js",
+    "newStderrLines": 0,
+    "stderrLinesBefore": 370,
+    "stderrLinesAfter": 370,
+    "dataFile": {
+      "sha256": "4151cb59d2cd202062b69cc7eded6b4d95ffb82fe1e95d94216c1c07818fb9a2",
+      "matchesPreDeployBackup": true,
+      "unchanged": true
+    },
+    "candidateRevision": 73,
+    "skuRevision": 15,
+    "confirmationCardRevision": 2,
+    "lifecyclePlatformWrites": 0,
+    "dProductionRounds": [
+      {
+        "round": 1,
+        "status": "failed",
+        "attempt": 1,
+        "externalRequestState": "not_sent",
+        "externalRequestRef": null,
+        "resultEnvelope": null,
+        "failureClass": "service_restart_before_external_request"
+      },
+      {
+        "round": 2,
+        "status": "failed",
+        "attempt": 1,
+        "externalRequestState": "not_sent",
+        "externalRequestRef": null,
+        "resultEnvelope": null,
+        "failureClass": "d-assets-error-before-external-request"
+      }
+    ],
+    "buttonVisibility": {
+      "canRollbackAuthorization": true,
+      "canDispatchNewRound": false,
+      "canContinueSaved": false,
+      "rollbackBlocker": null,
+      "note": "新按钮已在正式服务上可见，且与「再派一轮」「继续已保存任务」互斥正确"
+    }
+  },
+  "externalRequests": 0,
+  "platformWrites": 0,
+  "productionAuthorizationCreated": false,
+  "ownerNextClicks": [
+    "作废本轮授权、退回等我确认",
+    "重签最终商品确认卡",
+    "通过进入生产授权",
+    "继续已保存任务"
+  ],
+  "note": "部署成功不等于背心已上架。前 3 次点击不发任何平台请求；第 4 次开始才真正传图、导入、写库存，并由 E 独立回读确认平台事实。"
+}

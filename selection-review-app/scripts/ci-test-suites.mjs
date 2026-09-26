@@ -1,4 +1,9 @@
 export const API_PROCESS_TESTS = Object.freeze([
+  "c1-completed-editorial-api.test.mjs",
+  "c1-editorial-review-api.test.mjs",
+  "c1-draft-result-read-api.test.mjs",
+  "c1-local-content-flow-api.test.mjs",
+  "c1-local-preparation-api.test.mjs",
   "a-discovery-api-boundary.test.mjs",
   "a-product-detail-api-boundary.test.mjs",
   "a-supplier-image-search-api.test.mjs",
@@ -36,6 +41,7 @@ export const API_PROCESS_TESTS = Object.freeze([
 ]);
 
 export const SOURCE_CONTRACT_TESTS = Object.freeze([
+  "c1-attribute-routes-source-contract.test.mjs",
   "c1-fact-keyword-server-integration.test.mjs",
   "c1-k3-runtime-bridge.test.mjs",
   "c2-stable-asset-transport-use-case.test.mjs",

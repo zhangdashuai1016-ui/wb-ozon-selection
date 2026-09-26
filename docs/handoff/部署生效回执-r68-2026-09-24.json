@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "deployment-receipt-r68-v1",
+  "deployedAt": "2026-09-24T02:04:47.485Z",
+  "confirmedBy": "owner",
+  "deploymentCard": [
+    "docs/handoff/部署确认卡-r68-2026-09-23.md",
+    "docs/handoff/部署确认卡-r68-2026-09-23.json"
+  ],
+  "targetVersion": "/Users/shuaizhang/Library/Application Support/今日选品评审台-versions/20260924-runtime-view-source-r68",
+  "previousVersion": "/Users/shuaizhang/Library/Application Support/今日选品评审台-versions/20260923-authorization-rollback-r67",
+  "previousVersionRetained": true,
+  "backupDirectory": "/Users/shuaizhang/Library/Application Support/今日选品评审台/backups/r68-20260924T020300Z",
+  "processId": 83960,
+  "previousProcessId": 35319,
+  "restartMethod": "launchctl bootout → 确认旧进程 35319 退出且 4317 无监听 → ping 缓一拍 → bootstrap（plist 版本指针有变）",
+  "applicationFileCount": 325,
+  "changedApplicationFiles": [
+    "dist/index.html",
+    "lib/capability-registry.mjs",
+    "lib/d-e-runtime-view.mjs",
+    "lib/ozon-account-read-services.mjs"
+  ],
+  "addedApplicationFiles": [
+    "dist/assets/C1PaidDraftPanel-WXOKkowV.js",
+    "dist/assets/index-BbKUzbRU.js",
+    "dist/assets/ProductPage-Bw5KE5US.js",
+    "dist/assets/UserInspector-C3nTtn2B.js"
+  ],
+  "removedApplicationFiles": [
+    "dist/assets/C1PaidDraftPanel-Dl6pIC1b.js",
+    "dist/assets/index-ChEaeIVu.js",
+    "dist/assets/ProductPage-CoXnnOX2.js",
+    "dist/assets/UserInspector-BYpVQqdf.js"
+  ],
+  "launchConfigChanges": {
+    "environmentVariables": "无增删改",
+    "versionPointer": {
+      "replacedOccurrences": 2,
+      "plutilLint": "OK",
+      "shaBefore": "03a8e73ee1382f668942b7d7f9d962c9611d407f77e341bba5041bb9ee267877",
+      "shaAfter": "6704fdd48e3d405d2d03451d6c69c815df9e67b8163d819f8bf67fd41109766f",
+      "bytesBefore": 15939,
+      "bytesAfter": 15933,
+      "bytesNote": "目录名 35→32 字符，2 处共 -6 字节，与实测相符"
+    }
+  },
+  "readback": {
+    "versionDirectory": "20260924-runtime-view-source-r68",
+    "health": 200,
+    "frontendBundle": "assets/index-BbKUzbRU.js",
+    "previousFrontendBundle": "assets/index-ChEaeIVu.js",
+    "frontendBundleChanged": true,
+    "newStderrLines": 0,
+    "stderrLinesBefore": 370,
+    "stderrLinesAfter": 370,
+    "dataFile": {
+      "sha256": "06ed17e2ca93310fa5745f088ba29790f65fb9a2bcf4cc817e1c590dcc9c2848",
+      "unchanged": true,
+      "matchesPreDeployBackup": true
+    },
+    "candidateDataRevision": 75,
+    "skuDataRevision": 15,
+    "confirmationCardRevision": 2,
+    "productionAuthorizationRoundV1": 2,
+    "lifecyclePlatformWrites": 0,
+    "rollbackArchiveCount": 1,
+    "dProductionJobs": [
+      {
+        "suffix": "c97c57fa511833023da3b4390d6a",
+        "status": "failed",
+        "externalRequestState": "not_sent",
+        "failureClass": "service_restart_before_external_request"
+      },
+      {
+        "suffix": "a511833023da3b4390d6a:round2",
+        "status": "failed",
+        "externalRequestState": "not_sent",
+        "failureClass": "d-assets-error-before-external-request"
+      },
+      {
+        "suffix": "8bd6f8076a88703363a76c3c6085",
+        "status": "failed",
+        "externalRequestState": "not_sent",
+        "failureClass": "d-production-preflight-not-ready"
+      }
+    ],
+    "ozonDEPreflightEvidenceKeyCount": 1,
+    "ozonDEPreflightEvidenceKeyNote": "仍只有旧授权那一把键，本次部署未触发任何发布",
+    "vestRuntimeView": {
+      "status": "failed",
+      "sourceBlockReason": null,
+      "canDispatchNewRound": true,
+      "canContinueSaved": false,
+      "canRollbackAuthorization": false,
+      "newRoundBlocker": null,
+      "note": "r67 下此处为 source_conflict 且三按钮全 false；修复在正式服务上生效"
+    }
+  },
+  "externalRequests": 0,
+  "platformWrites": 0,
+  "productionAuthorizationCreated": false,
+  "ownerNextClicks": [
+    "再派一轮生产作业",
+    "继续已保存任务"
+  ],
+  "note": "部署成功不等于背心已上架。第1下零外部请求；第2下才发布账户证据、传图、提交导入。不需要重做账户核验。E 预计停在 not_verified，需主人肉眼核图。"
+}

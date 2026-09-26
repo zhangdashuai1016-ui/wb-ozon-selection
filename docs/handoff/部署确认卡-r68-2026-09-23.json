@@ -1,0 +1,170 @@
+{
+  "schemaVersion": "deployment-card-r68-v1",
+  "packageDirectory": "/private/tmp/claude-501/-Users-shuaizhang--local-share-wb-ozon-engineering-github-checkpoint-20260909/9044d028-14fc-47fa-ac04-567e754416db/scratchpad/pkg-r68",
+  "installedVersion": "/Users/shuaizhang/Library/Application Support/今日选品评审台-versions/20260923-authorization-rollback-r67",
+  "launchAgent": "/Users/shuaizhang/Library/LaunchAgents/com.shuaizhang.selection-review-app.plist",
+  "persistentData": "/Users/shuaizhang/Library/Application Support/今日选品评审台/data/candidates.json",
+  "dataBaselineSha256": "06ed17e2ca93310fa5745f088ba29790f65fb9a2bcf4cc817e1c590dcc9c2848",
+  "dataBaselineNote": "r67 部署后主人操作过（作废、账户核验、重签），哈希已不同于 r67 卡；部署前须以当日实测为准重新核对",
+  "launchAgentBaselineSha256": "03a8e73ee1382f668942b7d7f9d962c9611d407f77e341bba5041bb9ee267877",
+  "launchEnvironmentChange": "无。不新增、不修改、不删除任何启动环境变量；只换应用目录路径。",
+  "candidateId": "candidate:b8909f27-49e2-4a94-8c40-1a2fc2139ce7",
+  "candidateDataRevision": 75,
+  "rootCause": "d-e-runtime-view.mjs 的 sameSource 对未按授权过滤的全部D作业做同源断言；作废归档后旧轮次带旧授权号，导致 DE_SAVED_JOB_REFERENCE_CONFLICT，进而使 continueProduction 跳过账户证据发布裸跑（AGENTS 8.3 禁止的静默降级）",
+  "installedApplicationFileCount": 325,
+  "packageApplicationFileCount": 325,
+  "changedApplicationFiles": [
+    {
+      "path": "dist/index.html",
+      "bytesBefore": 459,
+      "bytesAfter": 459,
+      "delta": 0,
+      "sha256Before": "55766ae94055104f",
+      "sha256After": "8d29bfa7ab12ca2a"
+    },
+    {
+      "path": "lib/capability-registry.mjs",
+      "bytesBefore": 181690,
+      "bytesAfter": 181757,
+      "delta": 67,
+      "sha256Before": "7335dc17c1e72550",
+      "sha256After": "acd50f976deb1dde"
+    },
+    {
+      "path": "lib/d-e-runtime-view.mjs",
+      "bytesBefore": 20427,
+      "bytesAfter": 21837,
+      "delta": 1410,
+      "sha256Before": "1521b38d9f23cefb",
+      "sha256After": "f9d577e081a8311d"
+    },
+    {
+      "path": "lib/ozon-account-read-services.mjs",
+      "bytesBefore": 15106,
+      "bytesAfter": 15963,
+      "delta": 857,
+      "sha256Before": "766c7d7a1f95fd9a",
+      "sha256After": "5aaa20f96e1a57bf"
+    }
+  ],
+  "addedApplicationFiles": [
+    {
+      "path": "dist/assets/C1PaidDraftPanel-WXOKkowV.js",
+      "bytes": 65420,
+      "sha256": "5ea007cc3ce6fb29668a432ad466a9d457f439f6a7387dc65f96d3261b0cbc16"
+    },
+    {
+      "path": "dist/assets/index-BbKUzbRU.js",
+      "bytes": 434465,
+      "sha256": "1a3a17faf35ddd38083f829766162cbc79bf2fc05c4c0291855a2d3c283d4081"
+    },
+    {
+      "path": "dist/assets/ProductPage-Bw5KE5US.js",
+      "bytes": 97620,
+      "sha256": "b44bb6e529a4c12c55978449181367180c42d434209a7d6f235ae61fc111f5f1"
+    },
+    {
+      "path": "dist/assets/UserInspector-C3nTtn2B.js",
+      "bytes": 78468,
+      "sha256": "30ef8591d20c0f0dc499422dde0f5281c3ad7682448589981c56675c94280e27"
+    }
+  ],
+  "removedApplicationFiles": [
+    {
+      "path": "dist/assets/C1PaidDraftPanel-Dl6pIC1b.js",
+      "bytes": 65420,
+      "sha256": "6aa51159f0d8d8d5"
+    },
+    {
+      "path": "dist/assets/index-ChEaeIVu.js",
+      "bytes": 434435,
+      "sha256": "b2c9cd145c0e0b96"
+    },
+    {
+      "path": "dist/assets/ProductPage-CoXnnOX2.js",
+      "bytes": 97620,
+      "sha256": "654e0a55b7584513"
+    },
+    {
+      "path": "dist/assets/UserInspector-BYpVQqdf.js",
+      "bytes": 78468,
+      "sha256": "5ae20fd954321140"
+    }
+  ],
+  "frontendBundle": {
+    "previous": "dist/assets/index-ChEaeIVu.js",
+    "current": "dist/assets/index-BbKUzbRU.js",
+    "note": "部署回读必须确认线上主包名已变为 current。"
+  },
+  "optionalChange": {
+    "id": "saved_job_source_conflict",
+    "file": "lib/ozon-account-read-services.mjs",
+    "description": "自动起跑遇到来源冲突时直接拒绝并报出原因，不 claim、不发布、不落任何东西",
+    "ownerMayRemove": true,
+    "ifRemoved": "回到 r67 行为：遇到来源冲突继续裸跑。根因已修故短期不会触发，但下次出现别的来源冲突仍会静默降级。"
+  },
+  "ciFullSuite": {
+    "command": "node scripts/run-ci-tests.mjs",
+    "pipedExitCode": false,
+    "realExitCode": 1,
+    "tests": 2727,
+    "pass": 2713,
+    "fail": 14,
+    "knownRedBaseline": 14,
+    "newRed": 0,
+    "disappearedRed": 0,
+    "newTestsThisRound": 7,
+    "transientRedInvestigated": [
+      {
+        "test": "当前快照绑定集成源码摘要",
+        "cause": "改了测试注释未重生成能力快照",
+        "resolution": "重生成后 capability-registry.test.mjs 5/5 绿"
+      },
+      {
+        "test": "a bounded timeout aborts the adapter and retains unknown outcome",
+        "cause": "机器负载下的老 flake",
+        "resolution": "单跑该文件 12/12 全绿，该条耗时 139ms"
+      }
+    ],
+    "logPaths": [
+      "/private/tmp/claude-501/-Users-shuaizhang--local-share-wb-ozon-engineering-github-checkpoint-20260909/9044d028-14fc-47fa-ac04-567e754416db/scratchpad/ci-final2.log",
+      "/private/tmp/claude-501/-Users-shuaizhang--local-share-wb-ozon-engineering-github-checkpoint-20260909/9044d028-14fc-47fa-ac04-567e754416db/scratchpad/ci-final2-exit.txt"
+    ]
+  },
+  "externalRequests": 0,
+  "platformWrites": 0,
+  "productionAuthorizationCreated": false,
+  "ownerClickSequenceAfterDeploy": [
+    "再派一轮生产作业",
+    "继续已保存任务"
+  ],
+  "ownerClickNote": "不需要重做账户核验：13:34 那次结果可用，有效期至 2027-01-13。第1下零外部请求；第2下才发布证据、传图、提交导入。",
+  "r67CardCorrection": {
+    "section": "r67 卡第 6 节",
+    "wrongSentence": "前三次都不发任何平台请求。",
+    "correction": "第3下「通过进入生产授权」在保存授权成功后会立刻自动起跑；账户证据齐全时会直接传图、提交导入。9月23日未发出只因本卡所修的 bug 挡住，不是设计上安全。"
+  },
+  "note": "部署成功不等于背心已上架。平台事实以 E 独立回读为准；E 预计停在 not_verified，需主人肉眼核图。",
+  "skuDataRevision": 15,
+  "productionAuthorizationRoundV1": 2,
+  "currentFailedDProductionJobIdSuffix": "703363a76c3c6085",
+  "deploymentReadback": {
+    "versionDirectory": "指向 r68 目录",
+    "health": 200,
+    "frontendBundle": "assets/index-BbKUzbRU.js",
+    "newStderrLines": 0,
+    "stderrLinesBefore": 370,
+    "dataSha256": "06ed17e2ca93310fa5745f088ba29790f65fb9a2bcf4cc817e1c590dcc9c2848",
+    "candidateDataRevision": 75,
+    "skuDataRevision": 15,
+    "productionAuthorizationRoundV1": 2,
+    "dProductionJobs": "两轮归档 + …703363a76c3c6085 原样，均 failed / not_sent",
+    "ozonDEPreflightEvidenceKeys": "仍只有旧授权那一把键（本次部署不触发发布）",
+    "vestRuntimeView": {
+      "canDispatchNewRound": true,
+      "canContinueSaved": false,
+      "canRollbackAuthorization": false
+    },
+    "restartMethod": "bootout → 确认旧进程退出且 4317 无监听 → 缓一拍 → bootstrap；plist 只换版本指针，环境变量不动；r67 目录保留；数据与 plist 先备份"
+  }
+}

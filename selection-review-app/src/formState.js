@@ -90,10 +90,11 @@ export function createLatestRead() {
   let pending;
   return {
     cancel() { sequence += 1; pending?.controller.abort(); pending = undefined; },
-    run(read, publish, { protect = false, signal } = {}) {
+    run(read, publish, { protect = false, joinProtected = false, signal } = {}) {
       if (signal?.aborted) return Promise.resolve(null);
       // A background refresh must not cancel an explicit permission read.
-      if (!protect && pending?.protect) return pending.promise;
+      // Only callers reading the same resource may explicitly join another protected read.
+      if ((!protect || joinProtected) && pending?.protect) return pending.promise;
       pending?.controller.abort();
       const controller = new AbortController();
       const current = ++sequence;
@@ -118,4 +119,23 @@ export function createLatestRead() {
       return operation.promise;
     }
   };
+}
+
+/** Opening a saved product is an explicit read, not a permission check or a business action. */
+export async function openSavedCandidate({ candidateId, readState, selectionGuard, getContext, onOpen, onMissing }) {
+  selectionGuard.changed();
+  const token = selectionGuard.capture();
+  const context = getContext();
+  if (!context.ownerId) return 'cancelled';
+  const next = await readState({ protect: true, joinProtected: true });
+  const current = getContext();
+  if (!selectionGuard.isCurrent(token) || context.ownerId !== current.ownerId ||
+      context.view !== current.view || context.store !== current.store || next === null) return 'cancelled';
+  const candidate = next.candidates.find(value => value.id === candidateId);
+  if (!candidate) {
+    onMissing();
+    return 'missing';
+  }
+  onOpen(candidate);
+  return 'opened';
 }

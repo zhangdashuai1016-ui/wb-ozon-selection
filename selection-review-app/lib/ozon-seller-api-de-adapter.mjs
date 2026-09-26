@@ -1,4 +1,4 @@
-import { validPrerequisitePolicy } from "./ozon-inventory-prerequisite-policy.mjs";
+import { validPrerequisitePolicy, isCurrentInventoryPrerequisitePolicy } from "./ozon-inventory-prerequisite-policy.mjs";
 export { assertOzonInventoryPrerequisitePolicy } from "./ozon-inventory-prerequisite-policy.mjs";
 import { OzonDEHttpTransportError } from "./ozon-de-http-configuration.mjs";
 import { isCompleteStoreRef, sameStoreRef } from "./store-binding.mjs";
@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { observedMediaSequence, observedWarehouseAvailableStock, isObservedHttpsMediaUrl } from "./e-stage-readback.mjs";
 import { assertCurrentDExecutionContext, isStoreIdentityAnchored, productionExecutionPrewriteFailure } from "./platform-write-preflight.mjs";
+import { blockingImportErrors } from "./ozon-import-error-level.mjs";
 
 export const OZON_SELLER_API_DE_ADAPTER_VERSION = "ozon-seller-api-de-adapter-v3";
 export const OZON_PRODUCT_IMPORT_ENDPOINT = "/v3/product/import";
@@ -328,6 +329,35 @@ function productIdOf(item) {
   return fields.every(field => item[field] === value) ? String(value) : "";
 }
 
+/**
+ * 导入任务错误明细：逐条按官方合同的 v1ItemError 规范化后落盘。
+ *
+ * 结构出自 docs/contracts/ozon-de-20260908/official-de-structural-openapi.json：
+ *   GetImportProductsInfoResponseResultItem.errors : array of v1ItemError
+ *   v1ItemError = { code, message, state, level, field, attribute_id, attribute_name }
+ *
+ * 为什么必须落：2026-09-24 背心停在 unknown_outcome 时，观察记录里只有 errorCount: 2，
+ * 错误正文当场就丢了，主人只能去卖家后台翻——而「停下来却留不下能看懂的原因」
+ * 正是这一轮要治的毛病。下面的 observedErrors() 是 E 侧的对应物，本来就整份保留，
+ * 两侧口径长期不一致，这次一并对齐。
+ *
+ * 只落合同里有的字段，逐项限长，不落原始响应整包，不落任何凭据。
+ */
+function observedImportErrors(item) {
+  if (!Array.isArray(item?.errors)) return "unknown";
+  const text = (value, max) => typeof value === "string" && value.trim().length > 0
+    ? value.trim().slice(0, max) : null;
+  return item.errors.slice(0, 50).map(entry => ({
+    code: text(entry?.code, 128),
+    message: text(entry?.message, 512),
+    state: text(entry?.state, 128),
+    level: text(entry?.level, 64),
+    field: text(entry?.field, 128),
+    attributeId: Number.isSafeInteger(entry?.attribute_id) ? entry.attribute_id : null,
+    attributeName: text(entry?.attribute_name, 256)
+  }));
+}
+
 function observedErrors(infoItem) {
   return Array.isArray(infoItem?.errors) ? structuredClone(infoItem.errors) : "unknown";
 }
@@ -426,13 +456,16 @@ function normalizeImportObservation(response, query, capabilities) {
       Object.hasOwn(item, "id") && (!isExternalNumericId(item.id) || productId === null))) {
     gapCode = "import_task_response_invalid";
   } else if (status === "unknown") gapCode = "import_task_status_unknown";
-  else if (status !== "failed" && item.errors.length > 0) gapCode = "import_task_errors_present";
+  // 只有「拦路的」错误才判结果未知：imported 且全部为警告时照常按 imported 走，
+  // 警告本身已逐条落进 importObservation.errors 并在视图显示，不会被吞掉。
+  else if (status !== "failed" && blockingImportErrors(item.errors).length > 0) gapCode = "import_task_errors_present";
   else if (status === "imported" && productId === null) gapCode = "import_task_identity_unverified";
   const classification = gapCode ? "unknown_outcome" :
     ({ pending: "waiting_platform", imported: "imported", failed: "platform_failed", skipped: "platform_skipped" })[status];
   const importObservation = { kind: "import_result_observed", taskId: query.taskId, productId,
     merchantSku: item ? item.offer_id : null, itemCount: Array.isArray(items) ? items.length : null,
     status, errorCount: Array.isArray(item?.errors) ? item.errors.length : null,
+    errors: observedImportErrors(item),
     requestReceiptRef: receipt("ozon-import-observation", { query, classification, productId, status,
       errorCount: Array.isArray(item?.errors) ? item.errors.length : null, evidenceRef: capabilities.productImport.evidenceRef }) };
   return freeze({ classification, gapCode, importObservation,
@@ -546,6 +579,7 @@ export function createStoreIsolatedOzonSellerApiDEAdapter({ requestJson, adapter
       assertObservationOptions(signal, beforeRequestSend);
       const policy = capabilities.inventoryWrite.prerequisitePolicy;
       if (!validPrerequisitePolicy(policy)) throw new Error("OZON_DE_INVENTORY_POLICY_NOT_VERIFIED");
+      if (!isCurrentInventoryPrerequisitePolicy(policy)) throw new Error("OZON_DE_INVENTORY_POLICY_OUTDATED");
       query = freeze(structuredClone(query));
       signal?.throwIfAborted();
       const response = await call({ endpoint: READBACK_ENDPOINTS.info, body: { offer_id: [query.merchantSku] },
@@ -553,6 +587,7 @@ export function createStoreIsolatedOzonSellerApiDEAdapter({ requestJson, adapter
       signal?.throwIfAborted();
       const item = Array.isArray(response?.items) && response.items.length === 1 ? itemForOffer(response.items, query.merchantSku) : null;
       const priceSent = item && productIdOf(item) === query.productId && Array.isArray(item.errors) && item.errors.length === 0 &&
+        item.is_archived === false && item.is_autoarchived === false &&
         typeof item.statuses?.status === "string" && policy.priceSent.acceptedValues.includes(item.statuses.status) ? "verified" : "unknown";
       const scope = observationScope(query);
       return freeze({ scope, policy: structuredClone(policy), priceSent,
@@ -589,6 +624,7 @@ export function createStoreIsolatedOzonSellerApiDEAdapter({ requestJson, adapter
       }
       const policy = capabilities.inventoryWrite.prerequisitePolicy;
       if (!validPrerequisitePolicy(policy)) return inventoryBlocked("inventory_prerequisite_policy_not_verified");
+      if (!isCurrentInventoryPrerequisitePolicy(policy)) return inventoryBlocked("inventory_prerequisite_policy_outdated");
       const price = observation?.priceSentObservation, stock = observation?.inventoryPrerequisiteObservation;
       if (!closed(observation, ["priceSentObservation", "inventoryPrerequisiteObservation"]) ||
           !closed(price, ["scope", "policy", "priceSent", "requestReceiptRef"]) ||
@@ -616,8 +652,7 @@ export function createStoreIsolatedOzonSellerApiDEAdapter({ requestJson, adapter
       await checkpoint({ kind: "stock_intent", taskId: scope.taskId, productId: scope.productId,
         merchantSku: scope.merchantSku, warehouseId: scope.warehouseId, stock: request.stock });
       const row = { [policy.stockRequest.identityField]: policy.stockRequest.identityField === "offer_id" ? scope.merchantSku : Number(scope.productId),
-        stock: request.stock, warehouse_id: Number(scope.warehouseId),
-        ...(policy.stockRequest.quantSize === null ? {} : { quant_size: policy.stockRequest.quantSize }) };
+        stock: request.stock, warehouse_id: Number(scope.warehouseId) };
       let runningGuard = false, response;
       try {
         response = await call({ endpoint: OZON_INVENTORY_WRITE_ENDPOINT, body: { stocks: [row] }, write: true,
@@ -687,16 +722,19 @@ export function createStoreIsolatedOzonSellerApiDEAdapter({ requestJson, adapter
           throw new Error(`OZON_DE_READBACK_IDENTITY_MISMATCH: ${name}`);
         }
       }
-      const { attributes: attrItem, info: infoItem, prices: priceItem } = matchedItems;
+      const { info: infoItem, prices: priceItem } = matchedItems;
       const currentPrice = priceOf(priceItem);
       const stockResponse = responses.stocks;
       const inventoryObservation = normalizeInventoryObservation(stockResponse);
       const scopeMatches = inventoryObservation.rows.every(row => row.productId === expectedProductId && row.offerId === offerId);
       const currentStock = scopeMatches ? observedWarehouseAvailableStock(inventoryObservation, query.warehouseId, { productId: expectedProductId, offerId }) : "unknown";
       if (!currentPrice) throw new Error("OZON_DE_READBACK_PRICE_INVALID: 未取得CNY当前价格");
-      const mediaObservation = { sourceProtocol: "ozon-product-attributes-v4",
-        primaryImageUrl: isObservedHttpsMediaUrl(attrItem.primary_image) ? attrItem.primary_image : "unknown",
-        images: Array.isArray(attrItem.images) && attrItem.images.every(isObservedHttpsMediaUrl) ? structuredClone(attrItem.images) : "unknown" };
+      // info/list has unambiguous string-array media fields. Preserve its returned list;
+      // neither CDN identity nor correspondence to the submitted order is inferred here.
+      const mediaObservation = { sourceProtocol: "ozon-product-info-v3",
+        primaryImageUrl: Array.isArray(infoItem.primary_image) && infoItem.primary_image.length === 1 &&
+          isObservedHttpsMediaUrl(infoItem.primary_image[0]) ? infoItem.primary_image[0] : "unknown",
+        images: Array.isArray(infoItem.images) && infoItem.images.every(isObservedHttpsMediaUrl) ? structuredClone(infoItem.images) : "unknown" };
       const images = observedMediaSequence(mediaObservation);
       const errors = observedErrors(infoItem);
       const observation = {

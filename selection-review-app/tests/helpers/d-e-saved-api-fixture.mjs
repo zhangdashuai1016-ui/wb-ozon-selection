@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { stopApiProcess } from "./api-process-lifecycle.mjs";
+import { createJsonBusinessStateRepository } from "../../lib/business-state-repository.mjs";
 import { productionOwnerDecisionFixture } from "../fixtures/production-owner-decision-fixture.mjs";
 
 const appDir = fileURLToPath(new URL("../..", import.meta.url));
@@ -99,7 +100,8 @@ export async function startSavedDEApi(t, { directory, port, document, binding, p
   }
   await start();
   return { base, dataFile, get, post, authenticate, readBytes: () => readFile(dataFile),
-    readDocument: async () => JSON.parse(await readFile(dataFile, "utf8")),
+    readDocument: () => createJsonBusinessStateRepository({ filePath: dataFile }).readSnapshot(),
+    readStoredDocument: async () => JSON.parse(await readFile(dataFile, "utf8")),
     dependencyRequests: () => dependencyRequests, stderr,
     restart: async () => { await stopApiProcess(child); cookie = ""; await start(); },
     async assertClean() { assert.equal(dependencyRequests, 0); assert.equal(stderr.join(""), "");

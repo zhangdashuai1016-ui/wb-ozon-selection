@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
+import { ozonHashtagAttributeValue } from "./ozon-hashtag-attribute.mjs";
+export { ozonHashtagAttributeValue };
 import { fingerprintAuthorizedMedia } from "./production-authorization-preparation.mjs";
+import { buildOzonOptionalAttributes } from "./ozon-submission-attributes.mjs";
+import { selectC1DescriptionParts } from "./c1-description-content.mjs";
 
 export const OZON_SELLER_API_ADAPTER_VERSION = "ozon-seller-api-production-adapter-v1";
 
@@ -35,6 +39,7 @@ function weightToGrams(value, unit) {
   if (normalized === "kg") return value * 1000;
   throw new Error("OZON_ADAPTER_WEIGHT_UNIT_REJECTED: 重量单位必须是g或kg");
 }
+
 
 function textAttribute(binding, value) {
   if (!isObject(binding) || !Number.isInteger(binding.attributeId) || binding.attributeId <= 0 ||
@@ -176,25 +181,27 @@ export function buildOzonSellerImportRequest(payload) {
   const dimensions = payload.packing.dimensions;
   const weight = payload.packing.weight;
   const required = requiredAttributes(payload.attributes, bindings);
-  const description = [payload.content.description, ...(payload.content.bulletPoints || [])].filter(nonEmpty).join("\n\n");
-  const keywords = (payload.content.searchKeywords || []).filter(nonEmpty).join(" ");
-  if (!keywords) throw new Error("OZON_ADAPTER_CONTENT_GAP: 搜索词未锁定");
+  const optional = buildOzonOptionalAttributes({ attributes: payload.attributes, platformSchemaAttributes: payload.platformSchemaAttributes }).attributes;
+  const description = selectC1DescriptionParts(payload.content.description, payload.content.bulletPoints || []).map(part => part.text).join("\n\n");
+  const keywords = ozonHashtagAttributeValue(payload.content.searchKeywords);
 
   const generated = [
     textAttribute(bindings.content.title, payload.title),
     textAttribute(bindings.content.description, description),
     textAttribute(bindings.content.searchKeywords, keywords)
   ];
-  const allIds = [...required, ...generated].map((item) => item.id);
+  const allIds = [...required, ...optional, ...generated].map((item) => item.id);
   if (new Set(allIds).size !== allIds.length) throw new Error("OZON_ADAPTER_SCHEMA_BINDING_MISMATCH: 内容字段与必填属性ID冲突");
-  const byId = new Map([...required, ...generated].map((item) => [item.id, item]));
+  const byId = new Map([...required, ...optional, ...generated].map((item) => [item.id, item]));
   const urls = payload.finalUploads.map((asset) => asset.assetRef);
   assertAuthorizedMediaIsWhatWeSend(payload.authorizedMedia, urls[0], urls.slice(1));
+  // 字段集对齐本店唯一一次被 Ozon 接受的导入（雨衣 YYC002B111-CAMO-XL，2026-09-16，task_id 5639765026）：
+  // vat 发 "0" 而不是 "0.00"，不发 old_price（空字符串填价格字段），也不发与 description_category_id 重复的
+  // new_description_category_id。官方结构合同对这三者只给类型、不给枚举或必填，没有任何依据支持原来的写法。
   const item = {
     attributes: [...byId.values()],
     barcode: "",
     description_category_id: descriptionCategoryId,
-    new_description_category_id: descriptionCategoryId,
     color_image: "",
     complex_attributes: [],
     currency_code: "CNY",
@@ -204,12 +211,11 @@ export function buildOzonSellerImportRequest(payload) {
     images: urls.slice(1),
     name: payload.title,
     offer_id: payload.merchantSku,
-    old_price: "",
     pdf_list: [],
     price: payload.platformWritePrice.amount.toFixed(2),
     primary_image: urls[0],
     type_id: typeId,
-    vat: "0.00",
+    vat: "0",
     weight: Math.round(weightToGrams(Number(weight.value), weight.unit)),
     weight_unit: "g",
     width: Math.round(unitToMm(Number(dimensions.width), dimensions.unit))

@@ -95,7 +95,8 @@ for (const file of selected) {
     const copy = path.join(root, "app");
     await fs.mkdir(copy);
     // Copy only code and declared static configuration. Never copy candidates or machine settings.
-    for (const entry of ["server.mjs", "package.json", "index.html", "启动今日选品评审台.command", "lib", "schema", "src", "extension", "tests", "scripts",
+    // docs/contracts 是运行期真要读的官方合同：server.mjs 一启动就 readFile 它们，漏拷会让隔离副本起不来。
+    for (const entry of ["server.mjs", "package.json", "index.html", "启动今日选品评审台.command", "lib", "schema", "src", "extension", "tests", "scripts", "docs/contracts",
       ...(BUILT_RUNTIME_TESTS.includes(file) ? ["dist"] : [])]) {
       await fs.cp(path.join(appDirectory, entry), path.join(copy, entry), { recursive: true, dereference: false });
     }

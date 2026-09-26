@@ -22,16 +22,17 @@ const AUTH_TIME = "2026-08-22T07:00:00.000Z";
 function authorizationFixture() {
   const source = productionAuthorizationInputFixture();
   const skuPackage = structuredClone(source.skuPackage);
-  const candidate = { id: source.candidateId, dataRevision: source.sourceCandidateRevision,
-    targetPlatform: skuPackage.targetPlatform, targetStore: skuPackage.targetStore, storeRef: structuredClone(skuPackage.g1Identity.storeRef),
-    lifecycleV11: { status: "c2_ready", platformWrites: 0, skuPackage }, updatedAt: source.authorizedAt, lastModifiedBy: "owner" };
+  // Keep the shared producer's exact B input bundle and matching evidence; the repository test must reach the write boundary.
+  const candidate = { ...structuredClone(source.candidate),
+    lifecycleV11: { ...structuredClone(source.candidate.lifecycleV11), status: "c2_ready", platformWrites: 0, skuPackage },
+    updatedAt: source.authorizedAt, lastModifiedBy: "owner" };
   const card = skuPackage.productionConfirmationCard;
   const preparation = skuPackage.c2FinalAssets.productionAuthorizationPreparation;
   const input = { contractVersion: "production-authorization-v1.2", dataRevision: candidate.dataRevision, skuRevision: skuPackage.dataRevision,
     cardId: card.cardId, cardRevision: card.cardRevision, sourcePreparationFingerprint: preparation.preparationFingerprint,
     sourceFinalCardInputFingerprint: preparation.finalCardInputFingerprint, bindingId: source.commercialDecision.executionBinding.bindingId, configurationVersion: source.commercialDecision.executionBinding.configurationVersion,
     merchantSku: source.commercialDecision.merchantSku, confirmExactScope: true };
-  return { candidate, commercialDecision: structuredClone(source.commercialDecision), actor: source.ownerActor, preparation, input };
+  return { candidate, evidencePacks: structuredClone(source.evidencePacks), currentCommissionCatalogs: structuredClone(source.currentCommissionCatalogs), commercialDecision: structuredClone(source.commercialDecision), actor: source.ownerActor, preparation, input };
 }
 
 function authorizationArgs(fixture, repository) {
@@ -153,7 +154,7 @@ test("事务失败不留下半套业务状态，缺少Repository边界明确失�
 
 test("一次主人确认在同一Repository事务保存准确决定、唯一授权和唯一D handoff", async () => {
   const fixture = authorizationFixture(); const { candidate, commercialDecision, preparation } = fixture;
-  const repository = createMemoryBusinessStateRepository({ candidates: [candidate], runtime: { operationAudit: [], idempotencyRecords: [] }, dispatches: [] });
+  const repository = createMemoryBusinessStateRepository({ candidates: [candidate], evidencePacks: fixture.evidencePacks, currentCommissionCatalogs: fixture.currentCommissionCatalogs, runtime: { operationAudit: [], idempotencyRecords: [] }, dispatches: [] });
   const args = authorizationArgs(fixture, repository);
   const first = await commitSingleOwnerProductionAuthorization(args);
   assert.equal(first.status, "committed");
@@ -196,7 +197,7 @@ test("一次主人确认在同一Repository事务保存准确决定、唯一授�
 test("旧revision、缺图、未确认、秘密与unknown_outcome均零授权零handoff且原子回滚", async () => {
   const cases = [
     ["old revision", f => { f.input.dataRevision -= 1; }, /REVISION_CONFLICT/],
-    ["incomplete images", f => { f.candidate.lifecycleV11.skuPackage.c2FinalAssets.productionAuthorizationPreparation.finalUploads = []; }, /C2素材包校验失败:productionAuthorizationPreparation:/],
+    ["incomplete images", f => { f.candidate.lifecycleV11.skuPackage.c2FinalAssets.productionAuthorizationPreparation.finalUploads = []; }, /^Error: PRODUCTION_AUTHORIZATION_PREPARATION_DRIFT:fingerprint$/],
     ["unconfirmed owner", f => { f.input.confirmExactScope = false; }, /RECONFIRMATION_REQUIRED/],
     ["unauthorized actor", f => { f.actor = createActorContext({ userId: "reviewer-1", sessionId: "session-review", actorType: "human", roles: ["reviewer"], source: "authenticated_identity_provider", authenticatedAt: AUTH_TIME }); }, /AUTHENTICATED_IDENTITY_REQUIRED/],
     ["secret key", f => { f.commercialDecision.credentialAlias = "accessToken=secret-value"; }, /SECRET_REJECTED/],
@@ -208,7 +209,7 @@ test("旧revision、缺图、未确认、秘密与unknown_outcome均零授权零
   ];
   for (const [label, mutate, expected] of cases) {
     const fixture = authorizationFixture(); mutate(fixture);
-    const document = { candidates: [fixture.candidate], runtime: { operationAudit: [], idempotencyRecords: [] }, dispatches: [] };
+    const document = { candidates: [fixture.candidate], evidencePacks: fixture.evidencePacks, currentCommissionCatalogs: fixture.currentCommissionCatalogs, runtime: { operationAudit: [], idempotencyRecords: [] }, dispatches: [] };
     const repository = createMemoryBusinessStateRepository(document);
     await assert.rejects(commitSingleOwnerProductionAuthorization(authorizationArgs(fixture, repository)), expected, label);
     const stored = await repository.readSnapshot(); assert.deepEqual(stored, document, label);
@@ -222,11 +223,13 @@ test("旧revision、缺图、未确认、秘密与unknown_outcome均零授权零
 test("授权事务持久化失败时决定、授权、handoff、审计与幂等记录全部不落盘", async () => {
   const fixture = authorizationFixture();
   const directory = await mkdtemp(path.join(os.tmpdir(), "production-authorization-rollback-")); const filePath = path.join(directory, "state.json");
-  const document = { candidates: [fixture.candidate], runtime: { operationAudit: [], idempotencyRecords: [] }, dispatches: [] };
+  const document = { candidates: [fixture.candidate], evidencePacks: fixture.evidencePacks, currentCommissionCatalogs: fixture.currentCommissionCatalogs, runtime: { operationAudit: [], idempotencyRecords: [] }, dispatches: [] };
   await writeFile(filePath, JSON.stringify(document), "utf8");
   try {
-    const repository = createJsonBusinessStateRepository({ filePath, atomicWriter: async () => { throw new Error("simulated_atomic_replace_failure"); } });
+    let replaceAttempts = 0;
+    const repository = createJsonBusinessStateRepository({ filePath, atomicWriter: async () => { replaceAttempts += 1; throw new Error("simulated_atomic_replace_failure"); } });
     await assert.rejects(commitSingleOwnerProductionAuthorization(authorizationArgs(fixture, repository)), /simulated_atomic_replace_failure/);
+    assert.equal(replaceAttempts, 1, "valid production inputs must reach the atomic writer before its injected failure");
     assert.deepEqual(JSON.parse(await readFile(filePath, "utf8")), document);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

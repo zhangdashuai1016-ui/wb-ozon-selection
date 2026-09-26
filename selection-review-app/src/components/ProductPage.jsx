@@ -6,6 +6,12 @@ import { profitStepGaps, profitStepSubmission } from "../../lib/profit-step-revi
 import { commissionEstimateProposal } from "../../lib/commission-estimate-authorization.mjs";
 import { buildBExactCommissionInput, buildBEvidenceRefreshInput } from "../bExactCommissionInput.js";
 import EliminateControl from "./EliminateControl.jsx";
+import C1LocalPreparationPanel, { showsC1LocalPreparation } from "./C1LocalPreparationPanel.jsx";
+import C1PaidDraftPanel from "./C1PaidDraftPanel.jsx";
+import C1ContentReviewPanel from "./C1ContentReviewPanel.jsx";
+import C1EditorialReviewPanel from "./C1EditorialReviewPanel.jsx";
+import C2FinalAssetsPanel from "./C2FinalAssetsPanel.jsx";
+import FinalProductPlanCard from "./FinalProductPlanCard.jsx";
 
 /**
  * One product page for the owner: the six steps of a product, with only the step that is actually open expanded.
@@ -1686,11 +1692,32 @@ function RefreshFeeEvidenceSection({ candidate, saving, onRefresh }) {
   </section>;
 }
 
+function SavedC2Assets({ skuPackage }) {
+  const assets = skuPackage.c2FinalAssets.assets.finalUploads;
+  const card = skuPackage.productionConfirmationCard;
+  return <section className="product-section" aria-label="已确认的最终素材">
+    <h3>最终素材已确认</h3>
+    {card ? <p role="status">已保存 {assets.length} 个最终素材，方案卡已生成。
+      {card.status === "awaiting_owner_business_confirmation" ? "等待你核对方案卡。" : ""}</p>
+      : <p role="alert">最终素材已保存，但未读取到方案卡，请核对保存状态。</p>}
+    <details><summary>查看已确认的首图与顺序</summary>
+      <ol>{assets.map((asset, index) => <li key={asset.assetId}>
+        {index === 0 ? "主图：" : ""}{asset.fileName}
+      </li>)}</ol>
+    </details>
+  </section>;
+}
+
 export default function ProductPage({
   candidate, view = null, titleZh = null, extensionStatus = null,
   onSaveDraft, onChooseSkus, onRequestCapture, onReviewCaptureAndRequest, onRecaptureSource,
   onConfirmProfitStep, onDeclareCargoFacts, onDeclareExtraHandlingFees, onDeclareUniformSupply, onReadOzonPage, onOpenLegacyCard,
   onBack, onEliminateCandidate,
+  productionIdentity = null, onPrepareC1Local = null,
+  onAuthorizeC1PaidDraft = null, onContinueSavedC1Draft = null, onReadOriginalC1DraftResult = null, onConfirmC1Content = null,
+  onConfirmC1EditorialContent = null,
+  onUploadLifecycleFinalAsset = null, onSaveC2UploadDraft = null, onConfirmLifecycleFinalAssets = null,
+  onSaveProductionOwnerDecision = null, onSaveFinalPricingReview = null, onReviseC1FinalPlan = null,
   onRecalculateBWithExactCommission = null, onRefreshBFeeEvidence = null,
   loadingLabel = "正在读取这件商品的找货资料…"
 }) {
@@ -1987,7 +2014,26 @@ export default function ProductPage({
       {findBody}
     </details> : null}
 
-    {PRODUCT_STEPS.filter(item => item.key !== "find" && !(choosing && item.key === "select") &&
+    <C1LocalPreparationPanel candidate={candidate} identity={productionIdentity} onPrepare={onPrepareC1Local} />
+    {showsC1LocalPreparation(candidate) ? <>
+      {candidate.lifecycleV11.skuPackage.businessPhase === "C1" && candidate.c1ContentReviewView?.status !== "awaiting_confirmation" &&
+        candidate.c1EditorialReviewView?.status !== "awaiting_confirmation" ?
+        <C1PaidDraftPanel candidate={candidate} identity={productionIdentity} onAuthorize={onAuthorizeC1PaidDraft}
+          onContinueSaved={onContinueSavedC1Draft} onReadOriginalResult={onReadOriginalC1DraftResult} showLegacyPreparation={false} /> : null}
+      {!candidate.c1EditorialReviewView || candidate.c1EditorialReviewView.status === "not_applicable" ?
+        <C1ContentReviewPanel candidate={candidate} identity={productionIdentity} onConfirm={onConfirmC1Content} /> : null}
+      <C1EditorialReviewPanel candidate={candidate} identity={productionIdentity} onConfirm={onConfirmC1EditorialContent} />
+      {candidate.lifecycleV11.skuPackage.c2FinalAssets?.softwareState &&
+        candidate.lifecycleV11.skuPackage.c2FinalAssets.status === "awaiting_final_uploads" ?
+        <C2FinalAssetsPanel key={candidate.id} candidate={candidate} onUpload={onUploadLifecycleFinalAsset}
+          onSave={onSaveC2UploadDraft} onConfirm={onConfirmLifecycleFinalAssets} /> : null}
+      {candidate.lifecycleV11.skuPackage.c2FinalAssets?.status === "completed" ?
+        <SavedC2Assets skuPackage={candidate.lifecycleV11.skuPackage} /> : null}
+    </> : null}
+    <FinalProductPlanCard candidate={candidate} identity={productionIdentity}
+      onSaveProductionOwnerDecision={onSaveProductionOwnerDecision} onSaveFinalPricingReview={onSaveFinalPricingReview}
+      onReviseC1FinalPlan={onReviseC1FinalPlan} />
+    {PRODUCT_STEPS.filter(item => item.key !== "find" && !(showsC1LocalPreparation(candidate) && item.key === "copy") && !(choosing && item.key === "select") &&
       !((profitOpen || recalculationOpen) && item.key === "profit"))
       .map(item => <details key={item.key} className="product-folded">
         <summary>{item.title}<span className="product-folded-state">{foldedStepState(item.key, step, candidate)}</span></summary>

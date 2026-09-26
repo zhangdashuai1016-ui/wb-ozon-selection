@@ -10,6 +10,16 @@ import {
 
 const APP_DIR = "/tmp/selection-review-runtime-test";
 
+test("editorial proposal files are explicitly configured local paths, never implicit recovery jobs", () => {
+  const build = env => createSelectionReviewRuntimeConfiguration({ env, appDir: APP_DIR, argv: [] });
+  assert.equal(build({}).c1EditorialProposalFile, null);
+  assert.equal(build({ SELECTION_REVIEW_C1_EDITORIAL_PROPOSAL_FILE: "/tmp/review/proposal.json" }).c1EditorialProposalFile,
+    "/tmp/review/proposal.json");
+  for (const value of ["", "proposal.json", " /tmp/proposal.json", "/tmp/proposal.json\0"]) {
+    assert.throws(() => build({ SELECTION_REVIEW_C1_EDITORIAL_PROPOSAL_FILE: value }), /RUNTIME_CONFIGURATION_INVALID/);
+  }
+});
+
 test("GUOO新测算统一采用项目8月19版，路径可配置但旧版本不得悄然启用", () => {
   const build = env => createSelectionReviewRuntimeConfiguration({ env, appDir: APP_DIR, argv: [] });
   const defaults = build({});

@@ -114,6 +114,7 @@ function normalizeReaderResult(result, request, kind) {
     checkedAt: new Date(result.checkedAt).toISOString(),
     expiresAt: result.expiresAt === null ? null : new Date(result.expiresAt).toISOString(),
     ...(Object.hasOwn(result, 'commissionCatalogRef') ? { commissionCatalogRef: structuredClone(result.commissionCatalogRef) } : {}),
+    ...(Object.hasOwn(result, "validity") ? { validity: structuredClone(result.validity) } : {}),
     evidenceData: structuredClone(result.evidenceData),
     providerVersion: LIFECYCLE_B_EVIDENCE_PROVIDER_VERSION
   });

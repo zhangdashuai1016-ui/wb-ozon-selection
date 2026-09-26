@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
 import react from '@vitejs/plugin-react';
+import { productionOwnerDecisionFixture } from './fixtures/production-owner-decision-fixture.mjs';
+import { finalAssets } from './helpers/c2-software-fixture.mjs';
 
 // The product page renders synthetic display data only: no saved records, no services, no requests.
 let renderer;
@@ -87,6 +89,25 @@ const okEstimate = {
 };
 const props = (extra = {}) => ({ candidate: candidate(), view: null, extensionStatus: { code: 'disconnected', label: '插件未安装或未连接' },
   onSaveDraft: forbidden, onRequestCapture: forbidden, onOpenLegacyCard: forbidden, onBack: forbidden, ...extra });
+
+test('C2 确认后从保存数据显示素材顺序和方案卡，缺少卡片不可宣称生成成功', async () => {
+  const finalUploadAssets = finalAssets().map((asset, index) => ({ ...asset,
+    fileName: index === 0 ? '首图.png' : '<script>详情.png' }));
+  const source = productionOwnerDecisionFixture(undefined, { finalUploadAssets });
+  const savedCandidate = { ...source.candidate, productionOwnerPreparation: source.preparedView };
+  const skuPackage = savedCandidate.lifecycleV11.skuPackage;
+  const html = await render(props({ candidate: structuredClone(savedCandidate) }));
+  assert.match(html, /已保存 2 个最终素材，方案卡已生成。等待你核对方案卡。/u);
+  assert.match(html, /主图：首图.png<\/li><li>&lt;script&gt;详情.png/u);
+  assert.match(html, /aria-label="最终商品方案确认卡"/u);
+  assert.match(html, /<h3>最终商品方案确认卡<\/h3>/u);
+  assert.doesNotMatch(html, /查看已保存的方案卡/u, '已保存方案在当前商品页直接展示，不再要求跳到旧版');
+  assert.doesNotMatch(html, /type="file"|确认最终素材并生成方案卡|<script>/u);
+  const missing = await render(props({ candidate: { ...savedCandidate, lifecycleV11: { ...savedCandidate.lifecycleV11,
+    skuPackage: { ...skuPackage, productionConfirmationCard: null } } } }));
+  assert.match(missing, /未读取到方案卡/u);
+  assert.doesNotMatch(missing, /方案卡已生成|查看已保存的方案卡|aria-label="最终商品方案确认卡"/u);
+});
 
 test('商品页显示中文标题、店铺和六步导航，当前停在找货', async () => {
   const html = await render(props({ titleZh: '合成收纳盒' }));
@@ -1739,4 +1760,44 @@ test('已经走过去的那几步显示成已完成，不再说「等前面的�
   assert.match(html, /<summary>算利润<span class="product-folded-state">已完成<\/span><\/summary>/u);
   assert.match(html, /<summary>文案素材<span class="product-folded-state">进行中<\/span><\/summary>/u);
   assert.match(html, /<summary>上架<span class="product-folded-state">未开始<\/span><\/summary>/u);
+});
+
+test('Ozon C1 显示本地准备节点，WB C1 保留原文案素材区', async () => {
+ const make = platform => props({candidate:candidate({targetPlatform:platform,executionRuntime:{businessPhase:'C1'},workflowStatus:'listing_preparation',lifecycleV11:{skuPackage:{businessPhase:'C1',targetPlatform:platform,targetStore:'miska',supplierSkuId:'synthetic-sku'}}}),productionIdentity:{roles:['owner']},onPrepareC1Local:forbidden});
+ const ozon=await render(make('ozon'));assert.match(ozon,/准备商品属性与关键词/u);assert.doesNotMatch(ozon,/<summary>文案素材/u);
+ const wb=await render(make('wb'));assert.doesNotMatch(wb,/准备商品属性与关键词/u);assert.match(wb,/<summary>文案素材/u);
+});
+
+test('新版商品页显示实际文案，内容确认前不出现上传入口', async () => {
+  const record = candidate({ lifecycleV11: { skuPackage: { businessPhase: 'C1', targetPlatform: 'ozon',
+    targetStore: 'miska', supplierSkuId: 'synthetic-sku' }, c1AiDraftRequestV1: { requestId: 'synthetic-request' } },
+    c1ContentReviewView: { status: 'awaiting_confirmation', canConfirm: true, expectedRevision: 4,
+      contentFingerprint: 'a'.repeat(64), title: { text: 'Одежда для кошек' }, description: { text: 'Проверенное описание' },
+      bulletPoints: [{ text: 'Проверенный факт' }], searchKeywords: { keywords: [{ query: 'Для кошек' }] } } });
+  const html = await render(props({ candidate: record, productionIdentity: { roles: ['owner'] }, onConfirmC1Content: forbidden }));
+  for (const value of ['Одежда для кошек', 'Проверенное описание', 'Проверенный факт', 'Для кошек', '确认商品内容，进入图片']) assert.ok(html.includes(value));
+  assert.doesNotMatch(html, /\[object Object\]|type="file"|准备文案请求/u);
+  const viewer = await render(props({ candidate: record, productionIdentity: { roles: ['viewer'] }, onConfirmC1Content: forbidden }));
+  assert.match(viewer, /disabled=""[^>]*>确认商品内容，进入图片/u);
+});
+
+test('修订稿与原稿明确区分，确认前隐藏付费与图片入口，来源失配不可确认', async () => {
+  const content = { title: { text: 'Одежда для кошек' }, description: { text: 'Размеры упаковки: 20 × 30 × 5 см. Без бренда.' },
+    bulletPoints: [{ text: 'Вес товара в упаковке — 0,2 кг.' }], searchKeywords: [{ text: 'Для кошек' }] };
+  const record = candidate({ lifecycleV11: { skuPackage: { businessPhase: 'C1', targetPlatform: 'ozon', targetStore: 'miska',
+    supplierSkuId: 'synthetic-sku' } }, c1EditorialReviewView: { status: 'awaiting_confirmation', canConfirm: true,
+    expectedRevision: 4, editorialVersionId: 'editorial:fixture', outputFingerprint: 'b'.repeat(64), content,
+    changes: [{ path: 'output.description', before: { text: '<script>wrong</script>' }, after: content.description,
+      explanation: '包装口径来自原确认，未新增商品尺寸。' }] } });
+  const html = await render(props({ candidate: record, productionIdentity: { roles: ['owner'] }, onConfirmC1EditorialContent: forbidden }));
+  assert.match(html, /核对修订文案|Размеры упаковки/u);
+  assert.match(html, /确认修订文案，进入图片/u);
+  assert.match(html, /&lt;script&gt;wrong&lt;\/script&gt;/u);
+  assert.doesNotMatch(html, /<script>wrong|type="file"|本件商品的文案制作|确认本件商品的一次文案调用/u);
+  const viewer = await render(props({ candidate: record, productionIdentity: { roles: ['viewer'] }, onConfirmC1EditorialContent: forbidden }));
+  assert.match(viewer, /disabled=""[^>]*>确认修订文案，进入图片/u);
+  const blocked = await render(props({ candidate: { ...record, c1EditorialReviewView: { status: 'blocked', canConfirm: false } },
+    productionIdentity: { roles: ['owner'] }, onConfirmC1EditorialContent: forbidden }));
+  assert.match(blocked, /文案修订需要重新核对/u);
+  assert.doesNotMatch(blocked, /确认修订文案，进入图片/u);
 });

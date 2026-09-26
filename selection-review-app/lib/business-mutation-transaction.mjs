@@ -32,10 +32,22 @@ import {
   settleSoftwareJobInDocument
 } from "./software-job-contract.mjs";
 import { consumeSoftwareJobAdmissionForEnqueue } from "./software-job-admission.mjs";
-import { sameStoreRef } from "./store-binding.mjs";
+import { isCompleteStoreRef, sameStoreRef } from "./store-binding.mjs";
+import { isDeepStrictEqual } from "node:util";
+import { buildC1FinalPlanHistoryReferences } from "./c1-final-plan-revision-preparation.mjs";
 import { enqueueDProductionHandoffInDocument, assertPersistedDProductionHandoff } from "./d-e-software-job-handoff.mjs";
 
 const CENTRAL_MODES = new Set(["central_test", "central_production"]);
+function finalPlanHistoryRecords(document, allowMissing = false) {
+  const records = document.c1FinalPlanRevisionHistoryRecords;
+  if (records === undefined && allowMissing) return [];
+  if (!Array.isArray(records)) throw new Error("C1_FINAL_REVISION_HISTORY_REQUIRED");
+  if (records.some(record => record === null || typeof record !== "object" || Array.isArray(record) ||
+      record.schemaVersion !== "c1-final-plan-revision-history-v1" ||
+      typeof record.preparationId !== "string" || !record.preparationId ||
+      typeof record.candidateId !== "string" || !record.candidateId)) throw new Error("C1_FINAL_REVISION_HISTORY_INVALID");
+  return records;
+}
 const SOFTWARE_JOB_INPUT_KEYS = Object.freeze([
   "candidateId",
   "idempotencyKey",
@@ -288,14 +300,16 @@ function applySavedC1Draft(document, candidate, effect, skuPackageId, observedAt
   }
   assertCurrentC1AiDraftRequest({ skuPackage, request });
   const merged = mergeC1AiDraftReceipt({ skuPackage, request, receipt, settledExecution, mergedAt: observedAt });
-  const c2 = createC2SoftwareContainer({ skuPackage: merged.skuPackage, expectedDataRevision: merged.skuPackage.dataRevision,
-    assetRegions: { collected: [], aiDrafts: [], finalUploads: [] }, createdAt: observedAt });
+  const ownerReviewRequired = request.keywordEvidence.collectionMode === "local_preparation";
+  const nextSku = ownerReviewRequired ? { ...merged.skuPackage, ownerAction: "confirm_c1_plan" } : createC2SoftwareContainer({
+    skuPackage: merged.skuPackage, expectedDataRevision: merged.skuPackage.dataRevision,
+    assetRegions: { collected: [], aiDrafts: [], finalUploads: [] }, createdAt: observedAt }).skuPackage;
   const next = structuredClone(candidate);
-  next.lifecycleV11.skuPackage = structuredClone(c2.skuPackage);
+  next.lifecycleV11.skuPackage = structuredClone(nextSku);
   job.resultEnvelope.applicationDisposition = "applied";
   return { candidate: next, workerId: job.workerId, result: {
     status: "applied", applicationDisposition: "applied", receiptRef: receipt.receiptId,
-    payloadFingerprint: effect.payloadFingerprint, c2Started: true, platformWrites: 0,
+    payloadFingerprint: effect.payloadFingerprint, c2Started: !ownerReviewRequired, platformWrites: 0,
     softwareJobRef: { jobId: job.jobId, jobType: job.jobType, candidateId: job.candidateId,
       skuPackageId: job.skuPackageId, revision: job.revision }
   } };
@@ -466,6 +480,30 @@ function applyC1PaidKeywordEvidenceSettlement({ current, jobBefore, settledJob, 
   return { nextCandidate, domainResult };
 }
 
+/** Only saved identifiers are projected under the same lock as the draft write.
+ * This detects local collisions; it does not inspect or certify platform offers. */
+function merchantSkuClaimsForStore(document, target) {
+  if (!isCompleteStoreRef(target.storeRef, target.targetStore)) throw new Error("PRODUCTION_COMMERCIAL_DRAFT_STORE_REQUIRED");
+  const claims = [];
+  for (const candidate of document.candidates) {
+    if (candidate.id === target.id || candidate.targetPlatform !== target.targetPlatform) continue;
+    const samePhysicalStore = isCompleteStoreRef(candidate.storeRef, candidate.targetStore)
+      ? candidate.storeRef.platformStoreId === target.storeRef.platformStoreId
+      : candidate.targetStore === target.targetStore;
+    if (!samePhysicalStore) continue;
+    const sku = candidate.lifecycleV11?.skuPackage;
+    const values = [candidate.lifecycleV11?.productionCommercialDraftV1?.merchantSku,
+      sku?.productionAuthorization?.lockedScope?.merchantSku, sku?.productionRecord?.merchantSku,
+      sku?.externalListingRecord?.merchantSku, candidate.listingRecord?.merchantSku];
+    for (const merchantSku of new Set(values)) {
+      if (merchantSku === undefined || merchantSku === null) continue;
+      if (typeof merchantSku !== "string" || !merchantSku.trim()) throw new Error("PRODUCTION_COMMERCIAL_DRAFT_SAVED_CLAIM_INVALID");
+      claims.push({ candidateId: candidate.id, skuPackageId: sku?.skuPackageId ?? null, merchantSku });
+    }
+  }
+  return claims;
+}
+
 export async function executeBusinessMutation({
   repository,
   runtimeMode,
@@ -484,6 +522,8 @@ export async function executeBusinessMutation({
   serverTime,
   serverClock = null,
   includeRelatedSoftwareJobs = false,
+  includeFinalPlanHistory = false,
+  includeMerchantSkuClaims = false,
   mutate,
   softwareJobEffect = null,
   softwareJobApplicationEffect = null
@@ -505,6 +545,8 @@ export async function executeBusinessMutation({
   const targetSkuPackageId = text(skuPackageId, "skuPackageId");
   const operation = text(action, "action");
   if (typeof includeRelatedSoftwareJobs !== "boolean") throw new Error("BUSINESS_MUTATION_INPUT_INVALID:includeRelatedSoftwareJobs");
+  if (typeof includeFinalPlanHistory !== "boolean") throw new Error("BUSINESS_MUTATION_INPUT_INVALID:includeFinalPlanHistory");
+  if (typeof includeMerchantSkuClaims !== "boolean") throw new Error("BUSINESS_MUTATION_INPUT_INVALID:includeMerchantSkuClaims");
   const eventId = text(auditEventId, "auditEventId");
   const effect = assertDeclarativeSoftwareJobEffect(softwareJobEffect, "enqueue");
   const createsDomainHandoff = effect?.schemaVersion === "business-mutation-domain-handoff-effect-v1";
@@ -524,6 +566,15 @@ export async function executeBusinessMutation({
         const error = new Error("BUSINESS_MUTATION_IDEMPOTENCY_CONFLICT");
         error.code = "BUSINESS_MUTATION_IDEMPOTENCY_CONFLICT";
         throw error;
+      }
+      if (operation === "prepare_final_plan_revision") {
+        const ref = existing.finalPlanHistoryRef;
+        const records = finalPlanHistoryRecords(document);
+        const matches = ref ? records.filter(record => record.preparationId === ref.preparationId) : [];
+        if (matches.length !== 1 || matches[0].candidateId !== targetCandidateId ||
+            ref.preparationId !== existing.candidateSnapshot?.lifecycleV11?.c1FinalPlanRevisionPreparation?.historyRef ||
+            fingerprintCanonicalRecord(matches[0]) !== ref.fingerprint) throw new Error("C1_FINAL_REVISION_HISTORY_CONFLICT");
+        assertSafeBusinessMutationCandidate(matches[0], "finalPlanHistoryRecord");
       }
       assertReplaySoftwareJob(document, existing.result, existing.candidateSnapshot);
       if (applicationEffect) {
@@ -554,12 +605,23 @@ export async function executeBusinessMutation({
       throw error;
     }
     const fromState = candidateState(current);
+    let finalPlanHistoryRecord = null;
+    const historyRef = current.lifecycleV11?.c1FinalPlanRevisionPreparation?.historyRef;
+    if (includeFinalPlanHistory && historyRef) {
+      const records = finalPlanHistoryRecords(document);
+      const matches = records.filter(record => record.preparationId === historyRef && record.candidateId === targetCandidateId);
+      if (matches.length !== 1) throw new Error("C1_FINAL_REVISION_HISTORY_REQUIRED");
+      assertSafeBusinessMutationCandidate(matches[0], "finalPlanHistoryRecord");
+      finalPlanHistoryRecord = structuredClone(matches[0]);
+    }
     const outcome = applicationEffect
       ? applySavedC1Draft(document, current, applicationEffect, targetSkuPackageId, observedAt)
       : await mutate({ candidate: structuredClone(current), observedAt,
         evidencePacks: structuredClone(document.evidencePacks),
         currentCommissionCatalogs: structuredClone(document.currentCommissionCatalogs ?? []),
         rules: structuredClone(document.rules),
+        ...(includeFinalPlanHistory ? { finalPlanHistoryRecord } : {}),
+        ...(includeMerchantSkuClaims ? { merchantSkuClaims: merchantSkuClaimsForStore(document, current) } : {}),
         ...(includeRelatedSoftwareJobs ? { relatedSoftwareJobs: relatedSoftwareJobs(runtime, targetCandidateId, targetSkuPackageId) } : {}) });
     if (!outcome || typeof outcome !== "object" || !outcome.candidate || !("result" in outcome)) {
       throw new Error("BUSINESS_MUTATION_OUTCOME_INVALID");
@@ -572,6 +634,23 @@ export async function executeBusinessMutation({
     nextCandidate.dataRevision = sourceRevision + 1;
     const result = structuredClone(outcome.result);
     assertSafeRuntimeRecord(result, "businessMutation.result");
+    if (Object.hasOwn(outcome, "finalPlanHistoryRecord")) {
+      const history = outcome.finalPlanHistoryRecord;
+      const preparation = nextCandidate.lifecycleV11?.c1FinalPlanRevisionPreparation;
+      const keys = ["schemaVersion", "preparationId", "candidateId", "sourceCandidateRevision", "sourceSkuRevision", "previousSkuPackage", "previousC1References"];
+      if (operation !== "prepare_final_plan_revision" || !history || Object.keys(history).length !== keys.length ||
+          !keys.every(key => Object.hasOwn(history, key)) || history.schemaVersion !== "c1-final-plan-revision-history-v1" ||
+          history.candidateId !== targetCandidateId || history.preparationId !== preparation?.historyRef ||
+          history.sourceCandidateRevision !== sourceRevision || history.sourceSkuRevision !== current.lifecycleV11?.skuPackage?.dataRevision ||
+          !isDeepStrictEqual(history.previousSkuPackage, current.lifecycleV11.skuPackage) ||
+          !isDeepStrictEqual(history.previousC1References, buildC1FinalPlanHistoryReferences(current.lifecycleV11))) throw new Error("C1_FINAL_REVISION_HISTORY_INVALID");
+      assertSafeBusinessMutationCandidate(history, "finalPlanHistoryRecord");
+      const records = finalPlanHistoryRecords(document, true);
+      if (records.some(record => record.preparationId === history.preparationId)) {
+        throw new Error("C1_FINAL_REVISION_HISTORY_CONFLICT");
+      }
+      document.c1FinalPlanRevisionHistoryRecords = [...records, structuredClone(history)];
+    } else if (operation === "prepare_final_plan_revision") throw new Error("C1_FINAL_REVISION_HISTORY_REQUIRED");
     if (createsDomainHandoff) {
       if (nextCandidate.lifecycleV11?.skuPackage?.productionAuthorization?.authorizedByActorId !== actor.userId) {
         throw new Error("BUSINESS_MUTATION_DOMAIN_HANDOFF_OWNER_CONFLICT");
@@ -638,6 +717,11 @@ export async function executeBusinessMutation({
       candidateSnapshot: structuredClone(nextCandidate),
       result: structuredClone(result),
       auditEvent: structuredClone(auditEvent),
+      // Detect accidental divergence of the separately persisted predecessor on replay.
+      ...(outcome.finalPlanHistoryRecord ? { finalPlanHistoryRef: {
+        preparationId: outcome.finalPlanHistoryRecord.preparationId,
+        fingerprint: fingerprintCanonicalRecord(outcome.finalPlanHistoryRecord)
+      } } : {}),
       recordedAt: observedAt
     });
     return {

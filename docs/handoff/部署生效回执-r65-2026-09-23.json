@@ -1,0 +1,54 @@
+{
+  "schemaVersion": "deployment-receipt-r65-v1",
+  "deployedAt": "2026-09-23T02:41:25.989Z",
+  "targetVersion": "/Users/shuaizhang/Library/Application Support/今日选品评审台-versions/20260923-production-round-r65",
+  "previousVersion": "/Users/shuaizhang/Library/Application Support/今日选品评审台-versions/20260922-production-evidence-r64",
+  "previousVersionRetained": true,
+  "backupDirectory": "/Users/shuaizhang/Library/Application Support/今日选品评审台/backups/r65-20260923T023730Z",
+  "processId": 9792,
+  "restartMethod": "launchctl bootout + bootstrap（改了 plist，kickstart 不会重读）",
+  "dataFileUnchanged": {
+    "sha256": "d92951bf2374d5f1db0b862c1af5f26ab3908af9dba5d54e0bae82d77afe0c91",
+    "modifiedAt": "2026-09-23T01:54:17.367Z"
+  },
+  "launchAgentSha256After": "1b980e60e277dc09af4c197e0561283ee29f7bbe36e0d30c685d945d145b0498",
+  "launchConfigChanges": {
+    "observationPolicy": {
+      "maxQueries": 100,
+      "intervalMs": 30000,
+      "requestTimeoutMs": 30000,
+      "version": "version:2",
+      "expiresAt": "2026-09-23T14:00:00.000Z"
+    },
+    "deServiceBinding": {
+      "leaseDurationMs": 1800000
+    }
+  },
+  "readback": {
+    "health": "ok",
+    "frontendBundle": "assets/index-WvVpjq0b.js",
+    "newStderrLines": 0,
+    "candidateRevision": 71,
+    "dJob": {
+      "status": "failed",
+      "externalRequestState": "not_sent",
+      "failureClass": "service_restart_before_external_request"
+    },
+    "downstreamState": {
+      "dAssetTransport": null,
+      "dSoftwareExecution": null,
+      "productionRecord": null,
+      "eVerificationRecord": null
+    },
+    "lockedScope": {
+      "platformWritePrice": "63.85 CNY",
+      "buyerTargetPrice": "801 RUB",
+      "inventory": 100,
+      "finalUploads": 15
+    },
+    "canDispatchNewRound": true,
+    "nextRound": 2
+  },
+  "platformWrites": 0,
+  "externalRequests": 0
+}

@@ -111,9 +111,13 @@ export function resolveRegisteredC2FinalAsset(candidate, finalAsset) {
   const authorization = sku?.productionAuthorization;
   const draft = candidate?.lifecycleV11?.c2UploadDraft;
   const scope = authorization?.lockedScope;
+  // 不再比对登记时的 C1 版本：C1 改版后主人可以复用原来那次素材确认
+  // （审计事件 c2_final_uploads_confirmation_reused），此时上传登记仍指向旧 C1，而授权、
+  // 素材域和当前 C1 都已刷新，这条比对必然失败。文件身份由下面十个字段对 draft 登记和授权
+  // 冻结清单双向逐字段比对保证，其中含 sha256，比来源指纹更硬。
   if (!draft || draft.candidateId !== candidate.id || draft.skuPackageId !== sku.skuPackageId ||
-      draft.sourceC1Fingerprint !== authorization.sourceC1Fingerprint || draft.schemaEvidenceRef !== scope.schemaEvidenceRef) {
-    throw c2DraftError("c2_final_registration_mismatch", "最终素材登记不属于当前授权的商品或C1资料");
+      draft.schemaEvidenceRef !== scope.schemaEvidenceRef) {
+    throw c2DraftError("c2_final_registration_mismatch", "最终素材登记不属于当前授权的商品或Schema证据");
   }
   const registered = selectedC2DraftAssets(draft).find(asset => asset.assetId === finalAsset?.assetId);
   const frozen = scope.finalUploads.find(asset => asset.assetId === finalAsset?.assetId);

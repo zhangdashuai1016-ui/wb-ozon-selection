@@ -1,0 +1,106 @@
+{
+  "checkedAt": "2026-09-22T08:06:02.204305+00:00",
+  "versionDirectory": "/Users/shuaizhang/Library/Application Support/今日选品评审台-versions/20260922-production-evidence-r64",
+  "candidateId": "candidate:b8909f27-49e2-4a94-8c40-1a2fc2139ce7",
+  "candidateRevision": 71,
+  "skuPackageId": "sku-lifecycle:candidate:b8909f27-49e2-4a94-8c40-1a2fc2139ce7:6222816678021",
+  "supplierSkuId": "6222816678021",
+  "productionAuthorizationId": "production-auth:sku-lifecycle:candidate:b8909f27-49e2-4a94-8c40-1a2fc2139ce7:6222816678021:0f6bc3a4d78f5f7b3bce4c9690a74627fc42a7fbcd7c3e472621d2b7d1b32c2b:owner-decision:candidate:b8909f27-49e2-4a94-8c40-1a2fc2139ce7:final-plan-card:sku-lifecycle:candidate:b8909f27-49e2-4a94-8c40-1a2fc2139ce7:6222816678021:14:2",
+  "paSourceRevision": 70,
+  "paResultRevision": 71,
+  "authorizationStatus": "confirmed",
+  "finalUploadCount": 15,
+  "productionRecordPresent": false,
+  "eVerificationRecordPresent": false,
+  "skuResultKeys": [
+    "eVerificationRecord",
+    "readbackPolicy",
+    "readbackHistory"
+  ],
+  "automationStarted": false,
+  "jobs": [
+    {
+      "jobId": "d-production-job:ccba12a797eae39513dc4861ccff9ce8f64fc97c57fa511833023da3b4390d6a",
+      "jobType": "d_production_execution",
+      "status": "claimed",
+      "revision": 71,
+      "externalRequestState": "not_sent",
+      "attempt": 1,
+      "leaseId": "lease:de:7790d483-e200-4c5d-a4a5-20d053aa1584",
+      "createdAt": "2026-09-21T15:08:35.139Z",
+      "resultRef": null
+    },
+    {
+      "jobId": "account-read-job:96f63f26050364d90c2d113c26d560bc68c3b011af2155bac53b85a932f33f54",
+      "jobType": "ozon_account_read",
+      "status": "failed",
+      "revision": 71,
+      "externalRequestState": "succeeded",
+      "attempt": 1,
+      "leaseId": "account-read-lease:74842c70-f38b-496b-8ee1-484382b59883",
+      "createdAt": "2026-09-21T15:55:48.088Z",
+      "resultRef": null
+    },
+    {
+      "jobId": "account-read-job:d15772d7d59634f48299a9b4ba6f330298ca993e828f000a15ae05fe4eadc247",
+      "jobType": "ozon_account_read",
+      "status": "failed",
+      "revision": 71,
+      "externalRequestState": "succeeded",
+      "attempt": 1,
+      "leaseId": "account-read-lease:3a7ae827-296c-4277-9ed9-8482003424e1",
+      "createdAt": "2026-09-22T01:47:33.708Z",
+      "resultRef": null
+    },
+    {
+      "jobId": "account-read-job:7319e2e6e570a917c33eaac3b397f274aa1df03d6826253538f9c653a19056d2",
+      "jobType": "ozon_account_read",
+      "status": "completed",
+      "revision": 71,
+      "externalRequestState": "succeeded",
+      "attempt": 1,
+      "leaseId": "account-read-lease:867f94f6-34d2-4c14-8d2e-33cd72126e0d",
+      "createdAt": "2026-09-22T02:21:42.136Z",
+      "resultRef": "account-read-receipt:account-read-job:7319e2e6e570a917c33eaac3b397f274aa1df03d6826253538f9c653a19056d2"
+    }
+  ],
+  "observationConfiguration": {
+    "policies": [
+      {
+        "candidateId": "candidate:b8909f27-49e2-4a94-8c40-1a2fc2139ce7",
+        "skuPackageId": "sku-lifecycle:candidate:b8909f27-49e2-4a94-8c40-1a2fc2139ce7:6222816678021",
+        "authorizationRef": "production-auth:sku-lifecycle:candidate:b8909f27-49e2-4a94-8c40-1a2fc2139ce7:6222816678021:0f6bc3a4d78f5f7b3bce4c9690a74627fc42a7fbcd7c3e472621d2b7d1b32c2b:owner-decision:candidate:b8909f27-49e2-4a94-8c40-1a2fc2139ce7:final-plan-card:sku-lifecycle:candidate:b8909f27-49e2-4a94-8c40-1a2fc2139ce7:6222816678021:14:2",
+        "revision": 71,
+        "productionBindingId": "binding:ozon-miska:warehouse-1020005003808030",
+        "productionConfigurationVersion": "version:ozon-production-2026-09-15-v1",
+        "policy": {
+          "schemaVersion": "d-platform-observation-policy-v1",
+          "policyRef": "policy:ozon-miska:vest:production-observation-2026-09-22",
+          "version": "version:1",
+          "maxQueries": 20,
+          "intervalMs": 15000,
+          "requestTimeoutMs": 30000,
+          "expiresAt": "2026-09-22T05:41:17.260Z"
+        }
+      }
+    ],
+    "pumpIntervalMs": 1000
+  },
+  "ePumpIntervalMs": "1000",
+  "dataSha256": "77ebef50ba1921e4896aa8d140bc081fc46ef4ba63727b788ecc473be43cf1a1",
+  "persistedEvidence": {
+    "schemaVersion": "ozon-de-preflight-evidence-v4",
+    "evidenceId": "ozon-account-preflight:1802cfe391e6d94fc1cf88baf344cbe253267cd2219116757a05c47c95a2ba9f",
+    "collectedAt": "2026-09-22T02:22:36.512Z",
+    "expiresAt": "2027-01-13T12:31:26.213915Z"
+  },
+  "dJobTiming": {
+    "startedAt": "2026-09-22T05:26:40.961Z",
+    "lastProgressAt": "2026-09-22T05:26:40.961Z",
+    "leaseExpiresAt": "2026-09-22T05:28:40.961Z"
+  },
+  "dAssetTransportPresent": false,
+  "dSoftwareExecutionPresent": false,
+  "preparationEvidencePresent": false,
+  "readbackHistoryCount": 0
+}

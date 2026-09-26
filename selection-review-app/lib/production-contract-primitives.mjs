@@ -108,10 +108,12 @@ const C2_DIAGNOSTIC_STATIC_FIELDS = new Set([
   "generatorRef", "fileName", "byteSize", "width", "height", "order", "role",
   "stableUrlEvidenceRef", "ownerConfirmed", "productionEligible", "status", "evidenceRef",
   "targetContext", "unknownManifest", "softwareState", "productionAuthorizationPreparation",
-  "skuPackage", "c2SourceSnapshots", "selectedSupplySnapshot", "activeProfitModel", "c1ProductPlan",
+  "skuPackage", "c2SourceSnapshots", "c2FinalAssets", "selectedSupplySnapshot", "activeProfitModel", "c1ProductPlan",
   "technicalFailureRecord", "failure", "ownerDecision",
   "frozenC1Handoff", "seoEvidenceLayer", "draftOnlySeo", "providerJobRef", "authorizationRef",
   "pricingReuseRecord", "sourcePlan", "settledExecution", "authorizedExecution",
+  "editorialSource", "bundle", "sourceJob", "scopeBinding", "admissionDecision", "lifecycleV11",
+  "request", "competitorTextEvidence", "texts", "referenceContext", "referenceTexts", "canonicalHandoff",
   "authorizationId", "authorizationType", "scope", "finalCardInputSnapshot", "c1Snapshot", "canonicalC1",
   "exactSkuVerification", "productAttributes", "platformCategory", "schemaSnapshot", "batteryAssessment",
   "categoryRestrictions", "platformCompliance", "inputSnapshots",
@@ -403,6 +405,13 @@ const C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS_VALUE = Object.freeze({
     Object.freeze(["c2FinalAssets", "productionAuthorizationPreparation"])
   ]),
   runtimePaths: Object.freeze([
+    // Only the two already-validated opaque authorization IDs in a frozen
+    // editorial source job. Arbitrary *Ref fields receive no exception.
+    ...[...C1_PRICING_REUSE_CONTAINER_PATHS, ["draftOnlySeo"], ["c1ProductPlan", "draftOnlySeo"],
+      ["lifecycleV11", "skuPackage", "c1ProductPlan", "draftOnlySeo"]].flatMap(prefix =>
+      ["scopeBinding", "admissionDecision"].map(section => Object.freeze([
+        ...prefix, "editorialSource", "bundle", "sourceJob", section, "authorizationRef"
+      ]))),
     ...C1_PRICING_REUSE_CONTAINER_PATHS.flatMap(prefix => C1_PRICING_REUSE_AUTHORIZATION_PATHS.map(suffix =>
       Object.freeze([...prefix, "pricingReuseRecord", ...suffix]))),
     Object.freeze(["frozenC1Handoff", "seoEvidenceLayer", "providerJobRef", "authorizationRef", "authorizationId"]),
@@ -422,12 +431,26 @@ const C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS_VALUE = Object.freeze({
     ]),
     c2AssetLifecycle: Object.freeze([
       Object.freeze([
-        "$defs", "canonicalC1Handoff", "properties", "draftOnlySeo", "properties", "providerJobRef",
+        "$defs", "canonicalC1Handoff", "properties", "draftOnlySeo", "oneOf", 0, "properties", "providerJobRef",
         "properties", "authorizationRef", "properties", "authorizationId"
       ])
     ])
   })
 });
+
+// A competitor text reference locates a field in frozen evidence, not a file
+// or a network resource. Attribute names are JSON Pointer segments and may be
+// multilingual. Only this declared request field has that meaning.
+const C1_COMPETITOR_TEXT_REFERENCE_PATHS = Object.freeze(
+  C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS_VALUE.runtimeRootPrefixes.flatMap(root =>
+    [...C1_PRICING_REUSE_CONTAINER_PATHS, ["draftOnlySeo"], ["c1ProductPlan", "draftOnlySeo"],
+      ["lifecycleV11", "skuPackage", "c1ProductPlan", "draftOnlySeo"]].map(prefix => Object.freeze([
+      ...root, ...prefix, "editorialSource", "bundle", "request", "competitorTextEvidence", "texts", "[array]", "sourceRef"
+    ])))
+);
+
+const C1_CONTEXT_TEXT_REFERENCE_PATHS = Object.freeze(C1_COMPETITOR_TEXT_REFERENCE_PATHS.map(path =>
+  Object.freeze([...path.slice(0, -4), "referenceContext", "referenceTexts", "[array]", "sourceRef"])));
 
 /**
  * One public source for collector field semantics and the single C1 opaque-ID
@@ -435,7 +458,9 @@ const C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS_VALUE = Object.freeze({
  */
 export const C2_REFERENCE_SEMANTICS = Object.freeze({
   fields: C2_REFERENCE_FIELD_SEMANTICS,
-  c1OpaqueAuthorizationId: C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS_VALUE
+  c1OpaqueAuthorizationId: C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS_VALUE,
+  c1CompetitorTextReferencePaths: C1_COMPETITOR_TEXT_REFERENCE_PATHS,
+  c1ContextTextReferencePaths: C1_CONTEXT_TEXT_REFERENCE_PATHS
 });
 export const C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS = C2_REFERENCE_SEMANTICS.c1OpaqueAuthorizationId;
 
@@ -829,6 +854,13 @@ export function isCanonicalFrozenRef(value) {
   return typeof value === "string" && CANONICAL_FROZEN_REF_PATTERN.test(value);
 }
 
+/** Opaque persisted production IDs may embed several source IDs; never use these as URLs. */
+export function isOpaqueProductionSourceRef(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= 1024 && value.trim() === value &&
+    !/[\u0000-\u001f\u007f]/.test(value) &&
+    !["unknown", "null", "undefined", "not_applicable", "missing"].includes(value.toLowerCase());
+}
+
 export function assertCanonicalFrozenRef(value, path = "canonicalFrozenRef") {
   if (!isCanonicalFrozenRef(value)) throw new Error(`${C2_REFERENCE_REJECTED_NONCANONICAL}:${path}`);
   return value;
@@ -904,7 +936,74 @@ function isAnalysisAssetRefPath(pathSegments) {
   return false;
 }
 
-function isCanonicalC2ReferenceValue(value, semanticKind, pathSegments) {
+function isFrozenC1CompetitorTextPointer(value, pathSegments, root) {
+  if (value.length > SAFE_FROZEN_REF_MAX_LENGTH ||
+      !C1_COMPETITOR_TEXT_REFERENCE_PATHS.some(expected => expected.length === pathSegments.length &&
+        expected.every((segment, index) => segment === pathSegments[index]))) return false;
+  const snapshot = pathSegments.slice(0, -3).reduce((node, segment) => node[segment], root);
+  if (!isCanonicalFrozenRef(snapshot.evidenceRef) || !value.startsWith(`${snapshot.evidenceRef}#`)) return false;
+  const pointer = value.slice(snapshot.evidenceRef.length + 1);
+  return pointer === "/title" || (pointer.startsWith("/attributes/") &&
+    /^(?:[^~\u0000-\u001f\u007f]|~[01])*$/u.test(pointer.slice("/attributes/".length)));
+}
+
+function isEncodedSupplierAttributeKey(value) {
+  let decoded;
+  try { decoded = decodeURIComponent(value); }
+  catch (error) {
+    if (error instanceof URIError) return false;
+    throw error;
+  }
+  return decoded.length > 0 && encodeURIComponent(decoded) === value &&
+    /^(?:[^~/\u0000-\u001f\u007f]|~[01])+$/u.test(decoded);
+}
+
+// These are pointers into saved language evidence, never file or URL targets.
+// The request source validator owns capture/SKU/text provenance; this lower
+// layer checks the declared pointer representation without rewriting the request.
+function isFrozenC1ContextTextPointer(value, pathSegments, root, row) {
+  if (value.length > SAFE_FROZEN_REF_MAX_LENGTH ||
+      !C1_CONTEXT_TEXT_REFERENCE_PATHS.some(expected => expected.length === pathSegments.length &&
+        expected.every((segment, index) => segment === pathSegments[index]))) return false;
+  const request = pathSegments.slice(0, -4).reduce((node, segment) => node[segment], root);
+  const context = request.referenceContext;
+  if (!isObject(row) || row.sourceRef !== value || typeof row.text !== "string" ||
+      row.text.length < 1 || row.text.length > 6000 || row.text.trim().length === 0 ||
+      context.role !== "language_reference_not_product_facts" ||
+      !["c1-seo-reference-context-v1", "c1-seo-reference-context-v2", "c1-seo-reference-context-v3"].includes(context.schemaVersion) ||
+      !Array.isArray(context.referenceTexts) || context.referenceTexts.length < 1 || context.referenceTexts.length > 100) return false;
+  if (row.kind === "competitor_text") {
+    const snapshot = request.competitorTextEvidence;
+    return isObject(snapshot) && Array.isArray(snapshot.texts) && snapshot.texts.length <= 100 &&
+      snapshot.texts.some(item => isObject(item) && item.sourceRef === value && item.text === row.text) &&
+      isFrozenC1CompetitorTextPointer(value,
+        [...pathSegments.slice(0, -4), "competitorTextEvidence", "texts", "[array]", "sourceRef"], root);
+  }
+  const parts = value.split("#");
+  if (parts.length !== 2 || !isCanonicalFrozenRef(parts[0])) return false;
+  const [evidenceRef, pointer] = parts;
+  if (row.kind === "competitor_description") {
+    return context.schemaVersion !== "c1-seo-reference-context-v1" &&
+      ["/description", "/attributes/description", "/attributes/Описание"].includes(pointer);
+  }
+  if (context.schemaVersion !== "c1-seo-reference-context-v3") return false;
+  if (row.kind === "supplier_attribute") {
+    if (!pointer.startsWith("/supplierSku/attributes/") || !Array.isArray(request.verifiedFacts) ||
+        request.verifiedFacts.length > PRODUCTION_CONTRACT_MAX_NODES) return false;
+    const skuFact = request.verifiedFacts.find(fact => isObject(fact) && fact.factPath === "exactSkuVerification.supplierSkuId");
+    return isObject(skuFact) && Array.isArray(skuFact.evidenceRefs) &&
+      skuFact.evidenceRefs.length > 0 && skuFact.evidenceRefs.length <= PRODUCTION_CONTRACT_MAX_NODES &&
+      skuFact.evidenceRefs.includes(`${evidenceRef}#/supplierSku/supplierSkuId`) &&
+      isEncodedSupplierAttributeKey(pointer.slice("/supplierSku/attributes/".length));
+  }
+  if (row.kind === "supplier_variant_attribute") {
+    const match = /^\/skuChoices\/(0|[1-9][0-9]*)\/attributes\/(.+)$/.exec(pointer);
+    return match !== null && Number.isSafeInteger(Number(match[1])) && isEncodedSupplierAttributeKey(match[2]);
+  }
+  return false;
+}
+
+function isCanonicalC2ReferenceValue(value, semanticKind, pathSegments, root, parent) {
   if (semanticKind === "assetRef") {
     return isAnalysisAssetRefPath(pathSegments)
       ? isCanonicalAnalysisAssetRef(value)
@@ -916,7 +1015,9 @@ function isCanonicalC2ReferenceValue(value, semanticKind, pathSegments) {
       : isCanonicalFrozenRef(value);
   }
   if (semanticKind === "sourceRef") {
-    return isCanonicalFrozenRef(value) || isCanonicalStableHttpsAssetRef(value);
+    return isCanonicalFrozenRef(value) || isCanonicalStableHttpsAssetRef(value) ||
+      isFrozenC1CompetitorTextPointer(value, pathSegments, root) ||
+      isFrozenC1ContextTextPointer(value, pathSegments, root, parent);
   }
   if (semanticKind === "canonicalFrozenRef") return isCanonicalFrozenRef(value);
   return true;
@@ -942,6 +1043,7 @@ export function collectCanonicalC2ReferenceErrors(value, path = "$", semanticFie
       stack.push({
         kind: "value",
         value: entry,
+        parent: current.value,
         path: childPath,
         semanticField: childSemanticKind,
         pathSegments: [...current.pathSegments, semanticPathSegment(key, current.isArray)],
@@ -956,13 +1058,14 @@ export function collectCanonicalC2ReferenceErrors(value, path = "$", semanticFie
     }
     if (!Array.isArray(current.value) && !isObject(current.value)) {
       if (typeof current.value === "string" && current.semanticField !== null &&
-          !isCanonicalC2ReferenceValue(current.value, current.semanticField, current.pathSegments)) {
+          !isCanonicalC2ReferenceValue(current.value, current.semanticField, current.pathSegments, value, current.parent)) {
         errors.push({ path: current.path, message: C2_REFERENCE_CONTRACT_MIGRATION_REQUIRED });
       }
       continue;
     }
     stack.push({
       kind: "entries",
+      value: current.value,
       iterator: ownEnumerableEntries(current.value),
       isArray: Array.isArray(current.value),
       path: current.path,
@@ -991,4 +1094,32 @@ export function assertCanonicalC2ReferenceTree(value, path = "productionAuthoriz
     ));
   }
   return value;
+}
+
+const D_PRODUCTION_JOB_ID_PREFIX = "d-production-job:";
+export const D_PRODUCTION_MAX_ROUNDS = 20;
+
+/**
+ * 一个生产授权对应一段 D 工作；一段 D 工作可能要跑不止一轮。
+ * 第一轮沿用原来的作业号（历史数据不动），之后每一轮受控重派都带自己的轮次号。
+ */
+export function dProductionJobIdForRound(authorizationFingerprint, round) {
+  if (typeof authorizationFingerprint !== "string" || !/^[a-f0-9]{64}$/.test(authorizationFingerprint) ||
+      !Number.isSafeInteger(round) || round < 1 || round > D_PRODUCTION_MAX_ROUNDS) {
+    throw new Error("D_PRODUCTION_JOB_ROUND_INVALID");
+  }
+  return round === 1 ? `${D_PRODUCTION_JOB_ID_PREFIX}${authorizationFingerprint}`
+    : `${D_PRODUCTION_JOB_ID_PREFIX}${authorizationFingerprint}:round${round}`;
+}
+
+/** 返回这个作业号属于该授权的第几轮；不属于该授权就返回 null，调用方按不匹配处理。 */
+export function dProductionJobRound(jobId, authorizationFingerprint) {
+  if (typeof jobId !== "string" || typeof authorizationFingerprint !== "string" || !/^[a-f0-9]{64}$/.test(authorizationFingerprint)) return null;
+  const base = `${D_PRODUCTION_JOB_ID_PREFIX}${authorizationFingerprint}`;
+  if (jobId === base) return 1;
+  if (!jobId.startsWith(`${base}:round`)) return null;
+  const suffix = jobId.slice(`${base}:round`.length);
+  if (!/^(?:[1-9][0-9]?)$/.test(suffix)) return null;
+  const round = Number(suffix);
+  return round >= 2 && round <= D_PRODUCTION_MAX_ROUNDS ? round : null;
 }

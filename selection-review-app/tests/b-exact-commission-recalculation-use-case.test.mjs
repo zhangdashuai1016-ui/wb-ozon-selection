@@ -8,7 +8,7 @@ import { createLocalDevelopmentActor, createActorContext } from "../lib/runtime-
 import { openExceptionCase } from "../lib/software-execution-state.mjs";
 import { inspectLifecycleBInputReadiness } from "../lib/lifecycle-b-input-bundle.mjs";
 import { buildBExactCommissionRuntimeView, B_BETTER_COMMISSION_EVIDENCE_LABELS } from "../lib/b-exact-commission-runtime-view.mjs";
-import { assertExactCommissionBeforeProduction, PRODUCTION_EXACT_COMMISSION_REQUIRED } from "../lib/commission-estimate-authorization.mjs";
+import { assertFormalCommissionBeforeProduction, PRODUCTION_EXACT_COMMISSION_REQUIRED } from "../lib/commission-estimate-authorization.mjs";
 
 async function fixture(options = {}) {
   const { candidate, original, document, at } = await createSavedConditionalBFixture(options);
@@ -201,9 +201,8 @@ test("官方费率表命中的费率能让复算走到正式B并创建C1，而�
   assert.equal(candidate.executionRuntime.technicalFailure, null);
   assert.deepEqual(result.result.externalAccesses, []);
   assert.equal(result.result.platformWrites, 0);
-  // 放宽的只有复算这一道。上架那一道仍然只认店里的实收费率。
-  assert.throws(() => assertExactCommissionBeforeProduction(life.skuPackage),
-    { code: PRODUCTION_EXACT_COMMISSION_REQUIRED });
+  // 正式佣金类型通过前置检查，生产仍要求当前完整证据。
+  assert.equal(assertFormalCommissionBeforeProduction(life.skuPackage).commissionMode, "official_reference");
 });
 
 test("同一个费率换成官方费率表来源时，利润数字一个都不许变，只变证据强度", async () => {

@@ -1,0 +1,175 @@
+{
+  "schemaVersion": "deployment-card-r67-v1",
+  "packageDirectory": "/private/tmp/claude-501/-Users-shuaizhang--local-share-wb-ozon-engineering-github-checkpoint-20260909/9044d028-14fc-47fa-ac04-567e754416db/scratchpad/pkg-r67",
+  "installedVersion": "/Users/shuaizhang/Library/Application Support/今日选品评审台-versions/20260923-listing-fixes-r66",
+  "launchAgent": "/Users/shuaizhang/Library/LaunchAgents/com.shuaizhang.selection-review-app.plist",
+  "persistentData": "/Users/shuaizhang/Library/Application Support/今日选品评审台/data/candidates.json",
+  "dataBaselineSha256": "4151cb59d2cd202062b69cc7eded6b4d95ffb82fe1e95d94216c1c07818fb9a2",
+  "launchAgentBaselineSha256": "48f31edfc7cd12e1002a9853eda2da1dc61e8f96a620006e221b768373c721c9",
+  "launchEnvironmentChange": "无。r67 不新增、不修改、不删除任何启动环境变量；只换应用目录路径。",
+  "candidateId": "candidate:b8909f27-49e2-4a94-8c40-1a2fc2139ce7",
+  "candidateDataRevision": 73,
+  "skuDataRevision": 15,
+  "confirmationCardRevision": 2,
+  "lifecyclePlatformWrites": 0,
+  "dProductionRounds": [
+    {
+      "jobId": "d-production-job:ccba12a797eae39513dc4861ccff9ce8f64fc97c57fa511833023da3b4390d6a",
+      "status": "failed",
+      "attempt": 1,
+      "externalRequestState": "not_sent",
+      "externalRequestRef": null,
+      "resultEnvelope": null,
+      "failureClass": "service_restart_before_external_request"
+    },
+    {
+      "jobId": "d-production-job:ccba12a797eae39513dc4861ccff9ce8f64fc97c57fa511833023da3b4390d6a:round2",
+      "status": "failed",
+      "attempt": 1,
+      "externalRequestState": "not_sent",
+      "externalRequestRef": null,
+      "resultEnvelope": null,
+      "failureClass": "d-assets-error-before-external-request"
+    }
+  ],
+  "installedApplicationFileCount": 323,
+  "packageApplicationFileCount": 325,
+  "changedApplicationFiles": [
+    {
+      "path": "dist/index.html",
+      "bytesBefore": 459,
+      "bytesAfter": 459,
+      "delta": 0,
+      "sha256Before": "39b8da8ba1965a50",
+      "sha256After": "55766ae94055104f"
+    },
+    {
+      "path": "lib/capability-registry.mjs",
+      "bytesBefore": 181452,
+      "bytesAfter": 181690,
+      "delta": 238,
+      "sha256Before": "4f49024ce5475f39",
+      "sha256After": "7335dc17c1e72550"
+    },
+    {
+      "path": "lib/d-e-runtime-view.mjs",
+      "bytesBefore": 19607,
+      "bytesAfter": 20427,
+      "delta": 820,
+      "sha256Before": "5600ce06d9e73500",
+      "sha256After": "1521b38d9f23cefb"
+    },
+    {
+      "path": "lib/production-authorization.mjs",
+      "bytesBefore": 31488,
+      "bytesAfter": 32681,
+      "delta": 1193,
+      "sha256Before": "9be8344ca735ccb1",
+      "sha256After": "e58b767bdcec6ba9"
+    },
+    {
+      "path": "server.mjs",
+      "bytesBefore": 486282,
+      "bytesAfter": 488373,
+      "delta": 2091,
+      "sha256Before": "ce008ac8dda0bffa",
+      "sha256After": "3176821bd3150ee8"
+    }
+  ],
+  "addedApplicationFiles": [
+    {
+      "path": "dist/assets/C1PaidDraftPanel-Dl6pIC1b.js",
+      "bytes": 65420,
+      "sha256": "6aa51159f0d8d8d5bc9eacefa18db420527f3fa946d76c6bd44537b9ad2e5028"
+    },
+    {
+      "path": "dist/assets/index-ChEaeIVu.js",
+      "bytes": 434435,
+      "sha256": "b2c9cd145c0e0b96dbfe26fa1553bba7597a50803e15adf095b2b097e24503d1"
+    },
+    {
+      "path": "dist/assets/ProductPage-CoXnnOX2.js",
+      "bytes": 97620,
+      "sha256": "654e0a55b75845131bca6b770163212e54867947671f97dae8f486d9eff9c1f7"
+    },
+    {
+      "path": "dist/assets/UserInspector-BYpVQqdf.js",
+      "bytes": 78468,
+      "sha256": "5ae20fd95432114016f634db270742f8e65626795125f5195b4552459e161109"
+    },
+    {
+      "path": "lib/production-authorization-rollback-use-case.mjs",
+      "bytes": 4501,
+      "sha256": "d62847ed2d271e94b9923f450e28df72b815d7bb523bf5d464c17dfde038b13c"
+    },
+    {
+      "path": "lib/production-authorization-rollback.mjs",
+      "bytes": 14232,
+      "sha256": "d8931a50bbd554ac04ed77257fc6948837962905180435d11e27e33c5f414b52"
+    }
+  ],
+  "removedApplicationFiles": [
+    {
+      "path": "dist/assets/C1PaidDraftPanel-CmPI5P60.js",
+      "bytes": 65420,
+      "sha256": "a9887a35d434dbf2"
+    },
+    {
+      "path": "dist/assets/index-WvVpjq0b.js",
+      "bytes": 432586,
+      "sha256": "88af69041ab38c84"
+    },
+    {
+      "path": "dist/assets/ProductPage-CUhUNTbi.js",
+      "bytes": 97620,
+      "sha256": "32aae9b2b41d54d9"
+    },
+    {
+      "path": "dist/assets/UserInspector-C20qkROa.js",
+      "bytes": 78468,
+      "sha256": "d431c72eed7d4f57"
+    }
+  ],
+  "frontendBundle": {
+    "previous": "dist/assets/index-WvVpjq0b.js",
+    "current": "dist/assets/index-ChEaeIVu.js",
+    "note": "部署回读必须确认线上主包名已变为 current；不重编前端按钮不会上线。"
+  },
+  "externalRequests": 0,
+  "platformWrites": 0,
+  "productionAuthorizationCreated": false,
+  "ownerClickSequenceAfterDeploy": [
+    "作废本轮授权、退回等我确认",
+    "重签最终商品确认卡",
+    "通过进入生产授权",
+    "继续已保存任务"
+  ],
+  "ciFullSuite": {
+    "command": "node scripts/run-ci-tests.mjs",
+    "pipedExitCode": false,
+    "realExitCode": 1,
+    "tests": 2720,
+    "pass": 2706,
+    "fail": 14,
+    "cancelled": 0,
+    "skipped": 0,
+    "knownRedBaseline": 14,
+    "newRed": 0,
+    "disappearedRed": 0,
+    "knownRedBreakdown": {
+      "c1_keyword_and_draft": 9,
+      "d_e_software_persistence": 2,
+      "final_pricing_c1_reuse_integration": 2,
+      "e_readback_software_use_case": 1
+    },
+    "redIntroducedThisRoundAndFixed": [
+      "全部第一方可执行、Schema、UI、扩展、脚本和测试产物都有明确归属",
+      "当前快照绑定集成源码摘要，历史快照原样保留且其他副本标为未核查",
+      "changing any preserved historical bytes is rejected without rewriting either snapshot"
+    ],
+    "fixApplied": "登记 4 个新文件到 lib/capability-registry.mjs，并以 scripts/generate-capability-snapshot.mjs 重生成能力快照（源码件数 787→791）",
+    "newTestsThisRound": 11,
+    "apiBoundaryScriptExitCode": 0,
+    "environmentLimit": "scripts/run-ci-api-tests.mjs 拒绝在非 GitHub runner 上运行，本机无法执行"
+  }
+}

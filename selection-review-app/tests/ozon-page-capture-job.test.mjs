@@ -7,7 +7,8 @@ import {
   ozonCapturePageJobPublic,
   ozonCapturePageProductId,
   ozonCapturePageTarget,
-  ozonPageReadStopMessage
+  ozonPageReadStopMessage,
+  shouldRebuildOpportunityFromLegacy
 } from "../lib/ozon-page-capture-job.mjs";
 import {
   canonicalOzonCaptureSource,
@@ -174,4 +175,62 @@ test("租约结局各有一句实话，不会被说成采集器出了系统错�
   assert.match(ozonPageReadStopMessage("capture_job_lost"), /重新读一次/u);
   assert.match(ozonPageReadStopMessage("something_new"), /已经停下/u);
   assert.equal(ozonPageReadStopMessage("capture_job_lost", "补充说明"), `${ozonPageReadStopMessage("capture_job_lost")}：补充说明`);
+});
+
+// 一个候选身上要挂好几个可比商品：最终定价要「多个有效样本比较」，关键词本地素材要 3–5 个已审查竞品，
+// 两处读的都是 candidate.salesSnapshotsV11。2026-09-17 之前没有入口能往里加第二个商品。
+const OTHER_ID = "4914586953";
+const OTHER_URL = `https://www.ozon.ru/product/${OTHER_ID}/`;
+
+test("主人指名要读哪个页面时就读那一个，不再从已存地址反推", () => {
+  const candidate = { id: "candidate:x", productUrl: CANONICAL, salesSnapshotsV11: [snapshot()] };
+  const target = ozonCapturePageTarget(candidate, OTHER_URL);
+  assert.equal(target.ok, true);
+  assert.equal(target.productId, OTHER_ID, "读的是主人给的那个商品，不是候选自己的");
+  assert.equal(target.productUrl, OTHER_URL);
+  assert.equal(target.from, "owner_requested_url", "来源要说明是主人指名的，落盘时据此打对标标记");
+});
+
+test("指名的地址不是 Ozon 商品页时当场拒绝，不改写它去凑一个", () => {
+  const candidate = { id: "candidate:x", productUrl: CANONICAL, salesSnapshotsV11: [snapshot()] };
+  for (const bad of ["https://www.ozon.ru/category/odezhda-33306/", "https://example.com/product/123/",
+    "https://www.ozon.ru/product/", "  ", "не ссылка"]) {
+    const target = ozonCapturePageTarget(candidate, bad);
+    assert.equal(target.ok, false, `${bad} 必须拒绝`);
+    assert.equal(target.code, "ozon_product_url_invalid");
+  }
+});
+
+test("挂了对标之后，这件商品仍然读得了自己的页面：反推时跳过对标", () => {
+  const comparable = { ...snapshot({ snapshotId: "sales-snapshot:comparable" }), productUrl: OTHER_URL, comparable: true };
+  const candidate = { id: "candidate:x", productUrl: CANONICAL, salesSnapshotsV11: [snapshot(), comparable] };
+  assert.equal(ozonCapturePageAddresses(candidate).some(entry => entry.value === OTHER_URL), false,
+    "对标不参与「这件商品自己的页面是哪一个」");
+  const target = ozonCapturePageTarget(candidate);
+  assert.equal(target.ok, true, "挂了对标不该把这件商品自己的页面读成身份冲突");
+  assert.equal(target.productId, PRODUCT_ID);
+
+  // 而没打标记的异商品快照仍然照旧判冲突：读错商品比读不到更糟，这一条不能被对标顺带松掉。
+  const unmarked = { ...snapshot({ snapshotId: "sales-snapshot:unmarked" }), productUrl: OTHER_URL };
+  const conflicted = ozonCapturePageTarget({ id: "candidate:x", productUrl: CANONICAL, salesSnapshotsV11: [snapshot(), unmarked] });
+  assert.equal(conflicted.ok, false);
+  assert.equal(conflicted.code, "ozon_product_identity_conflict");
+});
+
+// 2026-09-17 的真实事故：对标采集让「读页面」第一次发生在 C 阶段，而结果处理里那段遗留适配
+// 每次都把 A 确认冻下来的机会包覆盖掉——marketAssessment 丢失、parentOpportunityId 退回遗留形态、
+// lifecycleV11.status 被退回 opportunity_sales_snapshot_captured。主人的数据实际被损坏过一次。
+test("已经有 skuPackage 就绝不用遗留适配器重建机会包：A 确认冻下来的东西不能被读页面覆盖", () => {
+  assert.equal(shouldRebuildOpportunityFromLegacy({ id: "c", lifecycleV11: { skuPackage: { skuPackageId: "sku:1" } } }), false,
+    "生命周期已经开始了，读一次页面不该重建机会包");
+
+  for (const [why, candidate] of [
+    ["还没有生命周期", { id: "c" }],
+    ["有 lifecycleV11 但没有 skuPackage", { id: "c", lifecycleV11: {} }],
+    ["skuPackage 是 null", { id: "c", lifecycleV11: { skuPackage: null } }],
+    ["skuPackage 是数组（坏数据）", { id: "c", lifecycleV11: { skuPackage: [] } }],
+    ["候选本身是 null", null]
+  ]) {
+    assert.equal(shouldRebuildOpportunityFromLegacy(candidate), true, `${why}：这时候才该现造一个机会包`);
+  }
 });

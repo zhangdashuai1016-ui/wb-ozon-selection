@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "deployment-receipt-r69-v1",
+  "deployedAt": "2026-09-24T11:21:29.155Z",
+  "ownerConfirmation": "主人于本会话直接回复「确认」（非转述）",
+  "card": "docs/handoff/部署确认卡-r69-2026-09-24.md",
+  "fromVersion": "20260924-runtime-view-source-r68",
+  "toVersion": "20260924-owner-stock-registration-r69",
+  "packageSource": "…/scratchpad/iso-r69/app（出卡时已核过的包，直接复制，未现场重打）",
+  "recoveryPoints": {
+    "plistBackupSha256_16": "6704fdd48e3d405d",
+    "dataBackupSha256_16": "c14c3807d4647aba",
+    "dir": "…/scratchpad/deploy-r69/",
+    "timestamp": "20260924-191727"
+  },
+  "plist": {
+    "beforeSha256_16": "6704fdd48e3d405d",
+    "afterSha256_16": "436d3211db4333b3",
+    "plutilLint": "OK",
+    "versionPointerReplacements": 2,
+    "changedEnvKeys": [
+      "SELECTION_REVIEW_D_PLATFORM_OBSERVATION_JSON"
+    ],
+    "note": "环境变量键集合未变；除策略条目与版本指针外未动任何键"
+  },
+  "observationPolicy": {
+    "action": "替换已有的唯一一条（不是新增）",
+    "before": {
+      "policyRef": "policy:ozon-miska:vest:production-observation-2026-09-22",
+      "version": "version:2",
+      "expiresAt": "2026-09-23T14:00:00.000Z",
+      "revision": 71
+    },
+    "after": {
+      "policyRef": "policy:ozon-miska:vest:production-observation-2026-09-24",
+      "version": "version:3",
+      "expiresAt": "2026-12-31T00:00:00.000Z",
+      "revision": 78,
+      "maxQueries": 100,
+      "intervalMs": 30000,
+      "requestTimeoutMs": 30000
+    },
+    "policiesCount": 1
+  },
+  "readback": {
+    "runningVersionDirectory": "20260924-owner-stock-registration-r69",
+    "pid": 19617,
+    "port": 4317,
+    "health": "HTTP 200",
+    "frontendMainBundle": "index-4UlBjdmS.js",
+    "policyInRunningProcess": {
+      "newPolicyRefCount": 1,
+      "oldPolicyRefCount": 0,
+      "method": "ps eww 后 grep -c，只取计数"
+    },
+    "candidateDataRevision": 78,
+    "skuDataRevision": 15,
+    "productionAuthorizationRoundV1": 2,
+    "productionRecord": null,
+    "observationJobs": 0,
+    "eReadbackJobs": 0,
+    "ozonDEPreflightEvidenceKeys": 2,
+    "dProductionJobs": [
+      {
+        "idSuffix": "57fa511833023da3b4390d6a",
+        "status": "failed",
+        "externalRequestState": "not_sent",
+        "failureClass": "service_restart_before_external_request"
+      },
+      {
+        "idSuffix": "833023da3b4390d6a:round2",
+        "status": "failed",
+        "externalRequestState": "not_sent",
+        "failureClass": "d-assets-error-before-external-request"
+      },
+      {
+        "idSuffix": "f8076a88703363a76c3c6085",
+        "status": "failed",
+        "externalRequestState": "not_sent",
+        "failureClass": "d-production-preflight-not-ready"
+      },
+      {
+        "idSuffix": "8703363a76c3c6085:round2",
+        "status": "failed",
+        "externalRequestState": "succeeded",
+        "failureClass": "d-initial-import-context-changed"
+      }
+    ],
+    "dProductionJobsUnchanged": true,
+    "buttons": {
+      "canRecoverInitialImport": true,
+      "canContinueSaved": false,
+      "canDispatchNewRound": false,
+      "canRollbackAuthorization": false
+    },
+    "dataSha256_16_before": "c14c3807d4647aba",
+    "dataSha256_16_after": "c14c3807d4647aba",
+    "dataUnchanged": true
+  },
+  "externalRequests": 0,
+  "platformWrites": 0,
+  "note": "部署成功不等于背心已上架。下一步由主人在工作台点一次「对账并登记本轮导入」；软件只做只读查询，库存由主人手工写入、只登记不重写；E 由主人人工核对。"
+}

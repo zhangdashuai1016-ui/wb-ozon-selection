@@ -22,7 +22,7 @@ import {
   assertValidProductionRecord
 } from "./draft-production-execution.mjs";
 import { verifySystemCreatedListing, systemCreatedReadbackGaps, projectProductionReadbackExpectation,
-  productionReadbackContentGaps, validateProductionReadbackExpectation } from "./e-stage-readback.mjs";
+  observedMediaSequence, observedWarehouseAvailableStock, validateProductionReadbackExpectation } from "./e-stage-readback.mjs";
 
 export const D_SOFTWARE_EXECUTION_VERSION = "d-software-execution-v2";
 export const E_SYSTEM_READBACK_VERSION = "e-system-readback-v1";
@@ -297,8 +297,19 @@ function readbackMatches(request, observation) {
       observation.currentPrice.currency !== request.platformWritePrice.currency) errors.push("currentPrice");
   if (observation.currentStock !== 100) errors.push("currentStock");
   if (observation.imageCount !== request.finalUploads.length) errors.push("imageCount");
-  errors.push(...productionReadbackContentGaps(request.independentReadback.expectation, observation));
-  if (!nonEmpty(observation.moderationStatus) || observation.moderationStatus === "unknown" || !nonEmpty(observation.validationStatus) || observation.validationStatus === "unknown" || !nonEmpty(observation.saleStatus) || observation.saleStatus === "unknown") errors.push("platformStatus");
+  // D proves the authorized creation and stock write. CDN identity, image order and sale eligibility
+  // remain E acceptance checks; keep the original observed media and statuses in immediateReadback.
+  const media = observedMediaSequence(observation.mediaObservation);
+  if (media === null) errors.push("media_identity_unverified");
+  else {
+    if (new Set(media).size !== media.length) errors.push("media_duplicate");
+    if (media.length !== request.finalUploads.length || observation.imageCount !== media.length) errors.push("imageCount");
+  }
+  const stock = observedWarehouseAvailableStock(observation.inventoryObservation, request.inventoryWrite.warehouseId,
+    { productId: observation.platformProductId, offerId: observation.merchantSku });
+  if (stock === "unknown") errors.push("warehouse_identity_or_quantity_unverified");
+  else if (stock !== observation.currentStock) errors.push("warehouse_stock_mismatch");
+  if (![observation.moderationStatus, observation.validationStatus, observation.saleStatus].every(nonEmpty)) errors.push("platformStatus");
   if (!Array.isArray(observation.errors) || observation.errors.length !== 0 || !nonEmpty(observation.platformEvidenceRef)) errors.push("platformEvidence");
   return errors;
 }

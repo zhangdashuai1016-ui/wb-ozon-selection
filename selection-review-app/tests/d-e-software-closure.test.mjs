@@ -410,3 +410,66 @@ test("published D/E schemas lock single attempt, no fallback, no retry, and zero
   assert.equal(eSchema.properties.automaticRetry.const, false);
   assert.equal(eSchema.properties.platformWrites.const, 0);
 });
+
+test('D records the confirmed creation while CDN correspondence and sale status remain unverified for E', async () => {
+  const { prepared, executionContext } = await preparedFixture();
+  const attempt = beginDSoftwareExecution({ preparedExecution: prepared, startedAt: '2026-08-22T07:20:00.000Z' });
+  const observation = exactObservation(attempt.request, {
+    mediaObservation: { sourceProtocol: 'ozon-product-attributes-v4', primaryImageUrl: 'https://cdn.example.com/platform/main.jpg',
+      images: ['https://cdn.example.com/platform/detail.jpg'] },
+    moderationStatus: 'in_moderation', validationStatus: 'processing', saleStatus: 'unknown'
+  });
+  let writes = 0;
+  const result = await executeDSoftwareAttempt({ executionAttempt: attempt, executionContext,
+    executeSellerApi: async request => { writes++; return { status: 'accepted', productId: '910001', offerId: request.merchantSku,
+      requestReceiptRef: 'receipt:synthetic:import-confirmed', inventoryReceiptRef: 'receipt:synthetic:stock-confirmed' }; },
+    readbackSellerApi: async () => observation, completedAt: '2026-08-22T07:25:00.000Z' });
+  assert.equal(result.status, 'succeeded');
+  assert.equal(result.productionRecord.status, 'validation_or_moderation');
+  assert.equal(result.productionRecord.businessStateEffect, 'D_created_entered_validation_moderation');
+  assert.equal(result.productionRecord.published, false);
+  assert.equal(result.productionRecord.activated, false);
+  assert.deepEqual(result.immediateReadback, observation);
+  assert.deepEqual(result.productionRecord.readbackExpectation, attempt.request.independentReadback.expectation);
+  assert.notEqual(result.productionRecord.readbackExpectation.media[0].submittedUrl, observation.mediaObservation.primaryImageUrl);
+  const e = await runSystemCreatedEReadback({ productionRecord: result.productionRecord,
+    readPlatform: async () => observation, verifiedAt: '2026-08-22T08:00:00.000Z' });
+  assert.equal(e.status, 'not_verified');assert.equal(e.eVerificationRecord, null);
+  assert.ok(e.gaps.includes('listedStatus'));
+  assert.ok(e.gaps.includes('media_identity_unverified'));
+  await assert.rejects(() => executeDSoftwareAttempt({ executionAttempt: result, executionContext,
+    executeSellerApi: async () => { writes++; }, readbackSellerApi: async () => observation,
+    completedAt: '2026-08-22T08:05:00.000Z' }), /ATTEMPT_STATE_REJECTED/);
+  assert.equal(writes, 1);
+});
+
+test('D retains exact identity, currency, price, warehouse stock, media count and platform error gates', async () => {
+  const { prepared, executionContext } = await preparedFixture();
+  const attempt = beginDSoftwareExecution({ preparedExecution: prepared, startedAt: '2026-08-22T07:20:00.000Z' });
+  const cases = [
+    ['merchantSku', value => { value.merchantSku = 'OTHER'; }],
+    ['platformProductId', value => { value.platformProductId = '910002'; }],
+    ['currentPrice', value => { value.currentPrice.currency = 'RUB'; }],
+    ['currentPrice', value => { value.currentPrice.amount++; }],
+    ['warehouse_identity_or_quantity_unverified', value => { value.inventoryObservation.rows[0].warehouseId = '70002'; }],
+    ['warehouse_stock_mismatch', value => { value.inventoryObservation.rows[0].freeStock = 99; }],
+    ['currentStock', value => { value.currentStock = 99; value.inventoryObservation.rows[0].freeStock = 99; }],
+    ['imageCount', value => { value.imageCount = 1; }],
+    ['imageCount', value => { value.mediaObservation.images = []; }],
+    ['media_duplicate', value => { value.mediaObservation.images.push(value.mediaObservation.images[0]); value.imageCount = 3; }],
+    ['media_identity_unverified', value => { value.mediaObservation.images = 'unknown'; }],
+    ['platformEvidence', value => { value.errors = [{ code: 'invalid_product' }]; }]
+  ];
+  for (const [gap, mutate] of cases) {
+    const observation = exactObservation(attempt.request, { saleStatus: 'unknown' });mutate(observation);
+    const result = await executeDSoftwareAttempt({ executionAttempt: attempt, executionContext,
+      executeSellerApi: async request => ({ status: 'accepted', productId: '910001', offerId: request.merchantSku,
+        requestReceiptRef: 'receipt:synthetic:import-confirmed', inventoryReceiptRef: 'receipt:synthetic:stock-confirmed' }),
+      readbackSellerApi: async () => observation, completedAt: '2026-08-22T07:25:00.000Z' });
+    assert.equal(result.status, 'unknown_outcome', gap);
+    assert.equal(result.productionRecord, null, gap);
+    assert.ok(result.reason.includes(gap), `${gap}: ${result.reason}`);
+    assert.equal(result.retryAllowed, false);
+    assert.deepEqual(result.immediateReadback, observation);
+  }
+});

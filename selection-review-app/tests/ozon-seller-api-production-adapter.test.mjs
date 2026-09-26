@@ -87,6 +87,12 @@ test("builds one Ozon import item from the frozen production payload", () => {
   assert.deepEqual(item.images, ["https://assets.example/detail.jpg"]);
   assert.equal(item.attributes.find((entry) => entry.id === 4191).values[0].value.includes("Ручной завод"), true);
   assert.equal(item.attributes.find((entry) => entry.id === 85).values[0].dictionary_value_id, 1001);
+  // 对齐本店唯一一次被接受的导入（雨衣 2026-09-16，task_id 5639765026）：vat 发 "0"，
+  // 不发 old_price，也不发与 description_category_id 重复的 new_description_category_id。
+  assert.equal(item.vat, "0");
+  assert.equal(Object.hasOwn(item, "old_price"), false);
+  assert.equal(Object.hasOwn(item, "new_description_category_id"), false);
+  assert.equal(Number.isSafeInteger(item.description_category_id) && item.description_category_id > 0, true);
   assert.equal(request.inventoryIncluded, false);
 });
 
@@ -198,4 +204,59 @@ test("主人说过要确认都能访问：没有探针或访问不到都不许�
   });
   await ok.createPlatformDraft(payload());
   assert.deepEqual(probed, ["https://assets.example/main.jpg", "https://assets.example/detail.jpg"]);
+});
+
+test('confirmed optional attributes reach the real import payload without unknown fields or review translations', () => {
+  const input = payload();
+  input.attributes.ozonAttributes = [
+    { fieldKey: '5953', fact: { verificationStatus: 'confirmed', sourceRefs: ['mapping:gender'], value: { value: 'Унисекс', dictionaryValueId: 1884 }, reviewZh: '男女通用' } },
+    { fieldKey: '10096', fact: { verificationStatus: 'unknown' } }
+  ];
+  input.platformSchemaAttributes = [{ fieldKey: '5953', required: false, complexId: 0, dictionaryId: 1 }];
+  const result = buildOzonSellerImportRequest(input);
+  assert.deepEqual(result.body.items[0].attributes.find(item => item.id === 5953), { id: 5953, complex_id: 0, values: [{ dictionary_value_id: 1884, value: 'Унисекс' }] });
+  assert.equal(result.body.items[0].attributes.some(item => item.id === 10096), false);
+  assert.equal(JSON.stringify(result.body).includes('男女通用'), false);
+  input.platformSchemaAttributes[0].fieldKey = 'unrelated';
+  assert.throws(() => buildOzonSellerImportRequest(input), /OZON_OPTIONAL_ATTRIBUTE_SCHEMA_MISMATCH/);
+});
+
+// Ozon 的 23171 是 Хештеги（类目属性表里的 label 就写着 "#Хештеги"），不是自由搜索词框。
+// 规则：每个标签以 # 开头、标签之间用空格分隔、标签内部不能有空格。
+// 背心那张卡发出去的是 "хаки Оксфорд Для кошек"（一条、没有 #、内部全是空格），
+// Ozon 后台报「#主题标签」格式错误，内容评级被扣。这里钉住正确形状。
+const HASHTAG_ATTRIBUTE_ID = 23171;
+const hashtagValue = request =>
+  request.body.items[0].attributes.find(item => item.id === HASHTAG_ATTRIBUTE_ID).values[0].value;
+
+test("主题标签逐词加#、词内空格换下划线，绝不拼成一条带空格的长串", () => {
+  const request = buildOzonSellerImportRequest(payload());
+  assert.equal(hashtagValue(request), "#музыкальная_шкатулка #швейная_машинка");
+  // 逐条复核平台规则，而不是只比字符串
+  for (const tag of hashtagValue(request).split(" ")) {
+    assert.match(tag, /^#[^\s#]+$/u);
+  }
+});
+
+test("单词关键词只加#，不引入多余字符", () => {
+  const request = buildOzonSellerImportRequest(payload({ }));
+  assert.ok(hashtagValue(request).startsWith("#"));
+  const single = buildOzonSellerImportRequest({ ...payload(),
+    content: { ...payload().content, searchKeywords: ["хаки"] } });
+  assert.equal(hashtagValue(single), "#хаки");
+});
+
+test("关键词里本来就带#时在构建请求处就被拒，且一个字节都没发出去", () => {
+  let sent = 0;
+  assert.throws(() => buildOzonSellerImportRequest({ ...payload(),
+    content: { ...payload().content, searchKeywords: ["хаки #Оксфорд"] } }),
+  /OZON_ADAPTER_HASHTAG_REJECTED/);
+  assert.equal(sent, 0);
+});
+
+test("搜索词为空仍然按内容缺口拒绝，不会发出一个只有#的标签", () => {
+  assert.throws(() => buildOzonSellerImportRequest({ ...payload(),
+    content: { ...payload().content, searchKeywords: [] } }), /OZON_ADAPTER_CONTENT_GAP/);
+  assert.throws(() => buildOzonSellerImportRequest({ ...payload(),
+    content: { ...payload().content, searchKeywords: ["   "] } }), /OZON_ADAPTER_CONTENT_GAP|OZON_ADAPTER_HASHTAG_REJECTED/);
 });

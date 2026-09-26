@@ -1,3 +1,4 @@
+import { createInternalEvidenceValidity } from "../lib/lifecycle-evidence-validity.mjs";
 import { SYNTHETIC_STORE_REF } from "./fixtures/store-binding-fixture.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -375,4 +376,29 @@ test("官方费表所需的成交价与类型名称只取已冻结结果，未�
       assert.equal(entry.commissionReferenceScope, null, "只有佣金请求携带官方费表查询输入");
     }
   }
+});
+
+
+test("内部24小时提示不触发重复采集，未知来源过期仍需刷新且不改历史", async () => {
+  const packs = allPacks();
+  for (const value of packs) value.expiresAt = "2026-10-01T06:30:00.000Z";
+  const fx = packs.find(value => value.kind === "exchange_rate");
+  Object.assign(fx, { checkedAt: plannedAt, expiresAt, sourceType: "bank_of_russia_official_daily_xml",
+    sourceRef: "cbr-xml-daily:R01375:2026-08-18", validity: createInternalEvidenceValidity("exchange_rate"),
+    evidenceData: { rubPerCny: 12.3, rateDate: "2026-08-18", nominal: 1, officialValueRub: 12.3 } });
+  const afterHint = "2026-09-21T08:00:00.000Z";
+  const before = structuredClone(packs);
+  const plan = buildLifecycleBEvidencePreparationPlan({ candidate: candidate(), evidencePacks: packs, plannedAt: afterHint });
+  assert.equal(plan.status, "ready_from_reuse");
+  assert.equal(plan.actions.find(value => value.kind === "exchange_rate").currentStatus, "refresh_due");
+  let calls = 0;
+  const result = await runLifecycleBEvidencePreparation({ candidate: candidate(), evidencePacks: packs, plannedAt: afterHint,
+    preparedAt: afterHint, providers: Object.fromEntries(packs.map(value => [value.kind, async () => { calls += 1; throw new Error("must not collect"); }])) });
+  assert.equal(result.status, "completed");
+  assert.equal(calls, 0);
+  assert.deepEqual(packs, before);
+  delete fx.validity;
+  fx.sourceType = "unknown";
+  const blocked = buildLifecycleBEvidencePreparationPlan({ candidate: candidate(), evidencePacks: packs, plannedAt: afterHint });
+  assert.equal(blocked.actions.find(value => value.kind === "exchange_rate").action, "prepare_once");
 });

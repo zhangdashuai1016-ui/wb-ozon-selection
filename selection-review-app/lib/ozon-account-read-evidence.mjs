@@ -4,10 +4,11 @@ import { fingerprintCanonicalRecord } from './production-contract-primitives.mjs
 import { assertOzonAccountReadAuthorization, assertOzonAccountReadCredential, assertOzonAccountReadReceipt,
   readOzonAccountReadTerminal, OzonAccountReadError } from './ozon-account-read-contract.mjs';
 import { assertOzonDEPreflightEvidence, assertOzonDEPreflightEvidenceScope, OzonDEPreflightEvidenceError } from './ozon-de-preflight-provider.mjs';
-import { sameAccountReadRouting, currentOzonAccountReadJobs } from './ozon-account-read-preparation.mjs';
+import { sameAccountReadRouting, currentOzonAccountReadJobs, validOzonAccountReadRevisions } from './ozon-account-read-preparation.mjs';
 import { createSoftwareJobResultEnvelope } from './software-job-contract.mjs';
 import { OZON_PRODUCT_IMPORT_ENDPOINT, OZON_PRODUCT_IMPORT_INFO_ENDPOINT, OZON_INVENTORY_WRITE_ENDPOINT,
   OZON_DE_READBACK_ENDPOINTS } from './ozon-seller-api-de-adapter.mjs';
+import { isOzonDEProtocolCatalog } from './ozon-de-protocol-catalog.mjs';
 import { PRODUCTION_WRITE_FIELDS } from './production-authorization-preparation.mjs';
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -42,7 +43,7 @@ const WRITABLE_PRICE_CURRENCIES = Object.freeze(['CNY', 'RUB']);
 // (1) + (2) => this key belongs to that store. Not circular: (1) comes from the owner's login, not from configuration.
 const STORE_IDENTITY_VIA_WAREHOUSE = 'scoped_warehouse';
 
-function readAccountSource(document, jobId, scope, loadCurrentReadBinding) {
+function readAccountSource(document, jobId, scope, loadCurrentReadBinding, requireLatestJob = true) {
   assertOzonDEPreflightEvidenceScope(scope);
   const candidate = document.candidates.find(value => value.id === scope.candidateId);
   const sku = candidate?.lifecycleV11?.skuPackage, authorization = sku?.productionAuthorization;
@@ -62,7 +63,7 @@ function readAccountSource(document, jobId, scope, loadCurrentReadBinding) {
   requireValue(terminal.status === 'completed' && terminal.externalRequestState === 'succeeded' && job.status === 'completed' &&
     job.externalRequestState === 'succeeded' && job.resultRef === receipt.receiptId && isDeepStrictEqual(job.resultEnvelope, expectedResult) &&
     source.candidateId === scope.candidateId && source.skuPackageId === scope.skuPackageId &&
-    source.supplierSkuId === scope.supplierSkuId && [scope.sourceCandidateRevision, candidate.dataRevision].includes(source.sourceRevision) &&
+    source.supplierSkuId === scope.supplierSkuId && validOzonAccountReadRevisions({ document, candidate }).includes(source.sourceRevision) &&
     ['storeRef', 'warehouseRef', 'warehouseId', 'credentialAlias', 'bindingId', 'configurationVersion'].every(field => isDeepStrictEqual(source[field], scope[field])), 'ACCOUNT_SOURCE_SCOPE_MISMATCH');
   const permissions = document.runtime.softwareJobAuthorizationRecords.filter(value => value.authorizationId === source.authorizationRef);
   requireValue(permissions.length === 1, 'ACCOUNT_SOURCE_AUTHORIZATION_INVALID');
@@ -80,7 +81,7 @@ function readAccountSource(document, jobId, scope, loadCurrentReadBinding) {
     bindingId: source.bindingId, configurationVersion: source.configurationVersion, checkedAt: receipt.completedAt });
   requireValue(currentBinding !== null && sameAccountReadRouting(source, currentBinding), 'ACCOUNT_SOURCE_CONFIGURATION_CHANGED');
   const currentJobs = currentOzonAccountReadJobs({ document, candidate, binding: currentBinding });
-  requireValue(currentJobs[0]?.jobId === job.jobId, 'ACCOUNT_SOURCE_SUPERSEDED');
+  requireValue(!requireLatestJob || currentJobs[0]?.jobId === job.jobId, 'ACCOUNT_SOURCE_SUPERSEDED');
   return { receipt, authorization };
 }
 
@@ -88,8 +89,10 @@ function readAccountSource(document, jobId, scope, loadCurrentReadBinding) {
  * from seller_info, and the single scoped warehouse from warehouse_list. Other evidence remains explicitly absent.
  * The store identity is the one inferred conclusion: no store number is observed (none exists to observe), so it is
  * derived from the warehouse check — see STORE_IDENTITY_VIA_WAREHOUSE above for the two facts it rests on. */
-export function composeOzonAccountPreflightEvidence({ scope, receipt, authorization, schemaVersion = 'ozon-de-preflight-evidence-v3' }) {
-  requireValue(['ozon-de-preflight-evidence-v1','ozon-de-preflight-evidence-v2','ozon-de-preflight-evidence-v3'].includes(schemaVersion), 'RECORD_INVALID');
+export function composeOzonAccountPreflightEvidence({ scope, receipt, authorization, schemaVersion = 'ozon-de-preflight-evidence-v3', protocolCatalog = null }) {
+  requireValue(['ozon-de-preflight-evidence-v1','ozon-de-preflight-evidence-v2','ozon-de-preflight-evidence-v3','ozon-de-preflight-evidence-v4'].includes(schemaVersion), 'RECORD_INVALID');
+  const connectedProtocol = schemaVersion === 'ozon-de-preflight-evidence-v4';
+  requireValue(!connectedProtocol || isOzonDEProtocolCatalog(protocolCatalog), 'PROTOCOL_CATALOG_UNAVAILABLE');
   const historical = schemaVersion === 'ozon-de-preflight-evidence-v1';
   requireValue(receipt.steps.length === 3, 'RECORD_INVALID');
   const roles = receipt.steps[0].result.facts, seller = receipt.steps[1].result.facts, warehouse = receipt.steps[2].result.facts;
@@ -152,6 +155,14 @@ export function composeOzonAccountPreflightEvidence({ scope, receipt, authorizat
     },
     protocols: { productImport: null, inventoryWrite: null, independentReadback: null }
   };
+  if (connectedProtocol) {
+    const rules = protocolCatalog.compose({ scope, availableMethods });
+    body.provenance.officialContractRefs.push(...rules.officialContractRefs);
+    body.inspection.imagePermissionStatus = rules.imagePermissionStatus;
+    body.inspection.imagePermissionEvidenceRef = rules.imageProtocolRef;
+    body.inspection.risks = body.inspection.risks.filter(risk => risk.code !== 'account_write_protocols_missing').concat(rules.risks);
+    body.protocols = rules.protocols;
+  }
   // The id covers the content, not just the coordinates. Without this, editing this composer would leave the id
   // unchanged while the content moved: verifySnapshot would report ACCOUNT_SOURCE_CONTENT_MISMATCH on old records
   // and republishing the same receipt would hit EVIDENCE_VERSION_CONFLICT, blocking both ways out.
@@ -161,16 +172,16 @@ export function composeOzonAccountPreflightEvidence({ scope, receipt, authorizat
 }
 
 /** Local repository adapter. No account requests, imported verified claims, or new business permissions. */
-export function createOzonAccountReadEvidenceSource({ repository, loadCurrentReadBinding }) {
+export function createOzonAccountReadEvidenceSource({ repository, loadCurrentReadBinding, protocolCatalog = null }) {
   assertBusinessStateRepositoryBoundary(repository);
-  if (typeof loadCurrentReadBinding !== 'function') throw new OzonAccountReadError('DEPENDENCY_INVALID');
-  const reconstruct = (document, record, scope) => {
-    const source = readAccountSource(document, record.provenance.softwareJobRef, scope, loadCurrentReadBinding);
-    return composeOzonAccountPreflightEvidence({ scope, ...source, schemaVersion: record.schemaVersion });
+  if (typeof loadCurrentReadBinding !== 'function' || (protocolCatalog !== null && !isOzonDEProtocolCatalog(protocolCatalog))) throw new OzonAccountReadError('DEPENDENCY_INVALID');
+  const reconstruct = (document, record, scope, requireLatestJob = true) => {
+    const source = readAccountSource(document, record.provenance.softwareJobRef, scope, loadCurrentReadBinding, requireLatestJob);
+    return composeOzonAccountPreflightEvidence({ scope, ...source, schemaVersion: record.schemaVersion, protocolCatalog });
   };
-  function verifySnapshot(document, record, scope) {
+  function verifyRecord(document, record, scope, requireLatestJob) {
     let rebuilt;
-    try { rebuilt = reconstruct(document, record, scope); }
+    try { rebuilt = reconstruct(document, record, scope, requireLatestJob); }
     catch (error) {
       if (error instanceof OzonAccountReadError) throw new OzonDEPreflightEvidenceError('ACCOUNT_SOURCE_INVALID');
       throw error;
@@ -178,24 +189,36 @@ export function createOzonAccountReadEvidenceSource({ repository, loadCurrentRea
     requireValue(isDeepStrictEqual(record, rebuilt), 'ACCOUNT_SOURCE_CONTENT_MISMATCH');
     return rebuilt;
   }
+  function prospective({ document, scope, jobId }) {
+    try {
+      const source = readAccountSource(document, jobId, scope, loadCurrentReadBinding);
+      return composeOzonAccountPreflightEvidence({ scope, ...source, protocolCatalog,
+        schemaVersion: protocolCatalog === null ? 'ozon-de-preflight-evidence-v3' : 'ozon-de-preflight-evidence-v4' });
+    } catch (error) {
+      if (error instanceof OzonAccountReadError) throw new OzonDEPreflightEvidenceError('ACCOUNT_SOURCE_INVALID');
+      throw error;
+    }
+  }
   return Object.freeze({
-    verifySnapshot,
+    prospective,
+    verifySnapshot(document, record, scope) { return verifyRecord(document, record, scope, true); },
+    verifyHistoricalSnapshot(document, record, scope) { return verifyRecord(document, record, scope, false); },
     async verifySourceReceipt(record, scope) {
       const document = await repository.readSnapshot();
-      const rebuilt = verifySnapshot(document, record, scope);
+      const rebuilt = verifyRecord(document, record, scope, true);
       return { status: 'verified', evidenceId: rebuilt.evidenceId, scope: structuredClone(scope), collectedAt: rebuilt.collectedAt,
         expiresAt: rebuilt.expiresAt, readAuthorizationRef: rebuilt.provenance.readAuthorizationRef,
         softwareJobRef: rebuilt.provenance.softwareJobRef, officialContractRefs: rebuilt.provenance.officialContractRefs };
     },
     async publish({ scope, jobId }) {
       return repository.transact(document => {
-        const source = readAccountSource(document, jobId, scope, loadCurrentReadBinding);
-        const record = composeOzonAccountPreflightEvidence({ scope, ...source });
+        const record = prospective({ document, scope, jobId });
         const runtime = document.runtime;
         if (!Object.hasOwn(runtime, 'ozonDEPreflightEvidence')) runtime.ozonDEPreflightEvidence = {};
         if (!Object.hasOwn(runtime, 'ozonDEPreflightEvidenceVersions')) runtime.ozonDEPreflightEvidenceVersions = {};
         requireValue(object(runtime.ozonDEPreflightEvidence) && object(runtime.ozonDEPreflightEvidenceVersions), 'REPOSITORY_INVALID');
         const old = runtime.ozonDEPreflightEvidence[scope.authorizationId];
+        if (old) verifyRecord(document, old, scope, false);
         if (old && isDeepStrictEqual(old, record)) return { changed: false, result: { status: 'unchanged', evidenceId: record.evidenceId } };
         const history = runtime.ozonDEPreflightEvidenceVersions[scope.authorizationId];
         requireValue(history === undefined || Array.isArray(history), 'REPOSITORY_INVALID');

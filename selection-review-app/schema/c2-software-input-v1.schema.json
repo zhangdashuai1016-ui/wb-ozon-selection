@@ -92,7 +92,8 @@
         },
         "additionalProperties": {
           "$ref": "#/$defs/noSensitivePropertyNames"
-        }
+        },
+        "type": "object"
       },
       "else": {
         "if": {
@@ -101,7 +102,8 @@
         "then": {
           "items": {
             "$ref": "#/$defs/noSensitivePropertyNames"
-          }
+          },
+          "type": "array"
         }
       }
     },
@@ -117,7 +119,8 @@
         },
         "additionalProperties": {
           "$ref": "#/$defs/noTransportCredentialPropertyNames"
-        }
+        },
+        "type": "object"
       },
       "else": {
         "if": {
@@ -126,7 +129,8 @@
         "then": {
           "items": {
             "$ref": "#/$defs/noTransportCredentialPropertyNames"
-          }
+          },
+          "type": "array"
         }
       }
     },
@@ -142,7 +146,8 @@
         },
         "additionalProperties": {
           "$ref": "#/$defs/noCompositeSecretPropertyNames"
-        }
+        },
+        "type": "object"
       },
       "else": {
         "if": {
@@ -151,7 +156,8 @@
         "then": {
           "items": {
             "$ref": "#/$defs/noCompositeSecretPropertyNames"
-          }
+          },
+          "type": "array"
         }
       }
     },
@@ -165,11 +171,16 @@
           "$ref": "#/$defs/c2SecretCheckedContractString"
         },
         {
-          "type": [
-            "integer",
-            "number",
-            "boolean",
-            "null"
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         {
@@ -534,63 +545,76 @@
       }
     },
     "draftOnlySeo": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "status",
-        "formalProviderResultAccepted",
-        "reason",
-        "aiRequestId",
-        "aiRequestFingerprint",
-        "inputFingerprint",
-        "sourceRevision",
-        "receiptRef",
-        "providerJobRef"
-      ],
-      "properties": {
-        "status": {
-          "const": "draft_only"
-        },
-        "formalProviderResultAccepted": {
-          "const": true
-        },
-        "reason": {
-          "type": "null"
-        },
-        "aiRequestId": {
-          "allOf": [
-            {
-              "$ref": "#/$defs/opaqueEvidenceRef"
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "formalProviderResultAccepted",
+            "reason",
+            "aiRequestId",
+            "aiRequestFingerprint",
+            "inputFingerprint",
+            "sourceRevision",
+            "receiptRef",
+            "providerJobRef"
+          ],
+          "properties": {
+            "status": {
+              "const": "draft_only"
             },
-            {
-              "$ref": "#/$defs/canonicalFrozenRef"
-            }
-          ]
-        },
-        "aiRequestFingerprint": {
-          "$ref": "#/$defs/fingerprint"
-        },
-        "inputFingerprint": {
-          "$ref": "#/$defs/fingerprint"
-        },
-        "sourceRevision": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "receiptRef": {
-          "allOf": [
-            {
-              "$ref": "#/$defs/opaqueEvidenceRef"
+            "formalProviderResultAccepted": {
+              "const": true
             },
-            {
-              "$ref": "#/$defs/canonicalFrozenRef"
+            "reason": {
+              "type": "null"
+            },
+            "aiRequestId": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/opaqueEvidenceRef"
+                },
+                {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                }
+              ]
+            },
+            "aiRequestFingerprint": {
+              "$ref": "#/$defs/fingerprint"
+            },
+            "inputFingerprint": {
+              "$ref": "#/$defs/fingerprint"
+            },
+            "sourceRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "receiptRef": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/opaqueEvidenceRef"
+                },
+                {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                }
+              ]
+            },
+            "providerJobRef": {
+              "$ref": "#/$defs/providerJobRef"
             }
-          ]
+          }
         },
-        "providerJobRef": {
-          "$ref": "#/$defs/providerJobRef"
+        {
+          "$ref": "c1-editorial-source-v1.schema.json#/$defs/draftOnlySeo"
+        },
+        {
+          "$ref": "c1-editorial-source-v2.schema.json#/$defs/draftOnlySeo"
+        },
+        {
+          "$ref": "c2-asset-lifecycle-v1.1.schema.json#/$defs/editorialDraftReference"
         }
-      }
+      ]
     },
     "frozenInputRefs": {
       "type": "object",
@@ -804,6 +828,12 @@
         },
         "productionApproved": {
           "const": false
+        },
+        "assertions": {
+          "$ref": "c1-ai-draft-receipt-v1.schema.json#/$defs/citedText/properties/assertions"
+        },
+        "reviewZh": {
+          "$ref": "c1-ai-draft-receipt-v1.schema.json#/$defs/reviewText/properties/reviewZh"
         }
       }
     },
@@ -849,6 +879,15 @@
               }
             ]
           }
+        },
+        "assertions": {
+          "$ref": "c1-ai-draft-receipt-v1.schema.json#/$defs/citedText/properties/assertions"
+        },
+        "reviewZh": {
+          "$ref": "c1-ai-draft-receipt-v1.schema.json#/$defs/reviewKeyword/properties/reviewZh"
+        },
+        "keywordRole": {
+          "$ref": "c1-ai-draft-receipt-v1.schema.json#/$defs/reviewKeyword/properties/keywordRole"
         }
       }
     },
@@ -877,79 +916,149 @@
       }
     },
     "seoEvidenceLayer": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "draftVersion",
-        "executionStatus",
-        "aiRequestId",
-        "aiRequestFingerprint",
-        "inputFingerprint",
-        "sourceRevision",
-        "aiReceiptId",
-        "providerJobRef",
-        "inputEvidenceRefs",
-        "productionWrites"
-      ],
-      "properties": {
-        "draftVersion": {
-          "$ref": "#/$defs/opaqueEvidenceRef"
-        },
-        "executionStatus": {
-          "const": "draft_only"
-        },
-        "aiRequestId": {
-          "allOf": [
-            {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "draftVersion",
+            "executionStatus",
+            "aiRequestId",
+            "aiRequestFingerprint",
+            "inputFingerprint",
+            "sourceRevision",
+            "aiReceiptId",
+            "providerJobRef",
+            "inputEvidenceRefs",
+            "productionWrites"
+          ],
+          "properties": {
+            "draftVersion": {
               "$ref": "#/$defs/opaqueEvidenceRef"
             },
-            {
-              "$ref": "#/$defs/canonicalFrozenRef"
-            }
-          ]
-        },
-        "aiRequestFingerprint": {
-          "$ref": "#/$defs/fingerprint"
-        },
-        "inputFingerprint": {
-          "$ref": "#/$defs/fingerprint"
-        },
-        "sourceRevision": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "aiReceiptId": {
-          "allOf": [
-            {
-              "$ref": "#/$defs/opaqueEvidenceRef"
+            "executionStatus": {
+              "const": "draft_only"
             },
-            {
-              "$ref": "#/$defs/canonicalFrozenRef"
-            }
-          ]
-        },
-        "inputEvidenceRefs": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {
-            "allOf": [
-              {
-                "$ref": "#/$defs/opaqueEvidenceRef"
-              },
-              {
-                "$ref": "#/$defs/canonicalFrozenRef"
+            "aiRequestId": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/opaqueEvidenceRef"
+                },
+                {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                }
+              ]
+            },
+            "aiRequestFingerprint": {
+              "$ref": "#/$defs/fingerprint"
+            },
+            "inputFingerprint": {
+              "$ref": "#/$defs/fingerprint"
+            },
+            "sourceRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "aiReceiptId": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/opaqueEvidenceRef"
+                },
+                {
+                  "$ref": "#/$defs/canonicalFrozenRef"
+                }
+              ]
+            },
+            "inputEvidenceRefs": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/opaqueEvidenceRef"
+                  },
+                  {
+                    "$ref": "#/$defs/canonicalFrozenRef"
+                  }
+                ]
               }
+            },
+            "providerJobRef": {
+              "$ref": "#/$defs/providerJobRef"
+            },
+            "productionWrites": {
+              "const": 0
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "locale": {
+              "const": "ru-RU"
+            },
+            "targetPlatform": {
+              "enum": [
+                "ozon",
+                "wb"
+              ]
+            },
+            "provider": {
+              "enum": [
+                "terra",
+                "sol"
+              ]
+            },
+            "modelVersion": {
+              "$ref": "#/$defs/opaqueEvidenceRef"
+            },
+            "serviceVersion": {
+              "$ref": "#/$defs/opaqueEvidenceRef"
+            },
+            "attempt": {
+              "const": 1
+            },
+            "outputFingerprint": {
+              "$ref": "#/$defs/fingerprint"
+            },
+            "finalApprovalGranted": {
+              "const": false
+            },
+            "executionPolicy": {
+              "$ref": "c1-ai-draft-request-v1.schema.json#/properties/executionPolicy"
+            },
+            "factDefinitionsVersion": {
+              "const": "c1-fact-definitions-v1"
+            },
+            "outputContractVersion": {
+              "const": "c1-ai-draft-output-v3"
+            },
+            "russianAttributes": {
+              "$ref": "c1-ai-draft-receipt-v1.schema.json#/properties/output/oneOf/2/properties/russianAttributes"
+            },
+            "categoryPathReview": {
+              "$ref": "c1-ai-draft-receipt-v1.schema.json#/properties/output/oneOf/2/properties/categoryPathReview"
+            }
+          },
+          "dependentRequired": {
+            "outputContractVersion": [
+              "russianAttributes"
+            ],
+            "russianAttributes": [
+              "outputContractVersion"
+            ],
+            "categoryPathReview": [
+              "outputContractVersion"
             ]
           }
         },
-        "providerJobRef": {
-          "$ref": "#/$defs/providerJobRef"
+        {
+          "$ref": "c1-editorial-source-v1.schema.json#/$defs/evidenceLayer"
         },
-        "productionWrites": {
-          "const": 0
+        {
+          "$ref": "c1-editorial-source-v2.schema.json#/$defs/evidenceLayer"
         }
-      }
+      ]
     },
     "seoDraft": {
       "type": "object",
@@ -974,7 +1083,7 @@
         },
         "bulletPoints": {
           "type": "array",
-          "minItems": 1,
+          "minItems": 0,
           "items": {
             "$ref": "#/$defs/draftSegment"
           }
@@ -985,7 +1094,34 @@
         "evidenceLayer": {
           "$ref": "#/$defs/seoEvidenceLayer"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "evidenceLayer": {
+                "type": "object",
+                "required": [
+                  "factDefinitionsVersion"
+                ],
+                "properties": {
+                  "factDefinitionsVersion": {
+                    "const": "c1-fact-definitions-v1"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "bulletPoints": {
+                "minItems": 1,
+                "type": "array"
+              }
+            }
+          }
+        }
+      ]
     },
     "formalFactString": {
       "type": "string",
@@ -1065,11 +1201,16 @@
           "$ref": "#/$defs/formalFactString"
         },
         {
-          "type": [
-            "number",
-            "integer",
-            "boolean",
-            "null"
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         {
@@ -1388,6 +1529,43 @@
           "items": {
             "$ref": "#/$defs/requiredPlatformFieldFact"
           }
+        },
+        "ozonAttributes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "fieldKey",
+              "label",
+              "dictionaryValueId",
+              "sourceFactPath",
+              "fact"
+            ],
+            "properties": {
+              "fieldKey": {
+                "$ref": "#/$defs/c2SecretCheckedContractString"
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dictionaryValueId": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "sourceFactPath": {
+                "$ref": "#/$defs/c2SecretCheckedContractString"
+              },
+              "fact": {
+                "$ref": "#/$defs/sourcedFact"
+              }
+            }
+          }
         }
       }
     },
@@ -1535,6 +1713,22 @@
         },
         "requiredFieldGapCount": {
           "$ref": "#/$defs/sourcedFact"
+        },
+        "skuRightsReview": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "brand",
+            "rights"
+          ],
+          "properties": {
+            "brand": {
+              "$ref": "#/$defs/sourcedFact"
+            },
+            "rights": {
+              "$ref": "#/$defs/sourcedFact"
+            }
+          }
         }
       }
     },
@@ -1566,6 +1760,18 @@
         },
         "schemaRevision": {
           "$ref": "#/$defs/confirmedSourcedFact"
+        },
+        "evidenceId": {
+          "$ref": "#/$defs/sourcedFact"
+        },
+        "requiredFields": {
+          "$ref": "#/$defs/sourcedFact"
+        },
+        "writeBindings": {
+          "$ref": "#/$defs/sourcedFact"
+        },
+        "collectedAt": {
+          "$ref": "#/$defs/sourcedFact"
         }
       }
     },
@@ -1586,7 +1792,8 @@
               "$ref": "#/$defs/formalFactString"
             },
             {
-              "minLength": 1
+              "minLength": 1,
+              "type": "string"
             }
           ]
         },
@@ -1596,7 +1803,8 @@
               "$ref": "#/$defs/formalFactString"
             },
             {
-              "minLength": 1
+              "minLength": 1,
+              "type": "string"
             }
           ]
         },

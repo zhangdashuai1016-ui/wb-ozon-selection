@@ -349,23 +349,13 @@ export class ExactCommissionRequiredForProductionError extends Error {
   }
 }
 
-/**
- * 上架那一刻的闸门：当前生效的 B 利润记录必须是用精确佣金算出来的，否则一律不给生产授权。
- *
- * 为什么闸门是这一道而不是文案素材那一道：生成俄文标题、卖点和图片方案，和佣金率没有一点关系；真正由钱说
- * 了算的是往平台写价格、写库存、让它对外可买的那一刻。所以钱的闸门归这里。
- *
- * 为什么必须放在服务端的提交路径上、而不是页面上藏个按钮：页面上少一个按钮拦不住直接打这个接口的请求，也拦
- * 不住一份过期的页面。这个断言由 `commitSingleOwnerProductionAuthorization` 在它那一次原子事务的 `mutate`
- * 里调用，读的是那一刻从仓库里取出来的记录，不是客户端送上来的字段；拒绝发生在任何东西落盘之前，所以拒绝一
- * 次不会留下半截状态。
- *
- * `official_reference`（官方费表命中的费率）在利润计算里和 `exact` 同级，可以形成正式 B；但它终究不是平台
- * 对这个店、这条类目实际收的那个数，所以在往平台写东西这一刻仍然不算数。这里只认 `exact`。
+/** Reject conditional commission before the full frozen-input production gate.
+ * official_reference is formal,
+ * but never sufficient alone: production must also pass assertProductionProfitPriceCurrent.
  */
-export function assertExactCommissionBeforeProduction(skuPackage) {
+export function assertFormalCommissionBeforeProduction(skuPackage) {
   const model = activeProfitModelOf(skuPackage);
-  if (isObject(model) && model.commissionMode === 'exact') return model;
+  if (isObject(model) && ['exact', 'official_reference'].includes(model.commissionMode)) return model;
   throw new ExactCommissionRequiredForProductionError({
     commissionMode: model === null ? null : text(model.commissionMode),
     skuPackageId: text(skuPackage?.skuPackageId)
@@ -438,7 +428,7 @@ export function buildEstimatedCommissionNoticeStep(candidate) {
             ? '这两条和市场价这一条都已经过了——这不是一件有问题的商品，只是一件还差一道正式化手续的商品。'
             : ''),
       // 这里必须把两件事分开说。重算能用两种比估算更好的证据（店里的实收费率、官方费率表上的公开费率），
-      // 两种都能把 B 变成正式通过；但上架这道闸门只认店里的实收费率（assertExactCommissionBeforeProduction）。
+      // 两种都能形成正式 B；生产仍须核对当前冻结输入与适用证据。
       // 少说这一句，主人就会拿官方费率表重算完、以为可以上架了，再在生产授权那一步被拦一次。
       '上架之前必须先用「用更好的费用证据重算」把利润重算一次，正式 B 通过之后才能提交生产授权。' +
         '重算认两种证据：你店里同类目在售商品的实收费率，和官方费率表上这条类目的公开费率；' +

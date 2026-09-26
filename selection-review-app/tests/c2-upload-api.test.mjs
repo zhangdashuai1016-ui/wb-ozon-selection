@@ -1,3 +1,4 @@
+import { createJsonBusinessStateRepository } from "../lib/business-state-repository.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
@@ -87,7 +88,7 @@ test("C2 upload and saved order survive restart, then local confirmation produce
       approvedAssetIds: selection.map(asset => asset.assetId), approvedMainImageAssetId: uploaded.asset.assetId, approvedVideoDisposition: "excludes_video" }) });
   const result = await confirm.json();
   assert.equal(confirm.status, 200, JSON.stringify(result));
-  const after = JSON.parse(await readFile(dataFile, "utf8"));
+  const after = await createJsonBusinessStateRepository({ filePath: dataFile }).readSnapshot();
   const final = after.candidates[0].lifecycleV11.skuPackage;
   assert.equal(final.c2FinalAssets.status, "completed");
   assert.equal(final.productionAuthorization, null);

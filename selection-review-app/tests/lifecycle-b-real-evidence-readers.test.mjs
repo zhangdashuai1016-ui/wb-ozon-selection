@@ -1,3 +1,4 @@
+import { inspectLifecycleEvidenceValidity } from "../lib/lifecycle-evidence-validity.mjs";
 import { fileURLToPath } from 'node:url';
 import { SYNTHETIC_STORE_REF } from "./fixtures/store-binding-fixture.mjs";
 import assert from "node:assert/strict";
@@ -151,6 +152,7 @@ test("CBR reader returns current official RUB/CNY and stops on another pair", as
   });
   assert.equal(result.evidenceData.rubPerCny, 12.3456);
   assert.equal(result.evidenceData.rateDate, "2026-08-18");
+  assert.equal(result.validity.expiryBasis, "internal_refresh_hint");
   await assert.rejects(() => readCurrentCbrExchangeRate({
     scope: { pair: "USD/CNY" },
     fetchImpl: async () => { throw new Error("must not call"); },
@@ -476,6 +478,8 @@ test('店铺没有同类目在售商品时，按已保存的官方佣金表版�
   assert.equal(pack.sourceRef, `ozon-official-commission:2026-08-01:sha256:${OFFICIAL_SHA}:1500_5000`);
   assert.equal(pack.checkedAt, '2026-08-18T08:00:00.000Z');
   assert.equal(pack.expiresAt, '2026-08-19T08:00:00.000Z');
+  assert.equal(pack.validity.expiryBasis, 'internal_refresh_hint');
+  assert.equal(inspectLifecycleEvidenceValidity(pack, { asOf: '2026-09-21T00:00:00.000Z' }).status, 'refresh_due');
   assert.deepEqual(pack.commissionCatalogRef, { effectiveFrom: '2026-08-01', fileSha256: OFFICIAL_SHA,
     sourceUrl: 'https://docs.ozon.ru/common/pravila-raboty/komissii/', priceTier: '1500_5000',
     matchedRow: { typeRu: 'Лежанки для животных', typeZh: '宠物躺床', mpCategoryZh: '宠物用品' } });
@@ -654,4 +658,40 @@ test('证据服务修好之后（200 + data_unavailable），缺授权时抛的�
     .commission(officialCommissionRequest(scope, { priceRub: 2490, typeName: '宠物躺床' }));
   assert.equal(pack.evidenceData.commissionEvidenceMode, 'official_reference');
   assert.equal(pack.evidenceData.estimateAuthorized, false);
+});
+
+
+test("Schema连接器的已核实缓存形状由本地适配器声明，远端不能自授有效期", async () => {
+  const scope = { ...officialCommissionScope(), ruleVersion: "ozon-current" }; delete scope.salesScheme;
+  const response = { current: true, scope, sourceType: "ozon_seller_api_current_schema",
+    sourceRef: "ozon-seller-api:/v1/description-category/attribute:17030000:90000",
+    checkedAt: fixedNow().toISOString(), expiresAt: "2026-08-19T08:00:00.000Z",
+    evidenceData: { descriptionCategoryId: 17030000, typeId: 90000, schemaRevision: `ozon-schema-${"a".repeat(20)}`, requiredFields: [], attributes: [] } };
+  const read = async (value) => {
+    const registry = createLifecycleBRealEvidenceProviderRegistry({ ozonServiceUrl: "http://127.0.0.1:4173", now: fixedNow,
+      fetchImpl: async () => httpJson({ ok: true, evidence: value }) });
+    return registry.schema(request("schema", scope));
+  };
+  const pack = await read(response);
+  assert.equal(pack.validity.expiryBasis, "internal_refresh_hint");
+  assert.equal(inspectLifecycleEvidenceValidity(pack, { asOf: "2026-09-21T00:00:00.000Z" }).status, "refresh_due");
+  await assert.rejects(() => read({ ...response, validity: pack.validity }), /REMOTE_VALIDITY_UNSUPPORTED/);
+  const unknown = await read({ ...response, sourceType: "another_source" });
+  assert.equal(Object.hasOwn(unknown, "validity"), false);
+  assert.equal(inspectLifecycleEvidenceValidity(unknown, { asOf: "2026-09-21T00:00:00.000Z" }).status, "expired");
+});
+
+test("官方费表明确来源期限不被24小时缓存解释覆盖", async () => {
+  const scope = officialCommissionScope();
+  for (const sourceExpiresAt of ["2026-08-18T12:00:00.000Z", "2026-08-19T08:00:00.000Z", "2026-10-01T00:00:00.000Z"]) {
+    const registry = createLifecycleBRealEvidenceProviderRegistry({ ozonServiceUrl: "http://127.0.0.1:4173", now: fixedNow,
+      ozonCommissionReference: officialReferenceConfiguration(),
+      readOzonCommissionReferenceImpl: async () => officialReferenceRead({ expiresAt: sourceExpiresAt }),
+      fetchImpl: officialEvidenceService(scope, []) });
+    const pack = await registry.commission(officialCommissionRequest(scope, { priceRub: 2490, typeName: "宠物躺床" }));
+    assert.equal(pack.validity.expiryBasis, "source_declared_limit");
+    assert.equal(pack.validity.sourceExpiresAt, sourceExpiresAt);
+    assert.equal(inspectLifecycleEvidenceValidity(pack, { asOf: sourceExpiresAt }).status, "expired");
+    assert.equal(inspectLifecycleEvidenceValidity(pack, { asOf: "2026-09-21T00:00:00.000Z" }).usable, sourceExpiresAt.startsWith("2026-10"));
+  }
 });

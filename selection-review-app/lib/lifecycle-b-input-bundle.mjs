@@ -1,3 +1,4 @@
+import { inspectLifecycleEvidenceValidity, isLifecycleEvidenceValidityMetadataValid } from "./lifecycle-evidence-validity.mjs";
 import { resolveLifecycleBCostPolicy } from "./global-pricing-policy.mjs";
 import { GUOO_MAIN_QUOTE_CALCULATION_RULE_STATUS } from "./guoo-tariff-reader.mjs";
 import { isDeepStrictEqual } from "node:util";
@@ -17,9 +18,16 @@ const REQUIRED_KINDS = Object.freeze([
 
 // Preserve only platform Schema content. Runtime identity and observation times
 // are derived from the scope-checked evidence pack, never from its payload.
-const C1_SCHEMA_CONTENT_FIELDS = Object.freeze([
+/**
+ * 冻结进 C1 计划的 Schema 内容字段。**导出是为了让刷新那条路复用同一份清单**——
+ * 两处各写一遍，早晚会漂：漏一个字段，刷新之后计划里就少一块内容，而且没人会报错。
+ */
+export const C1_SCHEMA_CONTENT_FIELDS = Object.freeze([
   "categoryId", "categoryName", "descriptionCategoryId", "typeId", "writeBindings",
-  "categoryRestrictions", "platformCompliance"
+  "categoryRestrictions", "platformCompliance",
+  // 类目的**全部**属性（含非必填）与字典号。requiredFields 只留必填，47 个属性到这里只剩 4 个，
+  // 商品详情页因此填不满，字典属性也拿不到 dictionaryValueId。2026-09-17 由证据服务补出这一份。
+  "attributes"
 ]);
 
 function isObject(value) {
@@ -182,6 +190,29 @@ export function validateLifecycleEvidenceData(kind, evidenceData) {
         seen.add(field.fieldKey);
       });
     }
+    // attributes 是 2026-09-17 新增的可选字段：老证据没有它，新证据给了就必须成形，
+    // 不能让半成品一路溜到上架那一步才炸。
+    if (Object.hasOwn(evidenceData, "attributes")) {
+      if (!Array.isArray(evidenceData.attributes)) {
+        errors.push(error("attributes", "必须是数组"));
+      } else {
+        const seenAttribute = new Set();
+        evidenceData.attributes.forEach((attribute, index) => {
+          if (!isObject(attribute)) {
+            errors.push(error(`attributes[${index}]`, "必须是对象"));
+            return;
+          }
+          if (!nonEmptyString(attribute.fieldKey)) errors.push(error(`attributes[${index}].fieldKey`, "必须是非空字符串"));
+          if (!nonEmptyString(attribute.label)) errors.push(error(`attributes[${index}].label`, "必须是非空字符串"));
+          if (typeof attribute.required !== "boolean") errors.push(error(`attributes[${index}].required`, "必须是布尔值"));
+          if (!Number.isInteger(attribute.dictionaryId) || attribute.dictionaryId < 0) {
+            errors.push(error(`attributes[${index}].dictionaryId`, "必须是非负整数，0表示无字典"));
+          }
+          if (seenAttribute.has(attribute.fieldKey)) errors.push(error(`attributes[${index}].fieldKey`, "属性不得重复"));
+          seenAttribute.add(attribute.fieldKey);
+        });
+      }
+    }
   } else if (kind === "logistics_tariff") {
     // 已经存下来的旧读取结果仍然带着这个状态：它的计费默认值是推定的，不是从报价公式核对来的。
     if (evidenceData.calculationRuleStatus === "legacy_unverified") {
@@ -321,7 +352,7 @@ function validOzonCommissionCatalogRef(pack) {
 
 export function isLifecycleEvidenceTraceValid(pack) {
   const base = nonEmptyString(pack?.id) && nonEmptyString(pack?.sourceType) && nonEmptyString(pack?.sourceRef) && isoDateTime(pack?.checkedAt);
-  if (!base) return false;
+  if (!base || !isLifecycleEvidenceValidityMetadataValid(pack)) return false;
   if (Object.hasOwn(pack, "commissionCatalogRef") && ![WB_COMMISSION_SOURCE, OZON_OFFICIAL_COMMISSION_SOURCE].includes(pack.sourceType)) return false;
   if (pack.sourceType === OZON_OFFICIAL_COMMISSION_SOURCE &&
       (pack.kind !== "commission" || !Object.hasOwn(pack, "commissionCatalogRef") || !validOzonCommissionCatalogRef(pack) ||
@@ -354,8 +385,7 @@ export function inspectCommissionCatalogValidity({ pack, currentCommissionCatalo
 }
 
 function packCurrent(pack, asOfMs) {
-  return pack.status === "active" && isLifecycleEvidenceTraceValid(pack) &&
-    Date.parse(pack.checkedAt) <= asOfMs && (pack.expiresAt === null || Date.parse(pack.expiresAt) > asOfMs);
+  return isLifecycleEvidenceTraceValid(pack) && inspectLifecycleEvidenceValidity(pack, { asOf: asOfMs }).usable;
 }
 
 function eligiblePack(pack, kind, context, asOfMs, candidate, currentCommissionCatalogs) {
@@ -435,14 +465,14 @@ export function inspectLifecycleBInputReadiness({ candidate, evidencePacks = [],
       key: kind,
       label: labels[kind],
       available: true,
-      status: "current",
+      status: inspectLifecycleEvidenceValidity(pack, { asOf: checkedAt }).status,
       evidencePackId: pack.id,
       checkedAt: pack.checkedAt,
       expiresAt: pack.expiresAt,
       sourceType: pack.sourceType,
       sourceRef: pack.sourceRef,
       scope: structuredClone(pack.scope),
-      message: "当前适用证据已匹配"
+      message: inspectLifecycleEvidenceValidity(pack, { asOf: checkedAt }).reason
     };
     const sameKind = evidencePacks
       .filter((item) => item?.kind === kind && item.status === "active")
@@ -464,9 +494,9 @@ export function inspectLifecycleBInputReadiness({ candidate, evidencePacks = [],
     } else if (exact && !isLifecycleEvidenceTraceValid(exact)) {
       status = "invalid";
       message = "证据来源或有效期不完整";
-    } else if (exact && Date.parse(exact.expiresAt) <= Date.parse(checkedAt)) {
-      status = "expired";
-      message = "同范围证据已过期，需要系统刷新";
+    } else if (exact && !inspectLifecycleEvidenceValidity(exact, { asOf: checkedAt }).usable) {
+      status = inspectLifecycleEvidenceValidity(exact, { asOf: checkedAt }).status;
+      message = inspectLifecycleEvidenceValidity(exact, { asOf: checkedAt }).reason;
     } else if (exact && !validateLifecycleEvidenceData(kind, exact.evidenceData).valid) {
       status = "invalid";
       message = "结构化证据字段不完整或无效";

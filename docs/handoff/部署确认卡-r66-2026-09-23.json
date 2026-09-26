@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "deployment-card-r66-v1",
+  "packageDirectory": "/tmp/claude-501/20260923-listing-fixes-r66",
+  "installedVersion": "/Users/shuaizhang/Library/Application Support/今日选品评审台-versions/20260923-production-round-r65",
+  "launchAgent": "/Users/shuaizhang/Library/LaunchAgents/com.shuaizhang.selection-review-app.plist",
+  "persistentData": "/Users/shuaizhang/Library/Application Support/今日选品评审台/data/candidates.json",
+  "dataBaselineSha256": "4151cb59d2cd202062b69cc7eded6b4d95ffb82fe1e95d94216c1c07818fb9a2",
+  "launchAgentBaselineSha256": "1b980e60e277dc09af4c197e0561283ee29f7bbe36e0d30c685d945d145b0498",
+  "candidateId": "candidate:b8909f27-49e2-4a94-8c40-1a2fc2139ce7",
+  "dProductionRounds": [
+    {
+      "jobId": "d-production-job:ccba12a797eae39513dc4861ccff9ce8f64fc97c57fa511833023da3b4390d6a",
+      "status": "failed",
+      "externalRequestState": "not_sent",
+      "externalRequestRef": null,
+      "failureClass": "service_restart_before_external_request"
+    },
+    {
+      "jobId": "d-production-job:ccba12a797eae39513dc4861ccff9ce8f64fc97c57fa511833023da3b4390d6a:round2",
+      "status": "failed",
+      "externalRequestState": "not_sent",
+      "externalRequestRef": null,
+      "failureClass": "d-assets-error-before-external-request"
+    }
+  ],
+  "applicationFileCount": 324,
+  "changedApplicationFiles": [
+    "lib/aliyun-oss-runtime-provider.mjs",
+    "lib/c2-upload-draft.mjs",
+    "lib/d-e-runtime-services.mjs",
+    "lib/runtime-configuration.mjs"
+  ],
+  "addedApplicationFiles": [],
+  "removedApplicationFiles": []
+}

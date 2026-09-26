@@ -1,3 +1,4 @@
+import { productionEvidenceForSku } from "../fixtures/production-profit-evidence-fixture.mjs";
 import { createC2SoftwareContainer, prepareC2FinalUploadManifest, confirmC2SoftwareFinalUploads } from "../../lib/c2-software-orchestrator.mjs";
 import { createProductionAuthorization, assertValidProductionAuthorization, buildProductionOwnerDecisionSnapshot } from "../../lib/production-authorization.mjs";
 import { fingerprintCanonicalRecord } from "../../lib/production-contract-primitives.mjs";
@@ -33,7 +34,7 @@ export function productionAuthorizationInputFixture({ publishScope = "create_and
     platformWritePrice: platformWritePrice ?? { amount: model.recommendedSalePriceCny, currency: "CNY" },
     priceConversion: structuredClone(priceConversion ?? model.priceConversion), publishScope, allowedWriteFields, exclusions, executionBinding: structuredClone(executionBinding) };
   const ownerActor = createActorContext({ userId: "synthetic-owner", sessionId: "synthetic-owner-session", actorType: "human", roles: ["owner"], source: "authenticated_identity_provider", authenticatedAt: at });
-  return { candidateId: skuPackage.g1Identity.candidateId, sourceCandidateRevision, currentCandidateRevision: sourceCandidateRevision, skuPackage, commercialDecision, ownerActor, authorizedAt: at };
+  return { ...productionEvidenceForSku(skuPackage, sourceCandidateRevision), candidateId: skuPackage.g1Identity.candidateId, sourceCandidateRevision, currentCandidateRevision: sourceCandidateRevision, skuPackage, commercialDecision, ownerActor, authorizedAt: at };
 }
 
 export function authorizedProductionFixture(options) {

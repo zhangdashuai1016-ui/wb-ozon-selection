@@ -2578,7 +2578,7 @@ test("C1 opaque authorizationId只在已批准语义路径通过两道公共门"
     publishedStringConstraintAccepts(inputSchema, inputSchema.$defs.paidAuthorizationRef.properties.authorizationId, opaqueAuthorizationId),
     true
   );
-  const lifecycleAuthorizationId = lifecycleSchema.$defs.canonicalC1Handoff.properties.draftOnlySeo
+  const lifecycleAuthorizationId = lifecycleSchema.$defs.canonicalC1Handoff.properties.draftOnlySeo.oneOf[0]
     .properties.providerJobRef.properties.authorizationRef.properties.authorizationId;
   assert.equal(publishedStringConstraintAccepts(lifecycleSchema, lifecycleAuthorizationId, opaqueAuthorizationId), true);
   assert.deepEqual(inputSchema.$defs.referenceValue.oneOf[0], { $ref: "#/$defs/c2SecretCheckedContractString" });
@@ -3080,7 +3080,7 @@ test("发布Schema拒绝伪正式provider、秘密回执、原始响应、弱rev
   }
   const canonical = schema.$defs.canonicalC1Handoff;
   const frozen = canonical.properties.frozenInputRefs;
-  const draftSchema = canonical.properties.draftOnlySeo;
+  const draftSchema = canonical.properties.draftOnlySeo.oneOf[0];
   const job = draftSchema.properties.providerJobRef;
   const authorization = job.properties.authorizationRef;
   const scope = authorization.properties.scope;

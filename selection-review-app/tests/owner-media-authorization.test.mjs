@@ -15,7 +15,7 @@ import { authorizedProductionFixture, assetRegions, finalAssets, ownerDecision, 
 import { createC2SoftwareContainer } from "../lib/c2-software-orchestrator.mjs";
 import { createProductionPlan, projectProductionPlanInputs, projectProductionPlanImportPayload } from "../lib/production-plan.mjs";
 import { buildOzonSellerImportRequest, createOzonSellerApiProductionAdapter } from "../lib/ozon-seller-api-production-adapter.mjs";
-import { assertExactCommissionBeforeProduction } from "../lib/commission-estimate-authorization.mjs";
+import { assertFormalCommissionBeforeProduction } from "../lib/commission-estimate-authorization.mjs";
 import { validateProductionAuthorization } from "../lib/production-authorization.mjs";
 import { fingerprintCanonicalRecord } from "../lib/production-contract-primitives.mjs";
 import { validateProfitThresholds, MINIMUM_PROFIT_MARGIN, MINIMUM_UNIT_PROFIT_RMB } from "../lib/profit-threshold-policy.mjs";
@@ -287,19 +287,19 @@ test("非https的图被拒；访问不到的图被拒（打桩，不真发请求
 
 /* ───────── 没有一起松动的闸门 ───────── */
 
-test("上架那道只认exact佣金的闸门照旧", () => {
-  for (const commissionMode of ["official_reference", "estimated", null, undefined]) {
+test("生产佣金前置检查拒绝估算和未知类型", () => {
+  for (const commissionMode of ["estimated", null, undefined]) {
     const skuPackage = {
       skuPackageId: "sku:gate", activeProfitModelVersion: "profit-v1",
       profitModels: [{ profitModelVersion: "profit-v1", result: "passed", commissionMode }]
     };
-    assert.throws(() => assertExactCommissionBeforeProduction(skuPackage), /PRODUCTION_EXACT_COMMISSION_REQUIRED|佣金/);
+    assert.throws(() => assertFormalCommissionBeforeProduction(skuPackage), /PRODUCTION_EXACT_COMMISSION_REQUIRED|佣金/);
   }
   const exact = {
     skuPackageId: "sku:gate", activeProfitModelVersion: "profit-v1",
     profitModels: [{ profitModelVersion: "profit-v1", result: "passed", commissionMode: "exact" }]
   };
-  assert.equal(assertExactCommissionBeforeProduction(exact).commissionMode, "exact");
+  assert.equal(assertFormalCommissionBeforeProduction(exact).commissionMode, "exact");
 });
 
 test("利润门槛照旧：主人两件商品的数字仍然通过，门槛以下仍然拦", () => {

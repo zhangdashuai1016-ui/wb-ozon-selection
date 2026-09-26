@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "deployment-card-r65-v2",
+  "packageDirectory": "/tmp/claude-501/20260923-production-round-r65",
+  "installedVersion": "/Users/shuaizhang/Library/Application Support/今日选品评审台-versions/20260922-production-evidence-r64",
+  "launchAgent": "/Users/shuaizhang/Library/LaunchAgents/com.shuaizhang.selection-review-app.plist",
+  "persistentData": "/Users/shuaizhang/Library/Application Support/今日选品评审台/data/candidates.json",
+  "dataBaselineSha256": "d92951bf2374d5f1db0b862c1af5f26ab3908af9dba5d54e0bae82d77afe0c91",
+  "launchAgentBaselineSha256": "2f1c5efdc5f9eb887a4fb193de29adaaa6d2faed6c60f039395d1e7acec45cd5",
+  "candidateId": "candidate:b8909f27-49e2-4a94-8c40-1a2fc2139ce7",
+  "currentDJob": {
+    "jobId": "d-production-job:ccba12a797eae39513dc4861ccff9ce8f64fc97c57fa511833023da3b4390d6a",
+    "status": "failed",
+    "attempt": 1,
+    "externalRequestState": "not_sent",
+    "failureClass": "service_restart_before_external_request",
+    "revision": 71,
+    "completedAt": "2026-09-23T01:54:17.230Z"
+  },
+  "applicationFileCount": 324,
+  "changedApplicationFiles": [
+    "dist/index.html",
+    "lib/aliyun-oss-d-asset-integration.mjs",
+    "lib/capability-registry.mjs",
+    "lib/d-e-runtime-services.mjs",
+    "lib/d-e-runtime-view.mjs",
+    "lib/d-e-software-job-admission.mjs",
+    "lib/d-e-software-job-handoff.mjs",
+    "lib/d-e-software-job-results.mjs",
+    "lib/ozon-account-read-preparation.mjs",
+    "lib/ozon-account-read-services.mjs",
+    "lib/ozon-seller-api-production-adapter.mjs",
+    "lib/product-lifecycle-schema.mjs",
+    "lib/production-contract-primitives.mjs",
+    "lib/software-job-admission.mjs",
+    "lib/software-job-contract.mjs",
+    "server.mjs"
+  ],
+  "addedApplicationFiles": [
+    "dist/assets/C1PaidDraftPanel-CmPI5P60.js",
+    "dist/assets/ProductPage-CUhUNTbi.js",
+    "dist/assets/UserInspector-C20qkROa.js",
+    "dist/assets/index-WvVpjq0b.js",
+    "docs/contracts/ozon-account-read-20260908.json",
+    "lib/d-production-round-use-case.mjs"
+  ],
+  "removedApplicationFiles": [
+    "dist/assets/C1PaidDraftPanel-CtaBZdYD.js",
+    "dist/assets/ProductPage-Cdtiy1M6.js",
+    "dist/assets/UserInspector-ZMmisU2Q.js",
+    "dist/assets/index-Bkv2-Rw5.js"
+  ]
+}

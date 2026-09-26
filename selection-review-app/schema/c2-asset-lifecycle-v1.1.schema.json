@@ -807,81 +807,32 @@
           ]
         },
         "draftOnlySeo": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "status",
-            "formalProviderResultAccepted",
-            "reason",
-            "aiRequestId",
-            "aiRequestFingerprint",
-            "inputFingerprint",
-            "sourceRevision",
-            "receiptRef",
-            "providerJobRef"
-          ],
-          "properties": {
-            "status": {
-              "const": "draft_only"
-            },
-            "formalProviderResultAccepted": {
-              "const": true
-            },
-            "reason": {
-              "type": "null"
-            },
-            "aiRequestId": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/opaqueEvidenceRef"
-                },
-                {
-                  "$ref": "#/$defs/canonicalFrozenRef"
-                }
-              ]
-            },
-            "aiRequestFingerprint": {
-              "$ref": "#/$defs/sha256"
-            },
-            "inputFingerprint": {
-              "$ref": "#/$defs/sha256"
-            },
-            "sourceRevision": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "receiptRef": {
-              "allOf": [
-                {
-                  "$ref": "#/$defs/opaqueEvidenceRef"
-                },
-                {
-                  "$ref": "#/$defs/canonicalFrozenRef"
-                }
-              ]
-            },
-            "providerJobRef": {
+          "oneOf": [
+            {
               "type": "object",
               "additionalProperties": false,
               "required": [
-                "jobId",
-                "jobType",
-                "providerId",
-                "providerVersion",
-                "candidateId",
-                "skuPackageId",
-                "platform",
-                "storeRef",
-                "authorizationRef",
+                "status",
+                "formalProviderResultAccepted",
+                "reason",
+                "aiRequestId",
+                "aiRequestFingerprint",
                 "inputFingerprint",
                 "sourceRevision",
                 "receiptRef",
-                "terminalStatus",
-                "requestSubmitted",
-                "responseVerified"
+                "providerJobRef"
               ],
               "properties": {
-                "jobId": {
+                "status": {
+                  "const": "draft_only"
+                },
+                "formalProviderResultAccepted": {
+                  "const": true
+                },
+                "reason": {
+                  "type": "null"
+                },
+                "aiRequestId": {
                   "allOf": [
                     {
                       "$ref": "#/$defs/opaqueEvidenceRef"
@@ -891,94 +842,8 @@
                     }
                   ]
                 },
-                "jobType": {
-                  "const": "c1_ai_draft"
-                },
-                "providerId": {
-                  "allOf": [
-                    {
-                      "not": {
-                        "const": "unknown"
-                      }
-                    },
-                    {
-                      "$ref": "#/$defs/canonicalFrozenRef"
-                    }
-                  ]
-                },
-                "providerVersion": {
-                  "allOf": [
-                    {
-                      "not": {
-                        "const": "unknown"
-                      }
-                    },
-                    {
-                      "$ref": "#/$defs/canonicalFrozenRef"
-                    }
-                  ]
-                },
-                "candidateId": {
-                  "$ref": "#/$defs/canonicalFrozenRef"
-                },
-                "skuPackageId": {
-                  "$ref": "#/$defs/canonicalFrozenRef"
-                },
-                "platform": {
-                  "$ref": "#/$defs/canonicalFrozenRef"
-                },
-                "storeRef": {
-                  "$ref": "#/$defs/canonicalFrozenRef"
-                },
-                "authorizationRef": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "authorizationId",
-                    "authorizationType",
-                    "scope"
-                  ],
-                  "properties": {
-                    "authorizationId": {
-                      "$ref": "#/$defs/c1OpaqueAuthorizationId"
-                    },
-                    "authorizationType": {
-                      "const": "paid_ai_draft"
-                    },
-                    "scope": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "required": [
-                        "candidateId",
-                        "skuPackageId",
-                        "platform",
-                        "storeRef",
-                        "sourceRevision",
-                        "jobType"
-                      ],
-                      "properties": {
-                        "candidateId": {
-                          "$ref": "#/$defs/canonicalFrozenRef"
-                        },
-                        "skuPackageId": {
-                          "$ref": "#/$defs/canonicalFrozenRef"
-                        },
-                        "platform": {
-                          "$ref": "#/$defs/canonicalFrozenRef"
-                        },
-                        "storeRef": {
-                          "$ref": "#/$defs/canonicalFrozenRef"
-                        },
-                        "sourceRevision": {
-                          "type": "integer",
-                          "minimum": 0
-                        },
-                        "jobType": {
-                          "const": "c1_ai_draft"
-                        }
-                      }
-                    }
-                  }
+                "aiRequestFingerprint": {
+                  "$ref": "#/$defs/sha256"
                 },
                 "inputFingerprint": {
                   "$ref": "#/$defs/sha256"
@@ -997,21 +862,169 @@
                     }
                   ]
                 },
-                "terminalStatus": {
-                  "const": "completed"
+                "providerJobRef": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "jobId",
+                    "jobType",
+                    "providerId",
+                    "providerVersion",
+                    "candidateId",
+                    "skuPackageId",
+                    "platform",
+                    "storeRef",
+                    "authorizationRef",
+                    "inputFingerprint",
+                    "sourceRevision",
+                    "receiptRef",
+                    "terminalStatus",
+                    "requestSubmitted",
+                    "responseVerified"
+                  ],
+                  "properties": {
+                    "jobId": {
+                      "allOf": [
+                        {
+                          "$ref": "#/$defs/opaqueEvidenceRef"
+                        },
+                        {
+                          "$ref": "#/$defs/canonicalFrozenRef"
+                        }
+                      ]
+                    },
+                    "jobType": {
+                      "const": "c1_ai_draft"
+                    },
+                    "providerId": {
+                      "allOf": [
+                        {
+                          "not": {
+                            "const": "unknown"
+                          }
+                        },
+                        {
+                          "$ref": "#/$defs/canonicalFrozenRef"
+                        }
+                      ]
+                    },
+                    "providerVersion": {
+                      "allOf": [
+                        {
+                          "not": {
+                            "const": "unknown"
+                          }
+                        },
+                        {
+                          "$ref": "#/$defs/canonicalFrozenRef"
+                        }
+                      ]
+                    },
+                    "candidateId": {
+                      "$ref": "#/$defs/canonicalFrozenRef"
+                    },
+                    "skuPackageId": {
+                      "$ref": "#/$defs/canonicalFrozenRef"
+                    },
+                    "platform": {
+                      "$ref": "#/$defs/canonicalFrozenRef"
+                    },
+                    "storeRef": {
+                      "$ref": "#/$defs/canonicalFrozenRef"
+                    },
+                    "authorizationRef": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "authorizationId",
+                        "authorizationType",
+                        "scope"
+                      ],
+                      "properties": {
+                        "authorizationId": {
+                          "$ref": "#/$defs/c1OpaqueAuthorizationId"
+                        },
+                        "authorizationType": {
+                          "const": "paid_ai_draft"
+                        },
+                        "scope": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "candidateId",
+                            "skuPackageId",
+                            "platform",
+                            "storeRef",
+                            "sourceRevision",
+                            "jobType"
+                          ],
+                          "properties": {
+                            "candidateId": {
+                              "$ref": "#/$defs/canonicalFrozenRef"
+                            },
+                            "skuPackageId": {
+                              "$ref": "#/$defs/canonicalFrozenRef"
+                            },
+                            "platform": {
+                              "$ref": "#/$defs/canonicalFrozenRef"
+                            },
+                            "storeRef": {
+                              "$ref": "#/$defs/canonicalFrozenRef"
+                            },
+                            "sourceRevision": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "jobType": {
+                              "const": "c1_ai_draft"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "inputFingerprint": {
+                      "$ref": "#/$defs/sha256"
+                    },
+                    "sourceRevision": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "receiptRef": {
+                      "allOf": [
+                        {
+                          "$ref": "#/$defs/opaqueEvidenceRef"
+                        },
+                        {
+                          "$ref": "#/$defs/canonicalFrozenRef"
+                        }
+                      ]
+                    },
+                    "terminalStatus": {
+                      "const": "completed"
+                    },
+                    "requestSubmitted": {
+                      "const": true
+                    },
+                    "responseVerified": {
+                      "const": true
+                    }
+                  }
                 },
-                "requestSubmitted": {
-                  "const": true
-                },
-                "responseVerified": {
-                  "const": true
+                "pricingReuseRecord": {
+                  "$ref": "c1-product-plan-v1.1#/$defs/c1PricingReuseRecord"
                 }
               }
             },
-            "pricingReuseRecord": {
-              "$ref": "c1-product-plan-v1.1#/$defs/c1PricingReuseRecord"
+            {
+              "$ref": "c1-editorial-source-v1.schema.json#/$defs/draftOnlySeo"
+            },
+            {
+              "$ref": "c1-editorial-source-v2.schema.json#/$defs/draftOnlySeo"
+            },
+            {
+              "$ref": "#/$defs/editorialDraftReference"
             }
-          }
+          ]
         },
         "keywordEvidenceRefs": {
           "type": "array",
@@ -1071,6 +1084,87 @@
           "$ref": "#/$defs/canonicalStableHttpsAssetRef"
         }
       ]
+    },
+    "editorialDraftReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "sourceType",
+        "formalProviderResultAccepted",
+        "reason",
+        "editorialSource"
+      ],
+      "properties": {
+        "status": {
+          "const": "draft_only"
+        },
+        "sourceType": {
+          "const": "owner_confirmed_editorial"
+        },
+        "formalProviderResultAccepted": {
+          "const": false
+        },
+        "reason": {
+          "type": "null"
+        },
+        "editorialSource": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion",
+            "sourceSchemaVersion",
+            "requestId",
+            "sourceReceiptId",
+            "sourceSoftwareJobId",
+            "editorialVersionId",
+            "requestFingerprint",
+            "sourceOutputFingerprint",
+            "outputFingerprint",
+            "ownerConfirmation"
+          ],
+          "properties": {
+            "schemaVersion": {
+              "const": "c1-editorial-source-reference-v1"
+            },
+            "sourceSchemaVersion": {
+              "const": "c1-editorial-source-v2"
+            },
+            "requestId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "sourceReceiptId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "sourceSoftwareJobId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "editorialVersionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "requestFingerprint": {
+              "$ref": "#/$defs/sha256"
+            },
+            "sourceOutputFingerprint": {
+              "$ref": "#/$defs/sha256"
+            },
+            "outputFingerprint": {
+              "$ref": "#/$defs/sha256"
+            },
+            "ownerConfirmation": {
+              "$ref": "c1-editorial-source-v1.schema.json#/$defs/source/properties/ownerConfirmation"
+            }
+          }
+        }
+      }
     }
   },
   "properties": {
@@ -1610,12 +1704,19 @@
                   "type": "null"
                 },
                 "warehouseRef": {
-                  "allOf": [
+                  "anyOf": [
                     {
-                      "type": "null"
+                      "allOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "$ref": "#/$defs/canonicalFrozenRef"
+                        }
+                      ]
                     },
                     {
-                      "$ref": "#/$defs/canonicalFrozenRef"
+                      "type": "null"
                     }
                   ]
                 },
@@ -1632,12 +1733,19 @@
                   "type": "null"
                 },
                 "sourceConfirmationCardId": {
-                  "allOf": [
+                  "anyOf": [
                     {
-                      "type": "null"
+                      "allOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "$ref": "#/$defs/canonicalFrozenRef"
+                        }
+                      ]
                     },
                     {
-                      "$ref": "#/$defs/canonicalFrozenRef"
+                      "type": "null"
                     }
                   ]
                 },

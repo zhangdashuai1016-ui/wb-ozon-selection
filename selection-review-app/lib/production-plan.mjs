@@ -1,3 +1,4 @@
+import { derivePlatformWriteBindings } from "./platform-write-bindings.mjs";
 import { isDeepStrictEqual } from "node:util";
 import { assertValidProductionAuthorization, assertCurrentProductionAuthorization, validateProductionAuthorization, readAuthorizedProductionSnapshot } from "./production-authorization.mjs";
 import { fingerprintCanonicalRecord } from "./production-contract-primitives.mjs";
@@ -101,7 +102,7 @@ export function projectProductionPlanInputs(plan) {
   const writeBindings = requireFact(c1.schemaSnapshot?.writeBindings, "schemaSnapshot.writeBindings");
   const rawSchema = c1.inputSnapshots?.platformSchemaRules;
   if (!isObject(writeBindings) || writeBindings.schemaRevision !== scope.schemaRevision ||
-      rawSchema?.schemaRevision !== scope.schemaRevision || !isDeepStrictEqual(writeBindings, rawSchema.writeBindings) ||
+      rawSchema?.schemaRevision !== scope.schemaRevision || !isDeepStrictEqual(writeBindings, derivePlatformWriteBindings(rawSchema)) ||
       !nonEmpty(writeBindings.evidenceRef) || !isObject(writeBindings.content) || !Array.isArray(writeBindings.requiredAttributes)) {
     throw new Error("PRODUCTION_PLAN_INPUT_GAP: 写入绑定未与冻结Schema修订对齐");
   }
@@ -120,6 +121,7 @@ export function projectProductionPlanInputs(plan) {
     attributes: structuredClone(c1.productAttributes), attributeVersion: c1.factVerificationVersion,
     packing: { weight: structuredClone(weight), dimensions: structuredClone(dimensions) },
     schemaWriteBindings: structuredClone(writeBindings), platformCategory: structuredClone(c1.platformCategory),
+    platformSchemaAttributes: rawSchema.attributes === undefined ? null : structuredClone(rawSchema.attributes),
     buyerTargetPrice: structuredClone(scope.buyerTargetPrice), platformWritePrice: structuredClone(scope.platformWritePrice), priceConversion: structuredClone(scope.priceConversion),
     stock: scope.stock, assetsFinalUploadsVersion: scope.finalManifestVersion, finalUploads: structuredClone(scope.finalUploads),
     authorizedMediaFingerprint: scope.authorizedMediaFingerprint,
@@ -168,6 +170,7 @@ export function projectProductionPlanImportPayload({ productionPlan, resolvedFin
     skuPackageId: inputs.skuPackageId, supplierSkuId: inputs.sku.supplierSkuId, variantKey: inputs.sku.variantKey,
     title: inputs.title, content: structuredClone(inputs.content), attributes: structuredClone(inputs.attributes),
     packing: structuredClone(inputs.packing), schemaWriteBindings: structuredClone(inputs.schemaWriteBindings),
+    platformSchemaAttributes: structuredClone(inputs.platformSchemaAttributes),
     platformCategory: structuredClone(inputs.platformCategory), platformWritePrice: structuredClone(inputs.platformWritePrice),
     finalUploads, authorizedMedia, publishScope: inputs.publishScope
   });

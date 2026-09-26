@@ -73,14 +73,14 @@ function assertInspection(value) {
 function assertProtocols(protocols, schemaVersion) {
   requireValue(closed(protocols,['productImport','inventoryWrite','independentReadback']), 'PROTOCOL_INVALID');
   const fields = { productImport:['status','protocolVersion','evidenceRef','endpoint','statusEndpoint'], inventoryWrite:['status','protocolVersion','evidenceRef','endpoint','warehouseId','storeRef','warehouseRef','credentialAlias'], independentReadback:['status','protocolVersion','evidenceRef','endpoints'] };
-  if (schemaVersion === 'ozon-de-preflight-evidence-v3') fields.inventoryWrite.push('prerequisitePolicy');
+  if (['ozon-de-preflight-evidence-v3','ozon-de-preflight-evidence-v4'].includes(schemaVersion)) fields.inventoryWrite.push('prerequisitePolicy');
   for (const [name, value] of Object.entries(protocols)) {
     if (value === null) continue;
     requireValue(closed(value,fields[name]) && permission(value.status) && ref(value.protocolVersion) && ref(value.evidenceRef), 'PROTOCOL_INVALID');
     if (name === 'productImport') requireValue(value.endpoint === '/v3/product/import' && value.statusEndpoint === '/v1/product/import/info', 'PROTOCOL_INVALID');
     if (name === 'inventoryWrite') requireValue(value.endpoint === '/v2/products/stocks' && typeof value.warehouseId === 'string' && /^[1-9][0-9]*$/.test(value.warehouseId) &&
       isCompleteStoreRef(value.storeRef,value.storeRef?.stableStoreId) && ref(value.warehouseRef) && ref(value.credentialAlias), 'PROTOCOL_INVALID');
-    if (name === 'inventoryWrite' && schemaVersion === 'ozon-de-preflight-evidence-v3') {
+    if (name === 'inventoryWrite' && ['ozon-de-preflight-evidence-v3','ozon-de-preflight-evidence-v4'].includes(schemaVersion)) {
       requireValue(value.status !== 'verified' || value.prerequisitePolicy !== null, 'PROTOCOL_INVALID');
       if (value.prerequisitePolicy !== null) {
         try { assertOzonInventoryPrerequisitePolicy(value.prerequisitePolicy); }
@@ -100,7 +100,7 @@ function assertProtocols(protocols, schemaVersion) {
 export function assertOzonDEPreflightEvidence(record) {
   safe(record);
   requireValue(closed(record,['schemaVersion','evidenceId','scope','collectedAt','expiresAt','provenance','inspection','protocols']) &&
-    ['ozon-de-preflight-evidence-v1','ozon-de-preflight-evidence-v2','ozon-de-preflight-evidence-v3'].includes(record.schemaVersion) && ref(record.evidenceId), 'RECORD_INVALID');
+    ['ozon-de-preflight-evidence-v1','ozon-de-preflight-evidence-v2','ozon-de-preflight-evidence-v3','ozon-de-preflight-evidence-v4'].includes(record.schemaVersion) && ref(record.evidenceId), 'RECORD_INVALID');
   assertOzonDEPreflightEvidenceScope(record.scope);
   requireValue(isRuntimeConfigurationTimestamp(record.collectedAt) && isRuntimeConfigurationTimestamp(record.expiresAt) && Date.parse(record.collectedAt) < Date.parse(record.expiresAt), 'TIME_INVALID');
   const source = record.provenance;
@@ -195,7 +195,7 @@ export function inspectOzonDEPreflightCapabilities({candidate,authorization,scop
     productImport:record?.protocols.productImport ?? null,inventoryWrite:record?.protocols.inventoryWrite ?? null,independentReadback:record?.protocols.independentReadback ?? null,
     assetTransport:assetEvidence(candidate,authorization)});
   const gaps = [...structuredClone(result.gaps)];
-  if (record && record.schemaVersion !== 'ozon-de-preflight-evidence-v3') gaps.push({code:'evidence_protocol_version_outdated',field:'accountEvidence',message:'旧版协议证据仅供历史读取，当前执行需要新版核验'});
+  if (record && !['ozon-de-preflight-evidence-v3','ozon-de-preflight-evidence-v4'].includes(record.schemaVersion)) gaps.push({code:'evidence_protocol_version_outdated',field:'accountEvidence',message:'旧版协议证据仅供历史读取，当前执行需要新版核验'});
   if (reason !== null) gaps.push({code:reason,field:'accountEvidence',message:'当前账户实证不可用'});
   if (inspection !== undefined) {
     const checks = {permission:inspection.permissionStatus === 'verified',imagePermission:inspection.imagePermissionStatus === 'verified',
@@ -234,7 +234,7 @@ export function createOzonDEPreflightProvider({readEvidence,serverClock,verifySo
       originalDState(input.candidate,input.job,authorization);
       if (verifySourceSnapshot === null) return null;
       const {record,reason} = await read(scope,now);
-      if (record === null || record.schemaVersion !== 'ozon-de-preflight-evidence-v3' ||
+      if (record === null || !['ozon-de-preflight-evidence-v3','ozon-de-preflight-evidence-v4'].includes(record.schemaVersion) ||
           inspectOzonDEPreflightCapabilities({candidate:input.candidate,authorization,scope,record,reason,now}).status !== 'ready') return null;
       const verifiedRecord = structuredClone(record), verifiedAuthorization = structuredClone(authorization);
       const candidateId = input.candidate.id, jobId = input.job.jobId, binding = structuredClone(input.productionBinding);
@@ -279,7 +279,7 @@ export function createOzonDEPreflightProvider({readEvidence,serverClock,verifySo
         isDeepStrictEqual(query.requestedWriteFields,authorization.lockedScope.allowedWriteFields) && query.expectedPlatformWriteCurrency === authorization.lockedScope.platformWritePrice.currency, 'QUERY_MISMATCH');
       const {record,reason,systemError} = await read(scope,now);
       requireValue(!context.signal?.aborted, 'CANCELLED');
-      if (record && record.schemaVersion !== 'ozon-de-preflight-evidence-v3') return unknownInspection(scope,preparation.preparationId,'evidence_protocol_version_outdated',false);
+      if (record && !['ozon-de-preflight-evidence-v3','ozon-de-preflight-evidence-v4'].includes(record.schemaVersion)) return unknownInspection(scope,preparation.preparationId,'evidence_protocol_version_outdated',false);
       return record === null ? unknownInspection(scope,preparation.preparationId,reason,systemError) : structuredClone(record.inspection);
     }
   });

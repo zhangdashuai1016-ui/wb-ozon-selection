@@ -1,3 +1,6 @@
+import { C1_FACT_DEFINITIONS_VERSION } from "./c1-ai-draft-contract.mjs";
+import { assertC1SupplierFactRevisionProjection, ConfirmedSupplierInputError } from "./confirmed-supplier-inputs.mjs";
+import { createC1EditorialDraftReference, assertC1EditorialSource, assertC1EditorialPlan, assertC1EditorialSnapshot, C1EditorialSourceError } from "./c1-editorial-review-contract.mjs";
 import { sameStoreRef } from "./store-binding.mjs";
 import { isDeepStrictEqual } from "node:util";
 import { assertC1PricingResultReuse, assertC1PricingReuseRecordSource, C1PricingReuseError } from "./c1-pricing-result-reuse.mjs";
@@ -169,6 +172,24 @@ function canonicalDraftKeywordRefs(draft, path) {
   return draft.keywordEvidenceRefs;
 }
 
+const C1_EDITORIAL_REFERENCE_VERSION = "c1-editorial-source-reference-v1";
+
+function isEditorialDraftReference(draft) {
+  return draft?.editorialSource?.schemaVersion === C1_EDITORIAL_REFERENCE_VERSION;
+}
+
+/** Canonical handoffs carry a projection; only the sibling C1 snapshot owns the full source. */
+function editorialDraftMatchesSnapshot(draft, sourceDraft, identity, resultSkuRevision) {
+  if (!isEditorialDraftReference(draft)) return sameJson(draft, sourceDraft);
+  if (sourceDraft?.editorialSource?.schemaVersion !== "c1-editorial-source-v2") return false;
+  try {
+    return sameJson(draft, createC1EditorialDraftReference({ draftOnlySeo: sourceDraft, identity, resultSkuRevision }));
+  } catch (error) {
+    if (!(error instanceof C1EditorialSourceError) && !/^C1_AI_/.test(error.message)) throw error;
+    return false;
+  }
+}
+
 export function normalizeC1CanonicalHandoffContract(skuPackage) {
   const plan = skuPackage?.c1ProductPlan;
   assertValidC1ProductPlan(plan);
@@ -218,70 +239,74 @@ export function normalizeC1CanonicalHandoffContract(skuPackage) {
     assertCanonicalFrozenRef(frozen[field], `frozenInputRefs.${field}`);
   }
   const draft = plan.draftOnlySeo;
-  const job = draft?.providerJobRef;
-  const pricingReuse = draft?.pricingReuseRecord === undefined ? null : assertC1PricingResultReuse({ plan, resultSkuRevision: expectedC1Revision });
-  const allowedDraftKeys = new Set([
-    "status", "formalProviderResultAccepted", "reason", "aiRequestId", "aiRequestFingerprint",
-    "inputFingerprint", "sourceRevision", "receiptRef", "providerJobRef", "pricingReuseRecord"
-  ]);
-  if (!isObject(draft) || draft.status !== "draft_only" || draft.formalProviderResultAccepted !== true ||
-      Object.keys(draft).some((key) => !allowedDraftKeys.has(key)) || draft.reason !== null || !isObject(job)) {
-    throw new Error("C2_C1_FORMAL_PROVIDER_REQUIRED: draft_only草稿必须已接受正式provider作业结果");
-  }
-  assertOpaqueEvidenceRef(draft.aiRequestId, "draftOnlySeo.aiRequestId");
-  assertOpaqueEvidenceRef(draft.receiptRef, "draftOnlySeo.receiptRef");
-  if (!/^[a-f0-9]{64}$/.test(String(draft.aiRequestFingerprint || ""))) {
-    throw new Error("C2_C1_FORMAL_PROVIDER_REQUIRED: draftOnlySeo.aiRequestFingerprint必须是SHA-256");
-  }
-  const allowedJobKeys = new Set([
-    "jobId", "jobType", "providerId", "providerVersion", "candidateId", "skuPackageId", "platform",
-    "storeRef", "authorizationRef", "inputFingerprint", "sourceRevision", "receiptRef", "terminalStatus",
-    "requestSubmitted", "responseVerified"
-  ]);
-  if (Object.keys(job).some((key) => !allowedJobKeys.has(key)) || job.jobType !== "c1_ai_draft" ||
-      !nonEmptyString(job.jobId) || !nonEmptyString(job.providerId) || job.providerId === "unknown" ||
-      !nonEmptyString(job.providerVersion) || job.providerVersion === "unknown" ||
-      job.candidateId !== g1.identity.candidateId || job.skuPackageId !== g1.identity.skuPackageId ||
-      job.platform !== g1.identity.platform || job.storeRef !== g1.identity.storeRef.stableStoreId ||
-      !/^[a-f0-9]{64}$/.test(String(job.inputFingerprint || "")) ||
-      (pricingReuse === null && (job.sourceRevision !== expectedC1Revision - 1 || job.sourceRevision < revisionRefs.resultRevision)) ||
-      job.terminalStatus !== "completed" ||
-      job.requestSubmitted !== true || job.responseVerified !== true) {
-    throw new Error("C2_C1_FORMAL_PROVIDER_REQUIRED: 正式provider作业身份、revision、终态或回执状态无效");
-  }
-  for (const field of ["providerId", "providerVersion", "candidateId", "skuPackageId", "platform", "storeRef"]) {
-    assertCanonicalFrozenRef(job[field], `draftOnlySeo.providerJobRef.${field}`);
-  }
-  assertOpaqueEvidenceRef(job.receiptRef, "draftOnlySeo.providerJobRef.receiptRef");
-  const authorization = job.authorizationRef;
-  const authorizationKeys = new Set(["authorizationId", "authorizationType", "scope"]);
-  const authorizationScopeKeys = new Set(["candidateId", "skuPackageId", "platform", "storeRef", "sourceRevision", "jobType"]);
-  if (!isObject(authorization) || Object.keys(authorization).some((key) => !authorizationKeys.has(key)) ||
-      !nonEmptyString(authorization.authorizationId) ||
-      authorization.authorizationType !== "paid_ai_draft" || !isObject(authorization.scope) ||
-      Object.keys(authorization.scope).some((key) => !authorizationScopeKeys.has(key)) ||
-      authorization.scope.candidateId !== job.candidateId || authorization.scope.skuPackageId !== job.skuPackageId ||
-      authorization.scope.platform !== job.platform || authorization.scope.storeRef !== job.storeRef ||
-      authorization.scope.sourceRevision !== job.sourceRevision || authorization.scope.jobType !== job.jobType) {
-    throw new Error("C2_C1_FORMAL_PROVIDER_REQUIRED: 正式provider作业缺少完整付费授权作用域");
-  }
-  for (const field of ["candidateId", "skuPackageId", "platform", "storeRef"]) {
-    assertCanonicalFrozenRef(authorization.scope[field], `draftOnlySeo.providerJobRef.authorizationRef.scope.${field}`);
-  }
-  assertCanonicalC1AuthorizationId(
-    authorization.authorizationId,
-    "draftOnlySeo.providerJobRef.authorizationRef.authorizationId"
-  );
-  if (!isObject(plan.seoEvidenceLayer) || !sameJson(plan.seoEvidenceLayer.providerJobRef, job)) {
-    throw new Error("C2_C1_FORMAL_PROVIDER_REQUIRED: SEO证据层必须锁定同一正式provider作业引用");
-  }
-  if (draft.inputFingerprint !== job.inputFingerprint || draft.sourceRevision !== job.sourceRevision ||
-      plan.seoEvidenceLayer.inputFingerprint !== job.inputFingerprint ||
-      plan.seoEvidenceLayer.sourceRevision !== job.sourceRevision ||
-      plan.seoEvidenceLayer.aiRequestId !== draft.aiRequestId ||
-      plan.seoEvidenceLayer.aiRequestFingerprint !== draft.aiRequestFingerprint ||
-      plan.seoEvidenceLayer.aiReceiptId !== draft.receiptRef) {
-    throw new Error("C2_C1_FORMAL_PROVIDER_REQUIRED: 草稿、SEO证据层与正式provider作业输入或revision不一致");
+  if (draft?.sourceType === "owner_confirmed_editorial") {
+    assertC1EditorialPlan({ plan, identity: g1.identity, resultSkuRevision: expectedC1Revision });
+  } else {
+    const job = draft?.providerJobRef;
+    const pricingReuse = draft?.pricingReuseRecord === undefined ? null : assertC1PricingResultReuse({ plan, resultSkuRevision: expectedC1Revision });
+    const allowedDraftKeys = new Set([
+      "status", "formalProviderResultAccepted", "reason", "aiRequestId", "aiRequestFingerprint",
+      "inputFingerprint", "sourceRevision", "receiptRef", "providerJobRef", "pricingReuseRecord"
+    ]);
+    if (!isObject(draft) || draft.status !== "draft_only" || draft.formalProviderResultAccepted !== true ||
+        Object.keys(draft).some((key) => !allowedDraftKeys.has(key)) || draft.reason !== null || !isObject(job)) {
+      throw new Error("C2_C1_FORMAL_PROVIDER_REQUIRED: draft_only草稿必须已接受正式provider作业结果");
+    }
+    assertOpaqueEvidenceRef(draft.aiRequestId, "draftOnlySeo.aiRequestId");
+    assertOpaqueEvidenceRef(draft.receiptRef, "draftOnlySeo.receiptRef");
+    if (!/^[a-f0-9]{64}$/.test(String(draft.aiRequestFingerprint || ""))) {
+      throw new Error("C2_C1_FORMAL_PROVIDER_REQUIRED: draftOnlySeo.aiRequestFingerprint必须是SHA-256");
+    }
+    const allowedJobKeys = new Set([
+      "jobId", "jobType", "providerId", "providerVersion", "candidateId", "skuPackageId", "platform",
+      "storeRef", "authorizationRef", "inputFingerprint", "sourceRevision", "receiptRef", "terminalStatus",
+      "requestSubmitted", "responseVerified"
+    ]);
+    if (Object.keys(job).some((key) => !allowedJobKeys.has(key)) || job.jobType !== "c1_ai_draft" ||
+        !nonEmptyString(job.jobId) || !nonEmptyString(job.providerId) || job.providerId === "unknown" ||
+        !nonEmptyString(job.providerVersion) || job.providerVersion === "unknown" ||
+        job.candidateId !== g1.identity.candidateId || job.skuPackageId !== g1.identity.skuPackageId ||
+        job.platform !== g1.identity.platform || job.storeRef !== g1.identity.storeRef.stableStoreId ||
+        !/^[a-f0-9]{64}$/.test(String(job.inputFingerprint || "")) ||
+        (pricingReuse === null && (job.sourceRevision !== expectedC1Revision - 1 || job.sourceRevision < revisionRefs.resultRevision)) ||
+        job.terminalStatus !== "completed" ||
+        job.requestSubmitted !== true || job.responseVerified !== true) {
+      throw new Error("C2_C1_FORMAL_PROVIDER_REQUIRED: 正式provider作业身份、revision、终态或回执状态无效");
+    }
+    for (const field of ["providerId", "providerVersion", "candidateId", "skuPackageId", "platform", "storeRef"]) {
+      assertCanonicalFrozenRef(job[field], `draftOnlySeo.providerJobRef.${field}`);
+    }
+    assertOpaqueEvidenceRef(job.receiptRef, "draftOnlySeo.providerJobRef.receiptRef");
+    const authorization = job.authorizationRef;
+    const authorizationKeys = new Set(["authorizationId", "authorizationType", "scope"]);
+    const authorizationScopeKeys = new Set(["candidateId", "skuPackageId", "platform", "storeRef", "sourceRevision", "jobType"]);
+    if (!isObject(authorization) || Object.keys(authorization).some((key) => !authorizationKeys.has(key)) ||
+        !nonEmptyString(authorization.authorizationId) ||
+        authorization.authorizationType !== "paid_ai_draft" || !isObject(authorization.scope) ||
+        Object.keys(authorization.scope).some((key) => !authorizationScopeKeys.has(key)) ||
+        authorization.scope.candidateId !== job.candidateId || authorization.scope.skuPackageId !== job.skuPackageId ||
+        authorization.scope.platform !== job.platform || authorization.scope.storeRef !== job.storeRef ||
+        authorization.scope.sourceRevision !== job.sourceRevision || authorization.scope.jobType !== job.jobType) {
+      throw new Error("C2_C1_FORMAL_PROVIDER_REQUIRED: 正式provider作业缺少完整付费授权作用域");
+    }
+    for (const field of ["candidateId", "skuPackageId", "platform", "storeRef"]) {
+      assertCanonicalFrozenRef(authorization.scope[field], `draftOnlySeo.providerJobRef.authorizationRef.scope.${field}`);
+    }
+    assertCanonicalC1AuthorizationId(
+      authorization.authorizationId,
+      "draftOnlySeo.providerJobRef.authorizationRef.authorizationId"
+    );
+    if (!isObject(plan.seoEvidenceLayer) || !sameJson(plan.seoEvidenceLayer.providerJobRef, job)) {
+      throw new Error("C2_C1_FORMAL_PROVIDER_REQUIRED: SEO证据层必须锁定同一正式provider作业引用");
+    }
+    if (draft.inputFingerprint !== job.inputFingerprint || draft.sourceRevision !== job.sourceRevision ||
+        plan.seoEvidenceLayer.inputFingerprint !== job.inputFingerprint ||
+        plan.seoEvidenceLayer.sourceRevision !== job.sourceRevision ||
+        plan.seoEvidenceLayer.aiRequestId !== draft.aiRequestId ||
+        plan.seoEvidenceLayer.aiRequestFingerprint !== draft.aiRequestFingerprint ||
+        plan.seoEvidenceLayer.aiReceiptId !== draft.receiptRef) {
+      throw new Error("C2_C1_FORMAL_PROVIDER_REQUIRED: 草稿、SEO证据层与正式provider作业输入或revision不一致");
+    }
   }
   if (!Array.isArray(plan.keywordEvidenceRefs) || plan.keywordEvidenceRefs.length === 0 ||
       plan.keywordEvidenceRefs.some((ref) => !nonEmptyString(ref)) ||
@@ -289,7 +314,7 @@ export function normalizeC1CanonicalHandoffContract(skuPackage) {
     throw new Error("C2_C1_FORMAL_KEYWORDS_REQUIRED: 必须提供去重后的正式keywordEvidenceRefs");
   }
   plan.keywordEvidenceRefs.forEach((ref, index) => assertOpaqueEvidenceRef(ref, `keywordEvidenceRefs[${index}]`));
-  if (!Array.isArray(plan.bulletPointsDraft) || plan.bulletPointsDraft.length === 0 ||
+  if (!Array.isArray(plan.bulletPointsDraft) || (plan.bulletPointsDraft.length === 0 && plan.seoEvidenceLayer?.factDefinitionsVersion !== C1_FACT_DEFINITIONS_VERSION) ||
       !isObject(plan.searchKeywordsDraft) || plan.searchKeywordsDraft.status !== "draft_only" ||
       plan.searchKeywordsDraft.productionApproved !== false || !Array.isArray(plan.searchKeywordsDraft.keywords) ||
       plan.searchKeywordsDraft.keywords.length === 0) {
@@ -344,7 +369,13 @@ export function normalizeC1CanonicalHandoffContract(skuPackage) {
     handoffRevisionRefs: { sourceRevision: expectedC1Revision, resultRevision: expectedC1Revision + 1 },
     frozenInputRefs: structuredClone(frozen),
     schemaSnapshotRef: plan.schemaSnapshotRef,
-    draftOnlySeo: structuredClone(draft),
+    // Previously completed full v2 handoffs retain their exact historical shape.
+    // New handoffs share the complete source kept in finalCardInputSnapshot.c1Snapshot.
+    draftOnlySeo: draft?.editorialSource?.schemaVersion === "c1-editorial-source-v2" &&
+      !(skuPackage.c2FinalAssets?.status === "completed" &&
+        skuPackage.c2FinalAssets.productionAuthorizationPreparation?.frozenC1Handoff?.draftOnlySeo?.editorialSource?.schemaVersion === "c1-editorial-source-v2")
+      ? createC1EditorialDraftReference({ draftOnlySeo: draft, identity: g1.identity, resultSkuRevision: expectedC1Revision })
+      : structuredClone(draft),
     keywordEvidenceRefs: structuredClone(plan.keywordEvidenceRefs),
     unknownManifest: []
   });
@@ -635,6 +666,7 @@ export function normalizeC2FinalUploads({
 function c1SourceSnapshot(plan) {
   return {
     c1PlanId: plan.c1PlanId,
+    ...(plan.sourceFactsRevision === undefined ? {} : { sourceFactsRevision: structuredClone(plan.sourceFactsRevision), supersedes: structuredClone(plan.supersedes) }),
     status: plan.status,
     contractVersion: plan.contractVersion,
     revisionRefs: structuredClone(plan.revisionRefs),
@@ -948,7 +980,7 @@ function validateStoredTargetContext(targetContext, unknownManifest, errors) {
   validateAllowedKeys(unknownManifest, ["schemaVersion", "sourceDataRevision", "blockingItems"], "unknownManifest", errors);
 }
 
-function validateStoredCanonicalC1Handoff(value, path, storedTargetContext, errors) {
+function validateStoredCanonicalC1Handoff(value, path, storedTargetContext, errors, sourceDraft) {
   validateAllowedKeys(value, [
     "contractVersion", "identity", "frozenInputRevisionRefs", "handoffRevisionRefs", "frozenInputRefs", "schemaSnapshotRef",
     "draftOnlySeo", "keywordEvidenceRefs", "unknownManifest"
@@ -995,65 +1027,80 @@ function validateStoredCanonicalC1Handoff(value, path, storedTargetContext, erro
     }
   }
   const draft = value.draftOnlySeo;
-  const job = draft?.providerJobRef;
-  const authorization = job?.authorizationRef;
-  const scope = authorization?.scope;
-  if (draft?.pricingReuseRecord !== undefined) {
+  if (draft?.sourceType === "owner_confirmed_editorial") {
     try {
-      const reuse = draft.pricingReuseRecord;
-      assertC1PricingReuseRecordSource(reuse);
-      if (reuse.resultSkuRevision !== handoffRevisions?.sourceRevision ||
-          reuse.targetProfitModelVersion !== value.frozenInputRefs?.profitModelVersion ||
-          !sameJson(reuse.sourceIdentity, g1Identity)) throw new C1PricingReuseError("C1_PRICING_REUSE_TARGET_CONFLICT");
+      if (isEditorialDraftReference(draft)) {
+        if (!editorialDraftMatchesSnapshot(draft, sourceDraft, g1Identity, handoffRevisions?.sourceRevision)) {
+          push(errors, `${path}.draftOnlySeo.editorialSource`, "C2_EDITORIAL_REFERENCE_SOURCE_MISMATCH");
+        }
+      } else {
+        assertC1EditorialSource({ draftOnlySeo: draft, identity: g1Identity, resultSkuRevision: handoffRevisions?.sourceRevision });
+      }
     } catch (error) {
-      if (!(error instanceof C1PricingReuseError) && !(error instanceof C1SkuRightsReviewError) && !/^C1_AI_/.test(error.message)) throw error;
-      push(errors, `${path}.draftOnlySeo.pricingReuseRecord`, error.message);
+      if (!(error instanceof C1EditorialSourceError) && !/^C1_AI_/.test(error.message)) throw error;
+      push(errors, `${path}.draftOnlySeo.editorialSource`, error.message);
     }
-  }
-  validateAllowedKeys(draft, [
-    "status", "formalProviderResultAccepted", "reason", "aiRequestId", "aiRequestFingerprint",
-    "inputFingerprint", "sourceRevision", "receiptRef", "providerJobRef", "pricingReuseRecord"
-  ], `${path}.draftOnlySeo`, errors);
-  validateAllowedKeys(job, [
-    "jobId", "jobType", "providerId", "providerVersion", "candidateId", "skuPackageId", "platform",
-    "storeRef", "authorizationRef", "inputFingerprint", "sourceRevision", "receiptRef", "terminalStatus",
-    "requestSubmitted", "responseVerified"
-  ], `${path}.draftOnlySeo.providerJobRef`, errors);
-  validateAllowedKeys(authorization, ["authorizationId", "authorizationType", "scope"], `${path}.draftOnlySeo.providerJobRef.authorizationRef`, errors);
-  validateAllowedKeys(scope, [
-    "candidateId", "skuPackageId", "platform", "storeRef", "sourceRevision", "jobType"
-  ], `${path}.draftOnlySeo.providerJobRef.authorizationRef.scope`, errors);
-  if (!isObject(draft) || draft.status !== "draft_only" || draft.formalProviderResultAccepted !== true ||
-      draft.reason !== null || !isOpaqueEvidenceRef(draft.aiRequestId) ||
-      !/^[a-f0-9]{64}$/.test(String(draft.aiRequestFingerprint || "")) ||
-      !isOpaqueEvidenceRef(draft.receiptRef) || !isObject(job) ||
-      !isOpaqueEvidenceRef(job.jobId) || job.jobType !== "c1_ai_draft" ||
-      !nonEmptyString(job.providerId) || job.providerId === "unknown" ||
-      !nonEmptyString(job.providerVersion) || job.providerVersion === "unknown" ||
-      !/^[a-f0-9]{64}$/.test(String(job.inputFingerprint || "")) ||
-      !isOpaqueEvidenceRef(job.receiptRef) || job.terminalStatus !== "completed" ||
-      job.requestSubmitted !== true || job.responseVerified !== true || !isObject(authorization) ||
-      !isCanonicalC1AuthorizationId(authorization.authorizationId) ||
-      authorization.authorizationType !== "paid_ai_draft" || !isObject(scope) ||
-      draft.inputFingerprint !== job.inputFingerprint || draft.sourceRevision !== job.sourceRevision ||
-      (draft?.pricingReuseRecord === undefined && job.sourceRevision !== handoffRevisions?.sourceRevision - 1) ||
-      job.candidateId !== g1Identity?.candidateId || job.skuPackageId !== g1Identity?.skuPackageId ||
-      job.platform !== g1Identity?.platform || job.storeRef !== g1Identity?.storeRef?.stableStoreId ||
-      scope.candidateId !== job.candidateId || scope.skuPackageId !== job.skuPackageId ||
-      scope.platform !== job.platform || scope.storeRef !== job.storeRef ||
-      scope.sourceRevision !== job.sourceRevision || scope.jobType !== job.jobType) {
-    push(errors, `${path}.draftOnlySeo`, "必须冻结正式provider完成、回执核验和授权引用");
-  }
-  for (const [fieldPath, fieldValue] of [
-    ...["providerId", "providerVersion", "candidateId", "skuPackageId", "platform", "storeRef"]
-      .map((field) => [`${path}.draftOnlySeo.providerJobRef.${field}`, job?.[field]]),
-    ...["candidateId", "skuPackageId", "platform", "storeRef"]
-      .map((field) => [`${path}.draftOnlySeo.providerJobRef.authorizationRef.scope.${field}`, scope?.[field]])
-  ]) {
-    try {
-      assertCanonicalFrozenRef(fieldValue, fieldPath);
-    } catch (error) {
-      push(errors, fieldPath, error.message);
+  } else {
+    const job = draft?.providerJobRef;
+    const authorization = job?.authorizationRef;
+    const scope = authorization?.scope;
+    if (draft?.pricingReuseRecord !== undefined) {
+      try {
+        const reuse = draft.pricingReuseRecord;
+        assertC1PricingReuseRecordSource(reuse);
+        if (reuse.resultSkuRevision !== handoffRevisions?.sourceRevision ||
+            reuse.targetProfitModelVersion !== value.frozenInputRefs?.profitModelVersion ||
+            !sameJson(reuse.sourceIdentity, g1Identity)) throw new C1PricingReuseError("C1_PRICING_REUSE_TARGET_CONFLICT");
+      } catch (error) {
+        if (!(error instanceof C1PricingReuseError) && !(error instanceof C1SkuRightsReviewError) && !/^C1_AI_/.test(error.message)) throw error;
+        push(errors, `${path}.draftOnlySeo.pricingReuseRecord`, error.message);
+      }
+    }
+    validateAllowedKeys(draft, [
+      "status", "formalProviderResultAccepted", "reason", "aiRequestId", "aiRequestFingerprint",
+      "inputFingerprint", "sourceRevision", "receiptRef", "providerJobRef", "pricingReuseRecord"
+    ], `${path}.draftOnlySeo`, errors);
+    validateAllowedKeys(job, [
+      "jobId", "jobType", "providerId", "providerVersion", "candidateId", "skuPackageId", "platform",
+      "storeRef", "authorizationRef", "inputFingerprint", "sourceRevision", "receiptRef", "terminalStatus",
+      "requestSubmitted", "responseVerified"
+    ], `${path}.draftOnlySeo.providerJobRef`, errors);
+    validateAllowedKeys(authorization, ["authorizationId", "authorizationType", "scope"], `${path}.draftOnlySeo.providerJobRef.authorizationRef`, errors);
+    validateAllowedKeys(scope, [
+      "candidateId", "skuPackageId", "platform", "storeRef", "sourceRevision", "jobType"
+    ], `${path}.draftOnlySeo.providerJobRef.authorizationRef.scope`, errors);
+    if (!isObject(draft) || draft.status !== "draft_only" || draft.formalProviderResultAccepted !== true ||
+        draft.reason !== null || !isOpaqueEvidenceRef(draft.aiRequestId) ||
+        !/^[a-f0-9]{64}$/.test(String(draft.aiRequestFingerprint || "")) ||
+        !isOpaqueEvidenceRef(draft.receiptRef) || !isObject(job) ||
+        !isOpaqueEvidenceRef(job.jobId) || job.jobType !== "c1_ai_draft" ||
+        !nonEmptyString(job.providerId) || job.providerId === "unknown" ||
+        !nonEmptyString(job.providerVersion) || job.providerVersion === "unknown" ||
+        !/^[a-f0-9]{64}$/.test(String(job.inputFingerprint || "")) ||
+        !isOpaqueEvidenceRef(job.receiptRef) || job.terminalStatus !== "completed" ||
+        job.requestSubmitted !== true || job.responseVerified !== true || !isObject(authorization) ||
+        !isCanonicalC1AuthorizationId(authorization.authorizationId) ||
+        authorization.authorizationType !== "paid_ai_draft" || !isObject(scope) ||
+        draft.inputFingerprint !== job.inputFingerprint || draft.sourceRevision !== job.sourceRevision ||
+        (draft?.pricingReuseRecord === undefined && job.sourceRevision !== handoffRevisions?.sourceRevision - 1) ||
+        job.candidateId !== g1Identity?.candidateId || job.skuPackageId !== g1Identity?.skuPackageId ||
+        job.platform !== g1Identity?.platform || job.storeRef !== g1Identity?.storeRef?.stableStoreId ||
+        scope.candidateId !== job.candidateId || scope.skuPackageId !== job.skuPackageId ||
+        scope.platform !== job.platform || scope.storeRef !== job.storeRef ||
+        scope.sourceRevision !== job.sourceRevision || scope.jobType !== job.jobType) {
+      push(errors, `${path}.draftOnlySeo`, "必须冻结正式provider完成、回执核验和授权引用");
+    }
+    for (const [fieldPath, fieldValue] of [
+      ...["providerId", "providerVersion", "candidateId", "skuPackageId", "platform", "storeRef"]
+        .map((field) => [`${path}.draftOnlySeo.providerJobRef.${field}`, job?.[field]]),
+      ...["candidateId", "skuPackageId", "platform", "storeRef"]
+        .map((field) => [`${path}.draftOnlySeo.providerJobRef.authorizationRef.scope.${field}`, scope?.[field]])
+    ]) {
+      try {
+        assertCanonicalFrozenRef(fieldValue, fieldPath);
+      } catch (error) {
+        push(errors, fieldPath, error.message);
+      }
     }
   }
   if (!Array.isArray(value.keywordEvidenceRefs) || value.keywordEvidenceRefs.length === 0 ||
@@ -1163,6 +1210,13 @@ function validateStoredFinalCardInputSnapshot(snapshot, preparation, errors) {
   const salesSnapshot = c1?.inputSnapshots?.salesSnapshot;
   const c1Identity = c1?.identity;
 
+  if (c1?.sourceFactsRevision !== undefined) {
+    try { assertC1SupplierFactRevisionProjection({ plan: c1, sourceIdentity: identity }); }
+    catch (error) {
+      if (!(error instanceof ConfirmedSupplierInputError)) throw error;
+      push(errors, "productionAuthorizationPreparation.finalCardInputSnapshot.c1Snapshot.sourceFactsRevision", error.code);
+    }
+  }
   validateStoredC1FactSections(c1, errors);
   validateStoredC1PlatformSchemaRules(c1, preparation, errors);
 
@@ -1251,16 +1305,26 @@ function validateStoredFinalCardInputSnapshot(snapshot, preparation, errors) {
   }
   const evidenceLayer = c1?.seoEvidenceLayer;
   const draft = c1?.draftOnlySeo;
-  const job = draft?.providerJobRef;
-  if (!isObject(evidenceLayer) || !sameJson(evidenceLayer?.providerJobRef, job) ||
-      evidenceLayer?.inputFingerprint !== job?.inputFingerprint ||
-      evidenceLayer?.sourceRevision !== job?.sourceRevision || evidenceLayer?.aiRequestId !== draft?.aiRequestId ||
-      evidenceLayer?.aiRequestFingerprint !== draft?.aiRequestFingerprint || evidenceLayer?.aiReceiptId !== draft?.receiptRef) {
-    push(errors, "productionAuthorizationPreparation.finalCardInputSnapshot.c1Snapshot.seoEvidenceLayer", "必须冻结与canonical草稿一致的正式SEO作业证据层");
+  if (draft?.sourceType === "owner_confirmed_editorial") {
+    try {
+      assertC1EditorialSnapshot({ plan: c1, identity: snapshot.identity, resultSkuRevision: canonical?.handoffRevisionRefs?.sourceRevision });
+    } catch (error) {
+      if (!(error instanceof C1EditorialSourceError) && !/^C1_AI_/.test(error.message)) throw error;
+      push(errors, "productionAuthorizationPreparation.finalCardInputSnapshot.c1Snapshot.seoEvidenceLayer", error.message);
+    }
+  } else {
+    const job = draft?.providerJobRef;
+    if (!isObject(evidenceLayer) || !sameJson(evidenceLayer?.providerJobRef, job) ||
+        evidenceLayer?.inputFingerprint !== job?.inputFingerprint ||
+        evidenceLayer?.sourceRevision !== job?.sourceRevision || evidenceLayer?.aiRequestId !== draft?.aiRequestId ||
+        evidenceLayer?.aiRequestFingerprint !== draft?.aiRequestFingerprint || evidenceLayer?.aiReceiptId !== draft?.receiptRef) {
+      push(errors, "productionAuthorizationPreparation.finalCardInputSnapshot.c1Snapshot.seoEvidenceLayer", "必须冻结与canonical草稿一致的正式SEO作业证据层");
+    }
+
   }
 
   try {
-    if (!Array.isArray(c1?.bulletPointsDraft) || c1.bulletPointsDraft.length === 0 ||
+    if (!Array.isArray(c1?.bulletPointsDraft) || (c1.bulletPointsDraft.length === 0 && evidenceLayer?.factDefinitionsVersion !== C1_FACT_DEFINITIONS_VERSION) ||
         !isObject(c1?.searchKeywordsDraft) || c1.searchKeywordsDraft.status !== "draft_only" ||
         c1.searchKeywordsDraft.productionApproved !== false ||
         !Array.isArray(c1.searchKeywordsDraft.keywords) || c1.searchKeywordsDraft.keywords.length === 0) {
@@ -1598,13 +1662,15 @@ export function validateC2AssetLifecycle(value) {
       preparation?.frozenC1Handoff,
       "productionAuthorizationPreparation.frozenC1Handoff",
       value.targetContext,
-      errors
+      errors,
+      preparation?.finalCardInputSnapshot?.c1Snapshot?.draftOnlySeo
     );
     validateStoredCanonicalC1Handoff(
       preparation?.finalCardInputSnapshot?.canonicalC1,
       "productionAuthorizationPreparation.finalCardInputSnapshot.canonicalC1",
       value.targetContext,
-      errors
+      errors,
+      preparation?.finalCardInputSnapshot?.c1Snapshot?.draftOnlySeo
     );
     validateStoredFinalCardInputSnapshot(preparation?.finalCardInputSnapshot, preparation, errors);
     validateAllowedKeys(preparation?.targetContext, [
@@ -1648,7 +1714,9 @@ export function validateC2AssetLifecycle(value) {
         ) !== preparation.sourceC1Fingerprint ||
         !sameJson(preparation.finalCardInputSnapshot.identity, preparation.frozenC1Handoff.identity) ||
         !sameJson(preparation.finalCardInputSnapshot.canonicalC1, preparation.frozenC1Handoff) ||
-        !sameJson(preparation.finalCardInputSnapshot.c1Snapshot.draftOnlySeo, preparation.frozenC1Handoff.draftOnlySeo) ||
+        !editorialDraftMatchesSnapshot(preparation.frozenC1Handoff.draftOnlySeo,
+          preparation.finalCardInputSnapshot.c1Snapshot.draftOnlySeo,
+          preparation.finalCardInputSnapshot.identity, preparation.frozenC1Handoff.handoffRevisionRefs?.sourceRevision) ||
         !sameJson(preparation.finalCardInputSnapshot.c1Snapshot.keywordEvidenceRefs, preparation.frozenC1Handoff.keywordEvidenceRefs) ||
         preparation.frozenC1Handoff.handoffRevisionRefs?.sourceRevision !== value.softwareState?.sourceDataRevision ||
         preparation.frozenC1Handoff.handoffRevisionRefs?.resultRevision !== value.softwareState?.sourceDataRevision + 1 ||

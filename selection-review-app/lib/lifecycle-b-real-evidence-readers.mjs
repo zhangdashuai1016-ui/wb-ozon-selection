@@ -1,3 +1,4 @@
+import { createInternalEvidenceValidity, createSourceDeclaredEvidenceValidity, isLifecycleEvidenceValidityMetadataValid } from "./lifecycle-evidence-validity.mjs";
 import { readWbCommissionReference } from './wb-commission-reference-reader.mjs';
 import { readOzonCommissionReference } from './ozon-commission-reference-reader.mjs';
 import { normalizeEvidenceScope, normalizeRelatedSchemaScope, evidenceScopeMatches, evidenceScopeKey } from "./lifecycle-evidence-scope.mjs";
@@ -187,7 +188,12 @@ export function createLifecycleBRealEvidenceReaders({
       if (schemaCache.size >= 32) throw new Error("B_EVIDENCE_SCHEMA_CACHE_LIMIT");
       schemaCache.set(key, postOzonEvidence({ request: { scope }, kind: "schema", fetchImpl, ozonServiceUrl }));
     }
-    return schemaCache.get(key);
+    const result = await schemaCache.get(key);
+    // This connector currently generates its own 24-hour cache hint. Only its
+    // reviewed DTO shape can acquire that meaning at this adapter boundary.
+    if (Object.hasOwn(result, "validity")) throw new Error("B_EVIDENCE_SCHEMA_REMOTE_VALIDITY_UNSUPPORTED");
+    const declared = { ...result, kind: "schema", validity: createInternalEvidenceValidity("schema") };
+    return isLifecycleEvidenceValidityMetadataValid(declared) ? { ...result, validity: declared.validity } : result;
   };
   /**
    * 店铺自身没有同类目在售商品时，改读主人保存的官方佣金表版本；
@@ -220,7 +226,8 @@ export function createLifecycleBRealEvidenceReaders({
     const schema = await readSchema(request);
     normalizeRelatedSchemaScope(request.scope, schema.scope);
     const checkedAt = now();
-    const expiry = [checkedAt.getTime() + OFFICIAL_REFERENCE_TTL_MS, Date.parse(read.expiresAt ?? "")].filter(Number.isFinite);
+    const sourceExpiry = read.expiresAt == null ? null : createSourceDeclaredEvidenceValidity("commission", read.expiresAt);
+    const expiry = [checkedAt.getTime() + OFFICIAL_REFERENCE_TTL_MS, ...(sourceExpiry ? [Date.parse(read.expiresAt)] : [])];
     return {
       gaps: [],
       pack: {
@@ -230,6 +237,7 @@ export function createLifecycleBRealEvidenceReaders({
         sourceRef: `ozon-official-commission:${source.effectiveFrom}:sha256:${source.fileSha256}:${read.priceTier}`,
         checkedAt: checkedAt.toISOString(),
         expiresAt: new Date(Math.min(...expiry)).toISOString(),
+        validity: sourceExpiry ?? createInternalEvidenceValidity("commission"),
         commissionCatalogRef: {
           effectiveFrom: source.effectiveFrom,
           fileSha256: source.fileSha256,

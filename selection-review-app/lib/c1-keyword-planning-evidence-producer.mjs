@@ -4,6 +4,7 @@ import { verifyC1ProductFacts } from "./c1-product-plan.mjs";
 import { resolveC1SkuRightsReviewForFacts } from "./c1-sku-rights-review.mjs";
 import {
   buildC1KeywordSoftwareJobPlan,
+  resolveFrozenFulfillmentMode,
   C1_KEYWORD_PLANNING_EVIDENCE_VERSION
 } from "./c1-keyword-software-job-planner.mjs";
 
@@ -447,7 +448,7 @@ export function produceC1KeywordPlanningEvidence(
       resultSkuRevision: skuPackage.dataRevision,
       platform: plan.identity.targetPlatform,
       exactSupplierSkuId: plan.identity.supplierSkuId,
-      fulfillment: skuPackage.fulfillmentMode,
+      fulfillment: resolveFrozenFulfillmentMode(skuPackage, plan.inputSnapshots.profitModel),
       profitModelVersion: plan.inputSnapshots.profitModel.profitModelVersion,
       profitModelFingerprint: digest(plan.inputSnapshots.profitModel),
       salesSnapshotId: plan.inputRefs.salesSnapshotId,

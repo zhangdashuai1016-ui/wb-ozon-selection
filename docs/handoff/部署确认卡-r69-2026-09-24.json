@@ -1,0 +1,295 @@
+{
+  "schemaVersion": "deployment-card-r69-v1",
+  "packageDirectory": "/private/tmp/claude-501/-Users-shuaizhang--local-share-wb-ozon-engineering-github-checkpoint-20260909/9044d028-14fc-47fa-ac04-567e754416db/scratchpad/iso-r69/app",
+  "installedVersion": "/Users/shuaizhang/Library/Application Support/今日选品评审台-versions/20260924-runtime-view-source-r68",
+  "launchAgent": "/Users/shuaizhang/Library/LaunchAgents/com.shuaizhang.selection-review-app.plist",
+  "persistentData": "/Users/shuaizhang/Library/Application Support/今日选品评审台/data/candidates.json",
+  "dataBaselineSha256_16": "c14c3807d4647aba",
+  "dataBaselineBytes": 16657485,
+  "dataBaselineNote": "讲解会话给的 06ed17e2… 与当日实测不一致，按当日实测为准。主人填库存与改主题标签都在 Ozon 后台完成，未改动本地业务数据。",
+  "launchAgentBaselineSha256_16": "6704fdd48e3d405d",
+  "launchAgentBaselineBytes": 15933,
+  "launchEnvironmentChange": "只有一项：SELECTION_REVIEW_D_PLATFORM_OBSERVATION_JSON 里**替换**已有的背心条目（policy:…2026-09-22 / version:2 / expiresAt 2026-09-23T14:00Z → policy:…2026-09-24 / version:3 / expiresAt 2026-12-31T00:00:00Z）。不是新增——同一绑定下两条会 D_OBSERVATION_CONFIGURATION_AMBIGUOUS。其余环境变量一律不动。",
+  "candidateId": "candidate:b8909f27-49e2-4a94-8c40-1a2fc2139ce7",
+  "candidateDataRevision": 78,
+  "skuDataRevision": 15,
+  "productionAuthorizationRoundV1": 2,
+  "productionAuthorizationIdSuffix": ":14:2:r2",
+  "productionRecord": null,
+  "rootCause": {
+    "5": "主人改为自己在后台填库存；软件必须诚实登记而不能谎报自己写过——AGENTS 10.2 要求 ProductionRecord 绑定本轮真实执行回执。",
+    "6": "库存续写重新领取会铸出新租约（lease:d-inventory:*），准备证据仍记着导入那次的租约（lease:de:*），前缀由构造决定永不相等；d-production-preparation-contract.mjs:66 的持有者比对在失败档结算时必炸，事务回滚导致失败落不了盘。",
+    "7": "lib/platform-write-bindings.mjs:10 把属性 23171 命名为 searchKeywords，但它在 Ozon 是 Хештеги（主题标签）；适配器把所有词用空格拼成一条发出，既无 # 又内部带空格，两条平台规则同时违反。"
+  },
+  "changedApplicationFiles": [
+    {
+      "path": "lib/capability-registry.mjs",
+      "r68": "acd50f976deb1dde",
+      "r69": "599c4172c9c5737a",
+      "bytes": 203
+    },
+    {
+      "path": "lib/d-e-runtime-services.mjs",
+      "r68": "08d2906ed4ea41d4",
+      "r69": "cd3c3f5f204009ba",
+      "bytes": 4383
+    },
+    {
+      "path": "lib/d-e-runtime-view.mjs",
+      "r68": "f9d577e081a8311d",
+      "r69": "d96d9b0506ac0a91",
+      "bytes": 4627
+    },
+    {
+      "path": "lib/d-e-software-integration.mjs",
+      "r68": "a95e2b39c7970d8d",
+      "r69": "a963a54e96a8b73d",
+      "bytes": 1380
+    },
+    {
+      "path": "lib/d-platform-observation-contract.mjs",
+      "r68": "9e9e3d38c7b35b4b",
+      "r69": "a0f12af7c57d7b91",
+      "bytes": 10744
+    },
+    {
+      "path": "lib/d-production-preparation-contract.mjs",
+      "r68": "f373cae2c144c4da",
+      "r69": "3b196e614bc54a48",
+      "bytes": 1301
+    },
+    {
+      "path": "lib/ozon-account-read-services.mjs",
+      "r68": "5aaa20f96e1a57bf",
+      "r69": "5dfc9fec9091ea31",
+      "bytes": 3435
+    },
+    {
+      "path": "lib/ozon-final-product-preview.mjs",
+      "r68": "ee56ed1d8feb26da",
+      "r69": "a9dfc8ddb4d8c6a1",
+      "bytes": 241
+    },
+    {
+      "path": "lib/ozon-seller-api-production-adapter.mjs",
+      "r68": "89ab64aa1068865a",
+      "r69": "d76b9dc5a7bee91f",
+      "bytes": 23
+    },
+    {
+      "path": "lib/software-job-contract.mjs",
+      "r68": "71eda8c91d29bfb2",
+      "r69": "c93599fdf7de0f38",
+      "bytes": 987
+    },
+    {
+      "path": "lib/software-job-repository.mjs",
+      "r68": "8136c78bd3daac78",
+      "r69": "0e4d98692babfc88",
+      "bytes": 2232
+    },
+    {
+      "path": "schema/d-software-execution-state-v2.schema.json",
+      "r68": "33f27a6b71697acb",
+      "r69": "7da8a0f986f1078d",
+      "bytes": 1759
+    },
+    {
+      "path": "server.mjs",
+      "r68": "3176821bd3150ee8",
+      "r69": "a8840a939533e48c",
+      "bytes": 2541
+    }
+  ],
+  "addedApplicationFiles": [
+    {
+      "path": "lib/d-initial-import-recovery-use-case.mjs",
+      "r69": "ffe4afec16290ec9",
+      "bytes": 7061
+    },
+    {
+      "path": "lib/ozon-hashtag-attribute.mjs",
+      "r69": "20401e5608448f0b",
+      "bytes": 1493
+    }
+  ],
+  "removedApplicationFiles": [
+    {
+      "path": "dist/assets/index-BbKUzbRU.js",
+      "note": "被 index-4UlBjdmS.js 取代"
+    },
+    {
+      "path": "dist/assets/C1PaidDraftPanel-WXOKkowV.js"
+    },
+    {
+      "path": "dist/assets/ProductPage-Bw5KE5US.js"
+    },
+    {
+      "path": "dist/assets/UserInspector-C3nTtn2B.js"
+    }
+  ],
+  "frontendBundle": {
+    "previousMain": "index-BbKUzbRU.js",
+    "main": "index-4UlBjdmS.js",
+    "replacedChunks": [
+      "C1PaidDraftPanel",
+      "ProductPage",
+      "UserInspector"
+    ],
+    "changedSourceFiles": [
+      "src/api.js",
+      "src/dESoftwareRuntimeView.js",
+      "src/components/DESoftwareRuntimeCard.jsx",
+      "src/components/CandidateDetail.jsx",
+      "src/App.jsx"
+    ],
+    "note": "r68 安装包不含 src/，界面改动只能靠主包名核。主包名没变即界面未上线、恢复按钮不会出现。"
+  },
+  "dProductionJobsMustRemainUnchanged": [
+    {
+      "idSuffix": "57fa511833023da3b4390d6a",
+      "status": "failed",
+      "externalRequestState": "not_sent",
+      "failureClass": "service_restart_before_external_request"
+    },
+    {
+      "idSuffix": "833023da3b4390d6a:round2",
+      "status": "failed",
+      "externalRequestState": "not_sent",
+      "failureClass": "d-assets-error-before-external-request"
+    },
+    {
+      "idSuffix": "f8076a88703363a76c3c6085",
+      "status": "failed",
+      "externalRequestState": "not_sent",
+      "failureClass": "d-production-preflight-not-ready"
+    },
+    {
+      "idSuffix": "8703363a76c3c6085:round2",
+      "status": "failed",
+      "externalRequestState": "succeeded",
+      "failureClass": "d-initial-import-context-changed",
+      "note": "恢复按钮对的就是这条"
+    }
+  ],
+  "ozonDEPreflightEvidenceKeySuffixes": [
+    ":6222816678021:14:2",
+    ":6222816678021:14:2:r2"
+  ],
+  "observationJobs": 0,
+  "eReadbackJobs": 0,
+  "externalRequests": 0,
+  "platformWrites": 0,
+  "productionAuthorizationCreated": false,
+  "ownerClickSequenceAfterDeploy": [
+    "对账并登记本轮导入（只此一下）"
+  ],
+  "expectedButtonsAfterDeploy": {
+    "recoverInitialImport": true,
+    "continueSaved": false,
+    "dispatchNewRound": false,
+    "rollbackAuthorization": false
+  },
+  "expectedTerminal": "owner_stock_registered：商品由软件建、库存由主人手工写入、E 由主人人工核对；无 productionRecord、无 E 作业、零平台写入。",
+  "ciFullSuite": {
+    "command": "node scripts/run-ci-tests.mjs（不经管道，退出码单独落文件）",
+    "tests": 2747,
+    "pass": 2733,
+    "fail": 14,
+    "cancelled": 0,
+    "skipped": 0,
+    "realExitCode": 1,
+    "baselineRed": 14,
+    "baselineMatch": "逐条一致，无新增、无消失",
+    "baselineBreakdown": {
+      "c1Draft": 9,
+      "dESoftwarePersistence": 2,
+      "finalPricingC1Reuse": 2,
+      "eReadbackSoftwareUseCase": 1
+    },
+    "newTestsThisRound": 20,
+    "log": "…/scratchpad/ci-r69c.log",
+    "exitCodeFile": "…/scratchpad/ci-r69c-exit.txt",
+    "interimRun": {
+      "fail": 22,
+      "newlyRed": 8,
+      "resolved": "1 条真回归（② 策略门早退盖住账户缺口）+ 6 条 fixture/接线 + 1 条快照未重生成；全部修复后回到 14"
+    },
+    "voidedRuns": "前两跑在运行中被改动源码，结果不可采信，已杀掉重跑；后台提示里的 exit code 0 是外层 shell 的，不是 CI 的",
+    "correspondsToShippedTree": "是：起跑于「补两档停止文案」之后；包内 lib/d-e-runtime-view.mjs 与工作树同为 d96d9b0506ac0a91",
+    "supersededRun": "ci-r69b（同为 14 红，但不对应最终树，不作为本卡依据）"
+  },
+  "operationalConsequence": "观察策略按候选+SKU+绑定逐条匹配，且 r69 起无策略即拒绝上架：今后每个新品上架前都要在 plist 加一条策略并重启服务。下一轮待办：店铺级默认策略。",
+  "productionBindingVerificationExpiresAt": "2026-12-14T00:00:00Z",
+  "note": "部署成功不等于背心已上架。库存是主人手工填的，软件只登记不重写；E 由主人人工核对，本轮不生成 productionRecord。",
+  "serviceIdlePerformance": {
+    "status": "实测、机制部分定位、未修复；不属于 r69",
+    "underCiLoad": {
+      "cpuPercent": [
+        91,
+        103.9,
+        93.4
+      ],
+      "rssMB": [
+        209,
+        364,
+        249
+      ],
+      "healthSeconds": 15
+    },
+    "idleAfterCi": {
+      "cpuPercent": [
+        119.7,
+        121.3,
+        118.2
+      ],
+      "rssMB": [
+        1167,
+        1060,
+        1234
+      ],
+      "healthSeconds": 2,
+      "port": 4317,
+      "httpCode": 200
+    },
+    "conclusion": "不是 CI 负载放大：机器空闲后 CPU 反而更高。RSS 由约 250 MB 涨至约 1.2 GB（进程运行 5 小时），疑似另有增长性占用，需单独定位。",
+    "mechanism": "三个泵 pumpIntervalMs=1000，每拍经 software-job-repository.mjs:820 → business-state-repository.mjs:190 读取并解析 16.6 MB 全量文档、全量校验、水合生产实体，只为看 runtime.softwareJobs 是否有排队作业。"
+  },
+  "packageVerifiedAtCardIssue": true,
+  "packageNote": "本卡出具时已打好并核过；部署时只允许复制这个包，不许现场重新打包。包内关键文件与工作树逐个同哈希，dist 逐字节一致。",
+  "targetVersion": "/Users/shuaizhang/Library/Application Support/今日选品评审台-versions/20260924-owner-stock-registration-r69",
+  "frontendSourceHashes": {
+    "src/api.js": "06389a415635bbd6",
+    "src/dESoftwareRuntimeView.js": "5691f1a6aaaf4a9e",
+    "src/components/DESoftwareRuntimeCard.jsx": "e55bc409775b73f1",
+    "src/components/CandidateDetail.jsx": "a6c72825a88b7f06",
+    "src/App.jsx": "b28c8909695e9662"
+  },
+  "capabilitySnapshot": {
+    "path": "capability-snapshots/three-store-capability-snapshot-v2.json",
+    "sha256_16": "754879264fd64162",
+    "artifacts": 796
+  },
+  "policyReadback": {
+    "newPolicyRefCount": 1,
+    "oldPolicyRefCount": 0,
+    "method": "ps eww 后只 grep -c，两条都要核，只打印数字"
+  },
+  "ownerStopMessages": {
+    "inventory_request_superseded": "商品已经在平台上建好了（本轮导入已被接受）。但本轮冻结的导入内容与当前软件生成的已不一致，为避免发出一份对不上的请求，库存没有发送，软件已安全停下。请不要重签授权、也不要重新导入——重签会在平台上再建一个重复商品。请把这条告诉施工方处理。",
+    "inventory_stock_mismatch": "平台仓库里读到的库存，既不是 0 也不等于本轮授权锁定的数量，软件不会覆盖它，已安全停下。请不要重签授权、也不要重新导入。请先在卖家后台确认该仓库实际应有多少件，再把结论告诉施工方。",
+    "note": "两档原先都落进笼统的 blocked 文案；本轮补上专属文案并配真视图断言。卡的早前草稿曾把第一档写成「需重新签授权」，那是凭印象编的、视图里没有，照做会建重复商品，已改正。"
+  },
+  "testFileHashes": {
+    "tests/d-inventory-continuation-settlement.test.mjs": "0cd777a5cc08dfd7",
+    "tests/d-owner-stock-registration.test.mjs": "2fa1e15a32456c60",
+    "tests/d-initial-import-stop-contract.test.mjs": "350e23462b3d9f41",
+    "tests/fixtures/d-platform-observation-runtime-fixture.mjs": "3c725db185bc609b",
+    "tests/d-production-job-terminal-guards.test.mjs": "cdca37d051868425",
+    "tests/ozon-seller-api-production-adapter.test.mjs": "908304a2a4f56842",
+    "tests/ozon-final-product-preview.test.mjs": "f66364870e02d69e",
+    "tests/ozon-account-read-integration.test.mjs": "a654aa1bac89eb6d",
+    "tests/d-e-runtime-services.test.mjs": "f8a6b83057c73057",
+    "tests/production-authorization-rollback-continue.test.mjs": "b9126581964deab9"
+  }
+}

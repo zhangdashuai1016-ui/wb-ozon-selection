@@ -11,6 +11,27 @@ const port = Number(process.env.SELECTION_REVIEW_TEST_PORT);
 const published = await loadPublishedSchemaValidator();
 const validateSku = published.getSchema("product-lifecycle-v1.1"), validateJob = published.getSchema("software-job-v1.schema.json");
 
+test("new final-plan preparation reports missing local OCR without changing business state or authorizing production", async t => {
+  const fixture = await productionOwnerDecisionHttpFixture();
+  const directory = await mkdtemp(path.join(tmpdir(), "final-plan-prepare-http-"));
+  const api = await startSavedDEApi(t, { directory, port, document: fixture.document, binding: fixture.binding, services: [] });
+  await api.authenticate();
+  const before = await api.readBytes();
+  const input = { candidateId: fixture.candidate.id, skuPackageId: fixture.candidate.lifecycleV11.skuPackage.skuPackageId,
+    dataRevision: fixture.candidate.dataRevision };
+  const route = `/api/candidates/${encodeURIComponent(input.candidateId)}/lifecycle/c1/revise-final-plan`;
+  const response = await api.post(route, input);
+  assert.equal(response.status, 503, JSON.stringify(response.body));
+  assert.equal(response.body.code, "C1_IMAGE_TEXT_SERVICE_UNAVAILABLE");
+  assert.equal(response.body.paidCalls, 0);
+  assert.equal(response.body.platformWrites, 0);
+  assert.deepEqual(await api.readBytes(), before);
+  const stale = await api.post(route, { ...input, dataRevision: input.dataRevision + 1 });
+  assert.equal(stale.status, 409);
+  assert.deepEqual(await api.readBytes(), before);
+  await api.assertClean();
+});
+
 for (const missing of ["service", "transport"]) {
   test(`one authenticated PA confirmation persists its unique queued D job when ${missing} is missing`, async t => {
     const withService = missing !== "service";

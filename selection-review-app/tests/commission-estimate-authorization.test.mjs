@@ -311,7 +311,7 @@ test('那一块什么时候不该摆：确认成功之后、不是这一类、�
 import { createSavedConditionalBFixture } from './fixtures/real-a-b-flow-fixture.mjs';
 import {
   CONDITIONAL_COMMISSION_BLOCK_CODES, EXACT_COMMISSION_RECALCULATION_ACTION, ExactCommissionRequiredForProductionError,
-  PRODUCTION_EXACT_COMMISSION_REQUIRED, activeProfitModelOf, assertExactCommissionBeforeProduction,
+  PRODUCTION_EXACT_COMMISSION_REQUIRED, activeProfitModelOf, assertFormalCommissionBeforeProduction,
   buildEstimatedCommissionNoticeStep, profitThresholdSatisfiedByOwnLogic, resolveConditionalCommissionRelease
 } from '../lib/commission-estimate-authorization.mjs';
 
@@ -432,7 +432,7 @@ test('当前生效那一份利润记录必须唯一，指不到或者指到两�
 
 test('佣金还是估算时，上架那道闸门拒绝，并给出稳定 ASCII 码和主人下一步', () => {
   const sku = conditionalCandidate.lifecycleV11.skuPackage;
-  assert.throws(() => assertExactCommissionBeforeProduction(sku), error => {
+  assert.throws(() => assertFormalCommissionBeforeProduction(sku), error => {
     assert.ok(error instanceof ExactCommissionRequiredForProductionError);
     assert.equal(error.code, PRODUCTION_EXACT_COMMISSION_REQUIRED);
     assert.equal(error.exactCommissionRequiredForProduction, true);
@@ -444,15 +444,15 @@ test('佣金还是估算时，上架那道闸门拒绝，并给出稳定 ASCII �
   // 那个码必须能被生产确认路由分类，否则主人收到的是 500 和一句读不懂的话。
   // 这条正则逐字取自那条路由的分类判断；那边改了这里要红（路由那一头由 cross-stage-contract-schema 钉着）。
   assert.match(PRODUCTION_EXACT_COMMISSION_REQUIRED, /^(?:PRODUCTION_OWNER|PRODUCTION_AUTHORIZATION|BUSINESS_MUTATION|RUNTIME_OPERATION)_[A-Z_]{1,100}$/);
-  // official_reference 在利润计算里和 exact 同级，但往平台写东西这一刻仍然不算数。
+  // official_reference 通过正式佣金类型前置检查；生产另有完整冻结证据门禁。
   const swap = mode => {
     const next = structuredClone(sku);
     next.profitModels.at(-1).commissionMode = mode;
     return next;
   };
-  assert.throws(() => assertExactCommissionBeforeProduction(swap('official_reference')), { code: PRODUCTION_EXACT_COMMISSION_REQUIRED });
-  assert.throws(() => assertExactCommissionBeforeProduction(null), { code: PRODUCTION_EXACT_COMMISSION_REQUIRED });
-  assert.equal(assertExactCommissionBeforeProduction(swap('exact')).commissionMode, 'exact');
+  assert.equal(assertFormalCommissionBeforeProduction(swap('official_reference')).commissionMode, 'official_reference');
+  assert.throws(() => assertFormalCommissionBeforeProduction(null), { code: PRODUCTION_EXACT_COMMISSION_REQUIRED });
+  assert.equal(assertFormalCommissionBeforeProduction(swap('exact')).commissionMode, 'exact');
 });
 
 test('「佣金还是估算的」那一块跟着商品走，语气是还差一道手续，不是出了问题', () => {

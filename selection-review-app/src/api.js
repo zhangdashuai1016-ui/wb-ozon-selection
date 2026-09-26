@@ -42,6 +42,15 @@ async function uploadFile(path, file) {
 }
 
 export const api = {
+  reviseC1FinalPlan: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/revise-final-plan`, {
+    method: "POST", body: JSON.stringify(payload)
+  }),
+  confirmC1EditorialContent: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/confirm-editorial-content`, {
+    method: "POST", body: JSON.stringify(payload)
+  }),
+  confirmC1Content: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/confirm-content`, {
+    method: "POST", body: JSON.stringify(payload)
+  }),
   getProductDetails: (candidateId,revision,signal) => request(`/api/candidates/${encodeURIComponent(candidateId)}/product-details?revision=${revision}`,{signal}),
   authorizeProductDetails: payload => request(`/api/candidates/${encodeURIComponent(payload.candidateId)}/product-details/authorize`,{method:'POST',body:JSON.stringify(payload)}),
   continueProductDetails: payload => request(`/api/candidates/${encodeURIComponent(payload.candidateId)}/product-details/continue`,{method:'POST',body:JSON.stringify(payload)}),
@@ -64,7 +73,28 @@ export const api = {
   saveFinalPricingReview: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/final-pricing/review`, {
     method: "POST", body: JSON.stringify(payload)
   }),
+  continueC1Preparation: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/continue-preparation`, {
+    method: 'POST', body: JSON.stringify(payload)
+  }),
   retryC1KeywordHandoff: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/keyword-handoff/retry`, {
+    method: "POST", body: JSON.stringify(payload)
+  }),
+  // 同一次1688采集里已采到、却没搬进冻结快照的供应商属性（面料、适合季节、颜色…）。免费。
+  backfillC1SupplyAttributes: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/supply-attribute-backfill`, {
+    method: "POST", body: JSON.stringify(payload)
+  }),
+  // 这个类目的全部属性、可当依据的已确认事实、已经签过的映射。只读，不查字典。
+  getC1OzonAttributes: (candidateId, signal) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/ozon-attributes`, { signal }),
+  // 重读这个类目的 Schema，把计划里冻结的那一份换成新的（只读、免费）。
+  refreshC1CategorySchema: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/refresh-category-schema`, {
+    method: "POST", body: JSON.stringify(payload)
+  }),
+  // 让软件把属性表填好（会花一次 AI 调用的钱，所以是主人主动点）。
+  proposeC1OzonAttributes: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/ozon-attribute-proposal`, {
+    method: "POST", body: JSON.stringify(payload)
+  }),
+  // 主人签下「这条中文事实，在Ozon上就是这个俄文字典值」。
+  saveC1OzonAttributeMapping: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/ozon-attribute-mapping`, {
     method: "POST", body: JSON.stringify(payload)
   }),
   getAccountPreparations: signal => request('/api/account-preparations',{signal}),
@@ -72,6 +102,9 @@ export const api = {
   authorizeAccountDiscovery: payload => request('/api/account-preparations/authorize',{method:'POST',body:JSON.stringify(payload)}),
   continueAccountDiscovery: payload => request('/api/account-preparations/continue',{method:'POST',body:JSON.stringify(payload)}),
   selectAccountWarehouse: payload => request('/api/account-preparations/select-warehouse',{method:'POST',body:JSON.stringify(payload)}),
+  readOriginalC1DraftResult: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/paid-draft/reconcile-result`, {
+    method: "POST", body: JSON.stringify(payload)
+  }),
   continueSavedC1Draft: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/paid-draft/continue-saved`, {
     method: "POST", body: JSON.stringify(payload)
   }),
@@ -188,6 +221,22 @@ export const api = {
   continueSavedDE: (candidateId, payload) =>
     request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/d-e/continue-saved`, {
       method: "POST", body: JSON.stringify({ candidateId, ...payload })
+    }),
+  rollbackProductionAuthorization: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/d/authorization-rollback`, {
+      method: "POST", body: JSON.stringify({ candidateId, confirmNothingWasSentToPlatform: true, ...payload })
+    }),
+  reobserveDUnknownOutcome: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/d/unknown-outcome-reobservation`, {
+      method: "POST", body: JSON.stringify({ candidateId, confirmPlatformAlreadyCreatedProduct: true, ...payload })
+    }),
+  recoverDInitialImport: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/d/initial-import-recovery`, {
+      method: "POST", body: JSON.stringify({ candidateId, confirmImportAlreadyAcceptedByPlatform: true, ...payload })
+    }),
+  dispatchDProductionRound: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/d/production-round`, {
+      method: "POST", body: JSON.stringify({ candidateId, confirmPreviousRoundSentNothing: true, ...payload })
     }),
   authorizeAccountRead: payload => request(`/api/candidates/${encodeURIComponent(payload.candidateId)}/lifecycle/account-read/authorize`, {
     method: 'POST', body: JSON.stringify(payload)

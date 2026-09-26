@@ -224,7 +224,7 @@ test("C2公共Schema锁定canonical handoff、正式provider完成回执与空�
   assert.equal(canonical.properties.draftOnlySeo.$ref, "#/$defs/draftOnlySeo");
   assert.equal(canonical.properties.identity.$ref, "#/$defs/c2G1Identity");
 
-  const draft = c2.$defs.draftOnlySeo;
+  const draft = c2.$defs.draftOnlySeo.oneOf[0];
   assert.equal(draft.additionalProperties, false);
   assert.equal(draft.properties.status.const, "draft_only");
   assert.equal(draft.properties.formalProviderResultAccepted.const, true);
@@ -264,7 +264,7 @@ test("C2公共Schema锁定canonical handoff、正式provider完成回执与空�
 test("C2公共Schema拒绝旧宽draft状态、秘密形态引用和生产副作用", async () => {
   const c2 = await schema("c2-software-input-v1.schema.json");
   assert.equal(c2.$defs.seoDraft.properties.status.const, "draft_only");
-  assert.notEqual(c2.$defs.draftOnlySeo.properties.formalProviderResultAccepted.const, false);
+  assert.notEqual(c2.$defs.draftOnlySeo.oneOf[0].properties.formalProviderResultAccepted.const, false);
   assert.equal(c2.$defs.initialAssetRegions.properties.finalUploads.maxItems, 0);
   for (const rule of Object.values(c2.$defs.executionPolicy.properties)) assert.equal(rule.const, false);
 
@@ -343,11 +343,11 @@ test("C2公共Schema把冻结Schema、媒体摘要与正式关键词引用纳入
   assert.equal(c2.$defs.canonicalHandoff.properties.keywordEvidenceRefs.uniqueItems, true);
   assert.equal(c2.$defs.canonicalHandoff.properties.unknownManifest.maxItems, 0);
   assert.equal(c2.$defs.verifiedFacts.properties.unknownManifest.items.$ref, "#/$defs/informationalUnknown");
-  assert.equal(c2.$defs.seoEvidenceLayer.additionalProperties, false);
+  assert.equal(c2.$defs.seoEvidenceLayer.oneOf[0].additionalProperties, false);
   for (const field of ["inputEvidenceRefs", "providerJobRef", "productionWrites"]) {
-    assert.ok(c2.$defs.seoEvidenceLayer.required.includes(field), field);
+    assert.ok(c2.$defs.seoEvidenceLayer.oneOf[0].required.includes(field), field);
   }
-  assert.equal(c2.$defs.seoEvidenceLayer.properties.productionWrites.const, 0);
+  assert.equal(c2.$defs.seoEvidenceLayer.oneOf[0].properties.productionWrites.const, 0);
   for (const [field, definition] of Object.entries({
     exactSkuVerification: "exactSkuVerificationFacts",
     productAttributes: "productAttributeFacts",
@@ -691,16 +691,21 @@ function assertAa66ProjectionConsistency(ready) {
 }
 
 test("aa66正式ready形状投影通过公共Schema并保留运行时同源边界", async () => {
-  const [c2, lifecycle] = await Promise.all([
+  const [c2, lifecycle, editorial, completedEditorial, c2Assets] = await Promise.all([
     schema("c2-software-input-v1.schema.json"),
-    schema("product-lifecycle-v1.1.schema.json")
+    schema("product-lifecycle-v1.1.schema.json"),
+    schema("c1-editorial-source-v1.schema.json"),
+    schema("c1-editorial-source-v2.schema.json"),
+    schema("c2-asset-lifecycle-v1.1.schema.json")
   ]);
-  const documents = new Map([[c2.$id, c2], [lifecycle.$id, lifecycle]]);
+  const documents = new Map([[c2.$id, c2], [lifecycle.$id, lifecycle], [editorial.$id, editorial], ["c1-editorial-source-v1.schema.json", editorial],
+    [completedEditorial.$id, completedEditorial], ["c1-editorial-source-v2.schema.json", completedEditorial],
+    [c2Assets.$id, c2Assets], ["c2-asset-lifecycle-v1.1.schema.json", c2Assets]]);
   const { ready } = aa66ReadyProjection();
   assertExactSchemaKeys(ready, c2, "ready");
   assertExactSchemaKeys(ready.c1, c2.$defs.c1Snapshot, "ready.c1");
   assertExactSchemaKeys(ready.c1.canonicalHandoff, c2.$defs.canonicalHandoff, "canonicalHandoff");
-  assertExactSchemaKeys(ready.c1.canonicalHandoff.draftOnlySeo, c2.$defs.draftOnlySeo, "draftOnlySeo");
+  assertExactSchemaKeys(ready.c1.canonicalHandoff.draftOnlySeo, c2.$defs.draftOnlySeo.oneOf[0], "draftOnlySeo");
   assertExactSchemaKeys(ready.c1.canonicalHandoff.draftOnlySeo.providerJobRef, c2.$defs.providerJobRef, "providerJobRef");
   assertExactSchemaKeys(ready.assets, c2.$defs.initialAssetRegions, "assets");
   assertExactSchemaKeys(ready.assets.collected[0], c2.$defs.collectedAsset, "collectedAsset");
@@ -1248,7 +1253,7 @@ test("server只接原子授权处理器且旧入口永久零派发", async () =>
   assert.match(lifecycleRoute, /ExactCommissionRequiredForProductionError/);
   assert.match(lifecycleRoute, /code: error\.code, ownerNextStep: error\.ownerNextStep/);
   assert.match(lifecycleRoute, /exactCommissionRequiredForProduction: true/);
-  assert.match(lifecycleRoute, /用更好的费用证据重算/u);
+  assert.match(lifecycleRoute, /使用精确费用复算/u);
   assert.doesNotMatch(lifecycleRoute, /createCandidateDispatch|deliverDispatch|createProductionPlan|ExecutionIntent/);
   const legacyStart = source.indexOf('if (req.method === "POST" && productionAuthorizationRoute)');
   const legacyEnd = source.indexOf('const dispatchClaimRoute', legacyStart);

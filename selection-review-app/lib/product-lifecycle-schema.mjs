@@ -7,6 +7,7 @@ import {
   assertFinalAssetLocation,
   assertNoProductionSecrets,
   collectProductionSecretErrors,
+  dProductionJobRound,
   fingerprintCanonicalRecord
 } from "./production-contract-primitives.mjs";
 import { validateProductionAuthorizationPreparation, isProductionExecutionBinding, assertAuthorizedMediaUnchanged } from "./production-authorization-preparation.mjs";
@@ -686,9 +687,9 @@ export function validateProductionAuthorizationRecord(value, context = {}) {
       const card = scope.finalCardInputSnapshot;
       validateAuthorizationG1(card.identity, `${path}.lockedScope.finalCardInputSnapshot.identity`, errors, { source: true });
       if (card.schemaVersion !== "c2-final-card-input-snapshot-v1" || card.skuPackageId !== scope.skuPackageId || card.variantKey !== scope.variantKey || card.sourceC1Fingerprint !== value.sourceC1Fingerprint || card.resultDataRevision !== value.authorizedDataRevision || card.sourceDataRevision + 1 !== card.resultDataRevision || card.activeProfitModelVersion !== scope.activeProfitModelVersion || card.activeProfitModel?.result !== "passed" || !sameJson(card.identity, value.sourceIdentity)) push(errors, `${path}.lockedScope.finalCardInputSnapshot`, "最终卡、身份、利润与revision必须同源");
-      if (singleOwner && (card.activeProfitModel?.commissionMode !== "exact" ||
+      if (singleOwner && (!["exact", "official_reference"].includes(card.activeProfitModel?.commissionMode) ||
           scope.buyerTargetPrice?.amount !== card.activeProfitModel?.recommendedSalePriceRub || scope.platformWritePrice?.amount !== card.activeProfitModel?.recommendedSalePriceCny ||
-          !sameJson(scope.priceConversion, card.activeProfitModel?.priceConversion))) push(errors, `${path}.lockedScope.platformWritePrice`, "新版授权价格必须保持当前冻结精确利润方案，不得原地改价");
+          !sameJson(scope.priceConversion, card.activeProfitModel?.priceConversion))) push(errors, `${path}.lockedScope.platformWritePrice`, "新版授权价格必须保持当前冻结正式利润方案，不得原地改价");
       if (fingerprintCanonicalRecord(card) !== value.sourceFinalCardInputFingerprint) push(errors, `${path}.sourceFinalCardInputFingerprint`, "最终卡指纹不一致");
       if (fingerprintCanonicalRecord({ g1Identity: card.identity, c1Snapshot: card.c1Snapshot }) !== value.sourceC1Fingerprint) push(errors, `${path}.sourceC1Fingerprint`, "C1指纹不一致");
     }
@@ -810,7 +811,7 @@ function validateDHandoff(value, pkg, errors) {
     if (!isObject(ref) || ref.jobType !== "d_production_execution" || ref.candidateId !== value.candidateId ||
         ref.skuPackageId !== value.skuPackageId || ref.sourceRevision !== value.sourceCandidateRevision ||
         ref.resultRevision !== value.resultCandidateRevision || ref.inputFingerprint !== fingerprint ||
-        ref.jobId !== `d-production-job:${fingerprint}`) {
+        dProductionJobRound(ref.jobId, fingerprint) !== 1) {
       push(errors, "dHandoff.softwareJobRef", "必须精确绑定同一PA的唯一D作业和冻结修订");
     }
   }

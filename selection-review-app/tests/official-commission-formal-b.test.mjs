@@ -9,7 +9,7 @@ import { runLifecycleBEvidencePreparation } from "../lib/lifecycle-b-evidence-pr
 import { createLifecycleBRealEvidenceProviderRegistry } from "../lib/lifecycle-b-real-evidence-readers.mjs";
 import { runRealAConfirmationToBAndC1 } from "../lib/real-a-b-c1-flow.mjs";
 import { createC1ProductPlan } from "../lib/c1-product-plan.mjs";
-import { assertExactCommissionBeforeProduction } from "../lib/commission-estimate-authorization.mjs";
+import { assertFormalCommissionBeforeProduction } from "../lib/commission-estimate-authorization.mjs";
 import { buildRealAConfirmationCard } from "../lib/real-a-confirmation-card.mjs";
 import { SALES_SNAPSHOT_SCHEMA_VERSION, SEERFAR_CATEGORY_DETAIL_SOURCE, SEERFAR_CATEGORY_DETAIL_COLLECTOR_MODE,
   SEERFAR_CATEGORY_DETAIL_COLLECTOR_VERSION, validateSalesSnapshot } from "../lib/sales-snapshot.mjs";
@@ -271,7 +271,13 @@ test("命中时把平台大类一起传给本地费表，作为重名类型的�
       versionState: structuredClone(VERSION_STATE) },
     readOzonCommissionReferenceImpl: async (input) => {
       observed.push(structuredClone(input));
-      return withLocalCatalog(catalogPath => readOzonCommissionReference({ ...input, catalogPath, asOf: AS_OF }));
+      return withLocalCatalog(async catalogPath => {
+        const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
+        // This producer declares its internal refresh hint only for the reviewed official attachment source.
+        catalog.sourceUrl = "https://cdn.ozone.ru/s3/ozon-disk-api/global-education/ru/commissions/ozon-fees/comissions/Tarifs_CN_01_12_2025_1761720496.xlsx";
+        await writeFile(catalogPath, JSON.stringify(catalog), "utf8");
+        return readOzonCommissionReference({ ...input, catalogPath, asOf: AS_OF });
+      });
     },
     fetchImpl: evidenceServiceStub()
   });
@@ -333,9 +339,8 @@ test("官方费表命中形成正式B并放行文案素材；估算佣金照旧�
   assert.equal(officialRun.skuPackage.c1ProductPlan.status, "inputs_ready");
   assert.equal(officialRun.c1Handoff.trigger, "b_passed_auto_c1");
 
-  // 上架那道闸门不跟着放宽：往平台写价格、写库存那一刻仍然只认平台实收的精确费率。
-  assert.throws(() => assertExactCommissionBeforeProduction(officialRun.skuPackage),
-    /PRODUCTION_AUTHORIZATION_EXACT_COMMISSION_REQUIRED/);
+  // 正式佣金类型可进入后续完整冻结输入核验；这本身不创建生产授权。
+  assert.equal(assertFormalCommissionBeforeProduction(officialRun.skuPackage).commissionMode, "official_reference");
 
   const estimated = addEvidenceContext(await candidate());
   const estimatedRun = runRealAConfirmationToBAndC1({
@@ -349,7 +354,7 @@ test("官方费表命中形成正式B并放行文案素材；估算佣金照旧�
   assert.equal(estimatedRun.skuPackage.businessPhase, "B");
   assert.equal(estimatedRun.skuPackage.c1ProductPlan, null);
   assert.equal(estimatedRun.c1Handoff, null);
-  assert.throws(() => assertExactCommissionBeforeProduction(estimatedRun.skuPackage),
+  assert.throws(() => assertFormalCommissionBeforeProduction(estimatedRun.skuPackage),
     /PRODUCTION_AUTHORIZATION_EXACT_COMMISSION_REQUIRED/);
 
   // 同一份B利润记录直接送进文案素材那道闸门：估算被拦，官方费表放行。

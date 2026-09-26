@@ -173,7 +173,7 @@ export function commitLifecycleBEvidencePacks(data, packs, { createdAt, createdB
   for (const pack of prepared) {
     const duplicate = next.find((existing) => existing.id === pack.id);
     if (duplicate) {
-      const same = ["kind", "scope", "sourceType", "sourceRef", "checkedAt", "expiresAt", "evidenceData", "commissionCatalogRef"].every(field => isDeepStrictEqual(duplicate[field], pack[field]));
+      const same = ["kind", "scope", "sourceType", "sourceRef", "checkedAt", "expiresAt", "validity", "evidenceData", "commissionCatalogRef"].every(field => isDeepStrictEqual(duplicate[field], pack[field]));
       if (!same) throw new Error("B_EVIDENCE_COMMIT_ID_CONFLICT: 同一证据ID对应不同范围或内容");
       continue;
     }

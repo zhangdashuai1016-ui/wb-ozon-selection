@@ -104,6 +104,7 @@ import {
 import {
   ozonCapturePageJobPayload,
   ozonCapturePageJobPublic,
+  shouldRebuildOpportunityFromLegacy,
   ozonCapturePageTarget,
   ozonPageReadStopMessage
 } from "./lib/ozon-page-capture-job.mjs";
@@ -148,7 +149,21 @@ import {
 import { completeC1AndStartC2 } from "./lib/lifecycle-c-stage.mjs";
 import { createC1DraftRuntimeServices } from "./lib/c1-draft-runtime-services.mjs";
 import { buildC1DraftRuntimeView } from "./lib/c1-draft-runtime-view.mjs";
+import { OwnerProductFactsError } from "./lib/owner-product-facts.mjs";
+import { C1AiGatewayError } from "./lib/c1-ai-gateway.mjs";
+import { ConfirmedSupplierInputError } from "./lib/confirmed-supplier-inputs.mjs";
+import { createC1ContentReviewUseCase, buildC1ContentReviewView, C1ContentReviewError } from "./lib/c1-content-review-use-case.mjs";
+import { createC1EditorialReviewUseCase, buildC1EditorialReviewView, C1EditorialReviewError } from "./lib/c1-editorial-review-use-case.mjs";
+import { C1_LOCAL_DRAFT_FAILURE_CODES } from "./lib/c1-local-draft-source.mjs";
 import { createC1SkuRightsReviewUseCase } from "./lib/c1-sku-rights-review-submission.mjs";
+import { createC1FactsVerificationUseCase, C1FactsVerificationError } from "./lib/c1-facts-verification-use-case.mjs";
+import { createC1SupplyAttributeBackfillUseCase, C1SupplyAttributeBackfillError } from "./lib/c1-frozen-supply-attribute-backfill-use-case.mjs";
+import { createC1OzonAttributeMappingUseCase, C1OzonAttributeMappingError } from "./lib/c1-ozon-attribute-mapping-use-case.mjs";
+import { createOzonDictionaryValueReader, createOzonDictionaryValuesReader } from "./lib/ozon-dictionary-value-reader.mjs";
+import { createC1OzonAttributeProposer, C1OzonAttributeProposalError, OZON_ATTRIBUTE_PROPOSAL_MAX_ATTRIBUTES } from "./lib/c1-ozon-attribute-proposal.mjs";
+import { resolveC1SkuRightsReviewForFacts } from "./lib/c1-sku-rights-review.mjs";
+import { verifyC1ProductFacts } from "./lib/c1-product-plan.mjs";
+import { refreshC1FrozenPlatformSchema, C1FrozenSchemaRefreshError } from "./lib/c1-frozen-schema-refresh.mjs";
 import { C1SkuRightsReviewError } from "./lib/c1-sku-rights-review.mjs";
 import { C1DraftRuntimeUnavailableError } from "./lib/c1-draft-software-runtime.mjs";
 import { prepareC1FactKeywordRuntime } from "./lib/c1-fact-keyword-runtime.mjs";
@@ -161,6 +176,8 @@ import {
   enqueueC1PaidKeywordEvidenceJob
 } from "./lib/c1-keyword-software-use-case.mjs";
 import { runC1KeywordPlanningEvidenceProduction } from "./lib/c1-keyword-planning-software-use-case.mjs";
+import { produceC1LocalPreparation } from "./lib/c1-keyword-planning-local-material.mjs";
+import { persistC1KeywordPlanningLocalMaterial } from "./lib/c1-keyword-planning-local-material-persistence.mjs";
 import { createSeerfarRuntimeTransport, SEERFAR_RUNTIME_CONNECTOR_VERSION } from "./lib/seerfar-runtime-connector.mjs";
 import {
   confirmC2SoftwareFinalUploads,
@@ -197,6 +214,7 @@ import { commitSingleOwnerProductionAuthorization, PRODUCTION_AUTHORIZATION_VERS
 import { createDEProductionRuntimeServices, DERuntimeUnavailableError } from "./lib/d-e-runtime-services.mjs";
 import { buildDESavedJobRuntimeView } from "./lib/d-e-runtime-view.mjs";
 import { buildProductionOwnerPreparationView, resolveProductionOwnerPreparation, ProductionOwnerPreparationError } from "./lib/production-owner-preparation.mjs";
+import { inspectSavedSkuFactReconciliation } from "./lib/confirmed-supplier-inputs.mjs";
 import { buildC1ReviewPresentation } from "./lib/c1-review-presentation.mjs";
 import { createSystemEReadbackSoftwareRuntime, EReadbackRuntimeUnavailableError } from "./lib/e-readback-software-use-case.mjs";
 import { assertValidLifecyclePackage } from "./lib/product-lifecycle-schema.mjs";
@@ -229,6 +247,9 @@ import { buildDESoftwareIntegrationView } from "./lib/d-e-software-integration.m
 import { assertCurrentProductionExecutionBinding } from "./lib/platform-write-preflight.mjs";
 import { assertCurrentC2UploadDraft, reserveC2Upload, settleC2Upload, saveC2UploadSelection, selectedC2DraftAssets, resolveRegisteredC2FinalAsset, LOCAL_UPLOAD_MAX_BYTES } from "./lib/c2-upload-draft.mjs";
 import { createC2LocalAssetStore, normalizeC2LocalUpload } from "./lib/c2-local-asset-store.mjs";
+import { createC1ImageTextUseCase } from "./lib/c1-image-text-use-case.mjs";
+import { createC1FinalPlanRevisionUseCase } from "./lib/c1-final-plan-revision-use-case.mjs";
+import { createLocalImageTextAdapter } from "./lib/local-image-text-adapter.mjs";
 import {
   createPersistableAliyunOssAssetIntent,
   executeAliyunOssAssetIntent,
@@ -241,9 +262,14 @@ import { createOzonDEPreflightProvider } from "./lib/ozon-de-preflight-provider.
 import { createRepositoryBackedOzonDEPreflightEvidenceReader } from "./lib/ozon-de-preflight-evidence-reader.mjs";
 import { createOzonAccountReadBindingResolver } from "./lib/ozon-account-read-preparation.mjs";
 import { createOzonAccountReadEvidenceSource } from "./lib/ozon-account-read-evidence.mjs";
+import { loadOzonDEProtocolCatalog } from "./lib/ozon-de-protocol-catalog.mjs";
 import { createOzonAccountReadServices } from "./lib/ozon-account-read-services.mjs";
 import { createConfiguredOzonAccountDiscoveryRuntime } from './lib/ozon-account-discovery-runtime.mjs';
 import { OzonAccountReadError } from "./lib/ozon-account-read-contract.mjs";
+import { createDProductionRoundUseCase, DProductionRoundError } from "./lib/d-production-round-use-case.mjs";
+import { createProductionAuthorizationRollbackUseCase, ProductionAuthorizationRollbackError } from "./lib/production-authorization-rollback-use-case.mjs";
+import { createDInitialImportRecoveryUseCase, DInitialImportRecoveryError } from "./lib/d-initial-import-recovery-use-case.mjs";
+import { createDUnknownOutcomeReobservationUseCase, DUnknownOutcomeReobservationError } from "./lib/d-unknown-outcome-reobservation-use-case.mjs";
 import { C1KeywordContinuationRevisionConflictError, createKeywordEvidenceRuntimeServices } from "./lib/keyword-evidence-runtime-services.mjs";
 
 const appDir = path.dirname(fileURLToPath(import.meta.url));
@@ -275,6 +301,12 @@ const trustedServiceOrigins = new Set([
 const allowedExtensionOrigins = new Set(runtimeConfiguration.allowedExtensionOrigins);
 const internalApiRequestToken = randomBytes(32).toString("base64url");
 const businessStateRepository = createConfiguredBusinessStateRepository(runtimeConfiguration);
+const c1FinalPlanRevisionUseCase = createC1FinalPlanRevisionUseCase({ repository: businessStateRepository,
+  runtimeMode: runtimeConfiguration.deploymentMode, serverClock: now });
+const c1ImageTextUseCase = createC1ImageTextUseCase({ repository: businessStateRepository,
+  runtimeMode: runtimeConfiguration.deploymentMode, assetStore: c2LocalAssetStore, serverClock: now,
+  extractor: runtimeConfiguration.c1ImageTextExecutable
+    ? createLocalImageTextAdapter({ executablePath: runtimeConfiguration.c1ImageTextExecutable }) : null });
 const runtimeIdentityProvider = createConfiguredIdentityProvider({
   configuration: runtimeConfiguration,
   clock: () => new Date().toISOString()
@@ -288,6 +320,125 @@ const softwareJobStore = createRepositoryBackedSoftwareJobStore({
 });
 const c1SkuRightsReviewUseCase = createC1SkuRightsReviewUseCase({ repository: businessStateRepository,
   runtimeMode: runtimeConfiguration.deploymentMode, serverClock: () => now() });
+const c1FactsVerificationUseCase = createC1FactsVerificationUseCase({ repository: businessStateRepository,
+  runtimeMode: runtimeConfiguration.deploymentMode, serverClock: () => now() });
+const c1ContentReviewUseCase = createC1ContentReviewUseCase({ repository: businessStateRepository,
+  runtimeMode: runtimeConfiguration.deploymentMode, serverClock: () => now() });
+let c1EditorialProposalBundle = null;
+if (runtimeConfiguration.c1EditorialProposalFile !== null) {
+  const proposalFile = await fs.open(runtimeConfiguration.c1EditorialProposalFile, "r");
+  try {
+    const stat = await proposalFile.stat();
+    if (!stat.isFile() || stat.size > 2_000_000) throw new Error("C1_EDITORIAL_PROPOSAL_FILE_INVALID");
+    const content = await proposalFile.readFile("utf8");
+    if (Buffer.byteLength(content, "utf8") > 2_000_000) throw new Error("C1_EDITORIAL_PROPOSAL_FILE_INVALID");
+    try { c1EditorialProposalBundle = JSON.parse(content); }
+    catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      throw new Error("C1_EDITORIAL_PROPOSAL_FILE_INVALID");
+    }
+  } finally { await proposalFile.close(); }
+}
+const c1EditorialReviewUseCase = createC1EditorialReviewUseCase({ repository: businessStateRepository,
+  runtimeMode: runtimeConfiguration.deploymentMode, serverClock: () => now(), proposalBundle: c1EditorialProposalBundle });
+function c1EditorialView(candidate, runtime) {
+  const sourceJob = runtime?.softwareJobs?.find(job => job.jobId === candidate.lifecycleV11?.c1AiDraftJobRefV1?.jobId);
+  return buildC1EditorialReviewView({ candidate, sourceJob, proposalBundle: c1EditorialProposalBundle, observedAt: now() });
+}
+// 同一次 1688 采集里已经采到、但当时没搬进冻结快照的供应商属性。免费、不碰价格与身份。
+const c1SupplyAttributeBackfillUseCase = createC1SupplyAttributeBackfillUseCase({ repository: businessStateRepository,
+  runtimeMode: runtimeConfiguration.deploymentMode, serverClock: () => now() });
+// 主人把中文事实对到 Ozon 字典的俄文值上。字典查询只读、免费，凭证留在本机证据服务里。
+const c1OzonAttributeMappingUseCase = createC1OzonAttributeMappingUseCase({ repository: businessStateRepository,
+  runtimeMode: runtimeConfiguration.deploymentMode, serverClock: () => now(),
+  // 延迟到真正要查字典时才构造：createOzonDictionaryValueReader 对非本机地址会直接抛，
+  // 在模块顶层构造等于让整个评审台起不来（B 阶段那套读取器也是按请求构造，同一个道理）。
+  readDictionaryValue: (request) => createOzonDictionaryValueReader({
+    ozonServiceUrl: runtimeConfiguration.ozonEvidenceServiceUrl
+  })(request) });
+
+/** 把错误码翻成主人看得懂、并且说清楚「下一步该干什么」的一句话。 */
+function supplyBackfillMessage(code) {
+  return {
+    C1_SUPPLY_ATTRIBUTE_BACKFILL_CAPTURE_MISSING: "这件商品身上没有留下1688页面的属性采集，先回「找货」重新采一次页面。",
+    C1_SUPPLY_ATTRIBUTE_BACKFILL_CAPTURE_MISMATCH: "页面属性来自另一次采集，不能直接补进已冻结的供应快照；请回「找货」重新确认货源。",
+    C1_SUPPLY_ATTRIBUTE_BACKFILL_FROZEN_VALUE_CONFLICT: "页面上的属性与已经冻结的那份对不上，没有改动任何数据；请先确认货源页面是否换了。",
+    C1_SUPPLY_ATTRIBUTE_BACKFILL_FACTS_ALREADY_FROZEN: "本件商品的C1事实已经冻结，补属性只能在冻结之前做。",
+    C1_SUPPLY_ATTRIBUTE_BACKFILL_ALREADY_PRODUCED: "本件商品已经生产授权或上架过，不能再改供应属性。",
+    C1_SUPPLY_ATTRIBUTE_BACKFILL_NOTHING_TO_ADD: "页面上没有可以补进来的属性（品牌类字段按无品牌规则不作为商品事实）。",
+    C1_SUPPLY_ATTRIBUTE_BACKFILL_PHASE_REJECTED: "只有处于C1的商品可以补齐供应属性。"
+  }[code] || "当前商品还不满足补齐供应属性的条件，没有改动任何数据。";
+}
+
+/**
+ * 计划里所有已确认、非 "unknown" 的字符串事实——中文那一端的全部可选依据。
+ *
+ * **必须排除 `productAttributes.ozonAttributes`**：那一段是主人上一轮签下的映射
+ * 投影出来的事实，值本身就是俄文。2026-09-18 真踩到：第二轮生成建议时把它们也当成
+ * 「我们自己的事实」发给模型，6 条里有 5 条绑回了**自己**
+ * （材料 = Оксфорд，依据写着 productAttributes.ozonAttributes.0.fact，那正是它上一轮的产出）。
+ *
+ * 后果不是难看而已：漂移守卫比的是「依据的那条事实值有没有变」，
+ * 而事实就是它自己，永远不会变——牛津布改成别的面料也发现不了。
+ * 一条映射永远不能由另一条映射的产出来背书。
+ */
+/**
+ * 这两段都是**派生**出来的，不能当映射的依据：
+ *  - `ozonAttributes`：上一轮映射的投影，值本身就是俄文；
+ *  - `requiredPlatformFields`：必填格，**它也会被映射回填**（见 c1-product-plan.mjs）。
+ *
+ * 2026-09-18 两次真踩到，第二次换了个形状：型号名称绑到了
+ * `productAttributes.requiredPlatformFields.0.fact`——那正是它自己要填的那一格。
+ * 第一次我只排了 ozonAttributes，漏了这一段，于是同一个毛病换个地方又长出来。
+ * 规矩是：**只有原始事实能当依据**，任何被映射回填过的地方都不行。
+ */
+const OZON_ATTRIBUTE_SELF_PROJECTION_PREFIXES = Object.freeze([
+  "productAttributes.ozonAttributes",
+  "productAttributes.requiredPlatformFields"
+]);
+function collectConfirmedStringFacts(plan) {
+  const found = [];
+  const visit = (value, path) => {
+    if (OZON_ATTRIBUTE_SELF_PROJECTION_PREFIXES.some((prefix) => path.startsWith(prefix))) return;
+    if (Array.isArray(value)) return value.forEach((item, index) => visit(item, `${path}.${index}`));
+    if (!value || typeof value !== "object") return;
+    if (value.verificationStatus === "confirmed" && Object.hasOwn(value, "value")) {
+      if (typeof value.value === "string" && value.value !== "unknown") found.push({ factPath: path, value: value.value });
+      return;
+    }
+    for (const [key, child] of Object.entries(value)) visit(child, path ? `${path}.${key}` : key);
+  };
+  for (const field of ["exactSkuVerification", "productAttributes", "platformCategory", "schemaSnapshot",
+    "batteryAssessment", "categoryRestrictions", "platformCompliance"]) visit(plan[field], field);
+  return found;
+}
+
+function frozenSchemaRefreshMessage(code) {
+  return {
+    C1_FROZEN_SCHEMA_REFRESH_FACTS_ALREADY_FROZEN: "本件商品的C1事实已经冻结，重读类目资料只能在冻结之前做。",
+    C1_FROZEN_SCHEMA_REFRESH_ALREADY_PRODUCED: "本件商品已经生产授权或上架过，不能再换类目资料。",
+    C1_FROZEN_SCHEMA_REFRESH_PHASE_REJECTED: "只有处于C1的商品可以重读类目资料。",
+    C1_FROZEN_SCHEMA_REFRESH_SCOPE_MISMATCH: "读回来的是别的类目或别的店铺，没有改动任何数据。",
+    C1_FROZEN_SCHEMA_REFRESH_ATTRIBUTES_MISSING: "读回来的类目资料里仍然没有属性表——Ozon只读证据服务还没有升级到带出类目属性的版本。",
+    C1_FROZEN_SCHEMA_REFRESH_CURRENT_MISSING: "本件商品还没有冻结的平台类目资料。"
+  }[code] || "当前商品还不满足重读类目资料的条件，没有改动任何数据。";
+}
+
+function ozonMappingMessage(code, detail = null) {
+  const base = {
+    C1_OZON_ATTRIBUTE_MAPPING_SCHEMA_ATTRIBUTES_MISSING: "这件商品冻结的Ozon类目资料里没有属性表（它是在证据服务补出类目属性之前读的）；请重新读取一次类目Schema。",
+    C1_OZON_ATTRIBUTE_MAPPING_DICTIONARY_VALUE_NOT_FOUND: "Ozon字典里没有逐字相同的这个值，没有拿近似值顶替；请从字典候选里挑一个。",
+    C1_OZON_ATTRIBUTE_MAPPING_ATTRIBUTE_NOT_IN_SCHEMA: "这个属性不在当前冻结的类目属性表里。",
+    C1_OZON_ATTRIBUTE_MAPPING_SOURCE_FACT_NOT_CONFIRMED: "作为依据的那条商品事实还没有确认，不能凭空给商品安一条属性。",
+    C1_OZON_ATTRIBUTE_MAPPING_SELF_REFERENCED_FACT: "这条映射的依据是另一条映射自己产出的结果，等于自己给自己作证；请重新生成一次建议。",
+    C1_OZON_ATTRIBUTE_MAPPING_FACTS_ALREADY_FROZEN: "本件商品的C1事实已经冻结，属性映射只能在冻结之前做。",
+    C1_OZON_ATTRIBUTE_MAPPING_ALREADY_PRODUCED: "本件商品已经生产授权或上架过，不能再改属性映射。",
+    C1_OZON_ATTRIBUTE_MAPPING_DUPLICATE_ATTRIBUTE: "同一个属性只能映射一次。",
+    C1_OZON_ATTRIBUTE_MAPPING_RIGHTS_NOT_VERIFIED: "本件商品的品牌与权利声明还没有通过，请先处理那一步。",
+    C1_OZON_ATTRIBUTE_MAPPING_PHASE_REJECTED: "只有处于C1的商品可以映射Ozon属性。"
+  }[code] || "当前商品还不满足保存属性映射的条件，没有改动任何数据。";
+  return detail ? `${base}（${detail}）` : base;
+}
 // Register only explicitly configured capabilities. Construction starts no work.
 const bExactCommissionRecalculation = createBExactCommissionRecalculationUseCase({
   repository: businessStateRepository, runtimeMode: runtimeConfiguration.deploymentMode, serverClock: now
@@ -385,11 +536,15 @@ const ozonDETransport = createOzonDEHttpTransport({ productionBindings: runtimeC
 const ossRuntimeProvider = createAliyunOssRuntimeProvider({ config: runtimeConfiguration.ossRuntimeConfiguration,
   localAssetStore: c2LocalAssetStore, now });
 const ozonAccountEvidenceSource = createOzonAccountReadEvidenceSource({ repository: businessStateRepository,
-  loadCurrentReadBinding: createOzonAccountReadBindingResolver(runtimeConfiguration) });
+  loadCurrentReadBinding: createOzonAccountReadBindingResolver(runtimeConfiguration),
+  protocolCatalog: await loadOzonDEProtocolCatalog() });
 const ozonDEPreflightProvider = createOzonDEPreflightProvider({ serverClock: now,
   verifySourceSnapshot: ozonAccountEvidenceSource.verifySnapshot,
   readEvidence: createRepositoryBackedOzonDEPreflightEvidenceReader({ repository: businessStateRepository,
     verifySourceReceipt: ozonAccountEvidenceSource.verifySourceReceipt }) });
+// 查询策略解析器只构造一次，D 运行时与账户读取服务（按钮）共用，避免两处读法不一致。
+const dPlatformObservationPolicyResolver = createDPlatformObservationPolicyResolver(runtimeConfiguration);
+
 const deRuntimeServices = createDEProductionRuntimeServices({
   repository: businessStateRepository, runtimeMode: runtimeConfiguration.deploymentMode,
   serverClock: now, workerRegistry, deServiceBindings: runtimeConfiguration.deServiceBindings,
@@ -400,7 +555,7 @@ const deRuntimeServices = createDEProductionRuntimeServices({
   preflightRequestMode: "persisted_evidence_only",
   upload: ossRuntimeProvider.upload, resolveLocalAsset: ossRuntimeProvider.resolveLocalAsset,
   loadCurrentProductionBinding: currentProductionBinding,
-  loadDPlatformObservationPolicy: createDPlatformObservationPolicyResolver(runtimeConfiguration),
+  loadDPlatformObservationPolicy: dPlatformObservationPolicyResolver,
   verifyInventoryPrerequisiteSource: ozonDEPreflightProvider.verifyInventoryPrerequisiteSource,
   observationPumpIntervalMs: runtimeConfiguration.dPlatformObservation.pumpIntervalMs,
   eReadbackPumpIntervalMs: runtimeConfiguration.eReadbackPumpIntervalMs,
@@ -411,7 +566,16 @@ const ozonAccountDiscovery = createConfiguredOzonAccountDiscoveryRuntime({config
   repository:businessStateRepository,workerRegistry,serverClock:now,requestJson:ozonDETransport.requestJson});
 const ozonAccountReadServices = createOzonAccountReadServices({ configuration: runtimeConfiguration,
   repository: businessStateRepository, workerRegistry, serverClock: now, requestJson: ozonDETransport.requestJson,
-  evidenceSource: ozonAccountEvidenceSource, preflightProvider: ozonDEPreflightProvider, deRuntimeServices });
+  evidenceSource: ozonAccountEvidenceSource, preflightProvider: ozonDEPreflightProvider, deRuntimeServices,
+  // 与 D 运行时同一个解析器：按钮和执行层必须看同一份查询策略。
+  loadDPlatformObservationPolicy: dPlatformObservationPolicyResolver });
+const dProductionRoundUseCase = createDProductionRoundUseCase({ repository: businessStateRepository, serverClock: now });
+const productionAuthorizationRollbackUseCase = createProductionAuthorizationRollbackUseCase({ repository: businessStateRepository, serverClock: now });
+const dInitialImportRecoveryUseCase = createDInitialImportRecoveryUseCase({ repository: businessStateRepository,
+  serverClock: now, loadDPlatformObservationPolicy: dPlatformObservationPolicyResolver, jobStore: softwareJobStore });
+// 与恢复用例同一接线：同一个策略解析器实例、同一个作业仓库。
+const dUnknownOutcomeReobservationUseCase = createDUnknownOutcomeReobservationUseCase({ repository: businessStateRepository,
+  serverClock: now, loadDPlatformObservationPolicy: dPlatformObservationPolicyResolver, jobStore: softwareJobStore });
 const runtimeArchitecture = assertRuntimeBoundaries({
   configuration: runtimeConfiguration,
   businessStateRepository,
@@ -1259,7 +1423,7 @@ async function reconcileOzonPageReadJobsAfterRestart() {
   });
 }
 
-async function enqueueOzonPageReadJob({ candidateId, requestRevision }) {
+async function enqueueOzonPageReadJob({ candidateId, requestRevision, requestedProductUrl = null }) {
   const existing = salesCaptureSession(candidateId);
   if (existing?.captureKind === OZON_PAGE_READ_CAPTURE_KIND &&
     [existing.requestRevision, existing.dataRevision].includes(requestRevision) &&
@@ -1277,7 +1441,7 @@ async function enqueueOzonPageReadJob({ candidateId, requestRevision }) {
   const snapshot = await readData();
   const snapshotCandidate = snapshot.candidates.find((item) => item.id === candidateId);
   if (!snapshotCandidate) throw httpError(404, "候选不存在", { code: "candidate_not_found" });
-  const target = ozonCapturePageTarget(snapshotCandidate);
+  const target = ozonCapturePageTarget(snapshotCandidate, requestedProductUrl);
   if (!target.ok) throw httpError(422, target.reason, { code: target.code });
 
   const session = {
@@ -1288,6 +1452,9 @@ async function enqueueOzonPageReadJob({ candidateId, requestRevision }) {
     dataRevision: null,
     expectedProductId: target.productId,
     productUrl: target.productUrl,
+    // 主人指名要读的页面 = 对标（别的商品）。落盘时据此打标，反推目标时会跳过它们，
+    // 否则挂上第一个对标之后这件商品就再也读不了自己的页面。
+    comparable: target.from === "owner_requested_url",
     createdAt: Date.now(),
     expiresAt: Date.now() + SOURCE_CAPTURE_JOB_QUEUE_TTL_MS,
     captureKind: OZON_PAGE_READ_CAPTURE_KIND,
@@ -2858,8 +3025,10 @@ function publicCandidate(candidate, rules, queueInfo = {}, evidencePacks = [], c
     c1ReviewPresentation: buildC1ReviewPresentation({ candidate, observedAt: now() }),
     eReadbackRuntimeView,
     productionOwnerPreparation: candidate.lifecycleV11?.skuPackage?.productionConfirmationCard
-      ? buildProductionOwnerPreparationView({ candidate, configuration: runtimeConfiguration, evidencePacks, observedAt: now() })
+      ? buildProductionOwnerPreparationView({ candidate, configuration: runtimeConfiguration, evidencePacks, currentCommissionCatalogs, observedAt: now() })
       : null,
+    savedSkuFactReconciliation: candidate.lifecycleV11?.skuPackage?.productionConfirmationCard
+      ? inspectSavedSkuFactReconciliation({ candidate }) : null,
     executionRuntimeView: buildCurrentExecutionRuntimeView(candidate),
     bExactCommissionRuntimeView: buildBExactCommissionRuntimeView({ candidate, evidencePacks, currentCommissionCatalogs, rules, observedAt: now() }),
     // 「这件的佣金还是估算的」那一块。挂在每一份候选视图上，所以从条件测算一路到上架之前的每一屏都看得见——
@@ -3348,6 +3517,8 @@ function responseState(data, request) {
       executionRuntimeView: buildCurrentExecutionRuntimeView(candidate, { activeExecutionReference }),
       processingStatus: currentProcessingStatusSummary(candidate, { activeDispatch, queueInfo: dispatch.positions[candidate.id] || {} }),
       c1PaidKeywordSoftwareJob: projectC1PaidKeywordSoftwareJob(candidate, data.runtime),
+      c1ContentReviewView: buildC1ContentReviewView(candidate),
+      c1EditorialReviewView: c1EditorialView(candidate, data.runtime),
       c1DraftRuntimeView: buildC1DraftRuntimeView({ candidate, runtime: data.runtime,
         serviceBindings: runtimeConfiguration.c1DraftServiceBindings, observedAt: now() }),
       dESavedJobRuntimeView: savedDEJobView(candidate, data.runtime),
@@ -4212,9 +4383,13 @@ async function handleApi(req, res, pathname) {
   const salesCaptureStartRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/sales-capture\/start$/);
   if (req.method === "POST" && salesCaptureStartRoute) {
     const input = await readJsonRequestBody(req, { maxBytes: 4096, requireJsonContentType: true });
+    // 不带 productUrl = 读这件商品自己的页面（原样）；带了 = 主人指名读一个对标页面。
+    // 对标必须由主人指名：软件不替他从类目里挑「像的」商品当可比样本。
     if (!input || typeof input !== "object" || Array.isArray(input) || !Number.isInteger(input.dataRevision) ||
-        Object.keys(input).some((field) => field !== "dataRevision")) {
-      throw httpError(400, "读这个 Ozon 页面只接受当前数据修订号", { code: "ozon_page_read_input_invalid" });
+        Object.keys(input).some((field) => !["dataRevision", "productUrl"].includes(field)) ||
+        (Object.hasOwn(input, "productUrl") && (typeof input.productUrl !== "string" || !input.productUrl.trim()))) {
+      throw httpError(400, "读这个 Ozon 页面只接受当前数据修订号，以及可选的一个 Ozon 商品页地址",
+        { code: "ozon_page_read_input_invalid" });
     }
     const actor = runtimeIdentityProvider.resolveActor({ request: req });
     if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
@@ -4222,7 +4397,8 @@ async function handleApi(req, res, pathname) {
     }
     const queued = await enqueueOzonPageReadJob({
       candidateId: decodeURIComponent(salesCaptureStartRoute[1]),
-      requestRevision: input.dataRevision
+      requestRevision: input.dataRevision,
+      requestedProductUrl: Object.hasOwn(input, "productUrl") ? input.productUrl.trim() : null
     });
     // The same receipt shape the 1688 capture request returns, so the page reuses its one start-signal path.
     return json(res, queued.duplicate ? 200 : 202, {
@@ -4318,7 +4494,8 @@ async function handleApi(req, res, pathname) {
       }
 
       const snapshots = Array.isArray(current.salesSnapshotsV11) ? current.salesSnapshotsV11 : [];
-      if (!snapshots.some((item) => item.captureId === session.captureId)) snapshots.push(snapshot);
+      const stored = session.comparable === true ? { ...snapshot, comparable: true } : snapshot;
+      if (!snapshots.some((item) => item.captureId === session.captureId)) snapshots.push(stored);
       current.salesSnapshotsV11 = snapshots;
       current.dataRevision = Number(current.dataRevision || 0) + 1;
       current.salesCapture = {
@@ -4340,13 +4517,23 @@ async function handleApi(req, res, pathname) {
         retryAttempted: false,
         writeOccurred: false
       };
-      const opportunityPackage = adaptLegacyCandidateToOpportunity(current);
+      // 这一段原本假设「读页面发生在 A 确认之前」——那时候候选还没有真正的生命周期，
+      // 用遗留适配器现造一个机会包是对的。2026-09-17 加了对标采集之后，读页面也会发生在 C 阶段，
+      // 而这时候候选身上那份机会包是 A 确认真正冻下来的（带 marketAssessment 和 opportunity: 前缀的
+      // parentOpportunityId）。照旧覆盖会把它换成遗留形态、marketAssessment 丢失、
+      // lifecycleV11.status 被退回 opportunity_sales_snapshot_captured——已经实际损坏过主人的数据。
+      // 已经有 skuPackage 就说明 A 早就确认过了：这时候读页面只记录快照和这次读取的回执，
+      // 不重建机会包、也不动生命周期状态。
+      const lifecycleStarted = !shouldRebuildOpportunityFromLegacy(current);
+      const opportunityPackage = lifecycleStarted ? null : adaptLegacyCandidateToOpportunity(current);
       current.lifecycleV11 = {
         ...(current.lifecycleV11 || {}),
-        status: "opportunity_sales_snapshot_captured",
+        ...(lifecycleStarted ? {} : {
+          status: "opportunity_sales_snapshot_captured",
+          opportunityPackage: structuredClone(opportunityPackage)
+        }),
         sourceCandidateId: current.id,
         sourceCandidateRevision: current.dataRevision,
-        opportunityPackage: structuredClone(opportunityPackage),
         platformWrites: Number(current.lifecycleV11?.platformWrites || 0),
         externalAccesses: [
           ...(Array.isArray(current.lifecycleV11?.externalAccesses) ? current.lifecycleV11.externalAccesses : []),
@@ -5636,6 +5823,48 @@ async function handleApi(req, res, pathname) {
         c1DraftRuntimeView: buildC1DraftRuntimeView({ candidate, runtime: saved.runtime,
           serviceBindings: runtimeConfiguration.c1DraftServiceBindings, observedAt: now() }) } });
   }
+  const c1DraftResultReadRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/paid-draft\/reconcile-result$/);
+  if (req.method === "POST" && c1DraftResultReadRoute) {
+    const input = await requestBody(req);
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== 3 ||
+        !["candidateId", "expectedRevision", "jobId"].every(field => Object.hasOwn(input, field)) ||
+        input.candidateId !== c1DraftResultReadRoute[1] || !Number.isInteger(input.expectedRevision) ||
+        typeof input.jobId !== "string" || !input.jobId.trim()) {
+      return json(res, 400, { code: "C1_DRAFT_RESULT_READ_INPUT_INVALID", message: "读取结果必须准确引用当前已保存任务。", externalRequests: 0 });
+    }
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      return json(res, 403, { code: "C1_DRAFT_AUTHENTICATED_OWNER_REQUIRED", message: "请先登录主人身份后读取本次文案结果。", externalRequests: 0 });
+    }
+    const snapshot = await readData();
+    const candidate = snapshot.candidates.find(value => value.id === input.candidateId);
+    if (!candidate || candidate.dataRevision !== input.expectedRevision) throw httpError(409, "当前商品资料已变化，未读取旧任务。");
+    const view = buildC1DraftRuntimeView({ candidate, runtime: snapshot.runtime,
+      serviceBindings: runtimeConfiguration.c1DraftServiceBindings, observedAt: now() });
+    const savedReceipt = view?.status === "completed" && view.canContinueSaved;
+    if ((!view?.canReadOriginalResult && !savedReceipt) || view.jobId !== input.jobId || view.jobRevision !== input.expectedRevision) {
+      return json(res, 409, { code: "C1_DRAFT_RESULT_READ_BLOCKED", message: view?.message || "当前没有可以读取的原文案结果。", externalRequests: 0 });
+    }
+    // Read only the already accepted gateway job; never re-authorize or regenerate.
+    let execution;
+    try { execution = await c1DraftRuntimeServices.reconcileSavedCurrent(input); }
+    catch (error) {
+      const code = error.code ?? error.message;
+      if (["BUSINESS_MUTATION_REVISION_CONFLICT", "C1_DRAFT_CANDIDATE_REVISION_CONFLICT",
+        "C1_DRAFT_RECONCILIATION_LEASE_CONFLICT", "C1_DRAFT_RECONCILIATION_NOT_ELIGIBLE"].includes(code)) {
+        return json(res, 409, { code, message: "读取期间商品或原任务状态已变化，未覆盖商品资料。请刷新查看保存结果。" });
+      }
+      throw error;
+    }
+    const saved = await readData();
+    const current = saved.candidates.find(value => value.id === input.candidateId);
+    if (!current) throw httpError(500, "结果读取后未取得当前商品独立回读，请核对记录。");
+    return json(res, 200, { executionStatus: execution.status,
+      candidate: { ...publicCandidate(current, saved.rules, {}, saved.evidencePacks || [], saved.currentCommissionCatalogs ?? []),
+        c1ContentReviewView: buildC1ContentReviewView(current),
+        c1DraftRuntimeView: buildC1DraftRuntimeView({ candidate: current, runtime: saved.runtime,
+          serviceBindings: runtimeConfiguration.c1DraftServiceBindings, observedAt: now() }) } });
+  }
   const c1SavedDraftContinuationRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/paid-draft\/continue-saved$/);
   if (req.method === "POST" && c1SavedDraftContinuationRoute) {
     const input = await requestBody(req);
@@ -5678,6 +5907,9 @@ async function handleApi(req, res, pathname) {
     let transaction;
     try { transaction = await c1DraftRuntimeServices.authorizeAndEnqueue({ actor, input }); }
     catch (error) {
+      if (error instanceof C1AiGatewayError && error.code === "C1_AI_GATEWAY_INPUT_TOO_LARGE") return json(res, 422, {
+        code: error.code, message: "文案输入超过服务容量，本次许可未保存、没有发起调用。请调整资料传输后继续。", externalRequests: 0
+      });
       if (error instanceof C1DraftRuntimeUnavailableError) return json(res, 503, {
         code: error.code, message: "文案服务尚未配置，本次许可未保存，也没有发起付费调用。", externalRequests: 0
       });
@@ -5687,7 +5919,7 @@ async function handleApi(req, res, pathname) {
         "C1_DRAFT_SAVED_REQUEST_CONFLICT", "C1_DRAFT_REQUEST_SOURCE_CONFLICT", "C1_DRAFT_EXECUTION_BINDING_PROVIDER_CONFLICT"];
       const prerequisite = ["C1_DRAFT_SAVED_REQUEST_REQUIRED", "C1_DRAFT_REQUEST_INVALID", "C1_DRAFT_EVIDENCE_REQUIRED",
         "C1_DRAFT_EVIDENCE_NOT_CURRENT", "C1_DRAFT_AUTHORIZATION_EXPIRED", "C1_DRAFT_WORKER_NOT_CURRENT",
-        "C1_DRAFT_RESTRICTED_AUTHORIZATION_UNSUPPORTED"];
+        "C1_DRAFT_RESTRICTED_AUTHORIZATION_UNSUPPORTED", ...C1_LOCAL_DRAFT_FAILURE_CODES];
       if (invalidInput.includes(code) || currentConflict.includes(code) || prerequisite.includes(code)) return json(res,
         invalidInput.includes(code) ? 400 : currentConflict.includes(code) ? 409 : 422,
         { code, message: "本次许可未保存：请核对当前请求、证据、已有许可限制与服务配置。", externalRequests: 0 });
@@ -5704,6 +5936,59 @@ async function handleApi(req, res, pathname) {
       candidate: { ...publicCandidate(candidate, saved.rules, {}, saved.evidencePacks || [], saved.currentCommissionCatalogs ?? []),
         c1DraftRuntimeView: buildC1DraftRuntimeView({ candidate, runtime: saved.runtime,
           serviceBindings: runtimeConfiguration.c1DraftServiceBindings, observedAt: now() }) } });
+  }
+  const c1EditorialReviewRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/confirm-editorial-content$/);
+  if (req.method === "POST" && c1EditorialReviewRoute) {
+    const input = await requestBody(req);
+    if (input?.candidateId !== c1EditorialReviewRoute[1]) throw httpError(400, "修订确认与当前商品不一致，未保存");
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      return json(res, 403, { code: "C1_EDITORIAL_REVIEW_AUTHENTICATED_OWNER_REQUIRED", message: "请先登录主人身份，再确认修订文案。" });
+    }
+    let transaction;
+    try { transaction = await c1EditorialReviewUseCase.confirm({ actor, input }); }
+    catch (error) {
+      const code = error.code ?? error.message;
+      if (error instanceof C1EditorialReviewError || (typeof code === "string" && code.startsWith("C1_FINAL_REVISION_")) || ["BUSINESS_MUTATION_REVISION_CONFLICT", "BUSINESS_MUTATION_IDEMPOTENCY_CONFLICT"].includes(code)) {
+        return json(res, code === "C1_EDITORIAL_REVIEW_INPUT_INVALID" ? 400 : 409,
+          { code, message: "修订文案未确认，请刷新并核对当前商品与修订版本。", paidCalls: 0, platformWrites: 0 });
+      }
+      throw error;
+    }
+    const saved = await readData();
+    const candidate = saved.candidates.find(value => value.id === input.candidateId);
+    if (!candidate) throw httpError(500, "修订确认结果尚未取得商品独立回读");
+    return json(res, 200, { status: transaction.status, result: transaction.result,
+      candidate: { ...publicCandidate(candidate, saved.rules, {}, saved.evidencePacks || [], saved.currentCommissionCatalogs ?? []),
+        c1ContentReviewView: buildC1ContentReviewView(candidate), c1EditorialReviewView: c1EditorialView(candidate, saved.runtime) } });
+  }
+  const c1ContentReviewRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/confirm-content$/);
+  if (req.method === "POST" && c1ContentReviewRoute) {
+    const input = await requestBody(req);
+    if (input?.candidateId !== c1ContentReviewRoute[1]) throw httpError(400, "确认与当前商品不一致，未保存");
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      return json(res, 403, { code: "C1_CONTENT_REVIEW_AUTHENTICATED_OWNER_REQUIRED", message: "请先登录主人身份，再确认商品内容。" });
+    }
+    if (c1EditorialProposalBundle?.request?.sourceIdentity?.candidateId === input.candidateId) {
+      return json(res, 409, { code: "C1_CONTENT_REVIEW_EDITORIAL_REQUIRED",
+        message: "本商品已有待采用的修订版，请在修订文案入口核对并确认。", paidCalls: 0, platformWrites: 0 });
+    }
+    let transaction;
+    try { transaction = await c1ContentReviewUseCase.confirm({ actor, input }); }
+    catch (error) {
+      const code = error.code ?? error.message;
+      if (error instanceof C1ContentReviewError || (typeof code === "string" && code.startsWith("C1_FINAL_REVISION_")) || ["BUSINESS_MUTATION_REVISION_CONFLICT", "BUSINESS_MUTATION_IDEMPOTENCY_CONFLICT"].includes(code)) {
+        return json(res, code === "C1_CONTENT_REVIEW_INPUT_INVALID" ? 400 : 409,
+          { code, message: "商品内容确认未保存，请刷新并核对当前文案与回执。", paidCalls: 0, platformWrites: 0 });
+      }
+      throw error;
+    }
+    const saved = await readData();
+    const candidate = saved.candidates.find(value => value.id === input.candidateId);
+    return json(res, 200, { status: transaction.status, result: transaction.result,
+      candidate: { ...publicCandidate(candidate, saved.rules, {}, saved.evidencePacks || [], saved.currentCommissionCatalogs ?? []),
+        c1ContentReviewView: buildC1ContentReviewView(candidate) } });
   }
   const c1RightsReviewRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/rights-review$/);
   if (req.method === "POST" && c1RightsReviewRoute) {
@@ -5731,6 +6016,465 @@ async function handleApi(req, res, pathname) {
     return json(res, 200, { status: transaction.status, result: transaction.result,
       candidate: publicCandidate(candidate, saved.rules, {}, saved.evidencePacks || [], saved.currentCommissionCatalogs ?? []), externalRequests: 0, platformWrites: 0 });
   }
+  // 权利声明只是一次声明，它不驱动状态机（这条边界由 local-owner-access-api 那条测试守着）。
+  // 但在 2026-09-17 之前，**没有任何入口能在签完声明之后再推一把**：C1 准备链只由 a-confirm 和
+  // 正式复算触发，而 a-confirm 那一刻声明还不可能存在（签声明的面板本身要 businessPhase 已是 C1），
+  // 于是事实核验必然停住，之后界面上三个 can* 全是 false。这里补上那个缺掉的显式动作。
+  // 它是免费的：只产生本机的关键词准备证据并保存文案请求，付费调用仍要主人在面板上另外授权
+  // （见 continueC1SoftwareWhenEvidenceReady 里 "Planning alone grants no paid permission"）。
+  const c1FinalPlanRevisionRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/revise-final-plan$/);
+  if (req.method === "POST" && c1FinalPlanRevisionRoute) {
+    const input = await requestBody(req);
+    if (input?.candidateId !== c1FinalPlanRevisionRoute[1] || Object.keys(input).some(key => !["candidateId", "skuPackageId", "dataRevision"].includes(key))) throw httpError(400, "新方案准备只接受当前商品、SKU及修订号");
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    const current = (await businessStateRepository.readSnapshot()).candidates.find(item => item.id === input.candidateId);
+    if (!current || !Number.isSafeInteger(input.dataRevision) || current.dataRevision !== input.dataRevision ||
+        current.lifecycleV11?.skuPackage?.skuPackageId !== input.skuPackageId) throw httpError(409, "商品资料已变化，请刷新后准备新版方案。");
+    if (!current.lifecycleV11.skuPackage.productionConfirmationCard || current.lifecycleV11.skuPackage.productionAuthorization) {
+      throw httpError(409, "只有尚未授权上架的方案卡可以准备新版本。");
+    }
+    try {
+      const extracted = await c1ImageTextUseCase.extract({ actor, input: { candidateId: input.candidateId, expectedRevision: input.dataRevision } });
+      if (extracted.result.status !== "completed") return json(res, 409, {
+        code: "C1_IMAGE_TEXT_FAILED", message: "图片文字读取失败，已保存失败记录；新版方案尚未生成。",
+        dataRevision: extracted.candidate.dataRevision, paidCalls: 0, externalRequests: 0, platformWrites: 0 });
+      const prepared = await c1FinalPlanRevisionUseCase.prepare({ actor, input: {
+        candidateId: input.candidateId, skuPackageId: input.skuPackageId, expectedRevision: extracted.candidate.dataRevision } });
+      return json(res, 200, { status: prepared.status, result: prepared.result, dataRevision: prepared.candidate.dataRevision,
+        candidateId: input.candidateId, paidCalls: 0, externalRequests: 0, platformWrites: 0 });
+    } catch (error) {
+      const code = error.code ?? error.message;
+      if ((error instanceof OwnerProductFactsError && ["OWNER_PRODUCT_FACTS_SOURCE_MISMATCH", "OWNER_PRODUCT_FACTS_RECORD_INVALID"].includes(code)) ||
+          (error instanceof ConfirmedSupplierInputError && ["C1_SUPPLIER_FACT_REVISION_OWNER_SOURCE_MISMATCH",
+            "C1_SUPPLIER_FACT_REVISION_OWNER_TIME_INVALID", "C1_SUPPLIER_FACT_REVISION_OWNER_PROJECTION_CHANGED"].includes(code))) {
+        return json(res, 409, { code, message: "保存的主人商品声明与当前规格或来源不一致，新版方案准备已停止；请核对声明。",
+          paidCalls: 0, externalRequests: 0, platformWrites: 0 });
+      }
+      if (typeof code === "string" && /^(C1_IMAGE_TEXT_|C1_FINAL_REVISION_)/.test(code)) return json(res,
+        code === "C1_IMAGE_TEXT_SERVICE_UNAVAILABLE" ? 503 : code.endsWith("OWNER_REQUIRED") ? 403 : 409,
+        { code, message: code === "C1_IMAGE_TEXT_SERVICE_UNAVAILABLE" ? "本地图片文字服务尚未配置，需要完成工程配置。" :
+          "新版方案准备未通过资料核对，已停止；请查看具体错误。", paidCalls: 0, externalRequests: 0, platformWrites: 0 });
+      throw error;
+    }
+  }
+  const c1ImageTextRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/image-text$/);
+  if (req.method === "POST" && c1ImageTextRoute) {
+    const input = await requestBody(req);
+    if (input?.candidateId !== c1ImageTextRoute[1] || Object.keys(input).some(key => !["candidateId", "dataRevision"].includes(key))) throw httpError(400, "图片文字准备只接受当前商品及修订号");
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    try {
+      const extracted = await c1ImageTextUseCase.extract({ actor, input: { candidateId: input.candidateId, expectedRevision: input.dataRevision } });
+      return json(res, 200, { status: extracted.result?.status ?? extracted.status, candidateId: input.candidateId,
+        dataRevision: extracted.candidate.dataRevision, paidCalls: 0, externalRequests: 0 });
+    } catch (error) {
+      const code = error.code ?? error.message;
+      if (typeof code === "string" && code.startsWith("C1_IMAGE_TEXT_")) {
+        return json(res, code === "C1_IMAGE_TEXT_SERVICE_UNAVAILABLE" ? 503 : code === "C1_IMAGE_TEXT_OWNER_REQUIRED" ? 403 : 409,
+          { code, message: code === "C1_IMAGE_TEXT_SERVICE_UNAVAILABLE" ? "本地图片文字服务尚未配置，需要工程配置。" : "图片文字准备未通过当前资料核对；软件已停止，请查看该任务的具体错误。", paidCalls: 0, externalRequests: 0 });
+      }
+      throw error;
+    }
+  }
+  const c1ContinuePreparationRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/continue-preparation$/);
+  if (req.method === "POST" && c1ContinuePreparationRoute) {
+    const input = await requestBody(req);
+    if (input?.candidateId !== c1ContinuePreparationRoute[1]) throw httpError(400, "请求与当前商品不一致，未执行");
+    if (!Number.isInteger(input.dataRevision)) throw httpError(400, "继续准备必须提供当前数据修订号");
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      return json(res, 403, { code: "C1_CONTINUE_OWNER_REQUIRED", message: "请先登录主人身份后继续准备文案素材", externalRequests: 0 });
+    }
+    const snapshot = await readData();
+    const current = snapshot.candidates.find(item => item.id === input.candidateId);
+    if (!current) throw httpError(404, "候选不存在");
+    if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后重试");
+    const sku = current.lifecycleV11?.skuPackage;
+    if (sku?.businessPhase !== "C1") throw httpError(409, "只有处于C1的商品可以继续准备文案素材");
+    if (input.mode === "saved_material_only") {
+      if (Object.keys(input).some(key => !["candidateId", "dataRevision", "mode"].includes(key))) {
+        throw httpError(400, "本地准备只能提交当前商品、修订号和准备方式");
+      }
+      let prepared;
+      try {
+        prepared = await persistC1KeywordPlanningLocalMaterial({
+          repository: businessStateRepository, runtimeMode: runtimeConfiguration.deploymentMode,
+          actor, candidateId: current.id, expectedRevision: current.dataRevision,
+          producedAt: now(), codexOffline: true, producer: produceC1LocalPreparation
+        });
+      } catch (error) {
+        const code = error.code ?? error.message;
+        if (["C1_KEYWORD_LOCAL_MATERIAL_REVISION_CONFLICT", "BUSINESS_MUTATION_REVISION_CONFLICT",
+          "BUSINESS_MUTATION_IDEMPOTENCY_CONFLICT"].includes(code)) {
+          return json(res, 409, { code, message: "当前商品资料或本次提交已变化，请刷新并核对已保存的准备结果。",
+            externalRequests: 0, platformWrites: 0, paidCalls: 0 });
+        }
+        throw error;
+      }
+      return json(res, 200, { status: prepared.status, result: prepared.result,
+        candidate: publicCandidate(prepared.candidate, snapshot.rules, {}, snapshot.evidencePacks || [], snapshot.currentCommissionCatalogs ?? []),
+        externalRequests: 0, platformWrites: 0, paidCalls: 0 });
+    }
+    if (input.mode === "prepare_copy") {
+      if (Object.keys(input).some(key => !["candidateId", "dataRevision", "mode"].includes(key))) {
+        throw httpError(400, "文案准备只能提交当前商品、修订号和准备方式");
+      }
+      let prepared;
+      try {
+        prepared = await c1DraftRuntimeServices.prepareLocal({ actor, input: {
+          candidateId: current.id, expectedRevision: input.dataRevision,
+          idempotencyKey: `c1-local-draft:${current.id}:${input.dataRevision}`,
+          auditEventId: `c1-local-draft-audit:${current.id}:${input.dataRevision}`
+        } });
+      } catch (error) {
+        if (error instanceof C1DraftRuntimeUnavailableError) return json(res, 503, {
+          code: error.code, message: "文案服务尚未配置，准备请求未保存，也没有付费调用。", paidCalls: 0, platformWrites: 0
+        });
+        const code = error.code ?? error.message;
+        if (["BUSINESS_MUTATION_REVISION_CONFLICT", "BUSINESS_MUTATION_IDEMPOTENCY_CONFLICT",
+          "C1_LOCAL_DRAFT_REQUEST_ALREADY_SAVED", "C1_DRAFT_CURRENT_JOB_UNRESOLVED"].includes(code)) {
+          return json(res, 409, { code, message: "商品资料或文案任务已变化，请刷新后核对已有任务。", paidCalls: 0, platformWrites: 0 });
+        }
+        if (error instanceof C1AiGatewayError && code === "C1_AI_GATEWAY_INPUT_TOO_LARGE") return json(res, 422, {
+          code, message: "文案输入超过服务容量，请调整资料传输后继续。未保存请求，也没有付费调用。",
+          externalRequests: 0, paidCalls: 0, platformWrites: 0
+        });
+        if (C1_LOCAL_DRAFT_FAILURE_CODES.includes(code)) return json(res, 422, {
+          code, message: "保存的属性、关键词或权利证据未通过核对，请先修正准备资料。未生成文案请求，也没有付费调用。",
+          externalRequests: 0, paidCalls: 0, platformWrites: 0
+        });
+        throw error;
+      }
+      const saved = await readData();
+      const candidate = saved.candidates.find(value => value.id === input.candidateId);
+      return json(res, 200, { status: prepared.status, result: prepared.result, paidCalls: 0, platformWrites: 0,
+        candidate: { ...publicCandidate(candidate, saved.rules, {}, saved.evidencePacks || [], saved.currentCommissionCatalogs ?? []),
+          c1DraftRuntimeView: buildC1DraftRuntimeView({ candidate, runtime: saved.runtime,
+            serviceBindings: runtimeConfiguration.c1DraftServiceBindings, observedAt: now() }) } });
+    }
+    if (input.mode !== undefined) throw httpError(400, "不支持这个准备方式");
+    // 先按主人签下的声明冻结事实。少了这一步整条链动不了：本地素材生产器要求计划已经是
+    // facts_checked（它只拒绝、不自己核验），而会核验的编排器排在它后面——2026-09-17 实测的死锁。
+    // 已经冻过就跳过，这一步幂等；缺声明时照实回一句话，不在这里替主人签。
+    let revision = current.dataRevision;
+    if (sku.c1ProductPlan?.status === "inputs_ready") {
+      try {
+        const frozen = await c1FactsVerificationUseCase.verify({ actor, input: {
+          candidateId: input.candidateId, expectedRevision: revision, skuPackageId: sku.skuPackageId,
+          idempotencyKey: `c1-verify-facts:${input.candidateId}:${revision}`,
+          auditEventId: `c1-verify-facts-audit:${input.candidateId}:${revision}`
+        } });
+        if (frozen.status === "committed") revision = frozen.candidate.dataRevision;
+      } catch (error) {
+        if (error instanceof C1FactsVerificationError) {
+          const message = error.code === "C1_FACTS_VERIFICATION_RIGHTS_REQUIRED"
+            ? "请先保存本件商品的品牌与权利声明，再继续准备文案素材"
+            : "当前商品还不满足冻结C1事实的条件，未做任何改动";
+          return json(res, 409, { code: error.code, message, externalRequests: 0, platformWrites: 0, paidCalls: 0 });
+        }
+        throw error;
+      }
+    }
+    const candidate = await continueC1SoftwareWhenEvidenceReady(input.candidateId, revision, { reportConfigurationBlock: true });
+    return json(res, 200, { candidate, platformWrites: 0, paidCalls: 0 });
+  }
+  // 同一次 1688 采集里已经采到、当时却没搬进冻结快照的供应商属性（面料、适合季节、颜色…）。
+  // 免费、只补不改：已冻过的键值必须逐字相同，价格、重量、身份一律不碰。
+  // 冻结事实里没有这些，Ozon 那边的俄文属性和关键词就没有中文那一端可绑。
+  const c1SupplyAttributeBackfillRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/supply-attribute-backfill$/);
+  if (req.method === "POST" && c1SupplyAttributeBackfillRoute) {
+    const input = await requestBody(req);
+    if (input?.candidateId !== c1SupplyAttributeBackfillRoute[1]) throw httpError(400, "请求与当前商品不一致，未执行");
+    if (!Number.isInteger(input.dataRevision)) throw httpError(400, "补齐供应属性必须提供当前数据修订号");
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      return json(res, 403, { code: "C1_SUPPLY_ATTRIBUTE_BACKFILL_OWNER_REQUIRED", message: "请先登录主人身份后再补齐供应属性", externalRequests: 0 });
+    }
+    const snapshot = await readData();
+    const current = snapshot.candidates.find(item => item.id === input.candidateId);
+    if (!current) throw httpError(404, "候选不存在");
+    const skuPackageId = current.lifecycleV11?.skuPackage?.skuPackageId;
+    if (!skuPackageId) throw httpError(409, "当前商品还没有C1的SKU生命周期包");
+    try {
+      const result = await c1SupplyAttributeBackfillUseCase.backfill({ actor, input: {
+        candidateId: input.candidateId, expectedRevision: input.dataRevision, skuPackageId,
+        idempotencyKey: `c1-supply-attribute-backfill:${input.candidateId}:${input.dataRevision}`,
+        auditEventId: `c1-supply-attribute-backfill-audit:${input.candidateId}:${input.dataRevision}`
+      } });
+      return json(res, 200, { candidate: result.candidate, result: result.result, platformWrites: 0, paidCalls: 0 });
+    } catch (error) {
+      if (error instanceof C1SupplyAttributeBackfillError) {
+        return json(res, 409, { code: error.code, message: supplyBackfillMessage(error.code), externalRequests: 0, platformWrites: 0, paidCalls: 0 });
+      }
+      throw error;
+    }
+  }
+
+  // 重读这个类目的 Schema，把计划里冻结的那一份换成新的。
+  // 为什么需要：9-17 冻结时证据服务的读取把 47 个属性筛成了 4 个必填、还丢掉字典号，
+  // 于是冻结副本里没有属性表，主人在界面上挑不了属性。事实尚未冻结，换的是「冻之前的输入」。
+  // 证据包和计划里那份**同一次写入**：只提交其中一个，引用就会指向一个不存在的包。
+  const c1RefreshSchemaRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/refresh-category-schema$/);
+  if (req.method === "POST" && c1RefreshSchemaRoute) {
+    const input = await requestBody(req);
+    if (input?.candidateId !== c1RefreshSchemaRoute[1]) throw httpError(400, "请求与当前商品不一致，未执行");
+    if (!Number.isInteger(input.dataRevision)) throw httpError(400, "重读类目资料必须提供当前数据修订号");
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      return json(res, 403, { code: "C1_FROZEN_SCHEMA_REFRESH_OWNER_REQUIRED", message: "请先登录主人身份后再重读类目资料", externalRequests: 0 });
+    }
+    const snapshot = await readData();
+    const current = snapshot.candidates.find(item => item.id === input.candidateId);
+    if (!current) throw httpError(404, "候选不存在");
+    if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后重试");
+    const rules = current.lifecycleV11?.skuPackage?.c1ProductPlan?.inputSnapshots?.platformSchemaRules;
+    if (!rules?.evidenceId) throw httpError(409, "本件商品还没有冻结的平台类目资料");
+    const providers = createLifecycleBRealEvidenceProviderRegistry({
+      ozonServiceUrl: runtimeConfiguration.ozonEvidenceServiceUrl,
+      guooFilePath: runtimeConfiguration.guooTariffFile,
+      cbrSourceUrl: process.env.SELECTION_REVIEW_CBR_FX_URL,
+      ozonCommissionReference: runtimeConfiguration.ozonCommissionReference
+    });
+    if (typeof providers.schema !== "function") throw httpError(503, "Schema证据读取未配置，未做任何改动");
+    const requestedAt = now();
+    let pack;
+    try {
+      pack = await providers.schema({
+        requestVersion: "c1-frozen-schema-refresh-v1",
+        candidateId: current.id,
+        candidateRevision: current.dataRevision,
+        kind: "schema",
+        scope: {
+          platform: rules.platform, store: rules.store,
+          category: `ozon:${rules.descriptionCategoryId}:${rules.typeId}`,
+          ruleVersion: "ozon-current", storeRef: structuredClone(rules.storeRef)
+        },
+        relatedSchemaScope: null, commissionReferenceScope: null,
+        maximumAttempts: 1, readOnly: true, platformWritesAllowed: false, requestedAt
+      });
+    } catch (error) {
+      throw httpError(422, `重读类目资料失败，未做任何改动：${error instanceof Error ? error.message : String(error)}`);
+    }
+    let change = null;
+    const candidate = await mutateData((data) => {
+      const target = data.candidates.find(item => item.id === input.candidateId);
+      if (!target) throw httpError(404, "候选不存在");
+      if (Number(target.dataRevision) !== input.dataRevision) throw httpError(409, "读取期间商品资料已变化，本轮没有保存任何证据");
+      let refreshed;
+      try {
+        refreshed = refreshC1FrozenPlatformSchema({
+          skuPackage: target.lifecycleV11.skuPackage, freshPack: pack, refreshedAt: requestedAt
+        });
+      } catch (error) {
+        if (error instanceof C1FrozenSchemaRefreshError) throw httpError(409, frozenSchemaRefreshMessage(error.code));
+        throw error;
+      }
+      // 证据包和计划里那一份必须同一次落盘。
+      commitLifecycleBEvidencePacks(data, [pack], { createdAt: requestedAt,
+        currentCommissionCatalogs: data.currentCommissionCatalogs ?? [] });
+      target.lifecycleV11.skuPackage = refreshed.skuPackage;
+      target.dataRevision = Number(target.dataRevision) + 1;
+      target.updatedAt = requestedAt;
+      target.lastModifiedBy = "software";
+      change = refreshed.change;
+      addHistory(target, "system", "c1CategorySchemaRefreshed",
+        `已重读Ozon类目资料：${change.attributeCount}个属性（${change.dictionaryBackedCount}个带字典）。未访问供应端、未改价格、未冻结事实。`, requestedAt);
+      return target;
+    });
+    return json(res, 200, { candidate, change, platformWrites: 0, paidCalls: 0 });
+  }
+
+  // 让软件把这张属性表**填好**再给主人看：他只做判断，不做录入。
+  //
+  // 2026-09-18 主人原话——「你这个让我填？那我干嘛不自己去上架呢？」。他说得对。
+  // 三层分工：模型只在**字典真实候选**里挑（实测给候选做选择题是 5 对 1 弃权 0 错，
+  // 而让它凭空写俄文是 7 条对 1 条）；Ozon 字典做裁决，编不出平台上没有的值；主人点头。
+  // 这一步**会花 AI 调用的钱**，所以必须是主人主动点，不能自动跑。
+  const c1OzonAttributeProposalRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/ozon-attribute-proposal$/);
+  if (req.method === "POST" && c1OzonAttributeProposalRoute) {
+    const input = await requestBody(req);
+    if (input?.candidateId !== c1OzonAttributeProposalRoute[1]) throw httpError(400, "请求与当前商品不一致，未执行");
+    if (!Number.isInteger(input.dataRevision)) throw httpError(400, "生成属性建议必须提供当前数据修订号");
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      return json(res, 403, { code: "C1_OZON_ATTRIBUTE_PROPOSAL_OWNER_REQUIRED", message: "请先登录主人身份后再生成属性建议", externalRequests: 0 });
+    }
+    const snapshot = await readData();
+    const current = snapshot.candidates.find(item => item.id === input.candidateId);
+    if (!current) throw httpError(404, "候选不存在");
+    if (Number(current.dataRevision) !== input.dataRevision) throw httpError(409, "商品资料已变化，请刷新后重试");
+    const sku = current.lifecycleV11?.skuPackage;
+    const plan = sku?.c1ProductPlan;
+    if (!plan || plan.status !== "inputs_ready") throw httpError(409, "只有C1事实尚未冻结的商品可以生成属性建议");
+    const schema = plan.inputSnapshots?.platformSchemaRules;
+    if (!Array.isArray(schema?.attributes) || schema.attributes.length === 0) {
+      throw httpError(409, "冻结的类目资料里还没有属性表，请先重读一次类目资料");
+    }
+    // 中文那一端要对着**核验之后**的事实取，所以先在内存里冻一份，不落盘。
+    const rights = resolveC1SkuRightsReviewForFacts({ skuPackage: sku, observedAt: now() });
+    let verifiedPlan;
+    try {
+      verifiedPlan = verifyC1ProductFacts({ skuPackage: structuredClone(sku), skuRightsReview: rights.review, verifiedAt: now() }).skuPackage.c1ProductPlan;
+    } catch (error) {
+      throw httpError(409, `当前商品还不满足冻结C1事实的条件，未做任何改动：${error instanceof Error ? error.message : String(error)}`);
+    }
+    const facts = collectConfirmedStringFacts(verifiedPlan);
+    if (facts.length === 0) throw httpError(409, "本件商品还没有可当依据的已确认事实");
+    const category = `ozon:${schema.descriptionCategoryId}:${schema.typeId}`;
+    // 对标页面上同名属性的值，按属性名对齐；它们是备选，默认不勾选。
+    const labels = new Set(schema.attributes.map(item => item.label));
+    const comparableAttributes = new Map();
+    for (const item of [...(current.lifecycleV11?.opportunityPackage?.salesSnapshots ?? []), ...(current.salesSnapshotsV11 ?? [])]) {
+      for (const [key, value] of Object.entries(item?.attributes ?? {})) {
+        if (!labels.has(key) || typeof value !== "string") continue;
+        for (const one of value.split(",")) {
+          const term = one.trim();
+          if (!term) continue;
+          if (!comparableAttributes.has(key)) comparableAttributes.set(key, []);
+          const list = comparableAttributes.get(key);
+          if (!list.some(entry => entry.value === term)) list.push({ value: term, from: String(item.platformProductId ?? item.snapshotId) });
+        }
+      }
+    }
+    const proposer = createC1OzonAttributeProposer({
+      gatewayUrl: runtimeConfiguration.aiGatewayUrl,
+      readDictionaryValue: createOzonDictionaryValueReader({ ozonServiceUrl: runtimeConfiguration.ozonEvidenceServiceUrl }),
+      readDictionaryValues: createOzonDictionaryValuesReader({ ozonServiceUrl: runtimeConfiguration.ozonEvidenceServiceUrl }),
+      gatewayDeploymentMode: runtimeConfiguration.deploymentMode
+    });
+    try {
+      // 已经由主人签过的权利声明确认下来的必填属性（品牌就是这样），**不要摆进这张表**。
+      // 2026-09-18 真踩到：品牌本来已由声明确认，却还是被列进去让模型配对，
+      // 它抓了个字面像的「专利类型=无」填上去——「没有专利」推不出「没有品牌」。
+      // 那条假依据虽然没被采用（必填项用的是声明），但留在数据里迟早有人当真。
+      const settledByDeclaration = new Set((verifiedPlan.productAttributes?.requiredPlatformFields ?? [])
+        .filter(item => item.fact?.verificationStatus === "confirmed" && item.resolvedFromOwnerAttributeMapping !== true)
+        .flatMap(item => [String(item.fieldKey), ...(Array.isArray(item.sourceAttributeKeys) ? item.sourceAttributeKeys.map(String) : [])]));
+      const proposal = await proposer.propose({
+        attributes: schema.attributes
+          .filter(item => Number(item.dictionaryId) > 0 || item.required === true)
+          .filter(item => !settledByDeclaration.has(String(item.fieldKey)))
+          .slice(0, OZON_ATTRIBUTE_PROPOSAL_MAX_ATTRIBUTES),
+        facts, categoryLabel: schema.categoryName ?? category, store: schema.store, category,
+        candidateId: current.id, skuPackageId: sku.skuPackageId, dataRevision: String(current.dataRevision),
+        comparableAttributes
+      });
+      // 主人签字定下的值（品牌就是这样）——它不缺依据，只缺「平台给这个值的编号」。
+      // 这一步**不经过模型**：拿声明里的那个值去字典里逐字搜，搜到就把编号补上，
+      // 依据仍然记成那条声明。搜不到就不加这一行，照实缺着。
+      //
+      // 为什么非补不可：`ozon-seller-api-production-adapter.mjs` 对字典属性要求正整数
+      // dictionaryValueId，声明给的是 null，真发 import 会直接报
+      // OZON_ADAPTER_DICTIONARY_VALUE_REQUIRED（2026-09-18 实测）。
+      const declaredRows = [];
+      for (const field of (verifiedPlan.productAttributes?.requiredPlatformFields ?? [])) {
+        if (field.fact?.verificationStatus !== "confirmed") continue;
+        const attribute = schema.attributes.find(item => String(item.fieldKey) === String(field.fieldKey));
+        if (!attribute || !(Number(attribute.dictionaryId) > 0)) continue;
+        const current = field.fact.value;
+        if (!current || typeof current !== "object") continue;
+        if (Number.isInteger(current.dictionaryValueId) && current.dictionaryValueId > 0) continue;
+        const text = typeof current.value === "string" ? current.value.trim() : "";
+        if (!text) continue;
+        const declarationPath = "platformCompliance.skuRightsReview.brand";
+        const declaration = declarationPath.split(".").reduce((node, key) => node?.[key], verifiedPlan);
+        if (!declaration || declaration.verificationStatus !== "confirmed") continue;
+        let hit = null;
+        try {
+          const read = await createOzonDictionaryValueReader({ ozonServiceUrl: runtimeConfiguration.ozonEvidenceServiceUrl })(
+            { store: schema.store, category, attributeId: String(field.fieldKey), value: text });
+          const exact = read?.evidenceData?.exactMatch ?? null;
+          if (exact && exact.value === text && Number.isInteger(exact.dictionaryValueId) && exact.dictionaryValueId > 0) hit = { ...exact, sourceRef: read.sourceRef ?? null };
+        } catch { hit = null; }
+        if (!hit) continue;
+        declaredRows.push({
+          attributeId: String(field.fieldKey), label: attribute.label ?? null, labelZh: attribute.labelZh ?? null,
+          required: true, dictionaryId: Number(attribute.dictionaryId), rejectedByDictionary: null, alternatives: [],
+          suggestion: { value: hit.value, valueZh: hit.valueZh ?? null, dictionaryValueId: hit.dictionaryValueId,
+            sourceFactPath: declarationPath,
+            // **比较用的值一个字不动**：漂移守卫要拿它和事实当前值逐字对比，
+            // 换成人话就会永远判成漂移（差点在这里引入刚修完的那个毛病）。
+            sourceFactValue: structuredClone(declaration.value),
+            // 另给一句只用于显示的话。声明那条事实的值是对象（{status,name}），
+            // 界面直接渲染对象会整页白屏——2026-09-18 真让主人白屏了一次。
+            sourceFactText: typeof declaration.value === "object" && declaration.value !== null
+              ? `主人声明：${declaration.value.status === "unbranded" ? "无品牌" : String(declaration.value.status ?? "")}`
+              : String(declaration.value ?? ""),
+            origin: "declared_value_dictionary_lookup", dictionaryEvidenceRef: hit.sourceRef }
+        });
+      }
+      const merged = declaredRows.length === 0 ? proposal : {
+        ...proposal,
+        rows: [...declaredRows, ...proposal.rows],
+        suggestedCount: proposal.suggestedCount + declaredRows.length
+      };
+      return json(res, 200, { proposal: merged, platformWrites: 0, paidCalls: proposal.jobIds.length });
+    } catch (error) {
+      if (error instanceof C1OzonAttributeProposalError) {
+        return json(res, 422, { code: error.code, message: `生成属性建议失败，没有改动任何数据：${error.detail ?? error.code}`,
+          externalRequests: 0, platformWrites: 0 });
+      }
+      throw error;
+    }
+  }
+
+  // 这个类目的全部属性、可以当依据的已确认事实、以及已经签过的映射。只读，不查字典。
+  const c1OzonAttributesRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/ozon-attributes$/);
+  if (req.method === "GET" && c1OzonAttributesRoute) {
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      return json(res, 403, { code: "C1_OZON_ATTRIBUTE_MAPPING_OWNER_REQUIRED", message: "请先登录主人身份后再查看Ozon属性", externalRequests: 0 });
+    }
+    const snapshot = await readData();
+    const current = snapshot.candidates.find(item => item.id === c1OzonAttributesRoute[1]);
+    if (!current) throw httpError(404, "候选不存在");
+    const skuPackageId = current.lifecycleV11?.skuPackage?.skuPackageId;
+    if (!skuPackageId) throw httpError(409, "当前商品还没有C1的SKU生命周期包");
+    try {
+      const proposal = await c1OzonAttributeMappingUseCase.propose({ actor, input: {
+        candidateId: current.id, expectedRevision: current.dataRevision, skuPackageId
+      } });
+      return json(res, 200, { proposal, platformWrites: 0, paidCalls: 0 });
+    } catch (error) {
+      if (error instanceof C1OzonAttributeMappingError) {
+        return json(res, 409, { code: error.code, message: ozonMappingMessage(error.code), externalRequests: 0, platformWrites: 0, paidCalls: 0 });
+      }
+      throw error;
+    }
+  }
+
+  // 主人签下「这条中文事实，在 Ozon 上就是这个俄文字典值」。软件只核实能核实的：
+  // 属性号在当前冻结 schema 里、字典值逐字命中、中文那端确实是一条已确认事实。
+  const c1OzonAttributeMappingRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/ozon-attribute-mapping$/);
+  if (req.method === "POST" && c1OzonAttributeMappingRoute) {
+    const input = await requestBody(req);
+    if (input?.candidateId !== c1OzonAttributeMappingRoute[1]) throw httpError(400, "请求与当前商品不一致，未执行");
+    if (!Number.isInteger(input.dataRevision)) throw httpError(400, "保存属性映射必须提供当前数据修订号");
+    if (!Array.isArray(input.mappings) || input.mappings.length === 0) throw httpError(400, "至少要有一条属性映射");
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      return json(res, 403, { code: "C1_OZON_ATTRIBUTE_MAPPING_OWNER_REQUIRED", message: "请先登录主人身份后再保存属性映射", externalRequests: 0 });
+    }
+    const snapshot = await readData();
+    const current = snapshot.candidates.find(item => item.id === input.candidateId);
+    if (!current) throw httpError(404, "候选不存在");
+    const skuPackageId = current.lifecycleV11?.skuPackage?.skuPackageId;
+    if (!skuPackageId) throw httpError(409, "当前商品还没有C1的SKU生命周期包");
+    try {
+      const result = await c1OzonAttributeMappingUseCase.map({ actor, input: {
+        candidateId: input.candidateId, expectedRevision: input.dataRevision, skuPackageId,
+        mappings: input.mappings,
+        idempotencyKey: `c1-ozon-attribute-mapping:${input.candidateId}:${input.dataRevision}`,
+        auditEventId: `c1-ozon-attribute-mapping-audit:${input.candidateId}:${input.dataRevision}`
+      } });
+      return json(res, 200, { candidate: result.candidate, result: result.result, platformWrites: 0, paidCalls: 0 });
+    } catch (error) {
+      if (error instanceof C1OzonAttributeMappingError) {
+        return json(res, 409, { code: error.code, message: ozonMappingMessage(error.code, error.detail), externalRequests: 0, platformWrites: 0, paidCalls: 0 });
+      }
+      throw error;
+    }
+  }
+
   const retiredFireTrainC1Route = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1-owner-facts$/);
   const retiredFireTrainFinalAssetsRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/final-assets$/);
   const legacyFireTrainC1Route = pathname.match(/^\/api\/legacy\/fire-train\/candidates\/([^/]+)\/lifecycle\/c1-owner-facts$/);
@@ -5749,6 +6493,10 @@ async function handleApi(req, res, pathname) {
   const realProductionAuthorizationPriceRepairRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/production-authorization\/repair-price-semantics$/);
   const realDAssetTransportRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/d\/asset-transport$/);
   const savedDEContinuationRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/d-e\/continue-saved$/);
+  const dProductionRoundRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/d\/production-round$/);
+  const productionAuthorizationRollbackRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/d\/authorization-rollback$/);
+  const dInitialImportRecoveryRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/d\/initial-import-recovery$/);
+  const dUnknownOutcomeReobservationRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/d\/unknown-outcome-reobservation$/);
   const accountReadRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/account-read\/(authorize|continue)$/);
   if (req.method === "POST" && accountReadRoute) {
     const contentType = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
@@ -5776,6 +6524,94 @@ async function handleApi(req, res, pathname) {
     const document = await readData(), candidate = document.candidates.find(value => value.id === input.candidateId);
     if (!candidate) throw httpError(500, "账户读取结果待核对：当前商品独立回读缺失");
     return json(res, 200, { ...execution, candidate: publicSavedDECandidate(candidate, document) });
+  }
+  if (req.method === "POST" && dInitialImportRecoveryRoute) {
+    const contentType = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+    if (contentType !== "application/json") throw httpError(415, "对账恢复只接受当前页面的确认提交");
+    const origin = String(req.headers.origin || "");
+    if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, "对账恢复拒绝其他网页来源");
+    const input = await requestBody(req);
+    if (!input || typeof input !== "object" || Array.isArray(input) || input.candidateId !== dInitialImportRecoveryRoute[1]) {
+      throw httpError(400, "对账恢复请求必须准确对应当前商品");
+    }
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    let execution;
+    try { execution = await dInitialImportRecoveryUseCase.recover({ actor, input }); }
+    catch (error) {
+      if (!(error instanceof DInitialImportRecoveryError)) throw error;
+      const status = error.code === "OWNER_REQUIRED" ? 403 : error.code === "CANDIDATE_NOT_FOUND" || error.code === "JOB_NOT_FOUND" ? 404
+        : error.code === "CANDIDATE_CHANGED" || error.code === "ALREADY_RECOVERED" ? 409 : error.code === "INPUT_INVALID" ? 400 : 422;
+      return json(res, status, { code: error.code, message: error.message, externalRequests: 0, platformWrites: 0 });
+    }
+    const after = await readData(), current = after.candidates.find(item => item.id === input.candidateId);
+    if (!current) throw httpError(500, "对账恢复结果待核对：当前商品独立回读缺失");
+    return json(res, 200, { ...execution, candidate: publicSavedDECandidate(current, after) });
+  }
+  if (req.method === "POST" && dUnknownOutcomeReobservationRoute) {
+    const contentType = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+    if (contentType !== "application/json") throw httpError(415, "重新观察只接受当前页面的确认提交");
+    const origin = String(req.headers.origin || "");
+    if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, "重新观察拒绝其他网页来源");
+    const input = await requestBody(req);
+    if (!input || typeof input !== "object" || Array.isArray(input) || input.candidateId !== dUnknownOutcomeReobservationRoute[1]) {
+      throw httpError(400, "重新观察请求必须准确对应当前商品");
+    }
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    let execution;
+    try { execution = await dUnknownOutcomeReobservationUseCase.reobserve({ actor, input }); }
+    catch (error) {
+      if (!(error instanceof DUnknownOutcomeReobservationError)) throw error;
+      const status = error.code === "OWNER_REQUIRED" ? 403 : error.code === "CANDIDATE_NOT_FOUND" || error.code === "JOB_NOT_FOUND" ? 404
+        : error.code === "CANDIDATE_CHANGED" || error.code === "ALREADY_REOBSERVED" ? 409 : error.code === "INPUT_INVALID" ? 400 : 422;
+      return json(res, status, { code: error.code, message: error.message, externalRequests: 0, platformWrites: 0 });
+    }
+    const after = await readData(), current = after.candidates.find(item => item.id === input.candidateId);
+    if (!current) throw httpError(500, "重新观察结果待核对：当前商品独立回读缺失");
+    return json(res, 200, { ...execution, candidate: publicSavedDECandidate(current, after) });
+  }
+  if (req.method === "POST" && productionAuthorizationRollbackRoute) {
+    const contentType = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+    if (contentType !== "application/json") throw httpError(415, "作废生产授权只接受当前页面的确认提交");
+    const origin = String(req.headers.origin || "");
+    if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, "作废生产授权拒绝其他网页来源");
+    const input = await requestBody(req);
+    if (!input || typeof input !== "object" || Array.isArray(input) || input.candidateId !== productionAuthorizationRollbackRoute[1]) {
+      throw httpError(400, "作废请求必须准确对应当前商品");
+    }
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    let execution;
+    try { execution = await productionAuthorizationRollbackUseCase.rollback({ actor, input }); }
+    catch (error) {
+      if (!(error instanceof ProductionAuthorizationRollbackError)) throw error;
+      const status = error.code === "OWNER_REQUIRED" ? 403 : error.code === "CANDIDATE_NOT_FOUND" ? 404
+        : error.code === "CANDIDATE_CHANGED" ? 409 : error.code === "INPUT_INVALID" ? 400 : 422;
+      return json(res, status, { code: error.code, message: error.message, externalRequests: 0, platformWrites: 0 });
+    }
+    const after = await readData(), current = after.candidates.find(item => item.id === input.candidateId);
+    if (!current) throw httpError(500, "作废结果待核对：当前商品独立回读缺失");
+    return json(res, 200, { ...execution, candidate: publicSavedDECandidate(current, after) });
+  }
+  if (req.method === "POST" && dProductionRoundRoute) {
+    const contentType = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+    if (contentType !== "application/json") throw httpError(415, "重派生产作业只接受当前页面的确认提交");
+    const origin = String(req.headers.origin || "");
+    if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, "重派生产作业拒绝其他网页来源");
+    const input = await requestBody(req);
+    if (!input || typeof input !== "object" || Array.isArray(input) || input.candidateId !== dProductionRoundRoute[1]) {
+      throw httpError(400, "重派请求必须准确对应当前商品");
+    }
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    let execution;
+    try { execution = await dProductionRoundUseCase.dispatch({ actor, input }); }
+    catch (error) {
+      if (!(error instanceof DProductionRoundError)) throw error;
+      const status = error.code === "OWNER_REQUIRED" ? 403 : error.code === "CANDIDATE_NOT_FOUND" ? 404
+        : error.code === "CANDIDATE_CHANGED" ? 409 : error.code === "INPUT_INVALID" ? 400 : 422;
+      return json(res, status, { code: error.code, message: error.message, externalRequests: 0, platformWrites: 0 });
+    }
+    const after = await readData(), current = after.candidates.find(item => item.id === input.candidateId);
+    if (!current) throw httpError(500, "重派结果待核对：当前商品独立回读缺失");
+    return json(res, 200, { ...execution, candidate: publicSavedDECandidate(current, after) });
   }
   if (req.method === "POST" && savedDEContinuationRoute) {
     const input = await requestBody(req);
@@ -5860,6 +6696,9 @@ async function handleApi(req, res, pathname) {
       const opportunityPackage = current.lifecycleV11?.opportunityPackage;
       const skuPackage = current.lifecycleV11?.skuPackage;
       if (!opportunityPackage || !skuPackage) throw httpError(409, "当前商品缺少新版A/B冻结数据包");
+      if (current.lifecycleV11.c1LocalDraftSourceV1 || current.lifecycleV11.c1AiDraftRequestV1?.keywordEvidence.collectionMode === "local_preparation") {
+        throw httpError(409, "本次商品内容需要在新版页面核对确认，不能通过旧入口跳过确认");
+      }
       if (skuPackage.productionAuthorization || skuPackage.productionRecord) {
         throw httpError(409, "当前SKU已经生产授权或执行，不能重建C1/C2");
       }
@@ -6211,7 +7050,8 @@ async function handleApi(req, res, pathname) {
     const candidate = data.candidates.find(item => item.id === productionOwnerPreparationRoute[1]);
     if (!candidate) throw httpError(404, "候选不存在");
     return json(res, 200, buildProductionOwnerPreparationView({
-      candidate, configuration: runtimeConfiguration, evidencePacks: data.evidencePacks, observedAt: now()
+      candidate, configuration: runtimeConfiguration, evidencePacks: data.evidencePacks,
+      currentCommissionCatalogs: data.currentCommissionCatalogs, observedAt: now()
     }));
   }
   if (req.method === "POST" && (realProductionOwnerDecisionRoute || realProductionAuthorizationRoute)) {
@@ -7947,7 +8787,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 // Explicit consumers handle only persisted jobs. No configuration grants an external action.
-await softwareJobStore.reconcileAfterRestart({jobTypes:['a_product_discovery','a_product_detail_read']});
+await softwareJobStore.reconcileAfterRestart({jobTypes:['a_product_discovery','a_product_detail_read',
+  'd_production_execution','e_d_platform_observation','e_independent_readback']});
 // Before the first request is served, so no other write competes with it and no page can read a job that is already lost.
 const lostCaptureJobs = await reconcileSourceCaptureJobsAfterRestart();
 if (lostCaptureJobs?.length) {
@@ -7970,7 +8811,7 @@ server.listen(port, host, () => {
 
 function closeServer() {
   codexDispatcher?.close();
-  Promise.allSettled([deRuntimeServices.stop(), keywordEvidenceRuntimeServices.stop(), aDiscoveryRuntime.stop(), aProductDetailRuntime.stop()]).then(results => {
+  Promise.allSettled([deRuntimeServices.stop(), keywordEvidenceRuntimeServices.stop(), aDiscoveryRuntime.stop(), aProductDetailRuntime.stop(), c1ImageTextUseCase.stop()]).then(results => {
     const failed = results.some(result => result.status === "rejected");
     if (failed) console.error("SOFTWARE_RUNTIME_SHUTDOWN_FAILED: 作业停止结果需要核对。");
     server.close(() => process.exit(failed ? 1 : 0));
