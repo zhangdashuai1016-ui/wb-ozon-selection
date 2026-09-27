@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-27T10:56:43.028Z",
+  "frozenAt": "2026-09-27T11:14:13.212Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 811,
-      "sha256": "022e7db241a0280d5f7e9ddcbb964cf270a96a5a940bd6c8ffd516386b78a23b",
+      "sha256": "eb2b2d3064700ea9e51f612a5c9de3fc1a86f649c504ad5a570c3209c8c804ed",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -324,7 +324,7 @@
       },
       {
         "path": "lib/c1-pricing-result-reuse.mjs",
-        "sha256": "ba5ee4c6d8c1c34c01e8990c4dd41bc64d1d9db40d600248b4bf19977e78f838"
+        "sha256": "db255da2e91c8454a648f217715a4d4304c2561b5e17875a8bcb00680ed90637"
       },
       {
         "path": "lib/c1-product-plan.mjs",
@@ -376,7 +376,7 @@
       },
       {
         "path": "lib/c2-asset-lifecycle.mjs",
-        "sha256": "1fb23e75b9aed05a8da598aa18a50f083f03159fc8b9eaa16ae17aabceb79b93"
+        "sha256": "486de2d773d1c44ea0fe072e0b337c7b815960cb1a8554dedfa92666619e5135"
       },
       {
         "path": "lib/c2-local-asset-store.mjs",
@@ -1204,11 +1204,11 @@
       },
       {
         "path": "schema/c2-asset-lifecycle-v1.1.schema.json",
-        "sha256": "a37ff7a2ad78b4eee421327de45e6c42b7fa0f24248edcb7400bf38f85ed8f68"
+        "sha256": "a9d81c1062d7a30ef68388d6c43152aebb25ed4b0458f24d3ff11d42e79e8871"
       },
       {
         "path": "schema/c2-software-input-v1.schema.json",
-        "sha256": "459623c1dc0dc0c55f7726850125de022aa783135757e62cd146cb0f905659f9"
+        "sha256": "1e198468f29f86fe50dadf7446ad54a7a02e51ffdf46195bb68d424349e79ca1"
       },
       {
         "path": "schema/d-platform-observation-admission-v1.schema.json",
@@ -2108,7 +2108,7 @@
       },
       {
         "path": "tests/c1-pricing-result-reuse.test.mjs",
-        "sha256": "305e4e027a9f1c4ee64892e2348e0a966ae0eacdbe2740ceb84d7c55baea4cfb"
+        "sha256": "9cdf65e3fef1cb64d2e18934ad1f2d8be1bd86e89d0c9a1398942b441acf7120"
       },
       {
         "path": "tests/c1-product-plan.test.mjs",
@@ -2428,7 +2428,7 @@
       },
       {
         "path": "tests/final-pricing-c1-reuse-integration.test.mjs",
-        "sha256": "810618c7e4d6b2db53058c7aee94c110052556aa3245d33f1966d2063b016624"
+        "sha256": "289780fff551e26a08b4178d373f84208ae62263240b9d34b8ac2fd5b8ade765"
       },
       {
         "path": "tests/final-pricing-revalidation.test.mjs",

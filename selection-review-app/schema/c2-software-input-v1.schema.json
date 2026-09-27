@@ -602,6 +602,16 @@
             },
             "providerJobRef": {
               "$ref": "#/$defs/providerJobRef"
+            },
+            "pricingReuseRecord": {
+              "oneOf": [
+                {
+                  "$ref": "c1-product-plan-v1.1#/$defs/c1PricingReuseRecord"
+                },
+                {
+                  "$ref": "c2-asset-lifecycle-v1.1.schema.json#/$defs/c1PricingReuseReference"
+                }
+              ]
             }
           }
         },

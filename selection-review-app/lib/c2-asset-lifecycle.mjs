@@ -3,7 +3,7 @@ import { assertC1SupplierFactRevisionProjection, ConfirmedSupplierInputError } f
 import { createC1EditorialDraftReference, assertC1EditorialSource, assertC1EditorialPlan, assertC1EditorialSnapshot, C1EditorialSourceError } from "./c1-editorial-review-contract.mjs";
 import { sameStoreRef } from "./store-binding.mjs";
 import { isDeepStrictEqual } from "node:util";
-import { assertC1PricingResultReuse, assertC1PricingReuseRecordSource, C1PricingReuseError } from "./c1-pricing-result-reuse.mjs";
+import { assertC1PricingResultReuse, assertC1PricingReuseRecordSource, createC1PricingReuseReference, C1_PRICING_REUSE_REFERENCE_VERSION, C1PricingReuseError } from "./c1-pricing-result-reuse.mjs";
 import { assertCurrentC1SkuRightsReview, C1SkuRightsReviewError } from "./c1-sku-rights-review.mjs";
 import {
   assertValidLifecyclePackage,
@@ -190,6 +190,26 @@ function editorialDraftMatchesSnapshot(draft, sourceDraft, identity, resultSkuRe
   }
 }
 
+function pricingDraftMatchesSnapshot(draft, sourcePlan, identity, resultSkuRevision, targetProfitModelVersion) {
+  const sourceDraft = sourcePlan?.draftOnlySeo;
+  if (draft?.pricingReuseRecord?.schemaVersion !== C1_PRICING_REUSE_REFERENCE_VERSION) return sameJson(draft, sourceDraft);
+  if (sourceDraft?.pricingReuseRecord?.schemaVersion !== "c1-pricing-result-reuse-v1") return false;
+  try {
+    const reference = createC1PricingReuseReference({ record: sourceDraft.pricingReuseRecord, identity,
+      resultSkuRevision, targetPlanId: sourcePlan.c1PlanId, targetProfitModelVersion });
+    return sameJson(draft, { ...sourceDraft, pricingReuseRecord: reference });
+  } catch (error) {
+    if (!(error instanceof C1PricingReuseError) && !(error instanceof C1SkuRightsReviewError) && !/^C1_AI_/.test(error.message)) throw error;
+    return false;
+  }
+}
+
+function canonicalDraftMatchesSnapshot(draft, sourcePlan, identity, resultSkuRevision, targetProfitModelVersion) {
+  return draft?.sourceType === "owner_confirmed_editorial"
+    ? editorialDraftMatchesSnapshot(draft, sourcePlan?.draftOnlySeo, identity, resultSkuRevision)
+    : pricingDraftMatchesSnapshot(draft, sourcePlan, identity, resultSkuRevision, targetProfitModelVersion);
+}
+
 export function normalizeC1CanonicalHandoffContract(skuPackage) {
   const plan = skuPackage?.c1ProductPlan;
   assertValidC1ProductPlan(plan);
@@ -371,7 +391,13 @@ export function normalizeC1CanonicalHandoffContract(skuPackage) {
     schemaSnapshotRef: plan.schemaSnapshotRef,
     // Previously completed full v2 handoffs retain their exact historical shape.
     // New handoffs share the complete source kept in finalCardInputSnapshot.c1Snapshot.
-    draftOnlySeo: draft?.editorialSource?.schemaVersion === "c1-editorial-source-v2" &&
+    draftOnlySeo: draft?.pricingReuseRecord?.schemaVersion === "c1-pricing-result-reuse-v1" &&
+      !(skuPackage.c2FinalAssets?.status === "completed" &&
+        skuPackage.c2FinalAssets.productionAuthorizationPreparation?.frozenC1Handoff?.draftOnlySeo?.pricingReuseRecord?.schemaVersion === "c1-pricing-result-reuse-v1")
+      ? { ...structuredClone(draft), pricingReuseRecord: createC1PricingReuseReference({ record: draft.pricingReuseRecord,
+        identity: g1.identity, resultSkuRevision: expectedC1Revision, targetPlanId: plan.c1PlanId,
+        targetProfitModelVersion: plan.inputRefs.profitModelVersion }) }
+      : draft?.editorialSource?.schemaVersion === "c1-editorial-source-v2" &&
       !(skuPackage.c2FinalAssets?.status === "completed" &&
         skuPackage.c2FinalAssets.productionAuthorizationPreparation?.frozenC1Handoff?.draftOnlySeo?.editorialSource?.schemaVersion === "c1-editorial-source-v2")
       ? createC1EditorialDraftReference({ draftOnlySeo: draft, identity: g1.identity, resultSkuRevision: expectedC1Revision })
@@ -980,7 +1006,7 @@ function validateStoredTargetContext(targetContext, unknownManifest, errors) {
   validateAllowedKeys(unknownManifest, ["schemaVersion", "sourceDataRevision", "blockingItems"], "unknownManifest", errors);
 }
 
-function validateStoredCanonicalC1Handoff(value, path, storedTargetContext, errors, sourceDraft) {
+function validateStoredCanonicalC1Handoff(value, path, storedTargetContext, errors, sourcePlan) {
   validateAllowedKeys(value, [
     "contractVersion", "identity", "frozenInputRevisionRefs", "handoffRevisionRefs", "frozenInputRefs", "schemaSnapshotRef",
     "draftOnlySeo", "keywordEvidenceRefs", "unknownManifest"
@@ -1030,7 +1056,7 @@ function validateStoredCanonicalC1Handoff(value, path, storedTargetContext, erro
   if (draft?.sourceType === "owner_confirmed_editorial") {
     try {
       if (isEditorialDraftReference(draft)) {
-        if (!editorialDraftMatchesSnapshot(draft, sourceDraft, g1Identity, handoffRevisions?.sourceRevision)) {
+        if (!editorialDraftMatchesSnapshot(draft, sourcePlan?.draftOnlySeo, g1Identity, handoffRevisions?.sourceRevision)) {
           push(errors, `${path}.draftOnlySeo.editorialSource`, "C2_EDITORIAL_REFERENCE_SOURCE_MISMATCH");
         }
       } else {
@@ -1047,10 +1073,15 @@ function validateStoredCanonicalC1Handoff(value, path, storedTargetContext, erro
     if (draft?.pricingReuseRecord !== undefined) {
       try {
         const reuse = draft.pricingReuseRecord;
-        assertC1PricingReuseRecordSource(reuse);
-        if (reuse.resultSkuRevision !== handoffRevisions?.sourceRevision ||
-            reuse.targetProfitModelVersion !== value.frozenInputRefs?.profitModelVersion ||
-            !sameJson(reuse.sourceIdentity, g1Identity)) throw new C1PricingReuseError("C1_PRICING_REUSE_TARGET_CONFLICT");
+        if (reuse.schemaVersion === C1_PRICING_REUSE_REFERENCE_VERSION) {
+          if (!pricingDraftMatchesSnapshot(draft, sourcePlan, g1Identity, handoffRevisions?.sourceRevision,
+            value.frozenInputRefs?.profitModelVersion)) throw new C1PricingReuseError("C1_PRICING_REUSE_REFERENCE_SOURCE_MISMATCH");
+        } else {
+          assertC1PricingReuseRecordSource(reuse);
+          if (reuse.resultSkuRevision !== handoffRevisions?.sourceRevision ||
+              reuse.targetProfitModelVersion !== value.frozenInputRefs?.profitModelVersion ||
+              !sameJson(reuse.sourceIdentity, g1Identity)) throw new C1PricingReuseError("C1_PRICING_REUSE_TARGET_CONFLICT");
+        }
       } catch (error) {
         if (!(error instanceof C1PricingReuseError) && !(error instanceof C1SkuRightsReviewError) && !/^C1_AI_/.test(error.message)) throw error;
         push(errors, `${path}.draftOnlySeo.pricingReuseRecord`, error.message);
@@ -1663,14 +1694,14 @@ export function validateC2AssetLifecycle(value) {
       "productionAuthorizationPreparation.frozenC1Handoff",
       value.targetContext,
       errors,
-      preparation?.finalCardInputSnapshot?.c1Snapshot?.draftOnlySeo
+      preparation?.finalCardInputSnapshot?.c1Snapshot
     );
     validateStoredCanonicalC1Handoff(
       preparation?.finalCardInputSnapshot?.canonicalC1,
       "productionAuthorizationPreparation.finalCardInputSnapshot.canonicalC1",
       value.targetContext,
       errors,
-      preparation?.finalCardInputSnapshot?.c1Snapshot?.draftOnlySeo
+      preparation?.finalCardInputSnapshot?.c1Snapshot
     );
     validateStoredFinalCardInputSnapshot(preparation?.finalCardInputSnapshot, preparation, errors);
     validateAllowedKeys(preparation?.targetContext, [
@@ -1714,9 +1745,10 @@ export function validateC2AssetLifecycle(value) {
         ) !== preparation.sourceC1Fingerprint ||
         !sameJson(preparation.finalCardInputSnapshot.identity, preparation.frozenC1Handoff.identity) ||
         !sameJson(preparation.finalCardInputSnapshot.canonicalC1, preparation.frozenC1Handoff) ||
-        !editorialDraftMatchesSnapshot(preparation.frozenC1Handoff.draftOnlySeo,
-          preparation.finalCardInputSnapshot.c1Snapshot.draftOnlySeo,
-          preparation.finalCardInputSnapshot.identity, preparation.frozenC1Handoff.handoffRevisionRefs?.sourceRevision) ||
+        !canonicalDraftMatchesSnapshot(preparation.frozenC1Handoff.draftOnlySeo,
+          preparation.finalCardInputSnapshot.c1Snapshot,
+          preparation.finalCardInputSnapshot.identity, preparation.frozenC1Handoff.handoffRevisionRefs?.sourceRevision,
+          preparation.frozenC1Handoff.frozenInputRefs?.profitModelVersion) ||
         !sameJson(preparation.finalCardInputSnapshot.c1Snapshot.keywordEvidenceRefs, preparation.frozenC1Handoff.keywordEvidenceRefs) ||
         preparation.frozenC1Handoff.handoffRevisionRefs?.sourceRevision !== value.softwareState?.sourceDataRevision ||
         preparation.frozenC1Handoff.handoffRevisionRefs?.resultRevision !== value.softwareState?.sourceDataRevision + 1 ||

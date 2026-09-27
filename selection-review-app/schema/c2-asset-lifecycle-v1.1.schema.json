@@ -1011,7 +1011,14 @@
                   }
                 },
                 "pricingReuseRecord": {
-                  "$ref": "c1-product-plan-v1.1#/$defs/c1PricingReuseRecord"
+                  "oneOf": [
+                    {
+                      "$ref": "c1-product-plan-v1.1#/$defs/c1PricingReuseRecord"
+                    },
+                    {
+                      "$ref": "#/$defs/c1PricingReuseReference"
+                    }
+                  ]
                 }
               }
             },
@@ -1084,6 +1091,39 @@
           "$ref": "#/$defs/canonicalStableHttpsAssetRef"
         }
       ]
+    },
+    "c1PricingReuseReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "sourceIdentity",
+        "resultSkuRevision",
+        "targetPlanId",
+        "targetProfitModelVersion",
+        "recordFingerprint"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "c1-pricing-result-reuse-reference-v1"
+        },
+        "sourceIdentity": {
+          "$ref": "#/$defs/g1Identity"
+        },
+        "resultSkuRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "targetPlanId": {
+          "$ref": "#/$defs/canonicalFrozenRef"
+        },
+        "targetProfitModelVersion": {
+          "$ref": "#/$defs/canonicalFrozenRef"
+        },
+        "recordFingerprint": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
     },
     "editorialDraftReference": {
       "type": "object",
