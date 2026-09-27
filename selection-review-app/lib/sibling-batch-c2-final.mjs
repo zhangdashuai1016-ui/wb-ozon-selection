@@ -12,6 +12,7 @@ const fail = code => { throw new Error(code); };
 export function isSiblingBatchC2Replay(document, input, actor) {
   const fingerprint = fingerprintCanonicalRecord({ input, confirmedBy: actor.userId });
   return input.members.length > 0 && input.members.every(member => {
+    if (!member || typeof member.candidateId !== 'string') return false;
     const matches = document.candidates.filter(item => item.id === member.candidateId);
     const child = matches.length === 1 ? matches[0] : null;
     const receipt = child?.lifecycleV11?.siblingBatchC2ReceiptV1;
@@ -28,7 +29,9 @@ export async function commitSiblingBatchC2Final({ repository, runtimeMode, actor
   if (actor.actorType !== 'human' || actor.source !== 'authenticated_identity_provider' ||
       !input || input.confirmed !== true || !Number.isSafeInteger(input.parentRevision) ||
       typeof input.parentCandidateId !== 'string' || !Array.isArray(input.members) ||
-      input.members.length === 0 || input.members.length > 100 || typeof serverClock !== 'function') {
+      input.members.length === 0 || input.members.length > 100 ||
+      input.members.some(member => !member || typeof member.candidateId !== 'string') ||
+      typeof serverClock !== 'function') {
     fail('SIBLING_BATCH_C2_INPUT_INVALID');
   }
   if (new Set(input.members.map(item => item.candidateId)).size !== input.members.length ||

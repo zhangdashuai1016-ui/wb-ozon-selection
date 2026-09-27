@@ -14,10 +14,12 @@ import { bindSoftwareJobAdmissionDecision, claimSoftwareJobLease, markSoftwareJo
 import { C1_SCHEMA_CONTENT_FIELDS } from '../lib/lifecycle-b-input-bundle.mjs';
 import { commitSiblingBatchC2Final } from '../lib/sibling-batch-c2-final.mjs';
 import { finalAssets } from './helpers/c2-software-fixture.mjs';
+import { productionOwnerDecisionFixture } from './fixtures/production-owner-decision-fixture.mjs';
+import { commitBatchOwnerProductionAuthorization } from '../lib/d-batch-production-authorization.mjs';
 
 const at = '2026-08-12T13:00:00.000Z';
 
-async function fixture() {
+async function fixture(extraBroadValues = []) {
   const state = siblingColorState();
   const child = state.candidates[1];
   delete child.lifecycleV11.skuPackage.c1RightsReviewRecord;
@@ -79,7 +81,8 @@ async function fixture() {
       checkedAt: at, expiresAt: '2099-01-01T00:00:00.000Z', evidenceData: { complete: true,
         values: [{ value: 'synthetic-broad-color', dictionaryValueId: 910096 },
           { value: 'synthetic-broad-cp', dictionaryValueId: 910097 },
-          { value: 'synthetic-broad-black', dictionaryValueId: 910098 }] } }) });
+          { value: 'synthetic-broad-black', dictionaryValueId: 910098 },
+          ...extraBroadValues.map((value, index) => ({ value, dictionaryValueId: 910099 + index }))] } }) });
   const authorized = await reader.authorize({ actor, input: { candidateId: child.id,
     skuPackageId: child.lifecycleV11.skuPackage.skuPackageId, expectedRevision: child.dataRevision,
     attributeId: '10096' } });
@@ -97,11 +100,15 @@ async function fixture() {
   return { repository, actor, input, childId: child.id };
 }
 
-async function threeColorFixture() {
-  const base = await fixture();
+export async function threeColorFixture(colorCount = 3) {
+  const extra = Array.from({ length: colorCount - 3 }, (_, index) => ({
+    id: `synthetic-color-${index + 4}`, color: `合成颜色-${index + 4}`,
+    broad: `synthetic-broad-${index + 4}` }));
+  const base = await fixture(extra.map(item => item.broad));
   const additions = [
     { id: 'synthetic-cp', color: 'CP', broad: 'synthetic-broad-cp' },
-    { id: 'synthetic-black', color: '黑色', broad: 'synthetic-broad-black' }
+    { id: 'synthetic-black', color: '黑色', broad: 'synthetic-broad-black' },
+    ...extra
   ];
   await base.repository.transact(document => {
     const parent = document.candidates[0];
@@ -168,8 +175,8 @@ test('one wrong color or one stale row saves no C1/C2 state for any of three col
   }
 });
 
-async function threeColorC2Fixture() {
-  const { repository, actor, input } = await threeColorFixture();
+async function threeColorC2Fixture(colorCount = 3) {
+  const { repository, actor, input } = await threeColorFixture(colorCount);
   await commitSiblingBatchC1Preparation({ repository, runtimeMode: 'local_development', actor,
     input, serverClock: () => at });
   const verifiedAssets = new Map();
@@ -177,7 +184,7 @@ async function threeColorC2Fixture() {
   await repository.transact(document => {
     for (const [index, child] of document.candidates.slice(1).entries()) {
       const sku = child.lifecycleV11.skuPackage;
-      const mainSha = String(index + 1).repeat(64);
+      const mainSha = (index + 1).toString(16).padStart(64, '0');
       const main = { ...structuredClone(assets[0]), assetId: `final:synthetic:color-main:${index}`,
         assetRef: `https://assets.example.com/sibling/${index}.jpg`, sha256: mainSha,
         assetVersion: `sha256:${mainSha}`, order: 1 };
@@ -217,6 +224,67 @@ test('one C2 confirmation creates three independent final cards from the three-c
     actor, input, verifiedAssets: new Map(), serverClock: () => at });
   assert.equal(replay.status, 'idempotent_replay');
   assert.deepEqual(await repository.readSnapshot(), saved);
+});
+
+async function authorizePreparedColors(repository, actor, checkStale) {
+  const saved = await repository.readSnapshot();
+  const decisions = saved.candidates.slice(1).map((child, index) => {
+    const fixture = productionOwnerDecisionFixture(createMemoryBusinessStateRepository,
+      { sourceCandidate: child, sourceAt: at });
+    return { candidateId: child.id, ownerInput: { ...fixture.args.input, merchantSku: `SYNTHETIC-COLOR-${index}` },
+      fixture };
+  });
+  await repository.transact(document => {
+    for (const { candidateId, fixture } of decisions) {
+      const index = document.candidates.findIndex(item => item.id === candidateId);
+      document.candidates[index] = structuredClone(fixture.candidate);
+    }
+    document.evidencePacks = structuredClone(decisions[0].fixture.evidencePacks);
+    document.currentCommissionCatalogs = structuredClone(decisions[0].fixture.currentCommissionCatalogs);
+    return { changed: true, document, result: null };
+  });
+  const authorizationInput = { confirmAll: true, excludedOfferIds: ['SYNTHETIC-FIRST-UNKNOWN'],
+    members: decisions.map(({ candidateId, ownerInput }) => ({ candidateId, ownerInput })) };
+  const beforeAuthorization = await repository.readSnapshot();
+  if (checkStale) {
+    const stale = structuredClone(authorizationInput);
+    stale.members[stale.members.length - 1].ownerInput.dataRevision += 1;
+    await assert.rejects(() => commitBatchOwnerProductionAuthorization({ repository,
+      runtimeMode: 'local_development', actor, input: stale,
+      configuration: decisions[0].fixture.configuration, serverClock: () => at }));
+    assert.deepEqual(await repository.readSnapshot(), beforeAuthorization);
+  }
+  const batch = await commitBatchOwnerProductionAuthorization({ repository, runtimeMode: 'local_development',
+    actor, input: authorizationInput, configuration: decisions[0].fixture.configuration,
+    serverClock: () => at });
+  const authorized = await repository.readSnapshot();
+  assert.deepEqual(authorized.candidates[0], saved.candidates[0]);
+  assert.equal(authorized.candidates.slice(1).every(child => child.lifecycleV11.skuPackage.productionAuthorization), true);
+  return batch;
+}
+
+test('a selected 32-variant family prepares exactly 31 C1/C2 cards and one 31-member authorization', async () => {
+  const { repository, actor, input, verifiedAssets } = await threeColorC2Fixture(31);
+  const before = await repository.readSnapshot();
+  assert.equal(before.candidates.length, 32);
+  assert.equal(before.candidates[0].lifecycleV11.skuPackage.technicalStatus, 'unknown_outcome');
+  const result = await commitSiblingBatchC2Final({ repository, runtimeMode: 'local_development',
+    actor, input, verifiedAssets, serverClock: () => at });
+  assert.equal(result.members.length, 31);
+  const saved = await repository.readSnapshot();
+  assert.equal(saved.candidates.slice(1).filter(child =>
+    child.lifecycleV11.skuPackage.productionConfirmationCard?.status === 'awaiting_owner_business_confirmation').length, 31);
+  assert.deepEqual(saved.candidates[0], before.candidates[0]);
+  const batch = await authorizePreparedColors(repository, actor, false);
+  assert.equal(batch.members.length, 31);
+});
+
+test('one final owner decision authorizes all three prepared colors without authorizing the unknown first item', async () => {
+  const { repository, actor, input, verifiedAssets } = await threeColorC2Fixture();
+  await commitSiblingBatchC2Final({ repository, runtimeMode: 'local_development',
+    actor, input, verifiedAssets, serverClock: () => at });
+  const batch = await authorizePreparedColors(repository, actor, true);
+  assert.equal(batch.members.length, 3);
 });
 
 test('a cross-color main image conflict saves no final card for any row', async () => {
