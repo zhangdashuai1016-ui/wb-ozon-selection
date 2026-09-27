@@ -6,6 +6,7 @@ import { resolveC1SkuRightsReviewForFacts } from "./c1-sku-rights-review.mjs";
 import { applyPreparedC1OzonAttributeMapping, assertValidC1ProductPlan, verifyC1ProductFacts } from "./c1-product-plan.mjs";
 import { sameStoreRef } from "./store-binding.mjs";
 import { assertCurrentC1SkuRightsReview } from "./c1-sku-rights-review.mjs";
+import { resolveSavedC1ColorDictionaryValue } from './c1-color-dictionary-read-use-case.mjs';
 
 export const C1_OZON_ATTRIBUTE_MAPPING_VERSION = "c1-ozon-attribute-mapping-v1";
 
@@ -269,6 +270,7 @@ export function createC1OzonAttributeMappingUseCase({ repository, runtimeMode, s
 
       // 字典核实在事务之外做完：写入那一刻不打任何外部调用。
       const resolved = [];
+      let dictionaryExternalCalls = 0;
       for (const mapping of input.mappings) {
         const attributeId = mapping.attributeId.trim();
         const value = mapping.value.trim();
@@ -290,17 +292,26 @@ export function createC1OzonAttributeMappingUseCase({ repository, runtimeMode, s
         let dictionaryValueId = null;
         let dictionaryEvidenceRef = `${schema.evidenceId}#/attributes/${attributeId}`;
         if (attribute.dictionaryId > 0) {
-          const read = await readDictionaryValue({
-            store: schema.store, category: `ozon:${schema.descriptionCategoryId}:${schema.typeId}`,
-            attributeId, value
-          });
-          const exact = read?.evidenceData?.exactMatch ?? read?.exactMatch ?? null;
+          const savedSiblingColor = candidate.siblingSourceV1 && ['10096', '10097'].includes(attributeId);
+          let exact, readSourceRef;
+          if (savedSiblingColor) {
+            const saved = resolveSavedC1ColorDictionaryValue({ candidate,
+              evidencePacks: snapshot.evidencePacks, attributeId, value, observedAt });
+            exact = { value, dictionaryValueId: saved.dictionaryValueId };
+            readSourceRef = saved.sourceRef;
+          } else {
+            dictionaryExternalCalls += 1;
+            const read = await readDictionaryValue({ store: schema.store,
+              category: `ozon:${schema.descriptionCategoryId}:${schema.typeId}`, attributeId, value });
+            exact = read?.evidenceData?.exactMatch ?? read?.exactMatch ?? null;
+            readSourceRef = read?.sourceRef;
+          }
           if (!isObject(exact) || exact.value !== value || !Number.isInteger(exact.dictionaryValueId) || exact.dictionaryValueId <= 0) {
             // 近似值不顶替：字典里没有逐字相同的那一条，就是没有。
             throw new C1OzonAttributeMappingError("C1_OZON_ATTRIBUTE_MAPPING_DICTIONARY_VALUE_NOT_FOUND", `${attributeId} → ${value}`);
           }
           dictionaryValueId = exact.dictionaryValueId;
-          if (nonEmpty(read?.sourceRef)) dictionaryEvidenceRef = read.sourceRef;
+          if (nonEmpty(readSourceRef)) dictionaryEvidenceRef = readSourceRef;
         }
         resolved.push({
           attributeId, attributeLabel: attribute.label ?? null, dictionaryId: attribute.dictionaryId,
@@ -315,11 +326,22 @@ export function createC1OzonAttributeMappingUseCase({ repository, runtimeMode, s
         expectedRevision: input.expectedRevision, idempotencyKey: input.idempotencyKey,
         inputFingerprint: fingerprintCanonicalRecord(input), auditEventId: input.auditEventId,
         serverClock,
-        mutate: ({ candidate: current, observedAt: stagedAt }) => {
+        mutate: ({ candidate: current, evidencePacks, observedAt: stagedAt }) => {
           // 读快照到落盘之间数据可能已经变了：身份和状态再查一遍，对不上就整轮不写。
           const { sku: currentSku, schema: currentSchema } = planAt(current, input.skuPackageId, stagedAt);
           if (currentSku.dataRevision !== sku.dataRevision || currentSchema.schemaRevision !== schema.schemaRevision) {
             throw new C1OzonAttributeMappingError("C1_OZON_ATTRIBUTE_MAPPING_SOURCE_CHANGED");
+          }
+          if (current.siblingSourceV1) {
+            for (const mapping of resolved.filter(item => item.dictionaryId > 0 &&
+                ['10096', '10097'].includes(item.attributeId))) {
+              const saved = resolveSavedC1ColorDictionaryValue({ candidate: current,
+                evidencePacks, attributeId: mapping.attributeId, value: mapping.value, observedAt: stagedAt });
+              if (saved.dictionaryValueId !== mapping.dictionaryValueId ||
+                  saved.sourceRef !== mapping.dictionaryEvidenceRef) {
+                throw new C1OzonAttributeMappingError('C1_OZON_ATTRIBUTE_MAPPING_SOURCE_CHANGED');
+              }
+            }
           }
           currentSku.ozonAttributeMappingsV1 = {
             schemaVersion: C1_OZON_ATTRIBUTE_MAPPING_VERSION,
@@ -338,7 +360,7 @@ export function createC1OzonAttributeMappingUseCase({ repository, runtimeMode, s
               mappedAttributeIds: resolved.map((item) => item.attributeId),
               dictionaryBackedCount: resolved.filter((item) => item.dictionaryValueId !== null).length,
               freeTextCount: resolved.filter((item) => item.dictionaryValueId === null).length,
-              externalCalls: resolved.filter((item) => item.dictionaryId > 0).length,
+              externalCalls: dictionaryExternalCalls,
               aiCalls: 0, platformWrites: 0, paidCalls: 0
             }
           };

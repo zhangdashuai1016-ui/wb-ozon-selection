@@ -1791,6 +1791,7 @@ export default function ProductPage({
   onReviseSiblingColor = null, onSaveC1RightsReview = null, onBackfillC1SupplyAttributes = null,
   onSaveC1OzonAttributeMapping = null, onRefreshC1CategorySchema = null,
   onProposeC1OzonAttributes = null, onLoadC1OzonAttributes = null,
+  onReadC1ColorDictionary = null,
   onRecalculateBWithExactCommission = null, onRefreshBFeeEvidence = null,
   loadingLabel = "正在读取这件商品的找货资料…"
 }) {
@@ -2101,7 +2102,7 @@ export default function ProductPage({
       <C1OzonAttributePanel candidate={candidate} identity={productionIdentity}
         onBackfill={onBackfillC1SupplyAttributes} onSaveMapping={onSaveC1OzonAttributeMapping}
         onRefreshSchema={onRefreshC1CategorySchema} onProposeAttributes={onProposeC1OzonAttributes}
-        onLoadMappingFacts={onLoadC1OzonAttributes} />
+        onLoadMappingFacts={onLoadC1OzonAttributes} onReadColorDictionary={onReadC1ColorDictionary} />
     </> : null}
     <C1LocalPreparationPanel candidate={candidate} identity={productionIdentity} onPrepare={onPrepareC1Local} />
     {showsC1LocalPreparation(candidate) ? <>

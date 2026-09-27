@@ -105,6 +105,7 @@ export function createOzonDictionaryValuesReader({ ozonServiceUrl, fetchImpl = g
     if (!isObject(data) || !Array.isArray(data.values) || typeof data.complete !== "boolean") {
       throw new Error("OZON_DICTIONARY_EVIDENCE_SHAPE_INVALID");
     }
-    return { sourceRef: evidence.sourceRef, checkedAt: evidence.checkedAt, evidenceData: data };
+    return { sourceRef: evidence.sourceRef, checkedAt: evidence.checkedAt,
+      expiresAt: evidence.expiresAt ?? null, evidenceData: data };
   };
 }

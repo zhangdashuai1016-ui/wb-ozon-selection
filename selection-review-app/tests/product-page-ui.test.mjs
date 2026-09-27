@@ -97,11 +97,27 @@ test('sibling product page shows frozen revision recovery and editable 10096/100
   assert.match(frozenHtml, /建立新的 C1 颜色修订/);
   assert.match(frozenHtml, /旧 C1\/C2 保留历史/);
   const editableHtml = await render(props({ candidate: editable, onSaveC1OzonAttributeMapping: forbidden,
-    onLoadC1OzonAttributes: forbidden }));
+    onLoadC1OzonAttributes: forbidden, onReadC1ColorDictionary: forbidden }));
   assert.match(editableHtml, /本规格供应原色：黑cp/);
   assert.match(editableHtml, /10096 商品颜色/);
   assert.match(editableHtml, /10097 颜色名称/);
   assert.match(editableHtml, /查看当前规格可映射的事实/);
+  assert.match(editableHtml, /授权并读取本规格官方颜色候选/);
+  assert.match(editableHtml, /需授权读取完整的官方字典候选，当前不能猜填/);
+  assert.doesNotMatch(editableHtml, /填官方字典里的准确值/);
+  editable.lifecycleV11.c1ColorDictionaryReadsV1 = { '10096': { status: 'succeeded',
+    schemaRevision: editable.lifecycleV11.skuPackage.c1ProductPlan.inputSnapshots.platformSchemaRules.schemaRevision,
+    schemaEvidenceId: editable.lifecycleV11.skuPackage.c1ProductPlan.inputSnapshots.platformSchemaRules.evidenceId,
+    c1PlanId: editable.lifecycleV11.skuPackage.c1ProductPlan.c1PlanId,
+    evidence: { complete: true, sourceRef: 'synthetic:dictionary:10096',
+      expiresAt: '2099-01-01T00:00:00.000Z', values: [
+        { value: 'synthetic-broad-color', valueZh: '合成广义颜色', dictionaryValueId: 910096 }
+      ] } } };
+  const choicesHtml = await render(props({ candidate: editable, onSaveC1OzonAttributeMapping: forbidden,
+    onLoadC1OzonAttributes: forbidden, onReadC1ColorDictionary: forbidden }));
+  assert.match(choicesHtml, /请选择官方候选/);
+  assert.match(choicesHtml, /合成广义颜色（synthetic-broad-color）/);
+  assert.match(choicesHtml, /填写你确认的准确文字/);
 });
 
 test('C2 确认后从保存数据显示素材顺序和方案卡，缺少卡片不可宣称生成成功', async () => {

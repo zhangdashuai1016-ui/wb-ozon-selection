@@ -1,5 +1,6 @@
 import { createFormalC1DraftFixture } from './formal-c1-flow-fixture.mjs';
 import { createC1SkuRightsReviewRecord } from '../../lib/c1-sku-rights-review.mjs';
+import { C1_SCHEMA_CONTENT_FIELDS } from '../../lib/lifecycle-b-input-bundle.mjs';
 
 function siblingCandidate({ candidateId, frozen }) {
   const fixture = createFormalC1DraftFixture({ candidateId, variantKey: '颜色:黑cp',
@@ -35,6 +36,14 @@ function siblingCandidate({ candidateId, frozen }) {
 export function siblingColorState() {
   const frozen = siblingCandidate({ candidateId: 'SYNTHETIC-COLOR-FROZEN', frozen: true });
   const editable = siblingCandidate({ candidateId: 'SYNTHETIC-COLOR-EDITABLE', frozen: false });
+  const schema = editable.lifecycleV11.skuPackage.c1ProductPlan.inputSnapshots.platformSchemaRules;
+  const evidenceData = Object.fromEntries([...C1_SCHEMA_CONTENT_FIELDS, 'schemaRevision', 'requiredFields']
+    .map(field => [field, structuredClone(schema[field])]));
+  const schemaPack = { id: schema.evidenceId, kind: 'schema', status: 'active',
+    scope: { platform: schema.platform, store: schema.store, storeRef: structuredClone(schema.storeRef),
+      category: `ozon:${schema.descriptionCategoryId}:${schema.typeId}`, ruleVersion: 'ozon-current' },
+    sourceType: 'isolated_test', sourceRef: 'synthetic:current-schema',
+    checkedAt: schema.collectedAt, expiresAt: '2099-01-01T00:00:00.000Z', evidenceData };
   return { meta: { version: 2, automationStarted: false }, rules: {},
-    candidates: [frozen, editable], dispatches: [], runtime: {}, evidencePacks: [] };
+    candidates: [frozen, editable], dispatches: [], runtime: {}, evidencePacks: [schemaPack] };
 }

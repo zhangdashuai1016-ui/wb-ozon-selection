@@ -3,8 +3,10 @@ import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { siblingColorState } from './sibling-color-state.mjs';
+import { createLocalOwnerIdentityProvider, createPrivateOwnerCredentialRepository } from '../../lib/local-owner-identity.mjs';
 
 const appDir = fileURLToPath(new URL('../..', import.meta.url));
 const appPort = Number(process.argv[2] ?? 60740);
@@ -19,9 +21,17 @@ const dataFile = path.join(businessDirectory, 'state.json');
 const privateDirectory = path.join(directory, 'private');
 await mkdir(businessDirectory);
 await mkdir(privateDirectory, { mode: 0o700 });
+const ownerIdentityFile = path.join(privateDirectory, 'owner.json');
+const syntheticOwnerPassword = randomBytes(18).toString('base64url');
+const ownerProvider = createLocalOwnerIdentityProvider({ credentialRepository:
+  createPrivateOwnerCredentialRepository({ filePath: ownerIdentityFile,
+    protectedPaths: [appDir, businessDirectory] }) });
+await ownerProvider.initialize();
+await ownerProvider.setup({ password: syntheticOwnerPassword });
 const state = siblingColorState();
 await writeFile(dataFile, JSON.stringify(state));
 const storeRef = state.candidates[0].storeRef;
+const schema = state.candidates[1].lifecycleV11.skuPackage.c1ProductPlan.inputSnapshots.platformSchemaRules;
 
 // A single synthetic dictionary answer makes the manual mapping path testable
 // without any Ozon account. Every other dependency request is rejected.
@@ -31,20 +41,22 @@ const evidence = createServer(async (request, response) => {
   let query;
   try { query = JSON.parse(body); } catch { query = null; }
   const valid = request.method === 'POST' && request.url === '/api/read-only/evidence/ozon' &&
-    query?.kind === 'schema_dictionary_value' && query.platform === 'ozon' &&
-    query.attributeId === '10096' && query.value === 'synthetic-broad-color';
+    query?.kind === 'schema_dictionary_values' && query.platform === 'ozon' &&
+    query.store === schema.store && query.category === `ozon:${schema.descriptionCategoryId}:${schema.typeId}` &&
+    query.attributeId === '10096' && query.limit === 200;
   response.setHeader('Content-Type', 'application/json');
   if (!valid) {
     response.writeHead(503);
     response.end(JSON.stringify({ error: 'preview_only_synthetic_dictionary_query_allowed' }));
     return;
   }
-  const exactMatch = { value: query.value, dictionaryValueId: 910096 };
+  const value = { value: 'synthetic-broad-color', valueZh: '合成广义颜色', dictionaryValueId: 910096 };
   response.end(JSON.stringify({ ok: true, evidence: {
     current: true, scope: { platform: query.platform, store: query.store,
       category: query.category, attributeId: query.attributeId },
     sourceRef: 'synthetic:dictionary:10096', checkedAt: new Date().toISOString(),
-    evidenceData: { query: query.value, matches: [exactMatch], exactMatch }
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    evidenceData: { attributeId: '10096', complete: true, values: [value] }
   } }));
 });
 await new Promise((resolve, reject) => {
@@ -59,7 +71,7 @@ const env = {
   SELECTION_REVIEW_DATA_FILE: dataFile, SELECTION_REVIEW_PUBLIC_ORIGIN: origin,
   SELECTION_REVIEW_ALLOWED_ORIGINS: origin,
   SELECTION_REVIEW_IDENTITY_PROVIDER: 'local_owner_password',
-  SELECTION_REVIEW_OWNER_IDENTITY_FILE: path.join(privateDirectory, 'owner.json'),
+  SELECTION_REVIEW_OWNER_IDENTITY_FILE: ownerIdentityFile,
   SELECTION_REVIEW_STORE_BINDINGS_JSON: JSON.stringify([{
     targetStore: storeRef.stableStoreId, platform: 'ozon', storeRef
   }]),
@@ -81,5 +93,6 @@ process.once('SIGTERM', stop);
 app.once('exit', code => { evidence.close(); process.exitCode = code ?? 1; });
 console.log(`Synthetic sibling preview: ${origin}`);
 console.log(`State: ${dataFile}`);
+console.log(`Synthetic owner password for this preview only: ${syntheticOwnerPassword}`);
 console.log('Candidates: SYNTHETIC-COLOR-FROZEN, SYNTHETIC-COLOR-EDITABLE');
 console.log('Dictionary query: 10096 = synthetic-broad-color; text: 10097 = synthetic-exact-color');

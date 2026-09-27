@@ -252,6 +252,7 @@ import { createC2LocalAssetStore, normalizeC2LocalUpload } from "./lib/c2-local-
 import { createC1ImageTextUseCase } from "./lib/c1-image-text-use-case.mjs";
 import { createC1FinalPlanRevisionUseCase } from "./lib/c1-final-plan-revision-use-case.mjs";
 import { createC1SiblingColorRevisionUseCase, C1SiblingColorRevisionError } from "./lib/c1-sibling-color-revision-use-case.mjs";
+import { createC1ColorDictionaryReadUseCase, C1ColorDictionaryReadError } from './lib/c1-color-dictionary-read-use-case.mjs';
 import { createLocalImageTextAdapter } from "./lib/local-image-text-adapter.mjs";
 import {
   createPersistableAliyunOssAssetIntent,
@@ -308,6 +309,11 @@ const c1FinalPlanRevisionUseCase = createC1FinalPlanRevisionUseCase({ repository
   runtimeMode: runtimeConfiguration.deploymentMode, serverClock: now });
 const c1SiblingColorRevisionUseCase = createC1SiblingColorRevisionUseCase({ repository: businessStateRepository,
   runtimeMode: runtimeConfiguration.deploymentMode, serverClock: now });
+const c1ColorDictionaryReadUseCase = createC1ColorDictionaryReadUseCase({ repository: businessStateRepository,
+  runtimeMode: runtimeConfiguration.deploymentMode, serverClock: now,
+  readDictionaryValues: request => createOzonDictionaryValuesReader({
+    ozonServiceUrl: runtimeConfiguration.ozonEvidenceServiceUrl
+  })(request) });
 const c1ImageTextUseCase = createC1ImageTextUseCase({ repository: businessStateRepository,
   runtimeMode: runtimeConfiguration.deploymentMode, assetStore: c2LocalAssetStore, serverClock: now,
   extractor: runtimeConfiguration.c1ImageTextExecutable
@@ -6462,6 +6468,46 @@ async function handleApi(req, res, pathname) {
     }
   }
 
+  // 颜色字典先保存主人一次性授权，再原子标记请求已发，才调用本机只读证据服务。
+  const c1ColorDictionaryRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/color-dictionary\/(authorize|continue)$/);
+  if (req.method === 'POST' && c1ColorDictionaryRoute) {
+    const input = await requestBody(req);
+    const action = c1ColorDictionaryRoute[2];
+    const keys = action === 'authorize'
+      ? 'attributeId,candidateId,dataRevision,skuPackageId'
+      : 'attributeId,authorizationId,candidateId,dataRevision,skuPackageId';
+    if (!input || input.candidateId !== c1ColorDictionaryRoute[1] ||
+        Object.keys(input).sort().join(',') !== keys ||
+        !Number.isSafeInteger(input.dataRevision) || !['10096', '10097'].includes(input.attributeId) ||
+        typeof input.skuPackageId !== 'string' ||
+        (action === 'continue' && typeof input.authorizationId !== 'string')) {
+      throw httpError(400, '颜色字典读取只接受当前商品、SKU、属性及修订号');
+    }
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    const common = { candidateId: input.candidateId, skuPackageId: input.skuPackageId,
+      attributeId: input.attributeId, expectedRevision: input.dataRevision };
+    try {
+      const transaction = action === 'authorize'
+        ? await c1ColorDictionaryReadUseCase.authorize({ actor, input: common })
+        : await c1ColorDictionaryReadUseCase.continueSaved({ actor,
+          input: { ...common, authorizationId: input.authorizationId } });
+      const saved = await readData();
+      return json(res, 200, { status: transaction.status, result: transaction.result,
+        candidate: publicCandidate(transaction.candidate, saved.rules, {}, saved.evidencePacks || [], saved.currentCommissionCatalogs ?? []),
+        platformWrites: 0, paidCalls: 0 });
+    } catch (error) {
+      const code = error.code ?? error.message;
+      if (error instanceof C1ColorDictionaryReadError ||
+          ['BUSINESS_MUTATION_REVISION_CONFLICT', 'BUSINESS_MUTATION_IDEMPOTENCY_CONFLICT'].includes(code)) {
+        return json(res, code.endsWith('OWNER_REQUIRED') ? 403 : 409, { code,
+          message: code === 'C1_COLOR_DICTIONARY_SCHEMA_NOT_CURRENT'
+            ? '当前冻结类目资料缺少有效的同范围官方证据，请先使用现有类目资料刷新入口。'
+            : '颜色字典读取授权、范围或结果不满足当前规格；请求未重发，请核对已保存状态。',
+          externalRequests: 0, platformWrites: 0, paidCalls: 0 });
+      }
+      throw error;
+    }
+  }
   // 这个类目的全部属性、可以当依据的已确认事实、以及已经签过的映射。只读，不查字典。
   const c1OzonAttributesRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/ozon-attributes$/);
   if (req.method === "GET" && c1OzonAttributesRoute) {
@@ -6513,8 +6559,12 @@ async function handleApi(req, res, pathname) {
       } });
       return json(res, 200, { candidate: result.candidate, result: result.result, platformWrites: 0, paidCalls: 0 });
     } catch (error) {
-      if (error instanceof C1OzonAttributeMappingError) {
-        return json(res, 409, { code: error.code, message: ozonMappingMessage(error.code, error.detail), externalRequests: 0, platformWrites: 0, paidCalls: 0 });
+      if (error instanceof C1OzonAttributeMappingError || error instanceof C1ColorDictionaryReadError) {
+        return json(res, 409, { code: error.code,
+          message: error instanceof C1ColorDictionaryReadError
+            ? '本规格颜色缺少当前完整的已授权字典候选；请先在 C1 读取并选择官方候选。'
+            : ozonMappingMessage(error.code, error.detail),
+          externalRequests: 0, platformWrites: 0, paidCalls: 0 });
       }
       throw error;
     }

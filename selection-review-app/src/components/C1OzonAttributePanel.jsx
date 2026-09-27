@@ -6,7 +6,7 @@ import { useSubmit } from "./FormRevisionNotice.jsx";
  * 主人显式映射入口：字典属性由现有服务端读数逐字核对，无字典属性
  * 按冻结类目资料接受主人确认的文字；页面不推断俄文值。
  */
-export default function C1OzonAttributePanel({ candidate, identity, onBackfill, onSaveMapping, onRefreshSchema, onProposeAttributes, onLoadMappingFacts }) {
+export default function C1OzonAttributePanel({ candidate, identity, onBackfill, onSaveMapping, onRefreshSchema, onProposeAttributes, onLoadMappingFacts, onReadColorDictionary }) {
   const sku = candidate?.lifecycleV11?.skuPackage;
   const plan = sku?.c1ProductPlan;
   const [proposal, setProposal] = useState(null);
@@ -38,6 +38,15 @@ export default function C1OzonAttributePanel({ candidate, identity, onBackfill, 
   const saved = sku?.ozonAttributeMappingsV1?.mappings ?? [];
   const supplierColor = candidate.sourceCapture?.skuChoices?.find(choice => choice.sourceSkuId === sku.supplierSkuId)?.attributes?.颜色;
   const colorSchema = ['10096', '10097'].map(id => frozenSchema?.attributes?.find(item => String(item.fieldKey) === id));
+  const colorDictionaryReads = candidate.lifecycleV11?.c1ColorDictionaryReadsV1 ?? {};
+  const currentColorCandidates = attributeId => {
+    const record = colorDictionaryReads[attributeId];
+    return record?.status === 'succeeded' && record.schemaRevision === frozenSchema?.schemaRevision &&
+      record.schemaEvidenceId === frozenSchema?.evidenceId &&
+      record.c1PlanId === plan?.c1PlanId && record.evidence?.complete === true &&
+      Array.isArray(record.evidence.values) &&
+      Date.parse(record.evidence.expiresAt) > Date.now() ? record.evidence.values : null;
+  };
   const colorFact = mappingFacts?.confirmedFacts?.filter(fact =>
     fact.value === supplierColor && fact.factPath.startsWith('productAttributes.supplierAttributes.')) ?? [];
 
@@ -103,9 +112,17 @@ export default function C1OzonAttributePanel({ candidate, identity, onBackfill, 
     const result = await onLoadMappingFacts(candidate.id);
     setMappingFacts(result?.proposal ?? null);
   });
+  const readColorCandidates = attributeId => act(async () => {
+    const record = colorDictionaryReads[attributeId];
+    await onReadColorDictionary(candidate.id, { attributeId,
+      authorizationId: record?.status === 'authorized' && Date.parse(record.expiresAt) > Date.now()
+        ? record.authorizationId : null });
+  });
   const saveColor = act(async () => {
     if (colorFact.length !== 1 || colorSchema.some(item => !item) ||
-        !colorValues['10096'].trim() || !colorValues['10097'].trim()) {
+        !colorValues['10096'].trim() || !colorValues['10097'].trim() ||
+        ['10096', '10097'].some((id, index) => colorSchema[index].dictionaryId > 0 &&
+          !currentColorCandidates(id)?.some(item => item.value === colorValues[id]))) {
       throw new Error('先核对唯一的供应颜色依据，并填写这两个属性的真实 Ozon 值');
     }
     const retained = saved.filter(item => !['10096', '10097'].includes(String(item.attributeId)))
@@ -121,16 +138,44 @@ export default function C1OzonAttributePanel({ candidate, identity, onBackfill, 
       <p><b>本规格供应原色：{supplierColor || '未取得'}</b>。10096 是广义商品颜色，10097 是这件规格的颜色名称；两项都须由你对当前规格确认。这里不会沿用父卡颜色，也不会替你翻译。</p>
       <p>冻结类目资料：{frozenSchema?.schemaRevision || '未取得'}；采集于 {frozenSchema?.collectedAt || '未取得'}；有效至 {frozenSchema?.expiresAt || '未取得'}。已过期的资料请先核对再继续。</p>
       {colorSchema.map((item, index) => <p key={index}>{index === 0 ? '10096 商品颜色' : '10097 颜色名称'}：{item ? `${item.labelZh || item.label || ''} · ${item.dictionaryId > 0 ? '官方字典逐字核对' : '按类目资料填写文字'}` : '当前冻结类目资料缺此属性，请先核对类目资料'}</p>)}
-      {!mappingFacts ? <button type="button" disabled={!canAct || saving || !onLoadMappingFacts} onClick={readColorFacts}>查看当前规格可映射的事实</button> : <>
-        <p>可用的当前颜色依据：{colorFact.length === 1 ? `${colorFact[0].value} · ${colorFact[0].factPath}` : '没有找到唯一依据，请核对供应颜色资料'}。</p>
-        <form onSubmit={saveColor}>
-          {['10096', '10097'].map(attributeId => <label key={attributeId}>{attributeId === '10096' ? '10096 广义商品颜色' : '10097 当前规格颜色名称'}
-            <input value={colorValues[attributeId]} onChange={event => setColorValues(current => ({ ...current, [attributeId]: event.target.value }))}
-              placeholder={colorSchema[attributeId === '10096' ? 0 : 1]?.dictionaryId > 0 ? '填官方字典里的准确值' : '填你确认的准确文字'} disabled={saving} required />
-          </label>)}
-          <button type="submit" disabled={!canAct || saving || colorFact.length !== 1 || colorSchema.some(item => !item)}>核对并保存本规格两个颜色属性</button>
-        </form>
-      </>}
+      <button type="button" disabled={!canAct || saving || !onLoadMappingFacts} onClick={readColorFacts}>查看当前规格可映射的事实</button>
+      <p>可用的当前颜色依据：{!mappingFacts ? '先查看当前规格事实' : colorFact.length === 1 ? `${colorFact[0].value} · ${colorFact[0].factPath}` : '没有找到唯一依据，请核对供应颜色资料'}。</p>
+      <form onSubmit={saveColor}>
+          {['10096', '10097'].map((attributeId, index) => {
+            const attribute = colorSchema[index];
+            const read = colorDictionaryReads[attributeId];
+            const candidates = currentColorCandidates(attributeId);
+            return <div key={attributeId}>
+              <label>{attributeId === '10096' ? '10096 广义商品颜色' : '10097 当前规格颜色名称'}
+                {attribute?.dictionaryId > 0
+                  ? candidates ? <select value={colorValues[attributeId]} disabled={saving}
+                    onChange={event => setColorValues(current => ({ ...current, [attributeId]: event.target.value }))} required>
+                    <option value="">请选择官方候选</option>
+                    {candidates.map(item => <option key={item.dictionaryValueId} value={item.value}>
+                      {item.valueZh ? `${item.valueZh}（${item.value}）` : item.value}
+                    </option>)}
+                  </select> : <span>需授权读取完整的官方字典候选，当前不能猜填。</span>
+                  : attribute?.dictionaryId === 0 ? <input value={colorValues[attributeId]}
+                    onChange={event => setColorValues(current => ({ ...current, [attributeId]: event.target.value }))}
+                    placeholder="填写你确认的准确文字" disabled={saving} required />
+                    : <span>冻结类目资料缺此属性，请先核对类目资料。</span>}
+              </label>
+              {attribute?.dictionaryId > 0 && candidates ? <p>完整候选证据：{read.evidence.sourceRef}；有效至 {read.evidence.expiresAt}。</p> : null}
+              {attribute?.dictionaryId > 0 && !candidates && !['request_sent', 'unknown_outcome'].includes(read?.status)
+                ? <button type="button" disabled={!canAct || saving || !onReadColorDictionary || colorFact.length !== 1}
+                  onClick={readColorCandidates(attributeId)}>
+                  {read?.status === 'authorized' && Date.parse(read.expiresAt) > Date.now()
+                    ? '继续已授权的只读查询' : '授权并读取本规格官方颜色候选'}
+                </button> : null}
+              {attribute?.dictionaryId > 0 && ['request_sent', 'unknown_outcome', 'incomplete'].includes(read?.status)
+                ? <p role="status">本次字典读取{read.status === 'incomplete' ? '候选不完整；可由主人明确重新授权读取' : '结果尚未确定；必须先核对'}；不可用这份结果映射，也不会自动重试。</p> : null}
+            </div>;
+          })}
+          <button type="submit" disabled={!canAct || saving || colorFact.length !== 1 || colorSchema.some(item => !item) ||
+            ['10096', '10097'].some((id, index) => colorSchema[index].dictionaryId > 0 && !currentColorCandidates(id))}>
+            核对并保存本规格两个颜色属性
+          </button>
+      </form>
     </div> : null}
     <p>
       <b>这张表是中文的</b>——属性名和取值都用 Ozon 自己给的中文显示（括号里是发到平台上的俄文原值）。
@@ -157,7 +202,7 @@ export default function C1OzonAttributePanel({ candidate, identity, onBackfill, 
 
     {saved.length > 0 ? <p>已签 {saved.length} 条：{saved.map(item => `${item.attributeLabel}=${readableFact(item.value)}`).join("、")}。</p> : null}
 
-    {schemaReady && !proposal ? <form onSubmit={propose}>
+    {schemaReady && !proposal && !candidate.siblingSourceV1 ? <form onSubmit={propose}>
       <p>
         类目里有 {frozenSchema.attributes.length} 个属性、
         {frozenSchema.attributes.filter(item => item.dictionaryId > 0).length} 个带字典。

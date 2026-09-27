@@ -100,6 +100,12 @@ export const api = {
   reviseSiblingColor: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/revise-sibling-color`, {
     method: "POST", body: JSON.stringify(payload)
   }),
+  authorizeC1ColorDictionary: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/color-dictionary/authorize`, {
+    method: "POST", body: JSON.stringify(payload)
+  }),
+  continueC1ColorDictionary: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/color-dictionary/continue`, {
+    method: "POST", body: JSON.stringify(payload)
+  }),
   getAccountPreparations: signal => request('/api/account-preparations',{signal}),
   createAccountPreparation: payload => request('/api/account-preparations/create',{method:'POST',body:JSON.stringify(payload)}),
   authorizeAccountDiscovery: payload => request('/api/account-preparations/authorize',{method:'POST',body:JSON.stringify(payload)}),

@@ -896,6 +896,29 @@ export default function App() {
     }
   }
 
+  async function readC1ColorDictionary(candidateId, { attributeId, authorizationId = null }) {
+    if (!selected || candidateId !== selected.id) throw new Error('当前商品已变化，未读取颜色字典。');
+    try {
+      const skuPackageId = selected.lifecycleV11.skuPackage.skuPackageId;
+      const authorized = authorizationId ? null : await api.authorizeC1ColorDictionary(candidateId, {
+        candidateId, skuPackageId, attributeId, dataRevision: selected.dataRevision
+      });
+      const read = await api.continueC1ColorDictionary(candidateId, { candidateId, skuPackageId, attributeId,
+        authorizationId: authorizationId ?? authorized.result.authorizationId,
+        dataRevision: authorized?.candidate?.dataRevision ?? selected.dataRevision });
+      setNotice({ type: read.result?.status === 'succeeded' ? 'success' : 'error',
+        message: read.result?.status === 'succeeded'
+          ? '已保存当前类目的完整官方颜色候选，请核对后选择。'
+          : '颜色字典结果不完整或未知，当前候选不可用于映射；请核对已保存状态。' });
+      await load(true);
+      return read;
+    } catch (error) {
+      setNotice({ type: 'error', message: errorMessage(error) });
+      await load(true);
+      throw error;
+    }
+  }
+
   async function retryC1KeywordHandoff(payload) {
     if (!selected || payload.candidateId !== selected.id) throw new Error("当前商品已变化，未继续旧交接。");
     try {
@@ -1330,6 +1353,7 @@ export default function App() {
           onRefreshC1CategorySchema={refreshC1CategorySchema}
           onProposeC1OzonAttributes={proposeC1OzonAttributes}
           onLoadC1OzonAttributes={api.getC1OzonAttributes}
+          onReadC1ColorDictionary={readC1ColorDictionary}
           onOpenLegacyCard={() => setView("review")}
           onEliminateCandidate={eliminateCandidate}
           onBack={() => setView("desk")}
@@ -1440,6 +1464,7 @@ export default function App() {
               onRefreshC1CategorySchema={refreshC1CategorySchema}
               onProposeC1OzonAttributes={proposeC1OzonAttributes}
               onLoadC1OzonAttributes={api.getC1OzonAttributes}
+              onReadC1ColorDictionary={readC1ColorDictionary}
               onRecalculateBWithExactCommission={recalculateBWithExactCommission}
               productionIdentity={state.runtimeArchitecture?.currentUser}
             /></Suspense>
