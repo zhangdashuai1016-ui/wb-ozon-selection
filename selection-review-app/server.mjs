@@ -571,6 +571,7 @@ const deRuntimeServices = createDEProductionRuntimeServices({
   inspectPlatform: ozonDEPreflightProvider.inspectPlatform,
   loadAdapterCapabilities: ozonDEPreflightProvider.loadAdapterCapabilities,
   loadBatchMemberEvidence: ozonDEPreflightProvider.loadBatchMemberEvidence,
+  loadBatchEReadEvidence: ozonDEPreflightProvider.loadBatchEReadEvidence,
   preflightRequestMode: "persisted_evidence_only",
   upload: ossRuntimeProvider.upload, resolveLocalAsset: ossRuntimeProvider.resolveLocalAsset,
   loadCurrentProductionBinding: currentProductionBinding,

@@ -19,6 +19,7 @@ import { PRODUCTION_WRITE_FIELDS } from '../lib/production-authorization-prepara
 import { createProductionPlan } from '../lib/production-plan.mjs';
 import { runPlatformWritePreflight } from '../lib/platform-write-preflight.mjs';
 import { createDPlatformObservationPolicyResolver } from '../lib/runtime-configuration.mjs';
+import { fingerprintCanonicalRecord } from '../lib/production-contract-primitives.mjs';
 
 async function fixture({ clockOffsetMs = 0 } = {}) {
   const base = await productionOwnerDecisionHttpFixture(), clock = () => new Date(Date.parse(base.owner.formal.at) + clockOffsetMs).toISOString();
@@ -145,6 +146,44 @@ test('real local transport, pre-PA read and later PA use the same saved source w
   await f.source.publish({ scope: record.scope, jobId: read.jobId });
   assert.deepEqual(await f.repository.readSnapshot(), before, 'same source publication is idempotent');
   assert.equal(Object.hasOwn(sku, 'dAssetTransport'), false); assert.equal(Object.hasOwn(sku, 'dSoftwareExecution'), false);
+});
+
+test('batch E reuses the completed account receipt after write verification expires and rejects a damaged read authorization', async () => {
+  const f=await fixture(),catalog=await loadOzonDEProtocolCatalog(),connected=f.connectCatalog(catalog);
+  const account=await connected.services.authorizeAndRun({actor:f.base.owner.args.actor,input:f.input});
+  assert.equal(account.status,'completed');
+  const saved=await authorizeProduction(f),pa=saved.candidate.lifecycleV11.skuPackage.productionAuthorization;
+  await connected.services.continueProduction({candidateId:f.input.candidateId,
+    jobId:saved.result.softwareJobRef.jobId,expectedRevision:saved.candidate.dataRevision});
+  const document=await f.repository.readSnapshot(),candidate=document.candidates[0];
+  const record=document.runtime.ozonDEPreflightEvidence[pa.authorizationId];
+  assert.equal(record.schemaVersion,'ozon-de-preflight-evidence-v4');
+  const binding=structuredClone(f.configuration.productionBindings[0]);
+  binding.verification.expiresAt=new Date(Date.parse(f.base.owner.formal.at)-1).toISOString();
+  const expiredSource=createOzonAccountReadEvidenceSource({repository:f.repository,
+    loadCurrentReadBinding:createOzonAccountReadBindingResolver({...f.configuration,productionBindings:[binding]}),
+    protocolCatalog:catalog});
+  const expiredReader=createRepositoryBackedOzonDEPreflightEvidenceReader({repository:f.repository,
+    verifySourceReceipt:expiredSource.verifySourceReceipt});
+  const expiredProvider=createOzonDEPreflightProvider({readEvidence:expiredReader,
+    serverClock:()=>f.base.owner.formal.at});
+  const batch={schemaVersion:'d-batch-production-authorization-v2',batchId:'d-batch:synthetic:account-e',status:'imported_awaiting_inventory',
+    members:[{candidateId:candidate.id,skuPackageId:pa.lockedScope.skuPackageId,
+      offerId:candidate.lifecycleV11.skuPackage.merchantSku,authorizationId:pa.authorizationId,
+      authorizationFingerprint:fingerprintCanonicalRecord(pa),resultRevision:candidate.dataRevision}]};
+  batch.postImportScope={eReadbackOfferIds:[batch.members[0].offerId]};
+  const input={candidate,productionBinding:binding,batch,offerId:batch.members[0].offerId};
+  const before=f.requests.length;
+  const ready=await expiredProvider.loadBatchEReadEvidence(input);
+  assert.equal(ready.capabilities.independentReadback.status,'verified');
+  assert.equal(f.requests.length,before,'saved receipt check must not issue another account request');
+  await f.repository.transact(state=>{
+    const permission=state.runtime.softwareJobAuthorizationRecords.find(value=>value.authorizationId===record.provenance.readAuthorizationRef);
+    permission.useCount=2;
+    return {changed:true,document:state,result:null};
+  });
+  await assert.rejects(expiredProvider.loadBatchEReadEvidence(input),/OZON_DE_PREFLIGHT_EVIDENCE_BATCH_E_READ_NOT_AUTHORIZED/);
+  assert.equal(f.requests.length,before);
 });
 
 // Reads the account once through the real transport and returns the completed receipt plus the composed evidence.

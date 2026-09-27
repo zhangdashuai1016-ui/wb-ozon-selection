@@ -2,12 +2,12 @@ import { assertOzonInventoryPrerequisitePolicy } from './ozon-inventory-prerequi
 import { isDeepStrictEqual } from 'node:util';
 import { assertNoProductionSecrets, assertNoRawPersistenceKeys, isCanonicalFrozenRef } from './production-contract-primitives.mjs';
 import { isCompleteStoreRef, sameStoreRef } from './store-binding.mjs';
-import { isRuntimeConfigurationTimestamp } from './runtime-configuration.mjs';
+import { isRuntimeConfigurationTimestamp, normalizeProductionBindings } from './runtime-configuration.mjs';
 import { assertValidProductionAuthorization, PRODUCTION_WRITE_FIELDS } from './production-authorization.mjs';
 import { assertCurrentProductionExecutionBinding } from './platform-write-preflight.mjs';
 import { assertDProductionPreparation } from './d-production-preparation-contract.mjs';
 import { fingerprintProductionAuthorization, fingerprintProductionPlan, validateProductionPlanAuthorizationBinding } from './production-plan.mjs';
-import { inspectAdapterCapabilities, resolveFinalUploads, OZON_DE_READBACK_ENDPOINTS, OZON_DE_LEGACY_READBACK_ENDPOINTS } from './ozon-seller-api-de-adapter.mjs';
+import { inspectAdapterCapabilities, resolveFinalUploads, OZON_DE_READBACK_ENDPOINTS, OZON_DE_LEGACY_READBACK_ENDPOINTS, OZON_SELLER_API_DE_ADAPTER_VERSION } from './ozon-seller-api-de-adapter.mjs';
 import { assertDPlatformObservationScope } from './d-platform-observation-contract.mjs';
 import { decodeAttempt } from './d-execution-request-codec.mjs';
 import { ozonProductionConnectionRequirements } from './ozon-production-strategy.mjs';
@@ -136,6 +136,38 @@ function inputScope({candidate,productionBinding,job,batch=null}, checkedAt) {
   if (job.jobType === 'e_d_platform_observation') assertObservationSource(candidate,job,authorization,productionBinding);
   return {scope,authorization};
 }
+/** Batch E observes an already sent import. Its current routing must still match the frozen PA,
+ * but an expired write verification cannot revoke a separately authorized account read. */
+function batchEReadScope({candidate,productionBinding,batch,offerId}) {
+  const authorization = candidate?.lifecycleV11?.skuPackage?.productionAuthorization;
+  assertValidProductionAuthorization(authorization);
+  const locked = authorization.lockedScope;
+  const members = batch?.members?.filter(member => member.candidateId === candidate.id);
+  requireValue(batch?.schemaVersion === 'd-batch-production-authorization-v2' &&
+    Array.isArray(batch.postImportScope?.eReadbackOfferIds) &&
+    batch.postImportScope.eReadbackOfferIds.includes(offerId) &&
+    members?.length === 1 && members[0].offerId === offerId &&
+    members[0].skuPackageId === locked.skuPackageId && members[0].authorizationId === authorization.authorizationId &&
+    members[0].authorizationFingerprint === fingerprintProductionAuthorization(authorization) &&
+    members[0].resultRevision === candidate.dataRevision &&
+    candidate.id === locked.candidateId && candidate.lifecycleV11.skuPackage.skuPackageId === locked.skuPackageId &&
+    candidate.lifecycleV11.skuPackage.supplierSkuId === locked.supplierSkuId &&
+    candidate.lifecycleV11.skuPackage.merchantSku === offerId &&
+    ['waiting_platform','partial_failure','unknown_outcome','imported_awaiting_inventory'].includes(batch.status), 'CONTEXT_INVALID');
+  const [binding] = normalizeProductionBindings([productionBinding], [{
+    targetStore:locked.storeRef.stableStoreId,platform:locked.platform,storeRef:locked.storeRef
+  }]);
+  requireValue(binding.bindingId === authorization.executionBinding.bindingId &&
+    binding.configurationVersion === authorization.executionBinding.configurationVersion &&
+    binding.warehouseId === authorization.executionBinding.warehouseId &&
+    binding.platform === locked.platform && sameStoreRef(binding.storeRef,locked.storeRef) &&
+    binding.warehouseRef === locked.warehouseRef && binding.credentialAlias === locked.credentialAlias, 'READ_ROUTING_CHANGED');
+  const scope={candidateId:candidate.id,skuPackageId:locked.skuPackageId,supplierSkuId:locked.supplierSkuId,
+    authorizationId:authorization.authorizationId,sourceCandidateRevision:authorization.sourceCandidateRevision,
+    storeRef:structuredClone(locked.storeRef),warehouseRef:locked.warehouseRef,warehouseId:binding.warehouseId,
+    credentialAlias:locked.credentialAlias,bindingId:binding.bindingId,configurationVersion:binding.configurationVersion};
+  return assertOzonDEPreflightEvidenceScope(scope);
+}
 function originalDState(candidate, job, authorization) {
   const state = candidate.lifecycleV11.skuPackage.dSoftwareExecution;
   requireValue(state?.schemaVersion === 'd-software-execution-state-v2' && state.attempt?.schemaVersion === 'd-software-execution-v2' &&
@@ -234,6 +266,27 @@ export function createOzonDEPreflightProvider({readEvidence,serverClock,verifySo
     }
   }
   return Object.freeze({
+    async loadBatchEReadEvidence(input) {
+      const checkedAt=serverClock(),scope=batchEReadScope(input);
+      const {record}=await read(scope,checkedAt);
+      const inspection=record?.inspection,protocol=record?.protocols.independentReadback;
+      // permissionStatus aggregates write methods too. The receipt-backed protocol status
+      // is the exact role grant for all four independent read endpoints.
+      requireValue(record !== null && ['ozon-de-preflight-evidence-v3','ozon-de-preflight-evidence-v4'].includes(record.schemaVersion) &&
+        inspection.storeIdentityStatus === 'matched' && canStoreIdentityPathAnchor(inspection.storeIdentityVia ?? 'platform_store_id') &&
+        inspection.observedStore === scope.storeRef.stableStoreId &&
+        (inspection.storeIdentityVia === 'scoped_warehouse' || sameStoreRef(inspection.observedStoreRef,scope.storeRef)) &&
+        inspection.connections.api.status === 'connected' && protocol?.status === 'verified' &&
+        protocol.protocolVersion === 'ozon-independent-readback-v2' &&
+        isDeepStrictEqual(protocol.endpoints,OZON_DE_READBACK_ENDPOINTS), 'BATCH_E_READ_NOT_AUTHORIZED');
+      // The adapter validates a common transport envelope. These fields are read routing only;
+      // no product import or stock write capability is asserted by this projection.
+      return Object.freeze({checkedAt,capabilities:{status:'read_ready',platform:'ozon',
+        store:scope.storeRef.stableStoreId,storeRef:structuredClone(scope.storeRef),
+        warehouseRef:scope.warehouseRef,credentialAlias:scope.credentialAlias,warehouseId:scope.warehouseId,
+        adapterVersion:OZON_SELLER_API_DE_ADAPTER_VERSION,protocolVersion:'ozon-single-sku-d-e-v3',
+        evidenceRef:record.evidenceId,independentReadback:structuredClone(protocol)}});
+    },
     async loadBatchMemberEvidence({candidate,productionBinding,batch}) {
       const checkedAt = serverClock();
       const {scope,authorization} = inputScope({candidate,productionBinding,batch,

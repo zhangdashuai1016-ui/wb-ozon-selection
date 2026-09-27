@@ -327,11 +327,14 @@ test('E pump interval is explicit and unknown scheduling errors stop the pump vi
 });
 test('local batch observation pump keeps a live worker current but never revives an expired worker',async()=>{
  const f=await fixture();
+ assert.throws(()=>createDEProductionRuntimeServices({...f.options,
+  loadBatchMemberEvidence:async()=>null}),/DE_RUNTIME_BATCH_EVIDENCE_DEPENDENCY_INCOMPLETE/);
  const errors=[];
  const localRegistry=createLocalDevelopmentWorkerRegistry({clock:f.options.serverClock,heartbeatTtlMs:3000});
  const runtime=createDEProductionRuntimeServices({...f.options,
   workerRegistry:localRegistry,
   loadBatchMemberEvidence:async()=>{throw new Error('No batch job in this test');},
+  loadBatchEReadEvidence:async()=>{throw new Error('No batch E job in this test');},
   observationPumpIntervalMs:100000,onObservationError:error=>errors.push(error.message)});
  runtime.start();
  try{

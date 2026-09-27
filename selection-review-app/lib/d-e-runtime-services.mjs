@@ -65,12 +65,14 @@ function replaceJob(document, job) {
 }
 /** Construct routing and registered capabilities only. No candidate/job read, credential resolution or provider invocation. */
 export function createDEProductionRuntimeServices({ repository, runtimeMode, serverClock, workerRegistry,
-  deServiceBindings=[],productionBindings=[],requestJson=null,inspectPlatform=null,loadAdapterCapabilities=null,loadBatchMemberEvidence=null,
+  deServiceBindings=[],productionBindings=[],requestJson=null,inspectPlatform=null,loadAdapterCapabilities=null,loadBatchMemberEvidence=null,loadBatchEReadEvidence=null,
   upload=null,resolveLocalAsset=null,loadCurrentProductionBinding=null,preflightRequestMode='external_read',loadDPlatformObservationPolicy=null,verifyInventoryPrerequisiteSource=null,
   observationPumpIntervalMs=null,onObservationError=null,eReadbackPumpIntervalMs=null,onReadbackError=null }={}) {
   assertBusinessStateRepositoryBoundary(repository); assertWorkerRegistryBoundary(workerRegistry);
-  if(typeof serverClock!=='function' || [requestJson,inspectPlatform,loadAdapterCapabilities,loadBatchMemberEvidence,upload,resolveLocalAsset,loadCurrentProductionBinding,loadDPlatformObservationPolicy,verifyInventoryPrerequisiteSource,onObservationError,onReadbackError]
+  if(typeof serverClock!=='function' || [requestJson,inspectPlatform,loadAdapterCapabilities,loadBatchMemberEvidence,loadBatchEReadEvidence,upload,resolveLocalAsset,loadCurrentProductionBinding,loadDPlatformObservationPolicy,verifyInventoryPrerequisiteSource,onObservationError,onReadbackError]
     .some(value=>value!==null&&typeof value!=='function')) throw new Error('DE_RUNTIME_DEPENDENCY_INVALID');
+  if((loadBatchMemberEvidence===null)!==(loadBatchEReadEvidence===null))
+    throw new Error('DE_RUNTIME_BATCH_EVIDENCE_DEPENDENCY_INCOMPLETE');
   if(!['external_read','persisted_evidence_only'].includes(preflightRequestMode)) throw new Error('DE_RUNTIME_PREFLIGHT_REQUEST_MODE_INVALID');
   if(eReadbackPumpIntervalMs!==null && (!Number.isSafeInteger(eReadbackPumpIntervalMs)||eReadbackPumpIntervalMs<1000||eReadbackPumpIntervalMs>2147483647)) throw new Error('DE_RUNTIME_E_PUMP_INTERVAL_INVALID');
   const bindings=normalizeDEServiceBindings(deServiceBindings,productionBindings), services=new Map();
@@ -84,9 +86,9 @@ export function createDEProductionRuntimeServices({ repository, runtimeMode, ser
     if(binding && typeof binding.then==='function') throw new TypeError('DE_RUNTIME_CURRENT_BINDING_MUST_BE_SYNCHRONOUS');
     return binding;
   }
-  const batchImportService = requestJson !== null && loadBatchMemberEvidence !== null
+  const batchImportService = requestJson !== null && loadBatchMemberEvidence !== null && loadBatchEReadEvidence !== null
     ? createDBatchImportSoftwareService({ repository, runtimeMode, workerRegistry, serverClock, services,
-      loadCurrentProductionBinding: production, loadBatchMemberEvidence,
+      loadCurrentProductionBinding: production, loadBatchMemberEvidence, loadBatchEReadEvidence,
       loadBatchObservationPolicy: ({candidate,productionBinding}) => loadDPlatformObservationPolicy?.({candidate,
         job:{skuPackageId:candidate.lifecycleV11.skuPackage.skuPackageId,
           scopeBinding:{productionBinding:{bindingId:productionBinding.bindingId,

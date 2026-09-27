@@ -50,14 +50,19 @@ async function fixture({stockFree=0,stockReceipt='accepted',eMissingAttributes=f
   const inspection = ozonDEPreflightEvidenceFixture().record.inspection;
   const calls = [];
   let stockWriteSent=false;
+  let writeEvidenceUnavailable=false;
   const serviceOptions = { repository, runtimeMode: 'local_development',
     workerRegistry, serverClock: () => currentTime,
     services: new Map([[source.currentProductionBinding.bindingId,
       { worker: workerRegistry.get('worker:batch-service') }]]),
     loadCurrentProductionBinding: () => source.currentProductionBinding,
     loadBatchObservationPolicy: () => observationPolicy,
-    loadBatchMemberEvidence: async () => ({ capabilities: structuredClone(capability),
-      inspection: structuredClone(inspection), checkedAt: now }),
+    loadBatchMemberEvidence: async () => {
+      if(writeEvidenceUnavailable)throw new Error('PRODUCTION_EXECUTION_BINDING_UNVERIFIED');
+      return { capabilities: structuredClone(capability),
+        inspection: structuredClone(inspection), checkedAt: now };
+    },
+    loadBatchEReadEvidence: async () => ({ capabilities: structuredClone(capability), checkedAt: now }),
     requestJson: async requestJson => { calls.push(requestJson);
       if(requestJson.endpoint==='/v3/product/import')return {result:{task_id:9001}};
       if(requestJson.endpoint==='/v1/product/import/info')return {result:{items:[
@@ -91,6 +96,7 @@ async function fixture({stockFree=0,stockReceipt='accepted',eMissingAttributes=f
     } };
   const service = createDBatchImportSoftwareService(serviceOptions);
   return { repository, service, capability, inspection, calls, batch, request, candidateId: candidate.id,
+    expireWriteEvidence:()=>{writeEvidenceUnavailable=true;},
     restartService: () => createDBatchImportSoftwareService(serviceOptions),
     advanceClock: value => { currentTime = value; workerRegistry.heartbeat({ workerId: 'worker:batch-service',
       version: 'v1', capabilities: ['ozon-production-execution','ozon-independent-readback'], status: 'online' }); } };
@@ -284,6 +290,7 @@ test('software E persists one independent per-offer readback for each frozen inv
 test('saved import E remains read-only after write qualification expires, but needs current read authority',async()=>{
   const f=await fixture();
   await seedV2ObservedImport(f,'create_only');
+  f.expireWriteEvidence();
   f.capability.status='not_ready';
   f.capability.inventoryWrite.status='expired';
   f.inspection.permissionStatus='denied';

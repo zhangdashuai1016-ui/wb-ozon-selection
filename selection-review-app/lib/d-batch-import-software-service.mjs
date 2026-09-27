@@ -91,8 +91,8 @@ function sameCurrentCapabilities(saved, checked) {
 
 /** Builds only from saved batch members, current bindings and persisted account evidence. */
 export function createDBatchImportSoftwareService({ repository, runtimeMode, workerRegistry, serverClock,
-  services, loadCurrentProductionBinding, loadBatchMemberEvidence, loadBatchObservationPolicy, requestJson }) {
-  if (typeof loadBatchMemberEvidence !== 'function' || typeof requestJson !== 'function') {
+  services, loadCurrentProductionBinding, loadBatchMemberEvidence, loadBatchEReadEvidence, loadBatchObservationPolicy, requestJson }) {
+  if (typeof loadBatchMemberEvidence !== 'function' || typeof loadBatchEReadEvidence !== 'function' || typeof requestJson !== 'function') {
     throw new Error('D_BATCH_SERVICE_DEPENDENCY_REQUIRED');
   }
   if (typeof loadBatchObservationPolicy !== 'function') throw new Error('D_BATCH_SERVICE_OBSERVATION_POLICY_REQUIRED');
@@ -247,8 +247,8 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
     if(service.worker.workerId!==stockJob.workerId||
         binding.bindingId!==source.candidate.lifecycleV11.skuPackage.productionAuthorization.executionBinding.bindingId)
       throw new Error('D_BATCH_E_WORKER_SCOPE_CHANGED');
-    const evidence=await loadBatchMemberEvidence({candidate:clone(source.candidate),
-      productionBinding:clone(binding),batch:clone(source.batch)});
+    const evidence=await loadBatchEReadEvidence({candidate:clone(source.candidate),
+      productionBinding:clone(binding),batch:clone(source.batch),offerId:stockJob.offerId});
     const capability=evidence.capabilities;
     if(capability?.platform!=='ozon'||
         !sameStoreRef(capability.storeRef,source.batch.storeRef)||
