@@ -14,7 +14,7 @@ import { createStoreIsolatedOzonSellerApiDEAdapter } from "../lib/ozon-seller-ap
 import { projectProductionPlanInputs } from "../lib/production-plan.mjs";
 import { C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS, fingerprintCanonicalRecord } from "../lib/production-contract-primitives.mjs";
 
-import { assertDExecutableRequest, assertHistoricalDExecutableRequest, beginDSoftwareExecution, executeDSoftwareAttempt } from "../lib/d-e-software-closure.mjs";
+import { assertDExecutableRequest, assertHistoricalDExecutableRequest, beginDSoftwareExecution, executeDSoftwareAttempt, runSystemCreatedEReadback } from "../lib/d-e-software-closure.mjs";
 
 const NOW = "2026-08-22T07:30:00.000Z";
 const schemaValidator = await loadPublishedSchemaValidator();
@@ -448,10 +448,16 @@ test("published D schema rejects old unencoded states, unknown fields and transp
   }
 });
 
-test("published authorization guard permits opaque IDs only at the declared frozen C1 paths (3 direct + 6 pricingReuseRecord)", async () => {
+test("published authorization guard permits opaque IDs only at the declared frozen C1 paths (3 direct + 6 pricing reuse + 4 editorial source)", async () => {
   const validateGuard = schemaValidator.getSchema("production-authorization-v1.1#/$defs/authorizationSecretGuard");
   const paths = C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS.runtimePaths.filter(segments => segments[0] === "lockedScope");
-  assert.equal(paths.length, 9);
+  assert.equal(paths.length, 13);
+  assert.equal(new Set(paths.map(segments => segments.join("."))).size, paths.length);
+  assert.deepEqual({
+    direct: paths.filter(segments => !segments.includes("pricingReuseRecord") && !segments.includes("editorialSource")).length,
+    pricingReuse: paths.filter(segments => segments.includes("pricingReuseRecord")).length,
+    editorialSource: paths.filter(segments => segments.includes("editorialSource")).length
+  }, { direct: 3, pricingReuse: 6, editorialSource: 4 });
   const opaqueId = "authorization:c1-ai-draft:synthetic-fixture";
   const nested = (segments, value) => segments.reduceRight((child, field) => ({ [field]: child }), value);
   for (const segments of paths) {
@@ -510,14 +516,13 @@ test("unsafe platform observation is rejected without disguising it as disk fail
   assert.equal(result.candidate.lifecycleV11.skuPackage.productionRecord, null);
 });
 
-test("unknown warehouse or media observation is durably retained with write receipts and never becomes a successful D record", async () => {
+test("unknown warehouse or media quantity is durably retained with write receipts and never becomes a successful D record", async () => {
   for (const observationChange of [
     { currentStock: "unknown", inventoryObservation: { sourceProtocol: "ozon-product-stocks-v4", rows: [{ warehouseId: "unknown", type: "rfbs", present: 100, reserved: 0 }] } },
     { currentStock: 0, inventoryObservation: { sourceProtocol: "ozon-product-stocks-v4", rows: [
       { warehouseId: "70001", type: "rfbs", present: 0, reserved: 0 }, { warehouseId: "70002", type: "rfbs", present: 100, reserved: 0 }
     ] } },
-    { imageCount: "unknown", mediaObservation: { sourceProtocol: "ozon-product-attributes-v4", primaryImageUrl: "unknown", images: "unknown" } },
-    { mediaObservation: { sourceProtocol: "ozon-product-attributes-v4", primaryImageUrl: "https://cdn.ozon/main.png", images: ["https://cdn.ozon/detail.png"] } }
+    { imageCount: "unknown", mediaObservation: { sourceProtocol: "ozon-product-attributes-v4", primaryImageUrl: "unknown", images: "unknown" } }
   ]) {
     const fixture = await persistenceFixture(); const calls = []; const factories = [];
     const result = await runPersistedDExecution({ ...fixture.input,
@@ -534,6 +539,37 @@ test("unknown warehouse or media observation is durably retained with write rece
     const replay = await runPersistedDExecution({ ...fixture.input, createAdapter: async () => { throw new Error("unknown outcome cannot repeat writes"); } });
     assert.equal(replay.status, "idempotent_replay"); assert.equal(calls.length, 3);
   }
+});
+
+test("D accepts known CDN media quantity while E leaves unmapped media identity unverified", async () => {
+  const fixture = await persistenceFixture(); const calls = []; const factories = [];
+  const mediaObservation = { sourceProtocol: "ozon-product-attributes-v4", primaryImageUrl: "https://cdn.ozon/main.png",
+    images: ["https://cdn.ozon/detail.png"] };
+  const result = await runPersistedDExecution({ ...fixture.input,
+    createAdapter: syntheticCheckpointFactory({ ...fixture, calls, factories, observationChange: { mediaObservation } }) });
+  assert.equal(result.status, "succeeded");
+  const sku = (await savedCandidate(fixture.repository)).lifecycleV11.skuPackage;
+  assert.equal(sku.dSoftwareExecution.status, "succeeded");
+  assert.equal(sku.dSoftwareExecution.step, "independent_readback_observed");
+  assert.deepEqual(sku.dSoftwareExecution.checkpoints.at(-1).observation.mediaObservation, mediaObservation);
+  assert.ok(sku.dSoftwareExecution.checkpoints.find(event => event.kind === "stock_receipt_observed").inventoryReceiptRef);
+  assert.ok(sku.productionRecord);
+  assert.deepEqual(calls, ["/v3/product/import", "/v1/product/import/info", "/v2/products/stocks"]);
+  assert.equal(factories.length, 1);
+
+  let eReads = 0;
+  const eObservation = { ...sku.dSoftwareExecution.checkpoints.at(-1).observation,
+    moderationStatus: "approved", validationStatus: "success", saleStatus: "on_sale" };
+  const e = await runSystemCreatedEReadback({ productionRecord: sku.productionRecord,
+    readPlatform: async () => { eReads += 1; return eObservation; },
+    verifiedAt: "2026-08-22T08:00:00.000Z" });
+  assert.equal(eReads, 1);
+  assert.equal(e.status, "not_verified");
+  assert.equal(e.eVerificationRecord, null);
+  assert.deepEqual(e.gaps, ["media_identity_unverified"]);
+  assert.equal((await runPersistedDExecution({ ...fixture.input,
+    createAdapter: async () => { throw new Error("successful D cannot repeat writes"); } })).status, "idempotent_replay");
+  assert.equal(calls.length, 3);
 });
 
 test("admission, replay read and terminal persistence failures expose only safe context and retain durable receipts", async () => {

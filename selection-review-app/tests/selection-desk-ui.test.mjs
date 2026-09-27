@@ -248,7 +248,7 @@ test('顶栏在商品页写明是哪件商品，并留一条回选品台的路',
 
 test('选品台每一行和每张已建卡的卡片都能淘汰，已淘汰折在下面并能恢复', async () => {
   const gone = (id, extra = {}) => picked(id, { workflowStatus: 'eliminated', displayStatus: 'eliminated',
-    eliminatedAt: '2026-09-11T06:00:00.000Z', eliminationReason: '主人淘汰：利润太薄', dataRevision: 9, ...extra });
+    eliminatedAt: new Date(2026, 8, 11, 13, 45).toISOString(), eliminationReason: '主人淘汰：利润太薄', dataRevision: 9, ...extra });
   const html = await render(props(view({ products: [product('2107989735', { titleZh: '合成收纳盒' })],
     importedCandidates: [{ marketProductId: '2107989735', candidateId: 'candidate:filled' }] }), {
     candidates: [picked('candidate:filled', { dataRevision: 4 }), gone('candidate:dropped', { productName: '被淘汰的合成商品' })]
@@ -257,7 +257,7 @@ test('选品台每一行和每张已建卡的卡片都能淘汰，已淘汰折�
   assert.match(html, /我选的商品（1）/u);
   assert.match(html, /已淘汰 1（默认隐藏）/u);
   assert.match(html, /主人淘汰：利润太薄/u);
-  assert.match(html, /2026-09-11 \d{2}:\d{2}/u);
+  assert.match(html, /2026-09-11 13:45/u);
   assert.match(html, />恢复</u);
   assert.doesNotMatch(html, /<details class="desk-folded eliminated-fold" open/u, '已淘汰默认收起');
   // Both the shelf row and the already-taken feed card offer the same 淘汰 button.
