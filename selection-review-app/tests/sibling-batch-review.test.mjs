@@ -42,3 +42,58 @@ test('current three selected colors show their own missing evidence and leave th
   assert.equal(review.rows[0].gaps.includes('C1 本规格事实及官方颜色属性待确认'), true);
   assert.equal(review.rows[1].gaps.includes('A 供应规格及数量 1 证据待确认'), true);
 });
+
+function readyFamily() {
+  const { parent, children } = family(3);
+  for (const [index, child] of children.entries()) {
+    child.lifecycleV11 = { skuPackage: {
+      selectedSupplySnapshot: { ownerSupplyConfirmation: { status: 'confirmed' } },
+      profitModels: [{ profitModelVersion: 'profit:synthetic', result: 'passed', commissionMode: 'exact' }],
+      activeProfitModelVersion: 'profit:synthetic', c1ProductPlan: { status: 'seo_draft_ready' },
+      c2FinalAssets: { productionAuthorizationPreparation: { finalUploads: [{ assetId: `synthetic-main-${index}` }] } },
+      productionConfirmationCard: { status: 'awaiting_owner_business_confirmation' }
+    } };
+    child.productionOwnerPreparation = { ready: true, gaps: [],
+      commercialDraft: { merchantSku: `MERCHANT-COLOR-${index}`, stock: 10 + index },
+      scope: { buyerTargetPrice: { amount: 900 + index, currency: 'RUB' },
+        platformWritePrice: { amount: 75 + index, currency: 'CNY' }, stock: 10 + index },
+      executionBindings: [{ bindingId: 'warehouse:A', configurationVersion: 'config:1', warehouseName: '仓 A' },
+        { bindingId: 'warehouse:B', configurationVersion: 'config:1', warehouseName: '仓 B' }] };
+  }
+  return { parent, children };
+}
+
+test('final batch rows expose each missing item and the exact merchant SKU, stock and two currency prices', () => {
+  const { parent, children } = readyFamily();
+  children[1].productionOwnerPreparation = { ...children[1].productionOwnerPreparation, ready: false,
+    gaps: [{ code: 'PRODUCTION_BINDING_EXPIRED', message: '当前店铺的生产绑定核验声明已过期' }],
+    scope: null };
+  const review = siblingBatchReview(parent, children);
+  assert.equal(review.rows[0].merchantSku, 'MERCHANT-COLOR-0');
+  assert.equal(review.rows[0].stock, 10);
+  assert.equal(review.rows[0].buyerPriceRub, 900);
+  assert.equal(review.rows[0].writePriceCny, 75);
+  assert.deepEqual(review.rows[1].gaps, ['当前店铺的生产绑定核验声明已过期']);
+  assert.equal(review.rows[1].merchantSku, 'MERCHANT-COLOR-1');
+  assert.equal(review.rows[1].stock, 11);
+  assert.equal(review.rows[1].buyerPriceRub, null);
+  assert.equal(review.rows[1].writePriceCny, null);
+  assert.equal(review.ready, false);
+});
+
+test('final batch offers only currently valid warehouses shared by every selected member', () => {
+  const { parent, children } = readyFamily();
+  children[1].productionOwnerPreparation.executionBindings = [
+    { bindingId: 'warehouse:B', configurationVersion: 'config:1', warehouseName: '仓 B' },
+    { bindingId: 'warehouse:C', configurationVersion: 'config:1', warehouseName: '仓 C' }
+  ];
+  const review = siblingBatchReview(parent, children);
+  assert.deepEqual(review.executionBindings, [
+    { bindingId: 'warehouse:B', configurationVersion: 'config:1', warehouseName: '仓 B' }
+  ]);
+  children[1].productionOwnerPreparation.executionBindings = [];
+  const noCommonBinding = siblingBatchReview(parent, children);
+  assert.deepEqual(noCommonBinding.executionBindings, []);
+  assert.equal(noCommonBinding.ready, false);
+  assert.match(noCommonBinding.rows[1].gaps.join('；'), /仓库|绑定/);
+});

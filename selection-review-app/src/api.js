@@ -323,6 +323,14 @@ export const api = {
   authorizeProductionBatch: payload => request('/api/d-batches/authorize', {
     method: 'POST', body: JSON.stringify(payload)
   }),
+  saveSiblingBatchCommercialDrafts: payload => request('/api/sibling-batches/commercial-drafts', {
+    method: 'POST', body: JSON.stringify(payload)
+  }),
+  getProductionBatch: batchId => request(`/api/d-batches/${encodeURIComponent(batchId)}`),
+  getSiblingBatchExecution: parentId => request(`/api/sibling-batches/${encodeURIComponent(parentId)}/execution`),
+  resumeProductionBatchStock: batchId => request(`/api/d-batches/${encodeURIComponent(batchId)}/resume`, {
+    method: 'POST', body: JSON.stringify({ confirmUnsentStockContinuation: true })
+  }),
   updateCandidate: (id, payload) =>
     request(`/api/candidates/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
   saveUserEvaluation: (id, payload) =>

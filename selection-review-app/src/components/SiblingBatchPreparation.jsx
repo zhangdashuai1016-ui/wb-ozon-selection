@@ -5,6 +5,14 @@ import { siblingBatchAuthorizationInput } from '../siblingBatchAuthorizationInpu
 import { inForceSkuUniformSupply, capturedSkuWeightKg } from '../../lib/sku-choice-estimate.mjs';
 
 const numberOrNull = value => value === '' ? null : Number(value);
+const executionStatusNames = Object.freeze({ not_started: '未开始', not_sent: '未发送', intent: '已记录发送意图',
+  accepted: '请求已受理', imported: '已导入', failed: '明确失败', unknown_outcome: '结果未知，待对账',
+  awaiting_prerequisites: '等待库存前置核验', prerequisites_in_flight: '正在核验库存前置条件',
+  ready_to_write: '已核验，库存尚未发送', stock_intent: '库存请求结果待观察',
+  stock_accepted: '库存请求已受理', inventory_deferred: '按授权暂不写库存',
+  needs_owner: '需要主人处理', precheck_failed: '前置核验失败', prewrite_blocked: '写入前已停止',
+  succeeded: '已完成', verified: '已独立核验' });
+const executionStatusLabel = status => executionStatusNames[status] ?? `未识别状态（${status}）`;
 
 function initialInputs(parent, review) {
   const draft = parent.supplierDraftV1 ?? {};
@@ -27,11 +35,16 @@ function initialInputs(parent, review) {
 }
 
 export default function SiblingBatchPreparation({ parent, siblings, onConfirmA, onConfirmC1, onReadColorDictionary,
-  onAuthorize, onUploadAsset, onLinkAsset, onConfirmC2 }) {
+  onAuthorize, onSaveStockDrafts, executionView, executionError, executionLoading = false,
+  onRefreshExecution, onResumeStock,
+  onUploadAsset, onLinkAsset, onConfirmC2 }) {
   const review = siblingBatchReview(parent, siblings);
   const [draft, setDraft] = useState(() => initialInputs(parent, review));
   const [bindingId, setBindingId] = useState('');
-  const [finalConfirmed, setFinalConfirmed] = useState(false);
+  const [inventoryAction, setInventoryAction] = useState('');
+  const [sharedStock, setSharedStock] = useState('');
+  const [stockEdits, setStockEdits] = useState({});
+  const [finalConfirmed, setFinalConfirmed] = useState('');
   const [saving, setSaving] = useState(false);
   const [sharedAssetId, setSharedAssetId] = useState('');
   const [c2Confirmed, setC2Confirmed] = useState(false);
@@ -44,8 +57,20 @@ export default function SiblingBatchPreparation({ parent, siblings, onConfirmA, 
   const allAtA = allCreated && review.rows.every(row => !siblings.find(child => child.id === row.candidateId)?.lifecycleV11?.skuPackage);
   const first = siblings.find(child => child.id === review.rows[0].candidateId);
   const sales = first?.realAConfirmationCard?.salesReview;
-  const bindings = first?.productionOwnerPreparation?.executionBindings ?? [];
-  const finalInput = siblingBatchAuthorizationInput(parent, siblings, bindingId);
+  const bindings = review.executionBindings;
+  const finalInput = siblingBatchAuthorizationInput(parent, siblings, bindingId, { inventoryAction });
+  const effectiveStock = row => stockEdits[row.sourceSkuId] ?? (row.stock ?? '');
+  const stockDirty = review.rows.some(row => String(effectiveStock(row)) !== String(row.stock ?? ''));
+  const validStock = review.rows.every(row => effectiveStock(row) !== '' &&
+    Number.isSafeInteger(Number(effectiveStock(row))) && Number(effectiveStock(row)) >= 0);
+  const allPricesRub = [...new Set(review.rows.map(row => row.buyerPriceRub))];
+  const allPricesCny = [...new Set(review.rows.map(row => row.writePriceCny))];
+  const confirmationKey = JSON.stringify({ parentRevision: parent.dataRevision,
+    members: review.rows.map(row => { const child = siblings.find(candidate => candidate.id === row.candidateId);
+      return [row.sourceSkuId, row.candidateId, child?.dataRevision, child?.lifecycleV11?.skuPackage?.dataRevision,
+        row.merchantSku, row.buyerPriceRub, row.writePriceCny, row.stock]; }),
+    bindingId, inventoryAction });
+  const isFinalConfirmed = finalConfirmed === confirmationKey;
   const c2Rows = review.rows.map(row => ({ row, child: siblings.find(item => item.id === row.candidateId) }));
   const allAtC1 = c2Rows.length > 0 && c2Rows.every(({ child }) =>
     child?.lifecycleV11?.skuPackage?.businessPhase === 'C1' &&
@@ -95,8 +120,27 @@ export default function SiblingBatchPreparation({ parent, siblings, onConfirmA, 
   async function submitFinal(event) {
     event.preventDefault(); setError(''); setSaving(true);
     try {
-      if (!finalConfirmed || !finalInput.ready) throw new Error(finalInput.reason || '请核对整批最终内容');
+      if (stockDirty) throw new Error('库存改动尚未保存为本批新版本，请先保存并重新核对。');
+      if (executionError) throw new Error('本批历史执行结果未能读取，先恢复读取再确认，避免重复生产。');
+      if (executionLoading) throw new Error('正在读取本批历史执行结果，请稍后核对。');
+      if (!isFinalConfirmed || !finalInput.ready) throw new Error(finalInput.reason || '请核对整批最终内容');
       await onAuthorize(finalInput.input);
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setSaving(false); }
+  }
+  async function saveBatchStock() {
+    setError(''); setSaving(true);
+    try {
+      if (!validStock || !stockDirty || !onSaveStockDrafts) throw new Error('本批库存不完整或没有待保存的改动');
+      const members = review.rows.map(row => {
+        const child = siblings.find(candidate => candidate.id === row.candidateId);
+        const sku = child?.lifecycleV11?.skuPackage;
+        if (!child || !sku || !row.merchantSku) throw new Error(`${row.color} 的商家货号或规格身份缺失`);
+        return { candidateId: child.id, expectedRevision: child.dataRevision,
+          skuPackageId: sku.skuPackageId, merchantSku: row.merchantSku, stock: Number(effectiveStock(row)) };
+      });
+      await onSaveStockDrafts({ parentCandidateId: parent.id, parentRevision: parent.dataRevision, members });
+      setFinalConfirmed('');
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setSaving(false); }
   }
@@ -239,18 +283,63 @@ export default function SiblingBatchPreparation({ parent, siblings, onConfirmA, 
       <button className="button secondary" type="submit" disabled={saving || !c1Confirmed || !dictionarySource}>
         一次确认本批 C1 差异并进入素材准备</button>
     </form> : null}
-    {allCreated && !allAtA ? <form onSubmit={submitFinal}>
-      <p>所有规格的 C1 事实、官方颜色属性和 C2 本色最终图通过后，可在此一次核对整批最终内容。</p>
-      <label>已核验仓库<select value={bindingId} onChange={event => { setBindingId(event.target.value); setFinalConfirmed(false); }}>
-        <option value="">请选择仓库</option>
-        {bindings.map(item => <option key={item.bindingId} value={item.bindingId}>{item.warehouseName}</option>)}
+    {allCreated && !allAtA && !executionView ? <form onSubmit={submitFinal}>
+      <h4>整批最终清单</h4>
+      <p>逐行核对正式 B 价格、商家货号、库存、C1 与 C2 缺项。共用目标价：{allPricesRub.length === 1 && allPricesRub[0] !== null ? `${allPricesRub[0]} RUB` : '逐行不同或缺失'}；共用后台价：{allPricesCny.length === 1 && allPricesCny[0] !== null ? `${allPricesCny[0]} CNY` : '逐行不同或缺失'}。价格逐行覆盖已在 A/B 版本化利润流程完成；如需改价，须重新完成正式利润与最终卡。</p>
+      <label>批量库存<input aria-label="批量库存" type="number" min="0" step="1" value={sharedStock}
+        onChange={event => { const value = event.target.value; setSharedStock(value);
+          setStockEdits(Object.fromEntries(review.rows.map(row => [row.sourceSkuId, value])));
+          setFinalConfirmed(''); }} /></label>
+      <table><thead><tr><th>颜色与供应 SKU</th><th>商家货号</th><th>买家目标价 RUB</th><th>后台写入价 CNY</th><th>库存调整</th><th>本行缺项</th></tr></thead>
+        <tbody>{review.rows.map(row => <tr key={row.sourceSkuId}>
+          <td>{row.color} · {row.sourceSkuId}</td><td>{row.merchantSku ?? '待填写商家货号'}</td>
+          <td>{row.buyerPriceRub ?? '缺失'} RUB</td><td>{row.writePriceCny ?? '缺失'} CNY</td>
+          <td><input aria-label={`${row.color} 库存调整`} type="number" min="0" step="1"
+            value={effectiveStock(row)} onChange={event => { setStockEdits(current => ({ ...current,
+              [row.sourceSkuId]: event.target.value })); setFinalConfirmed(''); }} /></td>
+          <td>{row.gaps.length ? row.gaps.join('；') : '无缺项'}</td>
+        </tr>)}</tbody></table>
+      <button type="button" className="button secondary" disabled={saving || !stockDirty || !validStock || !onSaveStockDrafts}
+        onClick={saveBatchStock}>保存本批库存新版本</button>
+      {stockDirty ? <p role="status">库存改动尚未保存，保存后请重新核对当前版本。</p> : null}
+      <label>已核验仓库<select value={bindingId} onChange={event => { setBindingId(event.target.value); setFinalConfirmed(''); }}>
+        <option value="">请选择本批共同仓库</option>
+        {bindings.map(item => <option key={`${item.bindingId}:${item.configurationVersion}`} value={item.bindingId}>{item.warehouseName}</option>)}
       </select></label>
-      <label><input type="checkbox" checked={finalConfirmed} disabled={!finalInput.ready}
-        onChange={event => setFinalConfirmed(event.target.checked)} />我已核对本批每行商品、价格、库存、仓库、主图和执行范围。</label>
-      <button className="button primary" type="submit" disabled={saving || !finalConfirmed || !finalInput.ready}>
+      <fieldset><legend>导入后库存动作</legend>
+        <label><input type="radio" name="batch-inventory-action" checked={inventoryAction === 'create_only'}
+          onChange={() => { setInventoryAction('create_only'); setFinalConfirmed(''); }} />仅创建商品</label>
+        <label><input type="radio" name="batch-inventory-action" checked={inventoryAction === 'write_authorized_stock'}
+          onChange={() => { setInventoryAction('write_authorized_stock'); setFinalConfirmed(''); }} />写入已授权库存</label>
+      </fieldset>
+      <p>全成员 E 独立回读范围：{review.rows.map(row => row.merchantSku ?? `${row.color} 货号缺失`).join('、')}。首件历史导入不在本批范围。</p>
+      <label><input type="checkbox" checked={isFinalConfirmed} disabled={!finalInput.ready || stockDirty || Boolean(executionError) || executionLoading}
+        onChange={event => setFinalConfirmed(event.target.checked ? confirmationKey : '')} />我已核对本批全部规格的商品、RUB 买家价、CNY 写入价、库存、共同仓库、最终图及导入后动作，一次确认全部成员。</label>
+      <button className="button primary" type="submit" disabled={saving || stockDirty || Boolean(executionError) || executionLoading || !isFinalConfirmed || !finalInput.ready}>
         {saving ? '正在保存整批授权…' : '一次确认整批最终内容'}</button>
       {!finalInput.ready ? <p role="status">{finalInput.reason}</p> : null}
+      {executionLoading ? <p role="status">正在核对本批是否已有生产记录。</p> : null}
     </form> : null}
+    {executionView ? <section aria-label="本批逐项执行结果">
+      <h4>本批逐项执行结果</h4><p>批次：{executionView.batchId} · 请求状态：{executionStatusLabel(executionView.externalRequestState)}。以下为软件记录，是否上架以 E 独立回读为准。</p>
+      <p>本批排除的历史首件：{executionView.excludedOfferIds?.join('、') || '无'}</p>
+      <table><thead><tr><th>商家货号</th><th>建卡导入</th><th>库存</th><th>E 回读</th><th>结果与卡点</th></tr></thead>
+        <tbody>{executionView.members.map(member => <tr key={member.candidateId}>
+          <td>{member.offerId}</td><td>{executionStatusLabel(member.importStatus)}</td><td>{executionStatusLabel(member.inventoryStatus)}</td>
+          <td>{executionStatusLabel(member.eStatus)}</td><td>{member.importGapCode || member.inventoryReason || member.eGaps?.map(gap =>
+            typeof gap === 'string' ? gap : gap.message || gap.code).join('；') ||
+            (member.listedVerified ? 'E 已独立核验上架' : '尚未独立确认上架')}</td>
+        </tr>)}</tbody></table>
+      <button type="button" className="button secondary" disabled={saving || !onRefreshExecution}
+        onClick={async () => { setError(''); setSaving(true); try { await onRefreshExecution(executionView.batchId); }
+          catch (cause) { setError(errorMessage(cause)); } finally { setSaving(false); } }}>刷新逐项结果</button>
+      {executionView.members.some(member => ['awaiting_prerequisites', 'ready_to_write'].includes(member.inventoryStatus)) && onResumeStock ?
+        <button type="button" className="button secondary" disabled={saving}
+          onClick={async () => { setError(''); setSaving(true); try { await onResumeStock(executionView.batchId); }
+            catch (cause) { setError(errorMessage(cause)); } finally { setSaving(false); } }}>
+          恢复明确未发送的库存续作</button> : null}
+    </section> : null}
+    {executionError ? <p role="alert">本批执行结果读取失败：{executionError}</p> : null}
     {allAtC2 ? <div aria-label="整批最终素材">
       <h4>按颜色上传主图，共用图库只上传一次</h4>
       <p>每个颜色的首图分别确认；同色不同尺码可在已上传素材中建立独立引用。上传只是暂存，最终素材仍需整批核对。</p>

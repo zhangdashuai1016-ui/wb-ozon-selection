@@ -217,6 +217,7 @@ import { createLocalDevelopmentWorkerRegistry } from "./lib/worker-registry.mjs"
 import { assertRuntimeBoundaries } from "./lib/multi-user-central-runtime.mjs";
 import { commitSingleOwnerProductionAuthorization, PRODUCTION_AUTHORIZATION_VERSION } from "./lib/production-authorization.mjs";
 import { commitBatchOwnerProductionAuthorization } from './lib/d-batch-production-authorization.mjs';
+import { saveSiblingBatchCommercialDrafts } from './lib/sibling-batch-commercial-drafts.mjs';
 import { projectDBatchExecutionView } from './lib/d-batch-execution-view.mjs';
 import { createDEProductionRuntimeServices, DERuntimeUnavailableError } from "./lib/d-e-runtime-services.mjs";
 import { buildDESavedJobRuntimeView } from "./lib/d-e-runtime-view.mjs";
@@ -7266,6 +7267,57 @@ async function handleApi(req, res, pathname) {
       candidate, configuration: runtimeConfiguration, evidencePacks: data.evidencePacks,
       currentCommissionCatalogs: data.currentCommissionCatalogs, observedAt: now()
     }));
+  }
+  if (req.method === 'POST' && pathname === '/api/sibling-batches/commercial-drafts') {
+    const origin = String(req.headers.origin || '');
+    if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, '批量经营草稿拒绝其他网页来源');
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== 'authenticated_identity_provider' || actor.actorType !== 'human' || !actor.roles.includes('owner')) {
+      throw httpError(403, '请先登录主人身份保存本批库存');
+    }
+    const input = await readJsonRequestBody(req, { maxBytes: 65536, requireJsonContentType: true });
+    try {
+      const result = await saveSiblingBatchCommercialDrafts({ repository: businessStateRepository,
+        runtimeMode: runtimeConfiguration.deploymentMode, actor, input, serverClock: now });
+      return json(res, 200, result);
+    } catch (error) {
+      const code = String(error.code || error.message).split(':', 1)[0];
+      if (/^(?:SIBLING_BATCH_COMMERCIAL_|PRODUCTION_COMMERCIAL_DRAFT_|RUNTIME_OPERATION_)/.test(code)) {
+        return json(res, /CHANGED|CONFLICT/.test(code) ? 409 : 422,
+          { code, message: '本批库存草稿未保存；请刷新清单后核对每个规格。', externalRequests: 0, platformWrites: 0 });
+      }
+      throw error;
+    }
+  }
+  const siblingExecutionRoute = pathname.match(/^\/api\/sibling-batches\/([^/]+)\/execution$/);
+  if (req.method === 'GET' && siblingExecutionRoute) {
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== 'authenticated_identity_provider' || actor.actorType !== 'human' || !actor.roles.includes('owner')) {
+      throw httpError(403, '请先登录主人身份查看本批执行结果');
+    }
+    let parentId;
+    try { parentId = decodeURIComponent(siblingExecutionRoute[1]); }
+    catch { throw httpError(400, '批次来源身份无效'); }
+    const saved = await readData();
+    const parent = saved.candidates.find(candidate => candidate.id === parentId);
+    if (!parent) throw httpError(404, '批次来源不存在');
+    const selected = parent.sourceCapture?.selectedSkuIds?.filter(id => id !== parent.lifecycleV11?.skuPackage?.supplierSkuId);
+    if (!Array.isArray(selected) || selected.length === 0) return json(res, 200, { executionView: null });
+    const siblingBySkuId = new Map();
+    for (const candidate of saved.candidates) {
+      if (candidate.siblingSourceV1?.parentCandidateId !== parentId) continue;
+      const id = candidate.siblingSourceV1.supplierSkuId;
+      const matches = siblingBySkuId.get(id) ?? [];
+      matches.push(candidate);
+      siblingBySkuId.set(id, matches);
+    }
+    const children = selected.map(id => siblingBySkuId.get(id) ?? []);
+    if (children.some(matches => matches.length !== 1)) return json(res, 200, { executionView: null });
+    const ids = children.map(matches => matches[0].id);
+    const matches = (saved.runtime?.dProductionBatches ?? []).filter(batch =>
+      batch.members.length === ids.length && batch.members.every((member, index) => member.candidateId === ids[index]));
+    if (matches.length > 1) throw httpError(409, '本批执行记录不唯一，需要人工核对');
+    return json(res, 200, { executionView: matches.length === 1 ? projectDBatchExecutionView(saved, matches[0].batchId) : null });
   }
   const batchExecutionRoute=pathname.match(/^\/api\/d-batches\/([^/]+)$/);
   if(req.method==='GET'&&batchExecutionRoute){

@@ -66,6 +66,9 @@ export default function App() {
   const [addOpen, setAddOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState(null);
+  const [batchExecution, setBatchExecution] = useState(null);
+  const [batchExecutionError, setBatchExecutionError] = useState(null);
+  const batchReadEpoch = useRef(0);
   const [pollEpoch, setPollEpoch] = useState(0);
   const readFailed = useRef(false);
   const selectionGuard = useRef(createSelectionGuard());
@@ -80,6 +83,18 @@ export default function App() {
   const accountReads=useRef(createLatestRead());
   const accountOwner=state.runtimeArchitecture?.currentUser?.authenticated===true&&state.runtimeArchitecture.currentUser.roles.includes('owner');
   const accountOwnerId=accountOwner?state.runtimeArchitecture.currentUser.userId:null;
+  useEffect(() => {
+    if (view !== 'product' || !accountOwnerId || !selectedId) return undefined;
+    let cancelled = false;
+    const epoch = ++batchReadEpoch.current;
+    api.getSiblingBatchExecution(selectedId).then(result => {
+      if (!cancelled && batchReadEpoch.current === epoch) {
+        setBatchExecution({ parentId: selectedId, view: result.executionView });
+        setBatchExecutionError(null);
+      }
+    }).catch(error => { if (!cancelled && batchReadEpoch.current === epoch) setBatchExecutionError(errorMessage(error)); });
+    return () => { cancelled = true; };
+  }, [view, accountOwnerId, selectedId]);
   const accountContext=useRef(null);
   accountContext.current={ownerId:accountOwnerId,view,store:deskStore};
   useEffect(()=>{selectionGuard.current.changed();},[accountOwnerId,view,deskStore]);
@@ -563,8 +578,34 @@ export default function App() {
 
   async function authorizeSiblingProductionBatch(payload) {
     const result = await api.authorizeProductionBatch(payload);
+    batchReadEpoch.current += 1;
+    setBatchExecution({ parentId: selectedId, view: result.executionView });
+    setBatchExecutionError(null);
     await load(true);
-    setNotice({ type: 'success', message: `整批 ${result.batch.members.length} 个规格的生产授权已原子保存；D 尚未开始。` });
+    setNotice({ type: 'success', message: `整批 ${result.batch.members.length} 个规格的生产授权已原子保存；请查看逐项导入、库存与 E 回读结果。` });
+    return result;
+  }
+
+  async function saveSiblingBatchStockDrafts(payload) {
+    const result = await api.saveSiblingBatchCommercialDrafts(payload);
+    await load(true);
+    setNotice({ type: 'success', message: `本批 ${result.members.length} 个规格的库存草稿已一起保存；请核对新版本再确认生产。` });
+    return result;
+  }
+
+  async function refreshSiblingBatchExecution(batchId) {
+    const view = await api.getProductionBatch(batchId);
+    batchReadEpoch.current += 1;
+    setBatchExecution({ parentId: selectedId, view });
+    setBatchExecutionError(null);
+    return view;
+  }
+
+  async function resumeSiblingBatchStock(batchId) {
+    const result = await api.resumeProductionBatchStock(batchId);
+    batchReadEpoch.current += 1;
+    setBatchExecution({ parentId: selectedId, view: result.executionView });
+    setBatchExecutionError(null);
     return result;
   }
 
@@ -1385,6 +1426,12 @@ export default function App() {
           onConfirmSiblingBatchC1={confirmSiblingBatchC1}
           onReadSiblingBatchColorDictionary={readSiblingBatchColorDictionary}
           onAuthorizeSiblingProductionBatch={authorizeSiblingProductionBatch}
+          onSaveSiblingBatchStockDrafts={saveSiblingBatchStockDrafts}
+          siblingBatchExecutionView={batchExecution?.parentId === productCandidate.id ? batchExecution.view : null}
+          siblingBatchExecutionError={batchExecutionError}
+          siblingBatchExecutionLoading={accountOwner && batchExecution?.parentId !== productCandidate.id && !batchExecutionError}
+          onRefreshSiblingBatchExecution={refreshSiblingBatchExecution}
+          onResumeSiblingBatchStock={resumeSiblingBatchStock}
           onUploadSiblingC2Asset={uploadSiblingC2Asset}
           onLinkSiblingC2Asset={linkSiblingC2Asset}
           onConfirmSiblingBatchC2={confirmSiblingBatchC2}

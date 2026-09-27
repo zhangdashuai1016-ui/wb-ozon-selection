@@ -1794,6 +1794,9 @@ export default function ProductPage({
   onReadSiblingBatchColorDictionary = null,
   onAuthorizeSiblingProductionBatch = null, onUploadSiblingC2Asset = null, onLinkSiblingC2Asset = null,
   onConfirmSiblingBatchC2 = null,
+  onSaveSiblingBatchStockDrafts = null, siblingBatchExecutionView = null, siblingBatchExecutionError = null,
+  siblingBatchExecutionLoading = false,
+  onRefreshSiblingBatchExecution = null, onResumeSiblingBatchStock = null,
   siblingSkuIds = [], siblingCandidates = [], onRequestCapture, onReviewCaptureAndRequest, onRecaptureSource,
   onConfirmProfitStep, onDeclareCargoFacts, onDeclareExtraHandlingFees, onDeclareUniformSupply, onReadOzonPage, onOpenLegacyCard,
   onBack, onEliminateCandidate,
@@ -2039,6 +2042,10 @@ export default function ProductPage({
       typeof onConfirmSiblingBatchA === 'function' && typeof onAuthorizeSiblingProductionBatch === 'function'
       ? <SiblingBatchPreparation key={`${candidate.id}:batch`} parent={candidate} siblings={siblingCandidates}
           onConfirmA={onConfirmSiblingBatchA} onAuthorize={onAuthorizeSiblingProductionBatch}
+          onSaveStockDrafts={onSaveSiblingBatchStockDrafts} executionView={siblingBatchExecutionView}
+          executionError={siblingBatchExecutionError} executionLoading={siblingBatchExecutionLoading}
+          onRefreshExecution={onRefreshSiblingBatchExecution}
+          onResumeStock={onResumeSiblingBatchStock}
           onConfirmC1={onConfirmSiblingBatchC1} onReadColorDictionary={onReadSiblingBatchColorDictionary}
           onUploadAsset={onUploadSiblingC2Asset} onLinkAsset={onLinkSiblingC2Asset}
           onConfirmC2={onConfirmSiblingBatchC2} /> : null}

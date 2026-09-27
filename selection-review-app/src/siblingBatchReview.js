@@ -14,6 +14,8 @@ export function siblingBatchReview(parent, candidates) {
     const choice = matches.length === 1 ? matches[0] : null;
     const child = children.length === 1 ? children[0] : null;
     const sku = child?.lifecycleV11?.skuPackage;
+    const preparation = child?.productionOwnerPreparation;
+    const commercial = preparation?.commercialDraft;
     const gaps = [];
     if (!choice || !text(choice.attributes?.颜色)) gaps.push('供应颜色身份待核验');
     if (!child) gaps.push('内部规格记录未建立');
@@ -34,20 +36,48 @@ export function siblingBatchReview(parent, candidates) {
       if (sku?.productionConfirmationCard?.status !== 'awaiting_owner_business_confirmation') {
         gaps.push('最终商品确认卡待生成');
       }
-      if (child.productionOwnerPreparation?.ready !== true) {
-        const preparation = child.productionOwnerPreparation?.gaps;
-        if (Array.isArray(preparation) && preparation.length > 0) {
-          gaps.push(...preparation.map(item => item.message).filter(Boolean));
+      if (preparation?.ready !== true) {
+        const details = preparation?.gaps;
+        if (Array.isArray(details) && details.length > 0) {
+          gaps.push(...details.map(item => item.message).filter(Boolean));
         } else gaps.push('生产价格、库存及店铺绑定待核验');
+      }
+      if (!text(commercial?.merchantSku) || !Number.isSafeInteger(commercial?.stock) || commercial.stock < 0) {
+        if (preparation?.ready === true) gaps.push('商家货号或已保存库存缺失');
+      }
+      if (preparation?.ready === true && (!Number.isFinite(preparation.scope?.buyerTargetPrice?.amount) ||
+          preparation.scope.buyerTargetPrice.currency !== 'RUB' ||
+          !Number.isFinite(preparation.scope?.platformWritePrice?.amount) ||
+          preparation.scope.platformWritePrice.currency !== 'CNY')) {
+        gaps.push('正式 B 的 RUB 买家价或 CNY 后台写入价缺失');
+      }
+      if (commercial && preparation?.scope && commercial.stock !== preparation.scope.stock) {
+        gaps.push('已保存库存与当前生产准备不一致');
       }
     }
     return { sourceSkuId, color: text(choice?.attributes?.颜色) || text(choice?.variantName) || '颜色待核验',
       candidateId: child?.id ?? null, status: gaps.length === 0 ? 'ready_for_batch_owner_review' : 'blocked', gaps,
-      buyerPriceRub: child?.productionOwnerPreparation?.scope?.buyerTargetPrice?.amount ?? null,
-      writePriceCny: child?.productionOwnerPreparation?.scope?.platformWritePrice?.amount ?? null,
-      stock: child?.productionOwnerPreparation?.scope?.stock ?? null };
+      merchantSku: commercial?.merchantSku ?? null,
+      buyerPriceRub: preparation?.scope?.buyerTargetPrice?.currency === 'RUB' ? preparation.scope.buyerTargetPrice.amount : null,
+      writePriceCny: preparation?.scope?.platformWritePrice?.currency === 'CNY' ? preparation.scope.platformWritePrice.amount : null,
+      stock: commercial?.stock ?? null };
   });
+  const bindingLists = rows.map(row => siblings.find(candidate => candidate.id === row.candidateId)
+    ?.productionOwnerPreparation?.executionBindings ?? []);
+  const executionBindings = (bindingLists[0] ?? []).filter(binding => text(binding.bindingId) &&
+    text(binding.configurationVersion) && text(binding.warehouseName) && bindingLists.every(list =>
+    list.some(other => other.bindingId === binding.bindingId &&
+      other.configurationVersion === binding.configurationVersion && other.warehouseName === binding.warehouseName)));
+  if (rows.length > 0 && executionBindings.length === 0) {
+    for (const row of rows) {
+      if (row.candidateId && !row.gaps.some(gap => /仓库|绑定/.test(gap))) {
+        row.gaps.push('本批所有规格没有共同有效仓库绑定');
+        row.status = 'blocked';
+      }
+    }
+  }
   return { parentCandidateId: parent.id, sourceRevision: parent.dataRevision,
-    excludedSourceSkuIds: parentSkuId ? [parentSkuId] : [], rows,
-    ready: rows.length > 0 && rows.every(row => row.status === 'ready_for_batch_owner_review') };
+    excludedSourceSkuIds: parentSkuId ? [parentSkuId] : [], rows, executionBindings,
+    ready: rows.length > 0 && executionBindings.length > 0 &&
+      rows.every(row => row.status === 'ready_for_batch_owner_review') };
 }

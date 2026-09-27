@@ -6,6 +6,7 @@ export const API_PROCESS_TESTS = Object.freeze([
   "c1-local-preparation-api.test.mjs",
   "sibling-c1-color-api.test.mjs",
   "sibling-sku-api.test.mjs",
+  "sibling-batch-commercial-api.test.mjs",
   "a-discovery-api-boundary.test.mjs",
   "a-product-detail-api-boundary.test.mjs",
   "a-supplier-image-search-api.test.mjs",
