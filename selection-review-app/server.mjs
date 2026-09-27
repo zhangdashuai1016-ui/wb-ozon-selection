@@ -251,6 +251,7 @@ import { assertCurrentC2UploadDraft, reserveC2Upload, settleC2Upload, saveC2Uplo
 import { createC2LocalAssetStore, normalizeC2LocalUpload } from "./lib/c2-local-asset-store.mjs";
 import { createC1ImageTextUseCase } from "./lib/c1-image-text-use-case.mjs";
 import { createC1FinalPlanRevisionUseCase } from "./lib/c1-final-plan-revision-use-case.mjs";
+import { hasUnsettledC1ColorDictionaryRead } from "./lib/c1-final-plan-revision-preparation.mjs";
 import { createC1SiblingColorRevisionUseCase, C1SiblingColorRevisionError } from "./lib/c1-sibling-color-revision-use-case.mjs";
 import { createC1ColorDictionaryReadUseCase, C1ColorDictionaryReadError } from './lib/c1-color-dictionary-read-use-case.mjs';
 import { createLocalImageTextAdapter } from "./lib/local-image-text-adapter.mjs";
@@ -6077,6 +6078,10 @@ async function handleApi(req, res, pathname) {
     if (!current.lifecycleV11.skuPackage.productionConfirmationCard || current.lifecycleV11.skuPackage.productionAuthorization) {
       throw httpError(409, "只有尚未授权上架的方案卡可以准备新版本。");
     }
+    if (hasUnsettledC1ColorDictionaryRead(current.lifecycleV11)) return json(res, 409, {
+      code: 'C1_COLOR_DICTIONARY_READ_UNSETTLED',
+      message: '颜色字典读取已发出或结果未知，须先核对，不能通过方案修订清除本次请求。',
+      externalRequests: 0, paidCalls: 0, platformWrites: 0 });
     try {
       const extracted = await c1ImageTextUseCase.extract({ actor, input: { candidateId: input.candidateId, expectedRevision: input.dataRevision } });
       if (extracted.result.status !== "completed") return json(res, 409, {
@@ -6499,11 +6504,18 @@ async function handleApi(req, res, pathname) {
       const code = error.code ?? error.message;
       if (error instanceof C1ColorDictionaryReadError ||
           ['BUSINESS_MUTATION_REVISION_CONFLICT', 'BUSINESS_MUTATION_IDEMPOTENCY_CONFLICT'].includes(code)) {
+        const requestSent = error instanceof C1ColorDictionaryReadError && error.requestSent === true;
         return json(res, code.endsWith('OWNER_REQUIRED') ? 403 : 409, { code,
-          message: code === 'C1_COLOR_DICTIONARY_SCHEMA_NOT_CURRENT'
+          message: requestSent
+            ? '字典读取作业已发出，但结果未能安全保存；须先核对已保存请求，不能再次读取。'
+            : code === 'C1_COLOR_DICTIONARY_SCHEMA_NOT_CURRENT'
             ? '当前冻结类目资料缺少有效的同范围官方证据，请先使用现有类目资料刷新入口。'
+            : code === 'C1_COLOR_DICTIONARY_HISTORY_CAPACITY_REACHED'
+              ? '本规格已保留的颜色字典读取历史达到安全容量；旧记录未删除，请先做技术核对。'
             : '颜色字典读取授权、范围或结果不满足当前规格；请求未重发，请核对已保存状态。',
-          externalRequests: 0, platformWrites: 0, paidCalls: 0 });
+          requestState: requestSent ? 'unknown_outcome' : 'not_sent',
+          ownerAction: requestSent ? 'reconcile_color_dictionary_read' : 'review_color_dictionary_scope',
+          externalRequests: requestSent ? 1 : 0, platformWrites: 0, paidCalls: 0 });
       }
       throw error;
     }

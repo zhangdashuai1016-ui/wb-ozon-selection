@@ -97,6 +97,10 @@ export function createOzonDictionaryValuesReader({ ozonServiceUrl, fetchImpl = g
     }
     const evidence = payload.evidence;
     if (evidence.current !== true) throw new Error("OZON_DICTIONARY_NOT_CURRENT");
+    if (!nonEmpty(evidence.expiresAt) || !Number.isFinite(Date.parse(evidence.expiresAt)) ||
+        Date.parse(evidence.expiresAt) <= Date.parse(evidence.checkedAt)) {
+      throw new Error("OZON_DICTIONARY_EXPIRY_UNPROVEN");
+    }
     if (evidence.scope?.platform !== "ozon" || evidence.scope?.store !== store ||
         evidence.scope?.category !== category || evidence.scope?.attributeId !== String(attributeId)) {
       throw new Error("OZON_DICTIONARY_SCOPE_UNPROVEN");
@@ -106,6 +110,6 @@ export function createOzonDictionaryValuesReader({ ozonServiceUrl, fetchImpl = g
       throw new Error("OZON_DICTIONARY_EVIDENCE_SHAPE_INVALID");
     }
     return { sourceRef: evidence.sourceRef, checkedAt: evidence.checkedAt,
-      expiresAt: evidence.expiresAt ?? null, evidenceData: data };
+      expiresAt: evidence.expiresAt, evidenceData: data };
   };
 }

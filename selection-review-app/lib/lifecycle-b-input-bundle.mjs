@@ -631,6 +631,7 @@ export function createLifecycleBInputBundle({ candidate, evidencePacks = [], nor
       platform: context.platform,
       store: context.store,
       storeRef: structuredClone(context.storeRef),
+      ruleVersion: packs.schema.scope.ruleVersion,
       schemaRevision: packs.schema.evidenceData.schemaRevision,
       collectedAt: packs.schema.checkedAt,
       requiredFields: structuredClone(packs.schema.evidenceData.requiredFields)

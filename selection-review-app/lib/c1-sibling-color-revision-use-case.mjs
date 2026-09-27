@@ -4,7 +4,8 @@ import { authorizeOperation } from './runtime-identity.mjs';
 import { fingerprintCanonicalRecord } from './production-contract-primitives.mjs';
 import { assertValidLifecyclePackage } from './product-lifecycle-schema.mjs';
 import { replaceC1ProductPlanForRightsReview } from './c1-product-plan.mjs';
-import { buildC1FinalPlanHistoryReferences, clearC1FinalPlanActiveReferences } from './c1-final-plan-revision-preparation.mjs';
+import { buildC1FinalPlanHistoryReferences, clearC1FinalPlanActiveReferences,
+  hasUnsettledC1ColorDictionaryRead } from './c1-final-plan-revision-preparation.mjs';
 import { assertSiblingSkuColorProjection } from './sibling-sku-card-guard.mjs';
 
 const DOWNSTREAM = [
@@ -23,6 +24,7 @@ export function prepareC1SiblingColorRevision({ candidate, expectedRevision, rel
       !Number.isSafeInteger(expectedRevision) || !Number.isFinite(Date.parse(preparedAt)) ||
       !Array.isArray(relatedSoftwareJobs)) reject('C1_SIBLING_COLOR_REVISION_INPUT_INVALID');
   const life = candidate.lifecycleV11;
+  if (hasUnsettledC1ColorDictionaryRead(life)) reject('C1_SIBLING_COLOR_REVISION_DICTIONARY_READ_UNSETTLED');
   const previous = life?.skuPackage;
   if (!previous || !['C1', 'C2'].includes(previous.businessPhase) ||
       !['facts_checked', 'seo_draft_ready'].includes(previous.c1ProductPlan?.status) ||

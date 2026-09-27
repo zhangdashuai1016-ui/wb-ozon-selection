@@ -66,6 +66,7 @@ test("同一个类目的新读数换进来，三个引用一起换", async () =>
   const plan = skuPackage.c1ProductPlan;
   assert.equal(plan.inputSnapshots.platformSchemaRules.evidenceId, "b-evidence:schema:fresh0000000000000000");
   assert.equal(plan.inputSnapshots.platformSchemaRules.attributes.length, 2);
+  assert.equal(plan.inputSnapshots.platformSchemaRules.ruleVersion, 'ozon-current');
   // 三处必须逐字相同，否则 C2 规范门会判计划不自洽。
   assert.equal(plan.inputRefs.platformSchemaEvidenceId, plan.frozenInputRefs.schemaSnapshotRef);
   assert.equal(plan.frozenInputRefs.schemaSnapshotRef, plan.schemaSnapshotRef);

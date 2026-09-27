@@ -76,6 +76,19 @@ test('stale revision, invalid time, changed old card and downstream authorizatio
   assert.throws(() => prepare(authorized));
 });
 
+test('final plan revision preserves an unsettled dictionary read instead of clearing it', () => {
+  for (const status of ['request_sent', 'unknown_outcome']) {
+    const candidate = fixture();
+    candidate.lifecycleV11.c1ColorDictionaryReadsV1 = { '10096': {
+      schemaVersion: 'c1-color-dictionary-read-v1', status,
+      authorizationId: `synthetic:${status}`, externalRequestRef: `synthetic:${status}:request`
+    } };
+    const before = structuredClone(candidate);
+    assert.throws(() => prepare(candidate), /C1_COLOR_DICTIONARY_READ_UNSETTLED/);
+    assert.deepEqual(candidate, before);
+  }
+});
+
 test('new formal request and receipt reach a final card carrying the new facts snapshot', async () => {
   const { c1DraftPreparedCandidate } = await import('./fixtures/c1-draft-source-fixture.mjs');
   const { prepareCurrentC1AiDraftRequest } = await import('../lib/c1-ai-draft-request-source.mjs');

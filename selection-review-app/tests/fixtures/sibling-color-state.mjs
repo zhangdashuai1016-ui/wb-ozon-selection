@@ -10,6 +10,7 @@ function siblingCandidate({ candidateId, frozen }) {
   candidate.workflowStatus = 'listing_preparation';
   candidate.lifecycleV11.skuPackage = structuredClone(frozen ? fixture.checked.skuPackage : fixture.created.skuPackage);
   const sku = candidate.lifecycleV11.skuPackage;
+  sku.c1ProductPlan.inputSnapshots.platformSchemaRules.ruleVersion = 'ozon-current';
   if (!frozen) sku.c1RightsReviewRecord = createC1SkuRightsReviewRecord({
     plan: sku.c1ProductPlan, sourceIdentity: sku.g1Identity,
     sourceCandidateRevision: candidate.dataRevision - 1,

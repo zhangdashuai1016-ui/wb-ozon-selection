@@ -10,6 +10,7 @@ import { createC1OzonAttributeMappingUseCase } from "../lib/c1-ozon-attribute-ma
 import { assertSiblingSkuColorProjection } from "../lib/sibling-sku-card-guard.mjs";
 import { createC1ColorDictionaryReadUseCase } from '../lib/c1-color-dictionary-read-use-case.mjs';
 import { siblingColorState } from './fixtures/sibling-color-state.mjs';
+import { createInternalEvidenceValidity, inspectLifecycleEvidenceValidity } from '../lib/lifecycle-evidence-validity.mjs';
 
 const AT = "2026-08-12T13:00:00.000Z";
 
@@ -90,6 +91,7 @@ test("frozen sibling color gap creates a new editable C1 revision with an immuta
 
 test("owner maps both schema typed colors before a sibling C1 freeze", async () => {
   const { candidate, rights } = siblingInput();
+  candidate.lifecycleV11.skuPackage.c1ProductPlan.inputSnapshots.platformSchemaRules.ruleVersion = 'ozon-current';
   candidate.lifecycleV11.skuPackage.c1ProductPlan.inputSnapshots.platformSchemaRules.attributes = [
     { fieldKey: "10096", label: "Цвет товара", labelZh: "商品颜色", required: false, complexId: 0, dictionaryId: 1494 },
     { fieldKey: "10097", label: "Название цвета", labelZh: "颜色名称", required: false, complexId: 0, dictionaryId: 0 }
@@ -164,6 +166,60 @@ test('expired frozen schema stops color read authorization before any external r
     expectedRevision: candidate.dataRevision, attributeId: '10096' } }),
   /C1_COLOR_DICTIONARY_SCHEMA_NOT_CURRENT/);
   assert.deepEqual(await repository.readSnapshot(), before);
+  assert.equal(externalReads, 0);
+});
+
+test('schema pack rule version must match the frozen context before any dictionary request', async () => {
+  for (const drift of ['pack', 'frozen']) {
+    const document = siblingColorState();
+    const candidate = document.candidates[1];
+    if (drift === 'pack') document.evidencePacks[0].scope.ruleVersion = 'different-schema-policy';
+    else delete candidate.lifecycleV11.skuPackage.c1ProductPlan.inputSnapshots.platformSchemaRules.ruleVersion;
+    const repository = createMemoryBusinessStateRepository(document);
+    const actor = createActorContext({ userId: 'synthetic-owner', sessionId: `rule-version-${drift}`,
+      actorType: 'human', roles: ['owner'], source: 'authenticated_identity_provider', authenticatedAt: AT });
+    let externalReads = 0;
+    const reader = createC1ColorDictionaryReadUseCase({ repository, runtimeMode: 'local_development',
+      serverClock: () => AT, readDictionaryValues: async () => { externalReads += 1; } });
+    const before = await repository.readSnapshot();
+    await assert.rejects(() => reader.authorize({ actor, input: { candidateId: candidate.id,
+      skuPackageId: candidate.lifecycleV11.skuPackage.skuPackageId,
+      expectedRevision: candidate.dataRevision, attributeId: '10096' } }),
+    /C1_COLOR_DICTIONARY_SCHEMA_NOT_CURRENT/);
+    assert.deepEqual(await repository.readSnapshot(), before);
+    assert.equal(externalReads, 0);
+  }
+});
+
+test('recognized internal schema refresh hint remains usable after its hint deadline', async () => {
+  const document = siblingColorState();
+  const candidate = document.candidates[1];
+  const schema = candidate.lifecycleV11.skuPackage.c1ProductPlan.inputSnapshots.platformSchemaRules;
+  const pack = document.evidencePacks[0];
+  schema.schemaRevision = 'ozon-schema-1234567890abcdef1234';
+  schema.descriptionCategoryId = 17028665;
+  schema.typeId = 92935;
+  schema.writeBindings.schemaRevision = schema.schemaRevision;
+  pack.evidenceData.schemaRevision = schema.schemaRevision;
+  pack.evidenceData.descriptionCategoryId = schema.descriptionCategoryId;
+  pack.evidenceData.typeId = schema.typeId;
+  pack.evidenceData.writeBindings = structuredClone(schema.writeBindings);
+  pack.sourceType = 'ozon_seller_api_current_schema';
+  pack.sourceRef = `ozon-seller-api:/v1/description-category/attribute:${schema.descriptionCategoryId}:${schema.typeId}`;
+  pack.expiresAt = new Date(Date.parse(pack.checkedAt) + 24 * 60 * 60_000).toISOString();
+  pack.validity = createInternalEvidenceValidity('schema');
+  const observedAt = new Date(Date.parse(pack.expiresAt) + 60_000).toISOString();
+  assert.equal(inspectLifecycleEvidenceValidity(pack, { asOf: observedAt }).status, 'refresh_due');
+  const repository = createMemoryBusinessStateRepository(document);
+  const actor = createActorContext({ userId: 'synthetic-owner', sessionId: 'schema-refresh-hint',
+    actorType: 'human', roles: ['owner'], source: 'authenticated_identity_provider', authenticatedAt: observedAt });
+  let externalReads = 0;
+  const reader = createC1ColorDictionaryReadUseCase({ repository, runtimeMode: 'local_development',
+    serverClock: () => observedAt, readDictionaryValues: async () => { externalReads += 1; } });
+  const authorization = await reader.authorize({ actor, input: { candidateId: candidate.id,
+    skuPackageId: candidate.lifecycleV11.skuPackage.skuPackageId,
+    expectedRevision: candidate.dataRevision, attributeId: '10096' } });
+  assert.equal(authorization.result.status, 'authorized');
   assert.equal(externalReads, 0);
 });
 
@@ -272,6 +328,64 @@ test('expired complete list requires a new owner authorization and preserves the
   assert.deepEqual(renewed.candidate.lifecycleV11.c1ColorDictionaryReadHistoryV1[0].evidence,
     firstRead.candidate.lifecycleV11.c1ColorDictionaryReadsV1['10096'].evidence);
   assert.equal(renewed.candidate.lifecycleV11.c1ColorDictionaryReadsV1['10096'].status, 'authorized');
+  assert.equal(externalReads, 1);
+});
+
+test('retained color read history reaches a bounded stop without deleting an older result', async () => {
+  const document = siblingColorState();
+  const candidate = document.candidates[1];
+  candidate.lifecycleV11.c1ColorDictionaryReadsV1 = { '10096': {
+    status: 'incomplete', useCount: 1, settledAt: AT, authorizationId: 'synthetic:current'
+  } };
+  candidate.lifecycleV11.c1ColorDictionaryReadHistoryV1 = Array.from({ length: 16 }, (_, index) => ({
+    authorizationId: `synthetic:history:${index}`, status: 'incomplete', useCount: 1, settledAt: AT
+  }));
+  const repository = createMemoryBusinessStateRepository(document);
+  const actor = createActorContext({ userId: 'synthetic-owner', sessionId: 'dictionary-history-cap',
+    actorType: 'human', roles: ['owner'], source: 'authenticated_identity_provider', authenticatedAt: AT });
+  let externalReads = 0;
+  const reader = createC1ColorDictionaryReadUseCase({ repository, runtimeMode: 'local_development',
+    serverClock: () => AT, readDictionaryValues: async () => { externalReads += 1; } });
+  const before = await repository.readSnapshot();
+  await assert.rejects(() => reader.authorize({ actor, input: { candidateId: candidate.id,
+    skuPackageId: candidate.lifecycleV11.skuPackage.skuPackageId,
+    expectedRevision: candidate.dataRevision, attributeId: '10096' } }),
+  /C1_COLOR_DICTIONARY_HISTORY_CAPACITY_REACHED/);
+  assert.deepEqual(await repository.readSnapshot(), before);
+  assert.equal(externalReads, 0);
+});
+
+test('a concurrent revision after the dictionary request reports an unsettled sent request', async () => {
+  const document = siblingColorState();
+  const candidate = document.candidates[1];
+  const repository = createMemoryBusinessStateRepository(document);
+  const actor = createActorContext({ userId: 'synthetic-owner', sessionId: 'dictionary-settlement-conflict',
+    actorType: 'human', roles: ['owner'], source: 'authenticated_identity_provider', authenticatedAt: AT });
+  let externalReads = 0;
+  const reader = createC1ColorDictionaryReadUseCase({ repository, runtimeMode: 'local_development',
+    serverClock: () => AT, readDictionaryValues: async () => {
+      externalReads += 1;
+      await repository.transact(document => {
+        document.candidates.find(item => item.id === candidate.id).dataRevision += 1;
+        return { changed: true, document, result: null };
+      });
+      return { sourceRef: 'synthetic:dictionary:concurrent', checkedAt: AT,
+        expiresAt: '2099-01-01T00:00:00.000Z', evidenceData: { complete: true,
+          values: [{ value: 'synthetic-broad-color', dictionaryValueId: 910096 }] } };
+    } });
+  const authorized = await reader.authorize({ actor, input: { candidateId: candidate.id,
+    skuPackageId: candidate.lifecycleV11.skuPackage.skuPackageId,
+    expectedRevision: candidate.dataRevision, attributeId: '10096' } });
+  const input = { candidateId: candidate.id, skuPackageId: candidate.lifecycleV11.skuPackage.skuPackageId,
+    expectedRevision: authorized.candidate.dataRevision, attributeId: '10096',
+    authorizationId: authorized.result.authorizationId };
+  await assert.rejects(() => reader.continueSaved({ actor, input }), error =>
+    error.code === 'C1_COLOR_DICTIONARY_SETTLEMENT_UNCONFIRMED' && error.requestSent === true);
+  const after = (await repository.readSnapshot()).candidates.find(item => item.id === candidate.id);
+  assert.equal(after.lifecycleV11.c1ColorDictionaryReadsV1['10096'].status, 'request_sent');
+  assert.equal(after.lifecycleV11.c1ColorDictionaryReadsV1['10096'].useCount, 1);
+  assert.equal(externalReads, 1);
+  assert.equal((await reader.continueSaved({ actor, input })).status, 'idempotent_replay');
   assert.equal(externalReads, 1);
 });
 

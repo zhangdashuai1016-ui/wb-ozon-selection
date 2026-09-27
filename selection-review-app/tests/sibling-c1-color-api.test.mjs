@@ -8,6 +8,33 @@ import { startSavedDEApi } from './helpers/d-e-saved-api-fixture.mjs';
 
 const port = Number(process.env.SELECTION_REVIEW_TEST_PORT);
 
+test('unsettled color reads cannot be cleared through the frozen sibling revision API', async t => {
+  for (const status of ['request_sent', 'unknown_outcome']) {
+    await t.test(status, async child => {
+      const document = siblingColorState();
+      const frozen = document.candidates[0];
+      frozen.lifecycleV11.c1ColorDictionaryReadsV1 = { '10096': {
+        schemaVersion: 'c1-color-dictionary-read-v1', status,
+        authorizationId: `synthetic:${status}`, externalRequestRef: `synthetic:${status}:request`
+      } };
+      const api = await startSavedDEApi(child, { directory: await mkdtemp(path.join(tmpdir(), 'sibling-color-unsettled-')),
+        port, document, binding: { storeRef: frozen.storeRef, platform: frozen.targetPlatform },
+        productionBindings: [] });
+      await api.authenticate();
+      const before = await api.readBytes();
+      const response = await api.post(`/api/candidates/${frozen.id}/lifecycle/c1/revise-sibling-color`, {
+        candidateId: frozen.id, skuPackageId: frozen.lifecycleV11.skuPackage.skuPackageId,
+        dataRevision: frozen.dataRevision });
+      assert.equal(response.status, 409, JSON.stringify(response.body));
+      assert.equal(response.body.code, 'C1_SIBLING_COLOR_REVISION_DICTIONARY_READ_UNSETTLED');
+      assert.deepEqual(await api.readBytes(), before);
+      assert.equal(api.dictionaryRequests(), 0);
+      assert.equal(api.dependencyRequests(), 0);
+      await api.assertClean();
+    });
+  }
+});
+
 test('synthetic sibling color recovery API preserves the predecessor and requires owner identity', async t => {
   const document = siblingColorState();
   const frozen = document.candidates[0];
@@ -71,10 +98,11 @@ test('owner-authorized complete color choices are read once, saved and mapped wi
       if (request.method !== 'POST' || query?.kind !== 'schema_dictionary_values' ||
           query.store !== schema.store || query.category !== `ozon:${schema.descriptionCategoryId}:${schema.typeId}` ||
           query.attributeId !== '10096' || query.limit !== 200) return null;
+      const checkedAt = new Date();
       return { ok: true, evidence: { current: true,
         scope: { platform: 'ozon', store: query.store, category: query.category, attributeId: query.attributeId },
-        sourceRef: 'synthetic:dictionary:10096', checkedAt: new Date().toISOString(),
-        expiresAt: '2099-01-01T00:00:00.000Z', evidenceData: { complete: true,
+        sourceRef: 'synthetic:dictionary:10096', checkedAt: checkedAt.toISOString(),
+        expiresAt: new Date(checkedAt.getTime() + 24 * 60 * 60_000).toISOString(), evidenceData: { complete: true,
           values: [{ value: 'synthetic-broad-color', valueZh: '合成广义颜色', dictionaryValueId: 910096 }] } } };
     } });
   const route = `/api/candidates/${editable.id}/lifecycle/c1`;

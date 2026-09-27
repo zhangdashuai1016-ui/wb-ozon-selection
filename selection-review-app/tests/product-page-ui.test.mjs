@@ -108,6 +108,7 @@ test('sibling product page shows frozen revision recovery and editable 10096/100
   editable.lifecycleV11.c1ColorDictionaryReadsV1 = { '10096': { status: 'succeeded',
     schemaRevision: editable.lifecycleV11.skuPackage.c1ProductPlan.inputSnapshots.platformSchemaRules.schemaRevision,
     schemaEvidenceId: editable.lifecycleV11.skuPackage.c1ProductPlan.inputSnapshots.platformSchemaRules.evidenceId,
+    schemaRuleVersion: editable.lifecycleV11.skuPackage.c1ProductPlan.inputSnapshots.platformSchemaRules.ruleVersion,
     c1PlanId: editable.lifecycleV11.skuPackage.c1ProductPlan.c1PlanId,
     evidence: { complete: true, sourceRef: 'synthetic:dictionary:10096',
       expiresAt: '2099-01-01T00:00:00.000Z', values: [

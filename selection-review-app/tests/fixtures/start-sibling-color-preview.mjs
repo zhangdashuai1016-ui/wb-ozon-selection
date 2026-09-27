@@ -51,11 +51,12 @@ const evidence = createServer(async (request, response) => {
     return;
   }
   const value = { value: 'synthetic-broad-color', valueZh: '合成广义颜色', dictionaryValueId: 910096 };
+  const checkedAt = new Date();
   response.end(JSON.stringify({ ok: true, evidence: {
     current: true, scope: { platform: query.platform, store: query.store,
       category: query.category, attributeId: query.attributeId },
-    sourceRef: 'synthetic:dictionary:10096', checkedAt: new Date().toISOString(),
-    expiresAt: '2099-01-01T00:00:00.000Z',
+    sourceRef: 'synthetic:dictionary:10096', checkedAt: checkedAt.toISOString(),
+    expiresAt: new Date(checkedAt.getTime() + 24 * 60 * 60_000).toISOString(),
     evidenceData: { attributeId: '10096', complete: true, values: [value] }
   } }));
 });

@@ -37,6 +37,24 @@ test('identity or revision mismatch is rejected before creating a new plan', asy
   }
 });
 
+test('unsettled color dictionary read cannot be cleared by a new final plan', async () => {
+  for (const status of ['request_sent', 'unknown_outcome']) {
+    const f = setup();
+    await f.repository.transact(document => {
+      document.candidates[0].lifecycleV11.c1ColorDictionaryReadsV1 = { '10096': {
+        schemaVersion: 'c1-color-dictionary-read-v1', status,
+        authorizationId: `synthetic:${status}`, externalRequestRef: `synthetic:${status}:request`
+      } };
+      return { changed: true, document, result: null };
+    });
+    const before = await f.repository.readSnapshot();
+    await assert.rejects(f.api.prepare({ actor: f.owner, input: f.input }),
+      /C1_COLOR_DICTIONARY_READ_UNSETTLED/);
+    assert.deepEqual(await f.repository.readSnapshot(), before);
+    assert.equal(f.calls.length, 0);
+  }
+});
+
 test('concurrent duplicate preparation commits one candidate, predecessor, audit and idempotency record', async () => {
   const f = setup();
   const results = await Promise.all([f.api.prepare({ actor: f.owner, input: f.input }), f.api.prepare({ actor: f.owner, input: f.input })]);

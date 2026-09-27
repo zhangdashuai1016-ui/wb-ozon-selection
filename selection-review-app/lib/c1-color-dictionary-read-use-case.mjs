@@ -8,11 +8,16 @@ import { evidenceScopeMatches } from './lifecycle-evidence-scope.mjs';
 import { inspectLifecycleEvidenceValidity } from './lifecycle-evidence-validity.mjs';
 
 const IDS = new Set(['10096', '10097']);
+const MAX_RETAINED_COLOR_READS = 16;
 const nonEmpty = value => typeof value === 'string' && value.trim() === value && value.length > 0;
 const fail = code => { throw new C1ColorDictionaryReadError(code); };
 
 export class C1ColorDictionaryReadError extends Error {
-  constructor(code) { super(code); this.name = 'C1ColorDictionaryReadError'; this.code = code; }
+  constructor(code, { requestSent = false, cause = null } = {}) {
+    super(code, cause ? { cause } : undefined);
+    this.name = 'C1ColorDictionaryReadError'; this.code = code;
+    this.requestSent = requestSent;
+  }
 }
 
 function owner(actor) {
@@ -34,6 +39,7 @@ function scope(candidate, skuPackageId, attributeId) {
       !/^\d+$/.test(String(schema.descriptionCategoryId)) || !/^\d+$/.test(String(schema.typeId)) ||
       attributes.length !== 1 || !Number.isSafeInteger(attributes[0].dictionaryId) ||
       attributes[0].dictionaryId <= 0) fail('C1_COLOR_DICTIONARY_SCOPE_INVALID');
+  if (!nonEmpty(schema.ruleVersion)) fail('C1_COLOR_DICTIONARY_SCHEMA_NOT_CURRENT');
   return { sku, plan, schema, attribute: attributes[0],
     category: `ozon:${schema.descriptionCategoryId}:${schema.typeId}` };
 }
@@ -46,12 +52,12 @@ function assertCurrentFrozenSchema(candidate, schema, evidencePacks, observedAt)
       !evidenceScopeMatches('schema', pack.scope, { platform: schema.platform,
         store: schema.store, storeRef: schema.storeRef,
         category: `ozon:${schema.descriptionCategoryId}:${schema.typeId}`,
-        ruleVersion: pack.scope?.ruleVersion }) ||
+        ruleVersion: schema.ruleVersion }) ||
       pack.checkedAt !== schema.collectedAt ||
       ![...C1_SCHEMA_CONTENT_FIELDS, 'schemaRevision', 'requiredFields'].every(field =>
         isDeepStrictEqual(pack.evidenceData?.[field], schema[field])) ||
       !validateLifecycleEvidenceData('schema', pack.evidenceData).valid ||
-      inspectLifecycleEvidenceValidity(pack, { asOf: observedAt }).status !== 'current') {
+      inspectLifecycleEvidenceValidity(pack, { asOf: observedAt }).usable !== true) {
     fail('C1_COLOR_DICTIONARY_SCHEMA_NOT_CURRENT');
   }
 }
@@ -65,6 +71,7 @@ function current(candidate, authorizationId, attributeId) {
   if (record.supplierSkuId !== sku.supplierSkuId || record.sourceSkuRevision !== sku.dataRevision ||
       record.c1PlanId !== plan.c1PlanId || record.schemaRevision !== schema.schemaRevision ||
       record.schemaEvidenceId !== schema.evidenceId ||
+      record.schemaRuleVersion !== schema.ruleVersion ||
       record.store !== schema.store || !sameStoreRef(record.storeRef, schema.storeRef) ||
       record.category !== category || record.dictionaryId !== schema.attributes.find(item =>
         String(item.fieldKey) === attributeId)?.dictionaryId) fail('C1_COLOR_DICTIONARY_SCOPE_CHANGED');
@@ -141,6 +148,7 @@ export function createC1ColorDictionaryReadUseCase({ repository, runtimeMode, se
           if (previous) {
             const scopeChanged = previous.c1PlanId !== plan.c1PlanId ||
               previous.schemaRevision !== schema.schemaRevision || previous.schemaEvidenceId !== schema.evidenceId ||
+              previous.schemaRuleVersion !== schema.ruleVersion ||
               previous.dictionaryId !== attribute.dictionaryId;
             const unusedExpired = previous.status === 'authorized' && previous.useCount === 0 &&
               Date.parse(previous.expiresAt) <= Date.parse(observedAt);
@@ -149,6 +157,9 @@ export function createC1ColorDictionaryReadUseCase({ repository, runtimeMode, se
               previous.status === 'succeeded' && (scopeChanged ||
                 Date.parse(previous.evidence?.expiresAt) <= Date.parse(observedAt)));
             if (!unusedExpired && !settledUnavailable) fail('C1_COLOR_DICTIONARY_ALREADY_AUTHORIZED');
+            if ((candidate.lifecycleV11.c1ColorDictionaryReadHistoryV1?.length ?? 0) >= MAX_RETAINED_COLOR_READS) {
+              fail('C1_COLOR_DICTIONARY_HISTORY_CAPACITY_REACHED');
+            }
             candidate.lifecycleV11.c1ColorDictionaryReadHistoryV1 = [
               ...(candidate.lifecycleV11.c1ColorDictionaryReadHistoryV1 ?? []),
               { ...structuredClone(previous), supersededAt: observedAt }
@@ -159,7 +170,8 @@ export function createC1ColorDictionaryReadUseCase({ repository, runtimeMode, se
             status: 'authorized', candidateId: candidate.id, skuPackageId: sku.skuPackageId,
             supplierSkuId: sku.supplierSkuId, sourceCandidateRevision: candidate.dataRevision,
             sourceSkuRevision: sku.dataRevision, c1PlanId: plan.c1PlanId,
-            schemaRevision: schema.schemaRevision, schemaEvidenceId: schema.evidenceId, store: schema.store,
+            schemaRevision: schema.schemaRevision, schemaEvidenceId: schema.evidenceId,
+            schemaRuleVersion: schema.ruleVersion, store: schema.store,
             storeRef: structuredClone(schema.storeRef), category,
             attributeId: input.attributeId, dictionaryId: attribute.dictionaryId,
             authorizedByUserId: actor.userId, authorizedAt: observedAt,
@@ -214,27 +226,34 @@ export function createC1ColorDictionaryReadUseCase({ repository, runtimeMode, se
         outcome = { status: 'unknown_outcome', evidence: null };
       }
       const settleKey = `${input.authorizationId}:settle`;
-      return executeBusinessMutation({ repository, runtimeMode, actor, requiredRoles: ['owner'],
-        action: 'settle_c1_color_dictionary_read', candidateId: input.candidateId,
-        skuPackageId: input.skuPackageId, expectedRevision: claim.candidate.dataRevision,
-        idempotencyKey: settleKey, inputFingerprint: fingerprintCanonicalRecord(outcome),
-        auditEventId: `${settleKey}:audit`, serverClock,
-        mutate: ({ candidate, observedAt }) => {
-          const saved = current(candidate, input.authorizationId, input.attributeId);
-          if (saved.status !== 'request_sent' || saved.useCount !== 1 ||
-              candidate.dataRevision !== saved.sourceCandidateRevision + 2 ||
-              saved.externalRequestRef !== `${saved.authorizationId}:request`) {
-            fail('C1_COLOR_DICTIONARY_SETTLEMENT_CONFLICT');
-          }
-          saved.status = outcome.status; saved.evidence = outcome.evidence;
-          saved.settledAt = observedAt;
-          saved.failureCode = outcome.status === 'succeeded' ? null :
-            outcome.status === 'incomplete' ? 'C1_COLOR_DICTIONARY_INCOMPLETE' : 'C1_COLOR_DICTIONARY_UNKNOWN_OUTCOME';
-          return { candidate, result: { authorizationId: saved.authorizationId,
-            status: saved.status, attributeId: saved.attributeId,
-            candidateCount: saved.evidence?.values.length ?? 0,
-            externalRequests: 1, platformWrites: 0, paidCalls: 0 } };
-        } });
+      try {
+        return await executeBusinessMutation({ repository, runtimeMode, actor, requiredRoles: ['owner'],
+          action: 'settle_c1_color_dictionary_read', candidateId: input.candidateId,
+          skuPackageId: input.skuPackageId, expectedRevision: claim.candidate.dataRevision,
+          idempotencyKey: settleKey, inputFingerprint: fingerprintCanonicalRecord(outcome),
+          auditEventId: `${settleKey}:audit`, serverClock,
+          mutate: ({ candidate, observedAt }) => {
+            const saved = current(candidate, input.authorizationId, input.attributeId);
+            if (saved.status !== 'request_sent' || saved.useCount !== 1 ||
+                candidate.dataRevision !== saved.sourceCandidateRevision + 2 ||
+                saved.externalRequestRef !== `${saved.authorizationId}:request`) {
+              fail('C1_COLOR_DICTIONARY_SETTLEMENT_CONFLICT');
+            }
+            saved.status = outcome.status; saved.evidence = outcome.evidence;
+            saved.settledAt = observedAt;
+            saved.failureCode = outcome.status === 'succeeded' ? null :
+              outcome.status === 'incomplete' ? 'C1_COLOR_DICTIONARY_INCOMPLETE' : 'C1_COLOR_DICTIONARY_UNKNOWN_OUTCOME';
+            return { candidate, result: { authorizationId: saved.authorizationId,
+              status: saved.status, attributeId: saved.attributeId,
+              candidateCount: saved.evidence?.values.length ?? 0,
+              externalRequests: 1, platformWrites: 0, paidCalls: 0 } };
+          } });
+      } catch (error) {
+        // The service call already happened. A settlement failure cannot be
+        // reported as zero requests or silently retried under the old grant.
+        throw new C1ColorDictionaryReadError('C1_COLOR_DICTIONARY_SETTLEMENT_UNCONFIRMED',
+          { requestSent: true, cause: error });
+      }
     }
   });
 }

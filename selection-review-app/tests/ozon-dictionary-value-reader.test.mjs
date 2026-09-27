@@ -105,6 +105,7 @@ const LIST_OK = {
     scope: { platform: "ozon", store: "miska", category: "ozon:17028966:96063", attributeId: "5954" },
     sourceRef: "ozon-seller-api:/v1/description-category/attribute/values:17028966:96063:5954",
     checkedAt: "2026-09-18T15:00:00.000Z",
+    expiresAt: "2026-09-19T15:00:00.000Z",
     evidenceData: { attributeId: "5954", complete: true,
       values: [{ dictionaryValueId: 30937, value: "На любой сезон" }, { dictionaryValueId: 30940, value: "Лето" }],
       descriptionCategoryId: 17028966, typeId: 96063 }
@@ -129,6 +130,13 @@ test("列字典值：原样交出候选，并带上完整性标记", async () =>
   assert.equal(capture[0].body.attributeId, "5954");
   assert.equal(result.evidenceData.values.length, 2);
   assert.equal(result.evidenceData.complete, true);
+  assert.equal(result.expiresAt, LIST_OK.evidence.expiresAt);
+});
+
+test("列字典值：来源有效期缺失时拒收", async () => {
+  const payload = structuredClone(LIST_OK);
+  delete payload.evidence.expiresAt;
+  await assert.rejects(listReaderWith(payload)(LIST_QUERY), /OZON_DICTIONARY_EXPIRY_UNPROVEN/);
 });
 
 test("列字典值：作用域对不上一律拒收", async () => {

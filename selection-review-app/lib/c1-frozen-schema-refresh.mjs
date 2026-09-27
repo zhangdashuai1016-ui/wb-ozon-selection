@@ -53,7 +53,8 @@ export function refreshC1FrozenPlatformSchema({ skuPackage, freshPack, refreshed
   const current = plan.inputSnapshots?.platformSchemaRules;
   if (!isObject(current)) throw new C1FrozenSchemaRefreshError("C1_FROZEN_SCHEMA_REFRESH_CURRENT_MISSING");
   if (freshPack.kind !== "schema" || freshPack.status !== "active" || !nonEmpty(freshPack.id) ||
-      !isObject(freshPack.evidenceData) || !isObject(freshPack.scope) || !nonEmpty(freshPack.checkedAt)) {
+      !isObject(freshPack.evidenceData) || !isObject(freshPack.scope) ||
+      !nonEmpty(freshPack.scope.ruleVersion) || !nonEmpty(freshPack.checkedAt)) {
     throw new C1FrozenSchemaRefreshError("C1_FROZEN_SCHEMA_REFRESH_PACK_INVALID");
   }
   const data = freshPack.evidenceData;
@@ -80,6 +81,7 @@ export function refreshC1FrozenPlatformSchema({ skuPackage, freshPack, refreshed
     platform: current.platform,
     store: current.store,
     storeRef: structuredClone(current.storeRef),
+    ruleVersion: freshPack.scope.ruleVersion,
     schemaRevision: data.schemaRevision,
     collectedAt: freshPack.checkedAt,
     requiredFields: structuredClone(data.requiredFields)

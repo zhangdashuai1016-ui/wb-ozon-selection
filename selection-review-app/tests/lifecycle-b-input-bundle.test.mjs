@@ -197,6 +197,7 @@ test("B preserves actual C1 Schema content without importing payload identity or
   assert.equal(bundle.platformSchemaEvidence.platform, "ozon");
   assert.equal(bundle.platformSchemaEvidence.store, "dandanshu");
   assert.deepEqual(bundle.platformSchemaEvidence.storeRef, SYNTHETIC_STORE_REF);
+  assert.equal(bundle.platformSchemaEvidence.ruleVersion, evidencePacks[3].scope.ruleVersion);
   assert.equal(bundle.platformSchemaEvidence.collectedAt, createdAt);
   assert.equal(Object.hasOwn(bundle.platformSchemaEvidence, "productionAuthorized"), false);
   assert.equal(Object.hasOwn(bundle.platformSchemaEvidence, "confirmedBy"), false);

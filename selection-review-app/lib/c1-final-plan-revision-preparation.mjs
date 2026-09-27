@@ -17,6 +17,11 @@ export class C1FinalPlanRevisionError extends Error {
 }
 const fail = code => { throw new C1FinalPlanRevisionError(code); };
 
+export function hasUnsettledC1ColorDictionaryRead(lifecycle) {
+  return Object.values(lifecycle?.c1ColorDictionaryReadsV1 ?? {})
+    .some(record => ['request_sent', 'unknown_outcome'].includes(record?.status));
+}
+
 /** Exact archival projection shared by preparation and its atomic persistence boundary. */
 export function buildC1FinalPlanHistoryReferences(lifecycle) {
   if (!lifecycle || typeof lifecycle !== "object" || Array.isArray(lifecycle)) fail("C1_FINAL_REVISION_INPUT_INVALID");
@@ -27,6 +32,7 @@ export function buildC1FinalPlanHistoryReferences(lifecycle) {
   return references;
 }
 export function clearC1FinalPlanActiveReferences(lifecycle) {
+  if (hasUnsettledC1ColorDictionaryRead(lifecycle)) fail('C1_COLOR_DICTIONARY_READ_UNSETTLED');
   for (const key of PREVIOUS_C1_REFERENCE_FIELDS) delete lifecycle[key];
 }
 
@@ -35,6 +41,7 @@ export function prepareC1FinalPlanRevision({ candidate, expectedRevision, prepar
   if (!candidate || !Number.isSafeInteger(expectedRevision) || candidate.dataRevision !== expectedRevision ||
       !isRuntimeConfigurationTimestamp(preparedAt)) fail("C1_FINAL_REVISION_INPUT_INVALID");
   const life = candidate.lifecycleV11, previous = life?.skuPackage;
+  if (hasUnsettledC1ColorDictionaryRead(life)) fail('C1_COLOR_DICTIONARY_READ_UNSETTLED');
   if (!previous || previous.businessPhase !== "C2" || previous.c2FinalAssets?.status !== "completed" ||
       !previous.productionConfirmationCard || previous.c1ProductPlan?.status !== "seo_draft_ready") fail("C1_FINAL_REVISION_SOURCE_NOT_FINAL");
   assertValidLifecyclePackage(previous);

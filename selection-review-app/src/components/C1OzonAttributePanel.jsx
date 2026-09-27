@@ -31,7 +31,9 @@ export default function C1OzonAttributePanel({ candidate, identity, onBackfill, 
   // 「只有完全没有属性表才给重读按钮」这条件写窄过一次，主人因此被卡在纯俄文表上。
   const schemaHasChinese = schemaHasAttributes && frozenSchema.attributes.some(item => item.labelZh);
   const schemaHasComplexId = schemaHasAttributes && frozenSchema.attributes.every(item => Number.isInteger(item.complexId));
-  const needsSchemaRefresh = !schemaHasAttributes || !schemaHasChinese || !schemaHasComplexId;
+  const schemaHasRuleVersion = typeof frozenSchema?.ruleVersion === 'string' && frozenSchema.ruleVersion.trim().length > 0;
+  const needsSchemaRefresh = !schemaHasAttributes || !schemaHasChinese || !schemaHasComplexId ||
+    candidate.siblingSourceV1 && !schemaHasRuleVersion;
   const schemaReady = schemaHasAttributes && schemaHasChinese && schemaHasComplexId;
   const supplyAttributes = plan?.inputSnapshots?.confirmedSupplierSkuSnapshot?.supplierSku?.attributes ?? {};
   const capturedKeys = Object.keys(supplyAttributes).filter(key => key !== "quantityOneEvidence" && key !== "purchaseCostComponents");
@@ -43,6 +45,7 @@ export default function C1OzonAttributePanel({ candidate, identity, onBackfill, 
     const record = colorDictionaryReads[attributeId];
     return record?.status === 'succeeded' && record.schemaRevision === frozenSchema?.schemaRevision &&
       record.schemaEvidenceId === frozenSchema?.evidenceId &&
+      record.schemaRuleVersion === frozenSchema?.ruleVersion &&
       record.c1PlanId === plan?.c1PlanId && record.evidence?.complete === true &&
       Array.isArray(record.evidence.values) &&
       Date.parse(record.evidence.expiresAt) > Date.now() ? record.evidence.values : null;
@@ -115,7 +118,8 @@ export default function C1OzonAttributePanel({ candidate, identity, onBackfill, 
   const readColorCandidates = attributeId => act(async () => {
     const record = colorDictionaryReads[attributeId];
     await onReadColorDictionary(candidate.id, { attributeId,
-      authorizationId: record?.status === 'authorized' && Date.parse(record.expiresAt) > Date.now()
+      authorizationId: record?.status === 'authorized' && record.schemaEvidenceId === frozenSchema?.evidenceId &&
+        record.schemaRuleVersion === frozenSchema?.ruleVersion && Date.parse(record.expiresAt) > Date.now()
         ? record.authorizationId : null });
   });
   const saveColor = act(async () => {
@@ -136,7 +140,8 @@ export default function C1OzonAttributePanel({ candidate, identity, onBackfill, 
     <h3>Ozon 商品属性</h3>
     {candidate.siblingSourceV1 ? <div className="c1-sibling-color-mapping">
       <p><b>本规格供应原色：{supplierColor || '未取得'}</b>。10096 是广义商品颜色，10097 是这件规格的颜色名称；两项都须由你对当前规格确认。这里不会沿用父卡颜色，也不会替你翻译。</p>
-      <p>冻结类目资料：{frozenSchema?.schemaRevision || '未取得'}；采集于 {frozenSchema?.collectedAt || '未取得'}；有效至 {frozenSchema?.expiresAt || '未取得'}。已过期的资料请先核对再继续。</p>
+      <p>冻结类目资料：{frozenSchema?.schemaRevision || '未取得'}；适用规则 {frozenSchema?.ruleVersion || '未保留，须重读'}；采集于 {frozenSchema?.collectedAt || '未取得'}。证据有效性由服务端核对。</p>
+      <p>一次字典作业最多包含俄文和可选中文两次只读子请求；必须由主人先授权，不会触发平台写入。</p>
       {colorSchema.map((item, index) => <p key={index}>{index === 0 ? '10096 商品颜色' : '10097 颜色名称'}：{item ? `${item.labelZh || item.label || ''} · ${item.dictionaryId > 0 ? '官方字典逐字核对' : '按类目资料填写文字'}` : '当前冻结类目资料缺此属性，请先核对类目资料'}</p>)}
       <button type="button" disabled={!canAct || saving || !onLoadMappingFacts} onClick={readColorFacts}>查看当前规格可映射的事实</button>
       <p>可用的当前颜色依据：{!mappingFacts ? '先查看当前规格事实' : colorFact.length === 1 ? `${colorFact[0].value} · ${colorFact[0].factPath}` : '没有找到唯一依据，请核对供应颜色资料'}。</p>
@@ -162,9 +167,11 @@ export default function C1OzonAttributePanel({ candidate, identity, onBackfill, 
               </label>
               {attribute?.dictionaryId > 0 && candidates ? <p>完整候选证据：{read.evidence.sourceRef}；有效至 {read.evidence.expiresAt}。</p> : null}
               {attribute?.dictionaryId > 0 && !candidates && !['request_sent', 'unknown_outcome'].includes(read?.status)
-                ? <button type="button" disabled={!canAct || saving || !onReadColorDictionary || colorFact.length !== 1}
+                ? <button type="button" disabled={!canAct || saving || !onReadColorDictionary ||
+                    colorFact.length !== 1 || !schemaHasRuleVersion}
                   onClick={readColorCandidates(attributeId)}>
-                  {read?.status === 'authorized' && Date.parse(read.expiresAt) > Date.now()
+                  {read?.status === 'authorized' && read.schemaEvidenceId === frozenSchema?.evidenceId &&
+                    read.schemaRuleVersion === frozenSchema?.ruleVersion && Date.parse(read.expiresAt) > Date.now()
                     ? '继续已授权的只读查询' : '授权并读取本规格官方颜色候选'}
                 </button> : null}
               {attribute?.dictionaryId > 0 && ['request_sent', 'unknown_outcome', 'incomplete'].includes(read?.status)
@@ -196,6 +203,8 @@ export default function C1OzonAttributePanel({ candidate, identity, onBackfill, 
           ? <><b>冻结的类目资料还是纯俄文的</b>（它是中文对照上线之前读的）。重读一次就能拿到 Ozon 官方的中文属性名——只读、免费。</>
           : !schemaHasComplexId
             ? <><b>冻结的类目资料缺少发商品时要用的属性编号</b>（它是这一项加上之前读的）。重读一次就补齐了——只读、免费。</>
+            : !schemaHasRuleVersion
+              ? <><b>冻结的类目资料没有保存适用规则版本</b>，无法核对当前官方候选与原冻结范围是否相同；须先受控重读同一类目。</>
             : <>当前类目资料的时间可能已过期。可由主人主动重读同一类目的官方资料，再判断当前规格颜色；这一步只读、免费。</>}</p>
       <button type="submit" disabled={!canAct || saving}>{saving ? "正在重读…" : "重读这个类目的 Ozon 资料"}</button>
     </form> : null}
