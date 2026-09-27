@@ -202,8 +202,8 @@ test("读一次 Ozon 页面：只有主人能发起，占同一把采集控制�
 
   await api.login();
 
-  // 封闭输入：只收当前数据修订号。
-  const extraField = await api.post(startRoute("OZON-CAPTURE-1"), { dataRevision: 1, productUrl: "https://www.ozon.ru/product/1111111/" });
+  // 封闭输入：只收当前数据修订号与可选的主人指定 Ozon 商品地址。
+  const extraField = await api.post(startRoute("OZON-CAPTURE-1"), { dataRevision: 1, unapprovedField: "synthetic" });
   assert.equal(extraField.status, 400);
   assert.equal(extraField.body.code, "ozon_page_read_input_invalid");
   const staleRevision = await api.post(startRoute("OZON-CAPTURE-1"), { dataRevision: 99 });

@@ -20,7 +20,7 @@ test("路由把主人的请求原样接到用例上，SKU包身份只认服务�
   assert.equal(server.split("C1_OZON_ATTRIBUTE_MAPPING_OWNER_REQUIRED").length - 1, 2);
 
   const backfill = server.slice(server.indexOf("c1SupplyAttributeBackfillRoute = pathname.match"),
-    server.indexOf("c1OzonAttributesRoute = pathname.match"));
+    server.indexOf("c1RefreshSchemaRoute = pathname.match"));
   assert.match(backfill, /expectedRevision: input\.dataRevision/);
   assert.match(backfill, /skuPackageId = current\.lifecycleV11\?\.skuPackage\?\.skuPackageId/);
   assert.doesNotMatch(backfill, /input\.skuPackageId/, "SKU包身份不能由客户端指定");
@@ -40,7 +40,7 @@ test("路由把主人的请求原样接到用例上，SKU包身份只认服务�
 
   // 重读类目资料：证据包和计划里那份必须**同一次落盘**，只提交其中一个就会让引用指向不存在的包。
   const refresh = server.slice(server.indexOf("c1RefreshSchemaRoute = pathname.match"),
-    server.indexOf("c1OzonAttributesRoute = pathname.match"));
+    server.indexOf("c1OzonAttributeProposalRoute = pathname.match"));
   assert.match(refresh, /refreshC1FrozenPlatformSchema\(\{/);
   assert.match(refresh, /commitLifecycleBEvidencePacks\(data, \[pack\]/);
   assert.ok(refresh.indexOf("await mutateData(") < refresh.indexOf("commitLifecycleBEvidencePacks"),
@@ -51,7 +51,7 @@ test("路由把主人的请求原样接到用例上，SKU包身份只认服务�
 
   // 生成属性建议：会花 AI 调用的钱，必须是主人主动点，且只在事实尚未冻结时可做。
   const proposal = server.slice(server.indexOf("c1OzonAttributeProposalRoute = pathname.match"),
-    server.indexOf("c1OzonAttributesRoute = pathname.match"));
+    server.indexOf("c1ColorDictionaryRoute = pathname.match"));
   assert.match(proposal, /C1_OZON_ATTRIBUTE_PROPOSAL_OWNER_REQUIRED/);
   assert.match(proposal, /plan\.status !== "inputs_ready"/);
   assert.match(proposal, /readDictionaryValues: createOzonDictionaryValuesReader\(/);
