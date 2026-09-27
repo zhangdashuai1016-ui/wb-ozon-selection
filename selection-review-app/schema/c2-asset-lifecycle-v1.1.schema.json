@@ -1030,6 +1030,9 @@
             },
             {
               "$ref": "#/$defs/editorialDraftReference"
+            },
+            {
+              "$ref": "c1-sibling-formal-reuse-v1.schema.json#/$defs/draftOnlySeo"
             }
           ]
         },

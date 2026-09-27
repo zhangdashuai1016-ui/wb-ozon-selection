@@ -112,6 +112,7 @@ const C2_DIAGNOSTIC_STATIC_FIELDS = new Set([
   "technicalFailureRecord", "failure", "ownerDecision",
   "frozenC1Handoff", "seoEvidenceLayer", "draftOnlySeo", "providerJobRef", "authorizationRef",
   "pricingReuseRecord", "sourcePlan", "settledExecution", "authorizedExecution",
+  "siblingFormalReuseRecord",
   "editorialSource", "bundle", "sourceJob", "scopeBinding", "admissionDecision", "lifecycleV11",
   "request", "competitorTextEvidence", "texts", "referenceContext", "referenceTexts", "canonicalHandoff",
   "authorizationId", "authorizationType", "scope", "finalCardInputSnapshot", "c1Snapshot", "canonicalC1",
@@ -412,8 +413,16 @@ const C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS_VALUE = Object.freeze({
       ["scopeBinding", "admissionDecision"].map(section => Object.freeze([
         ...prefix, "editorialSource", "bundle", "sourceJob", section, "authorizationRef"
       ]))),
+    ...[...C1_PRICING_REUSE_CONTAINER_PATHS, ["draftOnlySeo"], ["c1ProductPlan", "draftOnlySeo"],
+      ["lifecycleV11", "skuPackage", "c1ProductPlan", "draftOnlySeo"]].flatMap(prefix =>
+      ["scopeBinding", "admissionDecision"].map(section => Object.freeze([
+        ...prefix, "siblingFormalReuseRecord", "sourcePlan", "draftOnlySeo", "editorialSource", "bundle", "sourceJob", section, "authorizationRef"
+      ]))),
     ...C1_PRICING_REUSE_CONTAINER_PATHS.flatMap(prefix => C1_PRICING_REUSE_AUTHORIZATION_PATHS.map(suffix =>
       Object.freeze([...prefix, "pricingReuseRecord", ...suffix]))),
+    ...[...C1_PRICING_REUSE_CONTAINER_PATHS, ["draftOnlySeo"], ["c1ProductPlan", "draftOnlySeo"],
+      ["lifecycleV11", "skuPackage", "c1ProductPlan", "draftOnlySeo"]].flatMap(prefix =>
+      C1_PRICING_REUSE_AUTHORIZATION_PATHS.map(suffix => Object.freeze([...prefix, "siblingFormalReuseRecord", ...suffix]))),
     Object.freeze(["frozenC1Handoff", "seoEvidenceLayer", "providerJobRef", "authorizationRef", "authorizationId"]),
     Object.freeze(["frozenC1Handoff", "draftOnlySeo", "providerJobRef", "authorizationRef", "authorizationId"]),
     Object.freeze(["finalCardInputSnapshot", "c1Snapshot", "seoEvidenceLayer", "providerJobRef", "authorizationRef", "authorizationId"]),
@@ -444,9 +453,10 @@ const C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS_VALUE = Object.freeze({
 const C1_COMPETITOR_TEXT_REFERENCE_PATHS = Object.freeze(
   C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS_VALUE.runtimeRootPrefixes.flatMap(root =>
     [...C1_PRICING_REUSE_CONTAINER_PATHS, ["draftOnlySeo"], ["c1ProductPlan", "draftOnlySeo"],
-      ["lifecycleV11", "skuPackage", "c1ProductPlan", "draftOnlySeo"]].map(prefix => Object.freeze([
-      ...root, ...prefix, "editorialSource", "bundle", "request", "competitorTextEvidence", "texts", "[array]", "sourceRef"
-    ])))
+      ["lifecycleV11", "skuPackage", "c1ProductPlan", "draftOnlySeo"]].flatMap(prefix => [
+      Object.freeze([...root, ...prefix, "editorialSource", "bundle", "request", "competitorTextEvidence", "texts", "[array]", "sourceRef"]),
+      Object.freeze([...root, ...prefix, "siblingFormalReuseRecord", "sourcePlan", "draftOnlySeo", "editorialSource", "bundle", "request", "competitorTextEvidence", "texts", "[array]", "sourceRef"])
+    ]))
 );
 
 const C1_CONTEXT_TEXT_REFERENCE_PATHS = Object.freeze(C1_COMPETITOR_TEXT_REFERENCE_PATHS.map(path =>

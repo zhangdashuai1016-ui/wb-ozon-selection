@@ -623,6 +623,9 @@
         },
         {
           "$ref": "c2-asset-lifecycle-v1.1.schema.json#/$defs/editorialDraftReference"
+        },
+        {
+          "$ref": "c1-sibling-formal-reuse-v1.schema.json#/$defs/draftOnlySeo"
         }
       ]
     },

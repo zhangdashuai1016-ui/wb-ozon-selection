@@ -607,6 +607,9 @@
         },
         {
           "$ref": "c1-editorial-source-v2.schema.json#/$defs/draftOnlySeo"
+        },
+        {
+          "$ref": "c1-sibling-formal-reuse-v1.schema.json#/$defs/draftOnlySeo"
         }
       ]
     },

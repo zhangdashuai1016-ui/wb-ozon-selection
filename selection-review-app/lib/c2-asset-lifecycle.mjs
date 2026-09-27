@@ -4,6 +4,7 @@ import { createC1EditorialDraftReference, assertC1EditorialSource, assertC1Edito
 import { sameStoreRef } from "./store-binding.mjs";
 import { isDeepStrictEqual } from "node:util";
 import { assertC1PricingResultReuse, assertC1PricingReuseRecordSource, createC1PricingReuseReference, C1_PRICING_REUSE_REFERENCE_VERSION, C1PricingReuseError } from "./c1-pricing-result-reuse.mjs";
+import { assertC1SiblingFormalReuse, createC1SiblingFormalReference, C1_SIBLING_FORMAL_REFERENCE_VERSION } from "./c1-sibling-formal-draft-reuse.mjs";
 import { assertCurrentC1SkuRightsReview, C1SkuRightsReviewError } from "./c1-sku-rights-review.mjs";
 import {
   assertValidLifecyclePackage,
@@ -205,6 +206,13 @@ function pricingDraftMatchesSnapshot(draft, sourcePlan, identity, resultSkuRevis
 }
 
 function canonicalDraftMatchesSnapshot(draft, sourcePlan, identity, resultSkuRevision, targetProfitModelVersion) {
+  if (draft?.sourceType === 'sibling_shared_formal_provider') {
+    const sourceDraft = sourcePlan?.draftOnlySeo;
+    if (sourceDraft?.siblingFormalReuseRecord?.schemaVersion !== 'c1-sibling-formal-reuse-v1') return false;
+    const record = sourceDraft.siblingFormalReuseRecord;
+    return sameJson(draft, { ...sourceDraft, siblingFormalReuseRecord:
+      createC1SiblingFormalReference({ record, identity, resultSkuRevision }) });
+  }
   return draft?.sourceType === "owner_confirmed_editorial"
     ? editorialDraftMatchesSnapshot(draft, sourcePlan?.draftOnlySeo, identity, resultSkuRevision)
     : pricingDraftMatchesSnapshot(draft, sourcePlan, identity, resultSkuRevision, targetProfitModelVersion);
@@ -261,6 +269,8 @@ export function normalizeC1CanonicalHandoffContract(skuPackage) {
   const draft = plan.draftOnlySeo;
   if (draft?.sourceType === "owner_confirmed_editorial") {
     assertC1EditorialPlan({ plan, identity: g1.identity, resultSkuRevision: expectedC1Revision });
+  } else if (draft?.sourceType === 'sibling_shared_formal_provider') {
+    assertC1SiblingFormalReuse({ plan, resultSkuRevision: expectedC1Revision });
   } else {
     const job = draft?.providerJobRef;
     const pricingReuse = draft?.pricingReuseRecord === undefined ? null : assertC1PricingResultReuse({ plan, resultSkuRevision: expectedC1Revision });
@@ -391,7 +401,10 @@ export function normalizeC1CanonicalHandoffContract(skuPackage) {
     schemaSnapshotRef: plan.schemaSnapshotRef,
     // Previously completed full v2 handoffs retain their exact historical shape.
     // New handoffs share the complete source kept in finalCardInputSnapshot.c1Snapshot.
-    draftOnlySeo: draft?.pricingReuseRecord?.schemaVersion === "c1-pricing-result-reuse-v1" &&
+    draftOnlySeo: draft?.siblingFormalReuseRecord?.schemaVersion === 'c1-sibling-formal-reuse-v1'
+      ? { ...structuredClone(draft), siblingFormalReuseRecord: createC1SiblingFormalReference({
+        record: draft.siblingFormalReuseRecord, identity: g1.identity, resultSkuRevision: expectedC1Revision }) }
+      : draft?.pricingReuseRecord?.schemaVersion === "c1-pricing-result-reuse-v1" &&
       !(skuPackage.c2FinalAssets?.status === "completed" &&
         skuPackage.c2FinalAssets.productionAuthorizationPreparation?.frozenC1Handoff?.draftOnlySeo?.pricingReuseRecord?.schemaVersion === "c1-pricing-result-reuse-v1")
       ? { ...structuredClone(draft), pricingReuseRecord: createC1PricingReuseReference({ record: draft.pricingReuseRecord,
@@ -1066,6 +1079,15 @@ function validateStoredCanonicalC1Handoff(value, path, storedTargetContext, erro
       if (!(error instanceof C1EditorialSourceError) && !/^C1_AI_/.test(error.message)) throw error;
       push(errors, `${path}.draftOnlySeo.editorialSource`, error.message);
     }
+  } else if (draft?.sourceType === 'sibling_shared_formal_provider') {
+    try {
+      if (draft.siblingFormalReuseRecord?.schemaVersion === C1_SIBLING_FORMAL_REFERENCE_VERSION) {
+        if (!canonicalDraftMatchesSnapshot(draft, sourcePlan, g1Identity, handoffRevisions?.sourceRevision,
+          value.frozenInputRefs?.profitModelVersion)) throw new Error('C1_SIBLING_SHARED_REFERENCE_SOURCE_MISMATCH');
+      } else {
+        assertC1SiblingFormalReuse({ plan: sourcePlan, resultSkuRevision: handoffRevisions?.sourceRevision });
+      }
+    } catch (error) { push(errors, `${path}.draftOnlySeo.siblingFormalReuseRecord`, error.message); }
   } else {
     const job = draft?.providerJobRef;
     const authorization = job?.authorizationRef;
@@ -1343,6 +1365,9 @@ function validateStoredFinalCardInputSnapshot(snapshot, preparation, errors) {
       if (!(error instanceof C1EditorialSourceError) && !/^C1_AI_/.test(error.message)) throw error;
       push(errors, "productionAuthorizationPreparation.finalCardInputSnapshot.c1Snapshot.seoEvidenceLayer", error.message);
     }
+  } else if (draft?.sourceType === 'sibling_shared_formal_provider') {
+    try { assertC1SiblingFormalReuse({ plan: c1, resultSkuRevision: canonical?.handoffRevisionRefs?.sourceRevision }); }
+    catch (error) { push(errors, 'productionAuthorizationPreparation.finalCardInputSnapshot.c1Snapshot.draftOnlySeo.siblingFormalReuseRecord', error.message); }
   } else {
     const job = draft?.providerJobRef;
     if (!isObject(evidenceLayer) || !sameJson(evidenceLayer?.providerJobRef, job) ||
