@@ -21,6 +21,7 @@ import { productionJobPrewriteCode, AliyunOssLocalPreparationError } from './pro
 import { prepareSingleSkuDExecution } from './d-e-software-closure.mjs';
 import { runPersistedDExecution, runPersistedDRemainingInventory } from './d-e-software-integration.mjs';
 import { createStoreIsolatedOzonSellerApiDEAdapter } from './ozon-seller-api-de-adapter.mjs';
+import { createDBatchImportSoftwareService } from './d-batch-import-software-service.mjs';
 import { createSystemEReadbackSoftwareRuntime } from './e-readback-software-use-case.mjs';
 import { createDAssetTransportSoftwareRuntime } from './d-asset-transport-software-use-case.mjs';
 import { createDProductionPreparationIntent, completeDProductionPreparation, markDProductionPreparationUnknown,
@@ -64,11 +65,11 @@ function replaceJob(document, job) {
 }
 /** Construct routing and registered capabilities only. No candidate/job read, credential resolution or provider invocation. */
 export function createDEProductionRuntimeServices({ repository, runtimeMode, serverClock, workerRegistry,
-  deServiceBindings=[],productionBindings=[],requestJson=null,inspectPlatform=null,loadAdapterCapabilities=null,
+  deServiceBindings=[],productionBindings=[],requestJson=null,inspectPlatform=null,loadAdapterCapabilities=null,loadBatchMemberEvidence=null,
   upload=null,resolveLocalAsset=null,loadCurrentProductionBinding=null,preflightRequestMode='external_read',loadDPlatformObservationPolicy=null,verifyInventoryPrerequisiteSource=null,
   observationPumpIntervalMs=null,onObservationError=null,eReadbackPumpIntervalMs=null,onReadbackError=null }={}) {
   assertBusinessStateRepositoryBoundary(repository); assertWorkerRegistryBoundary(workerRegistry);
-  if(typeof serverClock!=='function' || [requestJson,inspectPlatform,loadAdapterCapabilities,upload,resolveLocalAsset,loadCurrentProductionBinding,loadDPlatformObservationPolicy,verifyInventoryPrerequisiteSource,onObservationError,onReadbackError]
+  if(typeof serverClock!=='function' || [requestJson,inspectPlatform,loadAdapterCapabilities,loadBatchMemberEvidence,upload,resolveLocalAsset,loadCurrentProductionBinding,loadDPlatformObservationPolicy,verifyInventoryPrerequisiteSource,onObservationError,onReadbackError]
     .some(value=>value!==null&&typeof value!=='function')) throw new Error('DE_RUNTIME_DEPENDENCY_INVALID');
   if(!['external_read','persisted_evidence_only'].includes(preflightRequestMode)) throw new Error('DE_RUNTIME_PREFLIGHT_REQUEST_MODE_INVALID');
   if(eReadbackPumpIntervalMs!==null && (!Number.isSafeInteger(eReadbackPumpIntervalMs)||eReadbackPumpIntervalMs<1000||eReadbackPumpIntervalMs>2147483647)) throw new Error('DE_RUNTIME_E_PUMP_INTERVAL_INVALID');
@@ -83,6 +84,9 @@ export function createDEProductionRuntimeServices({ repository, runtimeMode, ser
     if(binding && typeof binding.then==='function') throw new TypeError('DE_RUNTIME_CURRENT_BINDING_MUST_BE_SYNCHRONOUS');
     return binding;
   }
+  const batchImportService = requestJson !== null && loadBatchMemberEvidence !== null
+    ? createDBatchImportSoftwareService({ repository, runtimeMode, workerRegistry, serverClock, services,
+      loadCurrentProductionBinding: production, loadBatchMemberEvidence, requestJson }) : null;
   function resolveBinding({candidate,job}) {
     const service=services.get(job.scopeBinding.productionBinding.bindingId);
     if(!service) throw new DERuntimeUnavailableError('SERVICE');
@@ -443,7 +447,20 @@ export function createDEProductionRuntimeServices({ repository, runtimeMode, ser
       return (active || historyReadback).view(candidate);
     },
     configurationView:Object.freeze(bindings.map(binding=>Object.freeze(clone(binding)))),
-    dependencyView:Object.freeze({transport:requestJson!==null,preflight:inspectPlatform!==null,capabilities:loadAdapterCapabilities!==null,assetTransport:upload!==null&&resolveLocalAsset!==null}),
+    dependencyView:Object.freeze({transport:requestJson!==null,preflight:inspectPlatform!==null,capabilities:loadAdapterCapabilities!==null,
+      assetTransport:upload!==null&&resolveLocalAsset!==null}),
+    async continueAuthorizedBatchImport(input) {
+      if(batchImportService===null) throw new DERuntimeUnavailableError('BATCH_IMPORT');
+      return batchImportService.runAuthorizedBatch(input);
+    },
+    async observeBatchImportChunk(input) {
+      if(batchImportService===null) throw new DERuntimeUnavailableError('BATCH_IMPORT');
+      return batchImportService.observeBatchChunk(input);
+    },
+    async reclaimBatchImportLease(input) {
+      if(batchImportService===null) throw new DERuntimeUnavailableError('BATCH_IMPORT');
+      return batchImportService.reclaimBatchLease(input);
+    },
     async continueSavedCurrent(input) {
       inputShape(input);let current=await snapshot(input);
       if(current.job.jobType==='e_independent_readback') return runE(input,current);

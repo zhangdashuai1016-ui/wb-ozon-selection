@@ -112,13 +112,23 @@ export function assertOzonDEPreflightEvidence(record) {
   requireValue(inventory === null || ['storeRef','warehouseId','warehouseRef','credentialAlias'].every(field => isDeepStrictEqual(inventory[field],record.scope[field])), 'SCOPE_MISMATCH');
   return structuredClone(record);
 }
-function inputScope({candidate,productionBinding,job}, checkedAt) {
+function inputScope({candidate,productionBinding,job,batch=null}, checkedAt) {
   const authorization = candidate?.lifecycleV11?.skuPackage?.productionAuthorization;
   assertValidProductionAuthorization(authorization);
   assertCurrentProductionExecutionBinding({productionAuthorization:authorization,currentProductionBinding:productionBinding,checkedAt});
   const locked = authorization.lockedScope;
+  const batchMember = batch?.members?.filter(member => member.candidateId === candidate.id);
+  const batchContext = job?.jobType === 'd_batch_import' && job.batchId === batch?.batchId &&
+    batchMember?.length === 1 && batchMember[0].skuPackageId === locked.skuPackageId &&
+    batchMember[0].authorizationId === authorization.authorizationId &&
+    batchMember[0].authorizationFingerprint === fingerprintProductionAuthorization(authorization) &&
+    batchMember[0].resultRevision === candidate.dataRevision &&
+    ['authorized', 'import_admitted', 'claimed', 'waiting_platform', 'partial_failure', 'unknown_outcome',
+      'imported_awaiting_inventory'].includes(batch.status);
+  const singleContext = job?.candidateId === candidate.id && job.skuPackageId === locked.skuPackageId &&
+    ['d_production_execution','e_independent_readback','e_d_platform_observation'].includes(job.jobType);
   requireValue(candidate.id === locked.candidateId && candidate.lifecycleV11.skuPackage.skuPackageId === locked.skuPackageId && integer(candidate.dataRevision) &&
-    job?.candidateId === candidate.id && job.skuPackageId === locked.skuPackageId && ['d_production_execution','e_independent_readback','e_d_platform_observation'].includes(job.jobType), 'CONTEXT_INVALID');
+    (batchContext || singleContext), 'CONTEXT_INVALID');
   const scope = {candidateId:candidate.id,skuPackageId:locked.skuPackageId,supplierSkuId:locked.supplierSkuId,authorizationId:authorization.authorizationId,
     sourceCandidateRevision:authorization.sourceCandidateRevision,storeRef:structuredClone(locked.storeRef),warehouseRef:locked.warehouseRef,
     warehouseId:productionBinding.warehouseId,credentialAlias:locked.credentialAlias,bindingId:productionBinding.bindingId,configurationVersion:productionBinding.configurationVersion};
@@ -224,6 +234,15 @@ export function createOzonDEPreflightProvider({readEvidence,serverClock,verifySo
     }
   }
   return Object.freeze({
+    async loadBatchMemberEvidence({candidate,productionBinding,batch}) {
+      const checkedAt = serverClock();
+      const {scope,authorization} = inputScope({candidate,productionBinding,batch,
+        job:{jobType:'d_batch_import',batchId:batch?.batchId}},checkedAt);
+      const {record,reason,systemError} = await read(scope,checkedAt);
+      const capabilities = inspectOzonDEPreflightCapabilities({candidate,authorization,scope,record,reason,now:checkedAt});
+      const inspection = record === null ? unknownInspection(scope,batch.batchId,reason,systemError) : structuredClone(record.inspection);
+      return Object.freeze({capabilities,inspection,checkedAt});
+    },
     async loadAdapterCapabilities(input) {
       const now = serverClock(), {scope,authorization} = inputScope(input,now), {record,reason} = await read(scope,now);
       return inspectOzonDEPreflightCapabilities({candidate:input.candidate,authorization,scope,record,reason,now});

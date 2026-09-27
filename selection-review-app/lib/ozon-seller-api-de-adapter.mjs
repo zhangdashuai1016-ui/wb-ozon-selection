@@ -477,6 +477,32 @@ function normalizeImportObservation(response, query, capabilities) {
     inventoryPrerequisites: { priceSent: "unknown", reservedObservation: "not_queried" } });
 }
 
+/** Validate every saved single-SKU scope before composing one batch import payload. */
+export function projectPreparedBatchImportRequests({ members, excludedOfferIds, adapterCapabilities, checkedAt }) {
+  const inputs = members.map(member => {
+    assertDExecutableRequest(member.request);
+    assertCurrentDExecutionContext({ request: member.request, executionContext: member.executionContext });
+    if (!sameStoreRef(member.request.storeRef, adapterCapabilities.storeRef) ||
+        member.request.warehouseRef !== adapterCapabilities.warehouseRef ||
+        member.request.credentialAlias !== adapterCapabilities.credentialAlias) throw new Error('OZON_BATCH_STORE_SCOPE_MISMATCH');
+    const resolution = resolveFinalUploads({
+      finalUploads: member.executionContext.productionPlan.sourceAuthorization.lockedScope.finalUploads,
+      adapterCapabilities });
+    const mediaFields = ['assetId', 'sha256', 'order', 'role', 'platformAcceptedUrl'];
+    if (resolution.status !== 'ready' || resolution.resolvedAssets.length !== member.request.finalUploads.length ||
+        resolution.resolvedAssets.some((asset, index) => mediaFields.some(field =>
+          !isDeepStrictEqual(asset[field], member.request.finalUploads[index][field])))) {
+      throw new Error('OZON_BATCH_ASSET_SCOPE_MISMATCH');
+    }
+    return { colorKey: member.colorKey, modelKey: member.modelKey,
+      sourceTechnicalStatus: member.sourceTechnicalStatus,
+      payload: projectProductionPlanImportPayload({ productionPlan: member.executionContext.productionPlan,
+        resolvedFinalUploads: member.request.finalUploads }) };
+  });
+  return buildOzonSellerBatchImportRequests({ members: inputs, excludedOfferIds,
+    productImportCapability: adapterCapabilities.productImport, checkedAt });
+}
+
 export function createStoreIsolatedOzonSellerApiDEAdapter({ requestJson, adapterCapabilities, executionContext = null }) {
   if (typeof requestJson !== "function") throw new Error("OZON_DE_ADAPTER_TRANSPORT_REQUIRED: 缺少受控requestJson");
   if (!isObject(adapterCapabilities) || adapterCapabilities.status !== "ready" || adapterCapabilities.platform !== "ozon" ||
@@ -575,30 +601,8 @@ export function createStoreIsolatedOzonSellerApiDEAdapter({ requestJson, adapter
           !Number.isSafeInteger(chunkIndex) || chunkIndex < 0 || typeof persistCheckpoint !== 'function') {
         throw new Error('OZON_BATCH_EXECUTION_INPUT_INVALID');
       }
-      const project = checkedAt => {
-        const inputs = members.map(member => {
-          assertDExecutableRequest(member.request);
-          assertCurrentDExecutionContext({ request: member.request, executionContext: member.executionContext });
-          if (!sameStoreRef(member.request.storeRef, capabilities.storeRef) ||
-              member.request.warehouseRef !== capabilities.warehouseRef ||
-              member.request.credentialAlias !== capabilities.credentialAlias) throw new Error('OZON_BATCH_STORE_SCOPE_MISMATCH');
-          const resolution = resolveFinalUploads({
-            finalUploads: member.executionContext.productionPlan.sourceAuthorization.lockedScope.finalUploads,
-            adapterCapabilities: capabilities });
-          const mediaFields = ['assetId', 'sha256', 'order', 'role', 'platformAcceptedUrl'];
-          if (resolution.status !== 'ready' || resolution.resolvedAssets.length !== member.request.finalUploads.length ||
-              resolution.resolvedAssets.some((asset, index) => mediaFields.some(field =>
-                !isDeepStrictEqual(asset[field], member.request.finalUploads[index][field])))) {
-            throw new Error('OZON_BATCH_ASSET_SCOPE_MISMATCH');
-          }
-          return { colorKey: member.colorKey, modelKey: member.modelKey,
-            sourceTechnicalStatus: member.sourceTechnicalStatus,
-            payload: projectProductionPlanImportPayload({ productionPlan: member.executionContext.productionPlan,
-              resolvedFinalUploads: member.request.finalUploads }) };
-        });
-        return buildOzonSellerBatchImportRequests({ members: inputs, excludedOfferIds,
-          productImportCapability: capabilities.productImport, checkedAt });
-      };
+      const project = checkedAt => projectPreparedBatchImportRequests({ members, excludedOfferIds,
+        adapterCapabilities: capabilities, checkedAt });
       const requests = project(members[0].executionContext.serverClock());
       const batchRequest = requests[chunkIndex];
       if (!batchRequest) throw new Error('OZON_BATCH_CHUNK_NOT_FOUND');
