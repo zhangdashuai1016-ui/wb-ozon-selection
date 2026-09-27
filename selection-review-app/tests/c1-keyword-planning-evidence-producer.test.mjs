@@ -50,6 +50,18 @@ test("服务端正式来源证据生成绑定下一revision的关键词准备证
   assert.notEqual(result.evidence.binding.skuPackageId, "sku-lifecycle:CX-20260803-010:4993364145574");
 });
 
+test("缺少显式快照版本时保存与作业规划一致的绑定值", () => {
+  const candidate = keywordPlanningCandidate();
+  delete candidate.lifecycleV11.skuPackage.c1ProductPlan.inputSnapshots.salesSnapshot.schemaVersion;
+  delete candidate.lifecycleV11.skuPackage.c1ProductPlan.inputSnapshots.confirmedSupplierSkuSnapshot.schemaVersion;
+  const result = produceC1KeywordPlanningEvidence({ candidate, expectedRevision: 31,
+    serverEvidence: keywordPlanningSourceEvidence(), producedAt: KEYWORD_NOW });
+  assert.equal(result.status, "ready");
+  assert.equal(result.evidence.binding.salesSnapshotVersion, null);
+  assert.equal(result.evidence.binding.supplySnapshotVersion, "c1-confirmed-supplier-sku-snapshot-v1");
+  assert.equal(Object.values(result.evidence.binding).includes(undefined), false);
+});
+
 test("有效复用快照走reuse_ready验证分支，不被错误拒绝", () => {
   const candidate = keywordPlanningCandidate();
   const source = keywordPlanningSourceEvidence();

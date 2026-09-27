@@ -452,10 +452,10 @@ export function produceC1KeywordPlanningEvidence(
       profitModelVersion: plan.inputSnapshots.profitModel.profitModelVersion,
       profitModelFingerprint: digest(plan.inputSnapshots.profitModel),
       salesSnapshotId: plan.inputRefs.salesSnapshotId,
-      salesSnapshotVersion: plan.inputSnapshots.salesSnapshot.version ?? plan.inputSnapshots.salesSnapshot.schemaVersion,
+      salesSnapshotVersion: plan.inputSnapshots.salesSnapshot.version ?? plan.inputSnapshots.salesSnapshot.schemaVersion ?? null,
       salesSnapshotFingerprint: digest(plan.inputSnapshots.salesSnapshot),
       supplySnapshotId: plan.inputRefs.selectedSupplySnapshotId,
-      supplySnapshotVersion: plan.inputSnapshots.confirmedSupplierSkuSnapshot.version ?? plan.inputSnapshots.confirmedSupplierSkuSnapshot.schemaVersion,
+      supplySnapshotVersion: plan.inputSnapshots.confirmedSupplierSkuSnapshot.version ?? plan.inputSnapshots.confirmedSupplierSkuSnapshot.schemaVersion ?? "c1-confirmed-supplier-sku-snapshot-v1",
       supplySnapshotFingerprint: digest(plan.inputSnapshots.confirmedSupplierSkuSnapshot),
       c1FactsFingerprint: digest({
         exactSkuVerification: plan.exactSkuVerification,
