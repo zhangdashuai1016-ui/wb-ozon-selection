@@ -5,7 +5,9 @@ import { assertWorkerRegistryBoundary } from './worker-registry.mjs';
 import { assertDExecutableRequest } from './d-executable-request-contract.mjs';
 import { assertCurrentDExecutionContext } from './platform-write-preflight.mjs';
 import { projectPreparedBatchImportRequests } from './ozon-seller-api-de-adapter.mjs';
-import { createDBatchImportJob, applyDBatchImportEvent, reclaimDBatchImportJob } from './d-batch-import-state.mjs';
+import { createDBatchImportJob, applyDBatchImportEvent, reclaimDBatchImportJob,
+  assertDBatchFrozenImport, D_BATCH_FROZEN_IMPORT_VERSION,
+  projectDBatchFrozenMemberSource } from './d-batch-import-state.mjs';
 import { fingerprintCanonicalRecord } from './production-contract-primitives.mjs';
 import { sameStoreRef } from './store-binding.mjs';
 import { prepareSingleSkuDExecution } from './d-e-software-closure.mjs';
@@ -141,13 +143,22 @@ export function createPersistedDBatchImportRuntime({ repository, runtimeMode = '
     assertReadyMembers(prepared, adapterCapabilities, observedAt);
     const chunks = projectPreparedBatchImportRequests({ members: prepared, excludedOfferIds: batch.excludedOfferIds,
       adapterCapabilities, checkedAt: observedAt });
+    const byOfferId=new Map(prepared.map(member=>[member.request.merchantSku,member.request]));
+    const frozenChunks = chunks.map(chunk => {
+      const items=clone(chunk.body.items);
+      const memberSources=chunk.offerIds.map(offerId=>projectDBatchFrozenMemberSource(byOfferId.get(offerId)));
+      return {...chunk,frozenImport:{schemaVersion:D_BATCH_FROZEN_IMPORT_VERSION,
+        items,memberSources,itemFingerprint:fingerprintCanonicalRecord(items),
+        contentFingerprint:fingerprintCanonicalRecord({items,memberSources})}};
+    });
     const leaseId = `lease:${randomUUID()}`;
     const leaseExpiresAt = new Date(Date.parse(observedAt) + leaseDurationMs).toISOString();
     return repository.transact(document => {
       const current = locate(document, batchId);
       assertCurrentMembers(document, current.batch, prepared);
       if (current.job) return { changed: false, result: { job: clone(current.job), admitted: false } };
-      const job = createDBatchImportJob({ batch: current.batch, chunks, workerId,
+      if (!isDeepStrictEqual(current.batch,batch)) throw new Error('D_BATCH_IMPORT_BATCH_CHANGED_DURING_ADMISSION');
+      const job = createDBatchImportJob({ batch: current.batch, chunks: frozenChunks, workerId,
         workerVersion: worker.version, leaseId, leaseExpiresAt, createdAt: observedAt,
         observationPolicy: prepared[0].observationPolicy });
       document.runtime.dBatchImportJobs = [...current.jobs, job];
@@ -209,7 +220,10 @@ export function createPersistedDBatchImportRuntime({ repository, runtimeMode = '
     const savedBatch = locate(await repository.readSnapshot(), batchId).batch;
     const adapter = await createAdapter({ adapterCapabilities });
     if (typeof adapter?.executeBatchImport !== 'function') throw new Error('D_BATCH_IMPORT_ADAPTER_INVALID');
+    const memberRequestByOffer=new Map(members.map(member=>[member.request.merchantSku,member.request]));
     for (const chunk of job.chunks.filter(value => value.status === 'not_sent')) {
+      if (!chunk.frozenImport) throw new Error('D_BATCH_IMPORT_FROZEN_SOURCE_REQUIRED');
+      assertDBatchFrozenImport(chunk.frozenImport, chunk.offerIds);
       await verifyCurrentBatchEvidence({ batchId, members, adapterCapabilities, chunkIndex: chunk.index });
       let intentCommitted = false;
       const persistCheckpoint = async event => {
@@ -228,6 +242,15 @@ export function createPersistedDBatchImportRuntime({ repository, runtimeMode = '
             const current = locate(snapshot, batchId);
             assertCurrentMembers(snapshot, current.batch, members);
             assertReadyMembers(members, adapterCapabilities, now());
+            const currentChunk=current.job?.chunks[chunk.index];
+            if (!currentChunk?.frozenImport || !isDeepStrictEqual(currentChunk.frozenImport, chunk.frozenImport) ||
+                !isDeepStrictEqual(projectPreparedBatchImportRequests({members,
+                  excludedOfferIds:current.batch.excludedOfferIds,adapterCapabilities,checkedAt:now()})[chunk.index]?.body.items,
+                  currentChunk.frozenImport.items) ||
+                !isDeepStrictEqual(currentChunk.offerIds.map(offerId => projectDBatchFrozenMemberSource(
+                  memberRequestByOffer.get(offerId))),
+                  currentChunk.frozenImport.memberSources))
+              throw new Error('D_BATCH_IMPORT_FROZEN_SOURCE_DRIFT');
             if (current.job?.leaseId !== job.leaseId ||
                 current.job.chunks[chunk.index].status !== 'intent' || Date.parse(now()) >= Date.parse(current.job.leaseExpiresAt)) {
               throw new Error('D_BATCH_IMPORT_SEND_GUARD_BLOCKED');

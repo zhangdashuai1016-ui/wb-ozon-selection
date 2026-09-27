@@ -180,6 +180,35 @@ test('adapter startup failure can resume only a never-sent chunk', async () => {
   assert.equal(calls.filter(call => call.write).length, 1);
 });
 
+test('a restart sends only the frozen canonical items and rejects saved content drift',async()=>{
+  const f=await fixture({createAdapterFailures:1});
+  const input={batchId:'d-batch:synthetic',members:f.members,adapterCapabilities:f.capability,
+    workerId:'worker:batch-synthetic'};
+  await assert.rejects(()=>f.runtime.run(input),/synthetic adapter startup failure/);
+  const saved=(await f.repository.readSnapshot()).runtime.dBatchImportJobs[0].chunks[0];
+  assert.equal(saved.frozenImport.schemaVersion,'d-batch-frozen-import-v1');
+  assert.equal(JSON.stringify(saved.frozenImport).includes('local-asset:'),false);
+  assert.equal((await f.runtime.run(input)).status,'waiting_platform');
+  assert.deepEqual(f.calls.find(call=>call.write).body.items,saved.frozenImport.items);
+  const drift=await fixture({createAdapterFailures:1});
+  const driftInput={...input,members:drift.members,adapterCapabilities:drift.capability};
+  await assert.rejects(()=>drift.runtime.run(driftInput),/synthetic adapter startup failure/);
+  await drift.repository.transact(document=>{
+    document.runtime.dBatchImportJobs[0].chunks[0].frozenImport.items[0].name='mutated after admission';
+    return {changed:true,document,result:null};
+  });
+  await assert.rejects(()=>drift.runtime.run(driftInput),/D_BATCH_FROZEN_IMPORT_INVALID/);
+  assert.equal(drift.calls.filter(call=>call.write).length,0);
+  await drift.repository.transact(document=>{
+    const frozen=document.runtime.dBatchImportJobs[0].chunks[0].frozenImport;
+    frozen.items[0].name=saved.frozenImport.items[0].name;
+    frozen.memberSources[0].stock+=1;
+    return {changed:true,document,result:null};
+  });
+  await assert.rejects(()=>drift.runtime.run(driftInput),/D_BATCH_FROZEN_IMPORT_INVALID/);
+  assert.equal(drift.calls.filter(call=>call.write).length,0);
+});
+
 test('current single-SKU preflight must still pass for every batch member before admission', async () => {
   const { repository, runtime, members, capability, calls } = await fixture();
   const before = await repository.readSnapshot();

@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { createProductionPlan } from './production-plan.mjs';
 import { runPlatformWritePreflight } from './platform-write-preflight.mjs';
 import { prepareSingleSkuDExecution } from './d-e-software-closure.mjs';
-import { createStoreIsolatedOzonSellerApiDEAdapter } from './ozon-seller-api-de-adapter.mjs';
+import { createStoreIsolatedOzonSellerApiDEAdapter, OZON_DE_READBACK_ENDPOINTS } from './ozon-seller-api-de-adapter.mjs';
 import { createPersistedDBatchImportRuntime } from './d-batch-import-runtime.mjs';
 import { fingerprintCanonicalRecord } from './production-contract-primitives.mjs';
 import { sameStoreRef } from './store-binding.mjs';
@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { OzonDEHttpTransportError } from './ozon-de-http-configuration.mjs';
 import { createDBatchOfferRecord, createDBatchEJob, applyDBatchEJobEvent,
   reclaimDBatchEJob, createDBatchEReadback } from './d-batch-offer-readback.mjs';
+import { assertDBatchFrozenImport } from './d-batch-import-state.mjs';
 
 const clone = value => structuredClone(value);
 const text = value => typeof value === 'string' && value.trim() !== '';
@@ -225,14 +226,46 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
     const importJobs=document.runtime?.dBatchImportJobs?.filter(job=>job.batchId===batch.batchId)??[];
     const observations=importJobs.flatMap(job=>job.chunks.flatMap(chunk=>(chunk.results??[])
       .filter(result=>result.offerId===stockJob.offerId)
-      .map(result=>({chunkIndex:chunk.index,taskId:chunk.taskId,result}))));
+      .map(result=>({chunk,chunkIndex:chunk.index,taskId:chunk.taskId,result}))));
     if(importJobs.length!==1||observations.length!==1||observations[0].taskId!==stockJob.taskId||
         observations[0].result.classification!=='imported'||
         observations[0].result.importObservation?.productId!==stockJob.productId)
       throw new Error('D_BATCH_STOCK_IMPORT_SOURCE_CHANGED');
     return {batch,member:matching[0],candidate:candidateFor(document,matching[0]),
+      importChunk:observations[0].chunk,
       chunkIndex:observations[0].chunkIndex,
       importObservation:observations[0].result.importObservation};
+  }
+  async function prepareBatchEReadback(document,stockJob){
+    const source=stockSource(document,stockJob);
+    const frozen=assertDBatchFrozenImport(source.importChunk.frozenImport,source.importChunk.offerIds);
+    const position=source.importChunk.offerIds.indexOf(stockJob.offerId);
+    if(position<0||frozen.items[position].offer_id!==stockJob.offerId)
+      throw new Error('D_BATCH_E_FROZEN_SOURCE_MISSING');
+    const sourceRequest=frozen.memberSources[position];
+    const {service,binding}=resolveService(source.candidate);
+    if(service.worker.workerId!==stockJob.workerId||
+        binding.bindingId!==source.candidate.lifecycleV11.skuPackage.productionAuthorization.executionBinding.bindingId)
+      throw new Error('D_BATCH_E_WORKER_SCOPE_CHANGED');
+    const evidence=await loadBatchMemberEvidence({candidate:clone(source.candidate),
+      productionBinding:clone(binding),batch:clone(source.batch)});
+    const capability=evidence.capabilities;
+    if(capability?.platform!=='ozon'||
+        !sameStoreRef(capability.storeRef,source.batch.storeRef)||
+        !sameStoreRef(capability.storeRef,sourceRequest.storeRef)||
+        capability.store!==sourceRequest.store||capability.warehouseRef!==sourceRequest.warehouseRef||
+        capability.credentialAlias!==sourceRequest.credentialAlias||
+        capability.warehouseId!==sourceRequest.warehouseId||
+        capability.independentReadback?.status!=='verified'||
+        capability.independentReadback.protocolVersion!=='ozon-independent-readback-v2'||
+        !text(capability.independentReadback.evidenceRef)||
+        !isDeepStrictEqual(capability.independentReadback.endpoints,OZON_DE_READBACK_ENDPOINTS))
+      throw new Error('D_BATCH_E_READ_EVIDENCE_NOT_READY');
+    // Readback is gated by the current read protocol and a transport that rejects writes.
+    // The seller adapter's constructor also carries write capability fields, which are
+    // deliberately not reused as authorization for this independent observation.
+    return {source:sourceRequest,capabilities:{...clone(capability),status:'ready',
+      inventoryWrite:{warehouseId:sourceRequest.warehouseId,prerequisitePolicy:null}}};
   }
   function eligibleStockWorker(stockJob){
     const worker=workerRegistry.findEligible(['ozon-production-execution'])
@@ -464,10 +497,11 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
           .find(value=>value.workerId===saved.workerId);
         if(!worker||worker.version!==saved.workerVersion)
           throw new Error('D_BATCH_E_WORKER_NOT_CURRENT');
-        const ready=await prepareStock(saved);
         const source=stockSource(snapshot,saved);
+        const ready=await prepareBatchEReadback(snapshot,saved);
         const projected=createDBatchOfferRecord({batch:source.batch,member:source.member,
-          chunkIndex:source.chunkIndex,stockJob:saved,request:ready.request,
+          chunkIndex:source.chunkIndex,stockJob:saved,source:ready.source,
+          frozenImport:source.importChunk.frozenImport,chunkOfferIds:source.importChunk.offerIds,
           importObservation:source.importObservation,createdAt:saved.createdAt});
         let job=await repository.transact(document=>{
           const stock=document.runtime?.dBatchStockJobs?.find(value=>value.jobId===saved.jobId);
@@ -475,7 +509,8 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
             throw new Error('D_BATCH_E_STOCK_SOURCE_CHANGED');
           const current=stockSource(document,stock);
           const record=createDBatchOfferRecord({batch:current.batch,member:current.member,
-            chunkIndex:current.chunkIndex,stockJob:stock,request:ready.request,
+            chunkIndex:current.chunkIndex,stockJob:stock,source:ready.source,
+            frozenImport:current.importChunk.frozenImport,chunkOfferIds:current.importChunk.offerIds,
             importObservation:current.importObservation,createdAt:stock.createdAt});
           if(!isDeepStrictEqual(record,projected))throw new Error('D_BATCH_E_RECORD_DRIFT');
           const records=document.runtime.dBatchOfferRecords??[];

@@ -1,12 +1,13 @@
 import { isDeepStrictEqual } from 'node:util';
-import { assertDExecutableRequest } from './d-executable-request-contract.mjs';
 import { assertSafeRuntimeRecord } from './runtime-identity.mjs';
 import { isCompleteStoreRef, sameStoreRef } from './store-binding.mjs';
 import { observedWarehouseAvailableStock, productionReadbackContentGaps,
   productionReadbackMediaGaps, validateProductionReadbackExpectation } from './e-stage-readback.mjs';
 import { assertDPlatformObservationPolicy } from './d-platform-observation-policy.mjs';
+import { assertDBatchFrozenImport } from './d-batch-import-state.mjs';
+import { fingerprintCanonicalRecord } from './production-contract-primitives.mjs';
 
-export const D_BATCH_OFFER_RECORD_VERSION='d-batch-offer-record-v1';
+export const D_BATCH_OFFER_RECORD_VERSION='d-batch-offer-record-v2';
 export const D_BATCH_E_READBACK_VERSION='d-batch-e-readback-v1';
 export const D_BATCH_E_JOB_VERSION='d-batch-e-job-v1';
 const clone=value=>structuredClone(value);
@@ -15,9 +16,10 @@ const time=value=>ref(value)&&!Number.isNaN(Date.parse(value));
 const positiveId=value=>ref(value)&&/^[1-9][0-9]*$/.test(value);
 
 /** One immutable D source. Import and optional stock write remain separate facts. */
-export function createDBatchOfferRecord({batch,member,chunkIndex,stockJob,request,
+export function createDBatchOfferRecord({batch,member,chunkIndex,stockJob,source,frozenImport,chunkOfferIds,
   importObservation,createdAt}){
-  assertDExecutableRequest(request);
+  assertDBatchFrozenImport(frozenImport,chunkOfferIds);
+  const itemIndex=chunkOfferIds.indexOf(member.offerId);
   if(batch?.schemaVersion!=='d-batch-production-authorization-v2'||
       batch.postImportScope?.schemaVersion!=='d-batch-post-import-scope-v1'||
       !batch.members.some(saved=>isDeepStrictEqual(saved,member))||
@@ -27,9 +29,11 @@ export function createDBatchOfferRecord({batch,member,chunkIndex,stockJob,reques
       stockJob.authorizationId!==member.authorizationId||
       stockJob.authorizationFingerprint!==member.authorizationFingerprint||
       stockJob.inventoryAction!==batch.postImportScope.inventoryAction||
-      request.candidateId!==member.candidateId||request.skuPackageId!==member.skuPackageId||
-      request.merchantSku!==member.offerId||request.sourceAuthorizationId!==member.authorizationId||
-      request.sourceAuthorizationFingerprint!==member.authorizationFingerprint||
+      source?.candidateId!==member.candidateId||source.skuPackageId!==member.skuPackageId||
+      source.merchantSku!==member.offerId||source.sourceAuthorizationId!==member.authorizationId||
+      source.sourceAuthorizationFingerprint!==member.authorizationFingerprint||
+      itemIndex<0||!isDeepStrictEqual(source,frozenImport.memberSources[itemIndex])||
+      frozenImport.items[itemIndex]?.offer_id!==member.offerId||
       importObservation?.kind!=='import_result_observed'||
       importObservation.taskId!==stockJob.taskId||
       importObservation.productId!==stockJob.productId||
@@ -42,20 +46,23 @@ export function createDBatchOfferRecord({batch,member,chunkIndex,stockJob,reques
     recordId:`d-batch-offer:${batch.batchId}:${member.offerId}`,
     batchId:batch.batchId,chunkIndex,taskId:stockJob.taskId,productId:stockJob.productId,
     candidateId:member.candidateId,skuPackageId:member.skuPackageId,offerId:member.offerId,
-    supplierSkuId:request.supplierSkuId,
+    supplierSkuId:source.supplierSkuId,
     authorizationId:member.authorizationId,authorizationFingerprint:member.authorizationFingerprint,
-    productionPlanId:request.sourceProductionPlanId,
-    productionPlanFingerprint:request.sourceProductionPlanFingerprint,
+    productionPlanId:source.sourceProductionPlanId,
+    productionPlanFingerprint:source.sourceProductionPlanFingerprint,
     importRequestReceiptRef:importObservation.requestReceiptRef,
+    importItemFingerprint:fingerprintCanonicalRecord(frozenImport.items[itemIndex]),
+    importChunkFingerprint:frozenImport.itemFingerprint,
+    importContentFingerprint:frozenImport.contentFingerprint,
     inventoryAction:stockJob.inventoryAction,
     inventoryModified:stockJob.inventoryAction==='write_authorized_stock',
     inventoryReceiptRef:stockJob.inventoryAction==='write_authorized_stock'?stockJob.inventoryReceiptRef:null,
-    expectedStock:stockJob.inventoryAction==='write_authorized_stock'?request.stock:null,
-    expectedPrice:clone(request.platformWritePrice),
-    readbackExpectation:clone(request.independentReadback.expectation),
-    platform:request.platform,store:request.store,storeRef:clone(request.storeRef),
-    warehouseRef:request.warehouseRef,credentialAlias:request.credentialAlias,
-    warehouseId:request.inventoryWrite.warehouseId,createdAt,
+    expectedStock:stockJob.inventoryAction==='write_authorized_stock'?source.stock:null,
+    expectedPrice:clone(source.platformWritePrice),
+    readbackExpectation:clone(source.readbackExpectation),
+    platform:source.platform,store:source.store,storeRef:clone(source.storeRef),
+    warehouseRef:source.warehouseRef,credentialAlias:source.credentialAlias,
+    warehouseId:source.warehouseId,createdAt,
     published:false,activated:false,advertisingOpened:false,
     status:stockJob.inventoryAction==='create_only'?'created_pending_inventory':'created_stock_write_accepted'};
   assertDBatchOfferRecord(record);
@@ -63,13 +70,16 @@ export function createDBatchOfferRecord({batch,member,chunkIndex,stockJob,reques
 }
 
 export function assertDBatchOfferRecord(record){
-  if(record?.schemaVersion!==D_BATCH_OFFER_RECORD_VERSION||
+  if(!['d-batch-offer-record-v1',D_BATCH_OFFER_RECORD_VERSION].includes(record?.schemaVersion)||
       ![record.recordId,record.batchId,record.candidateId,record.skuPackageId,record.offerId,
         record.supplierSkuId,record.authorizationId,record.authorizationFingerprint,
         record.productionPlanId,record.productionPlanFingerprint,record.importRequestReceiptRef,
         record.warehouseRef,record.credentialAlias].every(ref)||
       !Number.isSafeInteger(record.chunkIndex)||record.chunkIndex<0||
       !positiveId(record.taskId)||!positiveId(record.productId)||!time(record.createdAt)||
+      (record.schemaVersion===D_BATCH_OFFER_RECORD_VERSION&&
+        (!ref(record.importItemFingerprint)||!ref(record.importChunkFingerprint)||
+          !ref(record.importContentFingerprint)))||
       !['create_only','write_authorized_stock'].includes(record.inventoryAction)||
       !validateProductionReadbackExpectation(record.readbackExpectation)||
       record.readbackExpectation.warehouseId!==record.warehouseId||

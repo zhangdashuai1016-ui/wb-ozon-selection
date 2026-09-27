@@ -5,6 +5,7 @@ import { ozonDEPreflightEvidenceFixture } from './fixtures/ozon-de-preflight-evi
 import { createMemoryBusinessStateRepository, initialBusinessStateDocument } from '../lib/business-state-repository.mjs';
 import { createLocalDevelopmentWorkerRegistry } from '../lib/worker-registry.mjs';
 import { createDBatchImportSoftwareService } from '../lib/d-batch-import-software-service.mjs';
+import { OZON_DE_READBACK_ENDPOINTS } from '../lib/ozon-seller-api-de-adapter.mjs';
 import { fingerprintCanonicalRecord } from '../lib/production-contract-primitives.mjs';
 import { createDBatchOfferRecord, createDBatchEReadback } from '../lib/d-batch-offer-readback.mjs';
 import { projectDBatchExecutionView } from '../lib/d-batch-execution-view.mjs';
@@ -44,6 +45,8 @@ async function fixture({stockFree=0,stockReceipt='accepted',eMissingAttributes=f
     evidenceRef: 'evidence:synthetic:import-limit', endpoint: '/v3/product/import',
     statusEndpoint: '/v1/product/import/info', maxItemsPerRequest: 10,
     validUntil: '2026-09-01T00:00:00.000Z' };
+  capability.independentReadback={status:'verified',evidenceRef:'evidence:synthetic:readback',
+    protocolVersion:'ozon-independent-readback-v2',endpoints:structuredClone(OZON_DE_READBACK_ENDPOINTS)};
   const inspection = ozonDEPreflightEvidenceFixture().record.inspection;
   const calls = [];
   let stockWriteSent=false;
@@ -87,7 +90,7 @@ async function fixture({stockFree=0,stockReceipt='accepted',eMissingAttributes=f
       throw new Error('Synthetic endpoint not configured');
     } };
   const service = createDBatchImportSoftwareService(serviceOptions);
-  return { repository, service, capability, calls, batch, request, candidateId: candidate.id,
+  return { repository, service, capability, inspection, calls, batch, request, candidateId: candidate.id,
     restartService: () => createDBatchImportSoftwareService(serviceOptions),
     advanceClock: value => { currentTime = value; workerRegistry.heartbeat({ workerId: 'worker:batch-service',
       version: 'v1', capabilities: ['ozon-production-execution','ozon-independent-readback'], status: 'online' }); } };
@@ -229,7 +232,8 @@ test('per-offer E distinguishes card creation without stock from authorized stoc
     const saved=await f.repository.readSnapshot();
     const batch=saved.runtime.dProductionBatches[0],chunk=saved.runtime.dBatchImportJobs[0].chunks[0];
     const record=createDBatchOfferRecord({batch,member:batch.members[0],chunkIndex:0,
-      stockJob:saved.runtime.dBatchStockJobs[0],request:f.request,
+      stockJob:saved.runtime.dBatchStockJobs[0],source:chunk.frozenImport.memberSources[0],
+      frozenImport:chunk.frozenImport,chunkOfferIds:chunk.offerIds,
       importObservation:chunk.results[0].importObservation,createdAt:now});
     assert.equal(record.inventoryModified,inventoryAction==='write_authorized_stock');
     const media=record.readbackExpectation.media.map(item=>item.submittedUrl);
@@ -276,6 +280,39 @@ test('software E persists one independent per-offer readback for each frozen inv
     assert.equal(f.calls.filter(call=>call.write).length,
       inventoryAction==='create_only'?1:2);
   }
+});
+test('saved import E remains read-only after write qualification expires, but needs current read authority',async()=>{
+  const f=await fixture();
+  await seedV2ObservedImport(f,'create_only');
+  f.capability.status='not_ready';
+  f.capability.inventoryWrite.status='expired';
+  f.inspection.permissionStatus='denied';
+  const observed=await f.restartService().runDueBatchEReadbacks();
+  assert.equal(observed.status,'card_observed_pending_inventory');
+  assert.equal(f.calls.filter(call=>call.write).length,1);
+  const denied=await fixture();
+  await seedV2ObservedImport(denied,'create_only');
+  denied.capability.independentReadback.status='expired';
+  const before=denied.calls.length;
+  await assert.rejects(()=>denied.restartService().runDueBatchEReadbacks(),
+    /D_BATCH_E_READ_EVIDENCE_NOT_READY/);
+  assert.equal(denied.calls.length,before);
+  assert.equal((await denied.repository.readSnapshot()).runtime.dBatchEJobs,undefined);
+});
+test('E refuses a changed frozen import source before creating an offer record or reading the platform',async()=>{
+  const f=await fixture();
+  await seedV2ObservedImport(f,'create_only');
+  await f.repository.transact(document=>{
+    document.runtime.dBatchImportJobs[0].chunks[0].frozenImport.memberSources[0].stock+=1;
+    return {changed:true,document,result:null};
+  });
+  const before=f.calls.length;
+  await assert.rejects(()=>f.restartService().runDueBatchEReadbacks(),
+    /D_BATCH_FROZEN_IMPORT_INVALID/);
+  assert.equal(f.calls.length,before);
+  const saved=await f.repository.readSnapshot();
+  assert.equal(saved.runtime.dBatchOfferRecords,undefined);
+  assert.equal(saved.runtime.dBatchEJobs,undefined);
 });
 test('explicit stock scope pumps import, prerequisite, stock and E without a second import',async()=>{
   const f=await fixture();

@@ -61,10 +61,16 @@ export async function saveSiblingBatchCommercialDrafts({ repository, runtimeMode
       }
       return { member, candidate };
     });
+    const claimsByMerchantSku=new Map();
+    for(const claim of merchantSkuClaimsForStore(document,{...parent,id:null})){
+      const claims=claimsByMerchantSku.get(claim.merchantSku)??[];
+      claims.push(claim);claimsByMerchantSku.set(claim.merchantSku,claims);
+    }
     const savedAt = serverClock();
     const prepared = members.map(({ member, candidate }) => prepareProductionCommercialDraft({ candidate,
       merchantSku: member.merchantSku, stock: member.stock, savedByUserId: actor.userId,
-      savedAt, merchantSkuClaims: merchantSkuClaimsForStore(document, candidate) }));
+      savedAt, merchantSkuClaims: (claimsByMerchantSku.get(member.merchantSku)??[])
+        .filter(claim=>claim.candidateId!==candidate.id) }));
     for (const [index, { candidate }] of members.entries()) {
       const updated = prepared[index].candidate;
       assertSafeBusinessMutationCandidate(updated);

@@ -13,7 +13,9 @@ const CENTRAL_MODES = new Set(['central_test', 'central_production']);
 const text = value => typeof value === 'string' && value.trim().length > 0;
 
 function assertBatchInput(input) {
-  if (!input || Object.keys(input).sort().join() !== 'confirmAll,excludedOfferIds,members,postImportScope' || input.confirmAll !== true ||
+  if (!input || Object.keys(input).sort().join() !== 'confirmAll,excludedOfferIds,members,parentCandidateId,parentRevision,postImportScope' ||
+      input.confirmAll !== true || !text(input.parentCandidateId) ||
+      !Number.isSafeInteger(input.parentRevision) || input.parentRevision < 1 ||
       !Array.isArray(input.members) || input.members.length === 0 || !Array.isArray(input.excludedOfferIds) ||
       input.excludedOfferIds.some(value => !text(value)) || new Set(input.excludedOfferIds).size !== input.excludedOfferIds.length ||
       input.members.some(member => !member || Object.keys(member).sort().join() !== 'candidateId,ownerInput' || !text(member.candidateId) ||
@@ -52,14 +54,44 @@ export async function commitBatchOwnerProductionAuthorization({ repository, runt
       if (prior.inputFingerprint !== inputFingerprint) throw new Error('D_BATCH_REPLAY_CONFLICT');
       return { changed: false, result: structuredClone(prior) };
     }
+    const byCandidateId=new Map();
+    for(const candidate of document.candidates){
+      if(byCandidateId.has(candidate.id))throw new Error('D_BATCH_CANDIDATE_NOT_UNIQUE');
+      byCandidateId.set(candidate.id,candidate);
+    }
+    const reservedMembers=batches.flatMap(batch=>batch.members);
+    const reservedCandidateIds=new Set(reservedMembers.map(member=>member.candidateId));
+    const reservedOfferIds=new Set(reservedMembers.map(member=>member.offerId));
+    const parent=byCandidateId.get(input.parentCandidateId);
+    const selected=parent?.sourceCapture?.selectedSkuIds;
+    const firstSkuId=parent?.lifecycleV11?.skuPackage?.supplierSkuId;
+    const firstOfferId=parent?.lifecycleV11?.skuPackage?.productionAuthorization?.lockedScope?.merchantSku;
+    if(!parent||parent.dataRevision!==input.parentRevision||
+        !Array.isArray(selected)||selected.length<2||new Set(selected).size!==selected.length||
+        !text(firstSkuId)||selected[0]!==firstSkuId||!text(firstOfferId)||
+        input.excludedOfferIds.length!==1||input.excludedOfferIds[0]!==firstOfferId)
+      throw new Error('D_BATCH_PARENT_SCOPE_CHANGED');
+    const expectedSkuIds=selected.filter(skuId=>skuId!==firstSkuId);
+    if(expectedSkuIds.length!==input.members.length)throw new Error('D_BATCH_SELECTED_MEMBERS_CHANGED');
+    for(const [index,member] of input.members.entries()){
+      const candidate=byCandidateId.get(member.candidateId);
+      const sku=candidate?.lifecycleV11?.skuPackage;
+      if(!candidate||candidate.siblingSourceV1?.parentCandidateId!==parent.id||
+          candidate.siblingSourceV1?.supplierSkuId!==expectedSkuIds[index]||
+          sku?.supplierSkuId!==expectedSkuIds[index]||
+          candidate.sourceCapture?.offerId!==parent.sourceCapture?.offerId||
+          candidate.sourceUrl!==parent.sourceUrl||
+          candidate.targetPlatform!==parent.targetPlatform||
+          !sameStoreRef(candidate.storeRef,parent.storeRef)||
+          reservedCandidateIds.has(candidate.id))
+        throw new Error('D_BATCH_SELECTED_MEMBERS_CHANGED');
+    }
     const observedAt = serverClock();
     const evidencePacks = document.evidencePacks ?? [];
     const currentCommissionCatalogs = document.currentCommissionCatalogs ?? [];
     const prepared = [];
     for (const member of input.members) {
-      const matches = document.candidates.filter(candidate => candidate.id === member.candidateId);
-      if (matches.length !== 1) throw new Error('D_BATCH_CANDIDATE_NOT_UNIQUE');
-      const candidate = matches[0];
+      const candidate = byCandidateId.get(member.candidateId);
       const sku = candidate.lifecycleV11?.skuPackage;
       if (!sku || sku.dSoftwareExecution || sku.productionRecord || sku.eVerificationRecord ||
           sku.technicalStatus === 'unknown_outcome' || candidate.lifecycleV11?.technicalStatus === 'unknown_outcome') {
@@ -76,6 +108,11 @@ export async function commitBatchOwnerProductionAuthorization({ repository, runt
       prepared.push({ candidate, sku, result, offerId });
     }
     const first = prepared[0];
+    const claimsByMerchantSku=new Map();
+    for(const claim of merchantSkuClaimsForStore(document,{...parent,id:null})){
+      const claims=claimsByMerchantSku.get(claim.merchantSku)??[];
+      claims.push(claim);claimsByMerchantSku.set(claim.merchantSku,claims);
+    }
     const offerIds = new Set();
     for (const member of prepared) {
       if (offerIds.has(member.offerId)) throw new Error('D_BATCH_DUPLICATE_OFFER');
@@ -85,9 +122,9 @@ export async function commitBatchOwnerProductionAuthorization({ repository, runt
           member.candidate.sourceUrl !== first.candidate.sourceUrl) throw new Error('D_BATCH_PRODUCT_FAMILY_MISMATCH');
       if (!sameStoreRef(member.candidate.storeRef, first.candidate.storeRef) ||
           member.candidate.targetPlatform !== first.candidate.targetPlatform) throw new Error('D_BATCH_STORE_SCOPE_MISMATCH');
-      if (merchantSkuClaimsForStore(document, member.candidate)
-        .some(claim => claim.merchantSku === member.offerId)) throw new Error('D_BATCH_OFFER_RESERVED');
-      if (batches.some(batch => batch.members.some(saved => saved.offerId === member.offerId))) throw new Error('D_BATCH_OFFER_RESERVED');
+      if ((claimsByMerchantSku.get(member.offerId)??[])
+        .some(claim => claim.candidateId!==member.candidate.id)) throw new Error('D_BATCH_OFFER_RESERVED');
+      if (reservedOfferIds.has(member.offerId)) throw new Error('D_BATCH_OFFER_RESERVED');
     }
     if (first.candidate.targetPlatform !== 'ozon') throw new Error('D_BATCH_PLATFORM_UNSUPPORTED');
     const members = prepared.map(({ candidate, sku, result, offerId }) => ({

@@ -1,6 +1,9 @@
 import { isDeepStrictEqual } from 'node:util';
 import { assertSafeRuntimeRecord } from './runtime-identity.mjs';
 import { assertDPlatformObservationPolicy } from './d-platform-observation-policy.mjs';
+import { fingerprintCanonicalRecord } from './production-contract-primitives.mjs';
+import { isCompleteStoreRef } from './store-binding.mjs';
+import { validateProductionReadbackExpectation } from './e-stage-readback.mjs';
 
 export const D_BATCH_IMPORT_JOB_VERSION = 'd-batch-import-job-v2';
 const validRef = value => typeof value === 'string' && value.trim().length > 0;
@@ -8,6 +11,48 @@ const validTime = value => validRef(value) && !Number.isNaN(Date.parse(value));
 const clone = value => structuredClone(value);
 const chunkStatuses = new Set(['not_sent', 'intent', 'waiting_platform', 'observed_pending',
   'observed_imported', 'platform_failed', 'platform_skipped', 'unknown_outcome', 'observation_stopped']);
+
+export const D_BATCH_FROZEN_IMPORT_VERSION = 'd-batch-frozen-import-v1';
+
+export function projectDBatchFrozenMemberSource(request) {
+  return { candidateId: request.candidateId, skuPackageId: request.skuPackageId,
+    merchantSku: request.merchantSku, supplierSkuId: request.supplierSkuId,
+    sourceAuthorizationId: request.sourceAuthorizationId,
+    sourceAuthorizationFingerprint: request.sourceAuthorizationFingerprint,
+    sourceProductionPlanId: request.sourceProductionPlanId,
+    sourceProductionPlanFingerprint: request.sourceProductionPlanFingerprint,
+    platform: request.platform, store: request.store, storeRef: clone(request.storeRef),
+    warehouseRef: request.warehouseRef, credentialAlias: request.credentialAlias,
+    warehouseId: request.inventoryWrite.warehouseId,
+    platformWritePrice: clone(request.platformWritePrice), stock: request.stock,
+    readbackExpectation: clone(request.independentReadback.expectation) };
+}
+
+/** Admission freezes exactly what the adapter will send and the validated source for each item. */
+export function assertDBatchFrozenImport(frozen, offerIds) {
+  if (frozen?.schemaVersion !== D_BATCH_FROZEN_IMPORT_VERSION || !Array.isArray(frozen.items) ||
+      !Array.isArray(frozen.memberSources) || frozen.items.length !== offerIds.length ||
+      frozen.memberSources.length !== offerIds.length ||
+      !isDeepStrictEqual(frozen.items.map(item => item.offer_id), offerIds) ||
+      !isDeepStrictEqual(frozen.memberSources.map(source => source.merchantSku), offerIds) ||
+      fingerprintCanonicalRecord(frozen.items) !== frozen.itemFingerprint ||
+      fingerprintCanonicalRecord({items:frozen.items,memberSources:frozen.memberSources}) !== frozen.contentFingerprint) {
+    throw new Error('D_BATCH_FROZEN_IMPORT_INVALID');
+  }
+  for (const source of frozen.memberSources) {
+    if(!source || !source.candidateId || !source.skuPackageId || !source.supplierSkuId ||
+        !source.sourceAuthorizationId || !source.sourceAuthorizationFingerprint ||
+        !source.sourceProductionPlanId || !source.sourceProductionPlanFingerprint ||
+        source.platform!=='ozon' || !isCompleteStoreRef(source.storeRef,source.store) ||
+        !source.warehouseRef || !source.credentialAlias || !source.warehouseId ||
+        !Number.isFinite(source.platformWritePrice?.amount) || source.platformWritePrice.currency!=='CNY' ||
+        !Number.isSafeInteger(source.stock) || source.stock<0 ||
+        !validateProductionReadbackExpectation(source.readbackExpectation) ||
+        source.readbackExpectation.warehouseId!==source.warehouseId)
+      throw new Error('D_BATCH_FROZEN_MEMBER_SOURCE_INVALID');
+  }
+  return frozen;
+}
 
 function assertJob(job) {
   assertDPlatformObservationPolicy(job?.observationPolicy);
@@ -35,6 +80,9 @@ function assertJob(job) {
       new Set(job.chunks.flatMap(chunk => chunk.offerIds)).size !== job.chunks.flatMap(chunk => chunk.offerIds).length ||
       job.status !== statusFor(job.chunks)) {
     throw new Error('D_BATCH_IMPORT_JOB_INVALID');
+  }
+  for (const chunk of job.chunks) {
+    if (chunk.frozenImport != null) assertDBatchFrozenImport(chunk.frozenImport, chunk.offerIds);
   }
   assertSafeRuntimeRecord(job, 'dBatchImportJob');
   return job;
@@ -68,6 +116,8 @@ export function createDBatchImportJob({ batch, chunks, workerId, workerVersion, 
     batchId: batch.batchId, revision: 1, workerId, workerVersion, leaseId, leaseExpiresAt, status: 'claimed',
     createdAt, updatedAt: createdAt, observationPolicy: clone(observationPolicy), chunks: chunks.map((chunk, index) => ({ index,
       offerIds: [...chunk.offerIds], limitEvidenceRef: chunk.limitEvidenceRef,
+      // Historical v2 jobs remain observable; the runtime blocks any unsent chunk without this source.
+      frozenImport: chunk.frozenImport ? clone(assertDBatchFrozenImport(chunk.frozenImport, chunk.offerIds)) : null,
       status: 'not_sent', taskId: null, results: null, observationReads: 0, observationInFlight: false,
       nextObservationAt: createdAt })) };
   return Object.freeze(assertJob(job));
