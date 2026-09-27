@@ -86,7 +86,24 @@ export function createDEProductionRuntimeServices({ repository, runtimeMode, ser
   }
   const batchImportService = requestJson !== null && loadBatchMemberEvidence !== null
     ? createDBatchImportSoftwareService({ repository, runtimeMode, workerRegistry, serverClock, services,
-      loadCurrentProductionBinding: production, loadBatchMemberEvidence, requestJson }) : null;
+      loadCurrentProductionBinding: production, loadBatchMemberEvidence,
+      loadBatchObservationPolicy: ({candidate,productionBinding}) => loadDPlatformObservationPolicy?.({candidate,
+        job:{skuPackageId:candidate.lifecycleV11.skuPackage.skuPackageId,
+          scopeBinding:{productionBinding:{bindingId:productionBinding.bindingId,
+            configurationVersion:productionBinding.configurationVersion}}}}) ?? null,
+      requestJson }) : null;
+  let batchObservationPumpStarted=false,batchObservationTimer=null,batchObservationActive=null;
+  function scheduleBatchObservation() {
+    if(!batchObservationPumpStarted)return;
+    batchObservationTimer=setTimeout(()=>{
+      batchObservationActive=batchImportService.runDueBatchObservations();
+      batchObservationActive.then(()=>{batchObservationActive=null;scheduleBatchObservation();},error=>{
+        batchObservationActive=null;
+        batchObservationPumpStarted=false;
+        onObservationError(error);
+      });
+    },observationPumpIntervalMs);
+  }
   function resolveBinding({candidate,job}) {
     const service=services.get(job.scopeBinding.productionBinding.bindingId);
     if(!service) throw new DERuntimeUnavailableError('SERVICE');
@@ -430,14 +447,21 @@ export function createDEProductionRuntimeServices({ repository, runtimeMode, ser
   return Object.freeze({
     start(){
       if(eReadbackPumpIntervalMs!==null && onReadbackError===null)throw new Error('DE_RUNTIME_E_PUMP_ERROR_HANDLER_REQUIRED');
+      if(batchImportService!==null && observationPumpIntervalMs!==null && onObservationError===null)
+        throw new Error('DE_RUNTIME_BATCH_OBSERVATION_ERROR_HANDLER_REQUIRED');
       stopping=false;
       if(observationPumpIntervalMs!==null)observationRuntime.start();
+      if(batchImportService!==null && observationPumpIntervalMs!==null && !batchObservationPumpStarted){
+        batchObservationPumpStarted=true;scheduleBatchObservation();
+      }
       if(eReadbackPumpIntervalMs!==null&&!ePumpStarted){ePumpStarted=true;scheduleEReadback();}
     },
     async stop(){
       stopping=true;ePumpStarted=false;clearTimeout(ePumpTimer);
+      batchObservationPumpStarted=false;clearTimeout(batchObservationTimer);
       for(const controller of eControllers.values())controller.abort(new Error('DE_RUNTIME_STOPPED'));
       await observationRuntime.stop();
+      if(batchObservationActive)await batchObservationActive;
       await Promise.all([...eExecutions.values()].map(value=>value.execution));
       if(ePumpActive)await ePumpActive;
     },runDueObservations:observationRuntime.runDue,runDueEReadbacks,resumeInventory,
@@ -456,6 +480,10 @@ export function createDEProductionRuntimeServices({ repository, runtimeMode, ser
     async observeBatchImportChunk(input) {
       if(batchImportService===null) throw new DERuntimeUnavailableError('BATCH_IMPORT');
       return batchImportService.observeBatchChunk(input);
+    },
+    async runDueBatchImportObservations() {
+      if(batchImportService===null) throw new DERuntimeUnavailableError('BATCH_IMPORT');
+      return batchImportService.runDueBatchObservations();
     },
     async reclaimBatchImportLease(input) {
       if(batchImportService===null) throw new DERuntimeUnavailableError('BATCH_IMPORT');

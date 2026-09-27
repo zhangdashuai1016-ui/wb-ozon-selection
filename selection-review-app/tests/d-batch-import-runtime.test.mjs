@@ -9,6 +9,9 @@ import { createPersistedDBatchImportRuntime } from '../lib/d-batch-import-runtim
 import { fingerprintCanonicalRecord } from '../lib/production-contract-primitives.mjs';
 
 const at = '2026-08-22T07:25:00.000Z';
+const observationPolicy = { schemaVersion: 'd-platform-observation-policy-v1',
+  policyRef: 'policy:synthetic:batch-observation', version: 'v1', maxQueries: 10,
+  intervalMs: 0, expiresAt: '2026-09-01T00:00:00.000Z', requestTimeoutMs: 10_000 };
 const binding = { warehouseRef: 'warehouse:synthetic:dandanshu', credentialAlias: 'credential-alias:synthetic:dandanshu' };
 
 async function fixture({ failReceipt = false, createAdapterFailures = 0, observationItems = null, count = 2 } = {}) {
@@ -28,7 +31,7 @@ async function fixture({ failReceipt = false, createAdapterFailures = 0, observa
   const members = sources.map((source, index) => ({ request: source.prepared.executableRequest,
     executionContext: source.executionContext, platformWritePreflight: source.preflight,
     colorKey: colors[index % colors.length],
-    modelKey: 'same-product', sourceTechnicalStatus: 'not_started' }));
+    modelKey: 'same-product', sourceTechnicalStatus: 'not_started', observationPolicy }));
   const capability = formalCapabilities('dandanshu', members.flatMap(member => member.request.finalUploads), members[0].request);
   capability.warehouseId = '70001';
   capability.assetTransport.resolvedAssets = members.flatMap(member => member.request.finalUploads.map(asset => ({
@@ -160,6 +163,20 @@ test('unknown task observation is read-only reconcilable after lease expiry', as
   assert.deepEqual((await repository.readSnapshot()).runtime.dProductionBatches[0].members.map(member => member.status),
     ['imported_awaiting_inventory_and_e', 'imported_awaiting_inventory_and_e']);
   assert.deepEqual(calls.map(call => call.write), [true, false, false]);
+});
+
+test('an expired worker heartbeat cannot renew itself through a batch checkpoint', async () => {
+  const { runtime, members, capability, calls, workerRegistry, setTime } = await fixture();
+  const input = { batchId: 'd-batch:synthetic', members, adapterCapabilities: capability,
+    workerId: 'worker:batch-synthetic' };
+  await runtime.run(input);
+  setTime('2026-08-22T07:25:31.000Z');
+  await assert.rejects(() => runtime.observe({ ...input, chunkIndex: 0 }), /WORKER_CHANGED/);
+  assert.equal(workerRegistry.findEligible(['ozon-production-execution']).length, 0);
+  assert.equal(calls.filter(call => !call.write).length, 0);
+  workerRegistry.heartbeat({ workerId: input.workerId, version: 'v1',
+    capabilities: ['ozon-production-execution'] });
+  assert.equal((await runtime.observe({ ...input, chunkIndex: 0 })).status, 'partial_failure');
 });
 
 test('31 authorized members send four persisted tasks within the synthetic limit', async () => {

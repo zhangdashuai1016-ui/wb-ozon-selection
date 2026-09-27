@@ -2104,6 +2104,7 @@ export const CAPABILITY_ARTIFACT_ASSIGNMENTS = Object.freeze([
       "tests/d-batch-import-state.test.mjs",
       "tests/d-batch-import-runtime.test.mjs",
       "tests/d-batch-import-software-service.test.mjs",
+      "tests/d-batch-import-api.test.mjs",
       "tests/ozon-de-batch-preflight.test.mjs",
       "lib/production-contract-primitives.mjs",
       "scripts/generate-c2-reference-schema.mjs",

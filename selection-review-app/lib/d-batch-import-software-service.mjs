@@ -6,6 +6,7 @@ import { createStoreIsolatedOzonSellerApiDEAdapter } from './ozon-seller-api-de-
 import { createPersistedDBatchImportRuntime } from './d-batch-import-runtime.mjs';
 import { fingerprintCanonicalRecord } from './production-contract-primitives.mjs';
 import { sameStoreRef } from './store-binding.mjs';
+import { assertDPlatformObservationPolicy } from './d-platform-observation-policy.mjs';
 
 const clone = value => structuredClone(value);
 const text = value => typeof value === 'string' && value.trim() !== '';
@@ -83,10 +84,11 @@ function sameCurrentCapabilities(saved, checked) {
 
 /** Builds only from saved batch members, current bindings and persisted account evidence. */
 export function createDBatchImportSoftwareService({ repository, runtimeMode, workerRegistry, serverClock,
-  services, loadCurrentProductionBinding, loadBatchMemberEvidence, requestJson }) {
+  services, loadCurrentProductionBinding, loadBatchMemberEvidence, loadBatchObservationPolicy, requestJson }) {
   if (typeof loadBatchMemberEvidence !== 'function' || typeof requestJson !== 'function') {
     throw new Error('D_BATCH_SERVICE_DEPENDENCY_REQUIRED');
   }
+  if (typeof loadBatchObservationPolicy !== 'function') throw new Error('D_BATCH_SERVICE_OBSERVATION_POLICY_REQUIRED');
   const resolveService = candidate => {
     const bindingId = candidate.lifecycleV11.skuPackage.productionAuthorization.executionBinding.bindingId;
     const service = services.get(bindingId);
@@ -108,6 +110,13 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
       const { service, binding } = resolveService(candidate);
       if (workerId !== null && workerId !== service.worker.workerId) throw new Error('D_BATCH_SERVICE_WORKER_CONFLICT');
       workerId = service.worker.workerId;
+      const observationPolicy = loadBatchObservationPolicy({ candidate: clone(candidate),
+        productionBinding: clone(binding), batch: clone(batch) });
+      if (!observationPolicy) throw new Error('D_BATCH_SERVICE_OBSERVATION_POLICY_MISSING');
+      assertDPlatformObservationPolicy(observationPolicy);
+      if (members.length > 0 && !isDeepStrictEqual(observationPolicy, members[0].observationPolicy)) {
+        throw new Error('D_BATCH_SERVICE_OBSERVATION_POLICY_CONFLICT');
+      }
       const sku = candidate.lifecycleV11.skuPackage;
       const plan = sku.dAssetTransport?.intent?.productionPlan ?? createProductionPlan({
         productionAuthorization: sku.productionAuthorization, candidateId: candidate.id,
@@ -123,9 +132,32 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
       members.push({ request: prepared.executableRequest, executionContext: { productionPlan: plan,
         currentProductionBinding: binding, serverClock: () => evidence.checkedAt },
       platformWritePreflight: preflight, adapterCapabilities: evidence.capabilities,
-      ...grouping, sourceTechnicalStatus: 'not_started' });
+      ...grouping, sourceTechnicalStatus: 'not_started', observationPolicy });
     }
     return { batch, members, adapterCapabilities: combineCapabilities(members, batch), workerId };
+  }
+  async function prepareObservation(batchId, chunkIndex) {
+    const document = await repository.readSnapshot(), batch = savedBatch(document, batchId);
+    const jobs = document.runtime?.dBatchImportJobs?.filter(job => job.batchId === batchId) ?? [];
+    if (jobs.length !== 1 || !Number.isSafeInteger(chunkIndex) ||
+        !['waiting_platform','observed_pending','unknown_outcome'].includes(jobs[0].chunks[chunkIndex]?.status) ||
+        !text(jobs[0].chunks[chunkIndex].taskId)) throw new Error('D_BATCH_SERVICE_OBSERVATION_TASK_REQUIRED');
+    const offerId = jobs[0].chunks[chunkIndex].offerIds[0];
+    const saved = batch.members.filter(member => member.offerId === offerId);
+    if (saved.length !== 1) throw new Error('D_BATCH_SERVICE_OBSERVATION_MEMBER_MISSING');
+    const candidate = candidateFor(document, saved[0]);
+    const { service, binding } = resolveService(candidate);
+    const evidence = await loadBatchMemberEvidence({ candidate: clone(candidate),
+      productionBinding: clone(binding), batch: clone(batch) });
+    const capability = evidence.capabilities;
+    if (capability?.status !== 'ready' || !sameStoreRef(capability.storeRef, batch.storeRef) ||
+        capability.productImport?.status !== 'verified' ||
+        capability.productImport?.endpoint !== '/v3/product/import' ||
+        capability.productImport?.statusEndpoint !== '/v1/product/import/info' ||
+        !text(capability.productImport.protocolVersion) || !text(capability.productImport.evidenceRef)) {
+      throw new Error('D_BATCH_SERVICE_OBSERVATION_EVIDENCE_NOT_READY');
+    }
+    return { adapterCapabilities: capability, workerId: service.worker.workerId };
   }
   const runtime = createPersistedDBatchImportRuntime({ repository, runtimeMode, workerRegistry, serverClock,
     createAdapter: async ({ adapterCapabilities }) => createStoreIsolatedOzonSellerApiDEAdapter({ requestJson, adapterCapabilities }),
@@ -133,9 +165,41 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
       const checked = await prepare(batchId, members[0].executionContext.productionPlan.createdAt);
       if (checked.workerId === null || !sameCurrentCapabilities(adapterCapabilities, checked.adapterCapabilities) ||
           members.length !== checked.members.length || members.some((member, index) =>
-            !isDeepStrictEqual(member.request, checked.members[index].request)) ||
+            !isDeepStrictEqual(member.request, checked.members[index].request) ||
+            !isDeepStrictEqual(member.observationPolicy, checked.members[index].observationPolicy)) ||
           !Number.isSafeInteger(chunkIndex)) throw new Error('D_BATCH_SERVICE_EVIDENCE_DRIFT');
     } });
+  let activeObservation = null;
+  async function runDueBatchObservations() {
+    if (activeObservation) return activeObservation;
+    activeObservation = (async () => {
+      const document = await repository.readSnapshot(), observedAt = serverClock();
+      for (const job of document.runtime?.dBatchImportJobs ?? []) {
+        if (job.schemaVersion !== 'd-batch-import-job-v2') throw new Error('D_BATCH_SERVICE_JOB_VERSION_INVALID');
+        for (const chunk of job.chunks) {
+          if (chunk.taskId === null ||
+              !['waiting_platform','observed_pending','unknown_outcome'].includes(chunk.status)) continue;
+          if (Date.parse(observedAt) >= Date.parse(job.leaseExpiresAt)) {
+            await runtime.reclaim({ batchId: job.batchId, workerId: job.workerId });
+          } else if (chunk.observationInFlight) continue;
+          if (Date.parse(observedAt) >= Date.parse(job.observationPolicy.expiresAt) ||
+              chunk.observationReads >= job.observationPolicy.maxQueries) {
+            const reason = chunk.observationReads >= job.observationPolicy.maxQueries ? 'query_limit' : 'policy_expired';
+            const stopped = await runtime.stopObservation({ batchId: job.batchId,
+              workerId: job.workerId, chunkIndex: chunk.index, reason });
+            return { status: 'observation_stopped', reason, job: stopped };
+          }
+          if (Date.parse(observedAt) < Date.parse(chunk.nextObservationAt)) continue;
+          const ready = await prepareObservation(job.batchId, chunk.index);
+          return runtime.observe({ batchId: job.batchId, members: [],
+            adapterCapabilities: ready.adapterCapabilities, workerId: ready.workerId,
+            chunkIndex: chunk.index });
+        }
+      }
+      return { status: 'idle' };
+    })();
+    try { return await activeObservation; } finally { activeObservation = null; }
+  }
   return Object.freeze({
     async runAuthorizedBatch({ batchId }) {
       const snapshot = await repository.readSnapshot();
@@ -151,8 +215,8 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
         workerId: ready.workerId });
     },
     async observeBatchChunk({ batchId, chunkIndex }) {
-      const ready = await prepare(batchId);
-      return runtime.observe({ batchId, members: ready.members, adapterCapabilities: ready.adapterCapabilities,
+      const ready = await prepareObservation(batchId, chunkIndex);
+      return runtime.observe({ batchId, members: [], adapterCapabilities: ready.adapterCapabilities,
         workerId: ready.workerId, chunkIndex });
     },
     async reclaimBatchLease({ batchId }) {
@@ -160,6 +224,7 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
       if (batch.members.length === 0) throw new Error('D_BATCH_SERVICE_EMPTY_BATCH');
       const workerId = resolveService(candidateFor(document, batch.members[0])).service.worker.workerId;
       return runtime.reclaim({ batchId, workerId });
-    }
+    },
+    runDueBatchObservations
   });
 }

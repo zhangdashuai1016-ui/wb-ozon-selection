@@ -9,6 +9,8 @@ import { createDBatchImportJob, applyDBatchImportEvent, reclaimDBatchImportJob }
 import { fingerprintCanonicalRecord } from './production-contract-primitives.mjs';
 import { sameStoreRef } from './store-binding.mjs';
 import { prepareSingleSkuDExecution } from './d-e-software-closure.mjs';
+import { assertDPlatformObservationPolicy } from './d-platform-observation-policy.mjs';
+import { OzonDEHttpTransportError } from './ozon-de-http-configuration.mjs';
 
 export const D_BATCH_IMPORT_RUNTIME_VERSION = 'd-batch-import-runtime-v1';
 const clone = value => structuredClone(value);
@@ -55,6 +57,13 @@ function assertCurrentMembers(document, batch, members) {
 
 function assertReadyMembers(members, adapterCapabilities, preparedAt) {
   if (adapterCapabilities?.status !== 'ready') throw new Error('D_BATCH_IMPORT_CAPABILITIES_NOT_READY');
+  const observationPolicy = assertDPlatformObservationPolicy(members[0]?.observationPolicy);
+  if (members.some(member => !isDeepStrictEqual(member.observationPolicy, observationPolicy)) ||
+      Date.parse(preparedAt) >= Date.parse(observationPolicy.expiresAt) ||
+      Date.parse(observationPolicy.expiresAt) - Date.parse(preparedAt) <
+        observationPolicy.maxQueries * observationPolicy.intervalMs + observationPolicy.requestTimeoutMs) {
+    throw new Error('D_BATCH_IMPORT_OBSERVATION_POLICY_NOT_CURRENT');
+  }
   for (const member of members) {
     const productionPlan = member.executionContext?.productionPlan;
     if (!member.platformWritePreflight || !productionPlan) throw new Error('D_BATCH_IMPORT_PREFLIGHT_REQUIRED');
@@ -81,8 +90,10 @@ function assertWorker(workerRegistry, workerId) {
 
 function refreshWorker(workerRegistry, workerId, expectedVersion) {
   const worker = workerRegistry.get(workerId);
+  const eligible = workerRegistry.findEligible(['ozon-production-execution'])
+    .find(value => value.workerId === workerId);
   if (worker?.status !== 'online' || worker.version !== expectedVersion ||
-      !worker.capabilities.includes('ozon-production-execution')) {
+      !eligible || !isDeepStrictEqual(eligible, worker)) {
     throw new Error('D_BATCH_IMPORT_WORKER_CHANGED');
   }
   workerRegistry.heartbeat({ workerId, version: worker.version, capabilities: worker.capabilities,
@@ -131,7 +142,8 @@ export function createPersistedDBatchImportRuntime({ repository, runtimeMode = '
       assertCurrentMembers(document, current.batch, prepared);
       if (current.job) return { changed: false, result: { job: clone(current.job), admitted: false } };
       const job = createDBatchImportJob({ batch: current.batch, chunks, workerId,
-        workerVersion: worker.version, leaseId, leaseExpiresAt, createdAt: observedAt });
+        workerVersion: worker.version, leaseId, leaseExpiresAt, createdAt: observedAt,
+        observationPolicy: prepared[0].observationPolicy });
       document.runtime.dBatchImportJobs = [...current.jobs, job];
       current.batch.status = 'import_admitted';
       return { changed: true, document, result: { job: clone(job), admitted: true } };
@@ -225,20 +237,48 @@ export function createPersistedDBatchImportRuntime({ repository, runtimeMode = '
         Date.parse(now()) >= Date.parse(job.leaseExpiresAt) ||
         !Number.isSafeInteger(chunkIndex) ||
         !['waiting_platform', 'observed_pending', 'unknown_outcome'].includes(job.chunks[chunkIndex]?.status) ||
-        job.chunks[chunkIndex].taskId === null) {
+        job.chunks[chunkIndex].taskId === null || job.chunks[chunkIndex].observationInFlight ||
+        job.chunks[chunkIndex].observationReads >= job.observationPolicy.maxQueries ||
+        Date.parse(now()) < Date.parse(job.chunks[chunkIndex].nextObservationAt) ||
+        Date.parse(now()) >= Date.parse(job.observationPolicy.expiresAt)) {
       throw new Error('D_BATCH_IMPORT_OBSERVATION_NOT_ADMITTED');
     }
     if (!sameStoreRef(adapterCapabilities?.storeRef, batch.storeRef)) {
       throw new Error('D_BATCH_IMPORT_OBSERVATION_STORE_MISMATCH');
     }
     const chunk = job.chunks[chunkIndex];
-    const adapter = await createAdapter({ adapterCapabilities });
-    const observation = await adapter.observeBatchImportTask({ batchId, chunkIndex,
-      taskId: chunk.taskId, offerIds: chunk.offerIds });
-    const saved = await checkpoint({ batchId, workerId, leaseId: job.leaseId, members,
-      event: { kind: 'batch_import_observed', chunkIndex, offerIds: chunk.offerIds,
-        taskId: chunk.taskId, results: observation.results } });
-    return { status: saved.status, job: saved, results: observation.results };
+    await checkpoint({ batchId, workerId, leaseId: job.leaseId, members,
+      event: { kind: 'batch_observation_started', chunkIndex, offerIds: chunk.offerIds, taskId: chunk.taskId } });
+    const controller = new AbortController();
+    const remaining = Math.min(job.observationPolicy.requestTimeoutMs,
+      Date.parse(job.leaseExpiresAt) - Date.parse(now()),
+      Date.parse(job.observationPolicy.expiresAt) - Date.parse(now()));
+    let timeoutId;
+    const timeout = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => { const error = new Error('D_BATCH_IMPORT_OBSERVATION_TIMEOUT');
+        controller.abort(error); reject(error); }, Math.max(1, remaining));
+    });
+    try {
+      const adapter = await createAdapter({ adapterCapabilities });
+      const observation = await Promise.race([adapter.observeBatchImportTask({ batchId, chunkIndex,
+        taskId: chunk.taskId, offerIds: chunk.offerIds }, { signal: controller.signal,
+        beforeRequestSend: () => {
+          refreshWorker(workerRegistry, workerId, job.workerVersion);
+          if (Date.parse(now()) >= Date.parse(job.leaseExpiresAt)) throw new Error('D_BATCH_IMPORT_LEASE_EXPIRED');
+        } }), timeout]);
+      const saved = await checkpoint({ batchId, workerId, leaseId: job.leaseId, members,
+        event: { kind: 'batch_import_observed', chunkIndex, offerIds: chunk.offerIds,
+          taskId: chunk.taskId, results: observation.results } });
+      return { status: saved.status, job: saved, results: observation.results };
+    } catch (error) {
+      const reason = error.message === 'D_BATCH_IMPORT_OBSERVATION_TIMEOUT' ? 'request_timeout' :
+        error instanceof OzonDEHttpTransportError ? 'transport_failure' : 'system_failure';
+      await checkpoint({ batchId, workerId, leaseId: job.leaseId, members,
+        event: { kind: 'batch_observation_failed', chunkIndex, offerIds: chunk.offerIds,
+          taskId: chunk.taskId, reason } });
+      if (reason === 'system_failure') throw error;
+      return { status: 'observation_failed', reason, job: locate(await repository.readSnapshot(), batchId).job };
+    } finally { clearTimeout(timeoutId); }
   }
   async function reclaim({ batchId, workerId }) {
     const worker = assertWorker(workerRegistry, workerId);
@@ -253,5 +293,17 @@ export function createPersistedDBatchImportRuntime({ repository, runtimeMode = '
       return { changed: true, document, result: clone(next) };
     });
   }
-  return Object.freeze({ schemaVersion: D_BATCH_IMPORT_RUNTIME_VERSION, run, observe, reclaim });
+  async function stopObservation({ batchId, workerId, chunkIndex, reason }) {
+    const worker = assertWorker(workerRegistry, workerId);
+    const { job } = locate(await repository.readSnapshot(), batchId);
+    if (!job || job.workerId !== workerId || job.workerVersion !== worker.version ||
+        !Number.isSafeInteger(chunkIndex) || !job.chunks[chunkIndex]) {
+      throw new Error('D_BATCH_IMPORT_OBSERVATION_STOP_NOT_ADMITTED');
+    }
+    const chunk = job.chunks[chunkIndex];
+    return checkpoint({ batchId, workerId, leaseId: job.leaseId, members: [],
+      event: { kind: 'batch_observation_stopped', chunkIndex, offerIds: chunk.offerIds,
+        taskId: chunk.taskId, reason } });
+  }
+  return Object.freeze({ schemaVersion: D_BATCH_IMPORT_RUNTIME_VERSION, run, observe, reclaim, stopObservation });
 }

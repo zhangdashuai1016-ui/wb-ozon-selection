@@ -7299,7 +7299,22 @@ async function handleApi(req, res, pathname) {
       }
       throw error;
     }
-    return json(res, 200, { batch, executionStatus: 'not_started', externalRequests: 0, platformWrites: 0 });
+    let execution;
+    try {
+      execution = await deRuntimeServices.continueAuthorizedBatchImport({ batchId: batch.batchId });
+    } catch (error) {
+      const code = String(error.code || error.message).split(':', 1)[0];
+      if (!/^(?:D_BATCH_SERVICE_|DE_RUNTIME_UNAVAILABLE_BATCH_IMPORT)/.test(code)) throw error;
+      const saved = await readData();
+      const job = saved.runtime?.dBatchImportJobs?.find(value => value.batchId === batch.batchId);
+      if (job?.chunks.some(chunk => chunk.status !== 'not_sent')) throw error;
+      const current = saved.runtime?.dProductionBatches?.find(value => value.batchId === batch.batchId);
+      return json(res, 200, { batch: current ?? batch, executionStatus: 'prewrite_blocked',
+        reasonCode: code, externalRequests: 0, platformWrites: 0 });
+    }
+    const saved = await readData();
+    return json(res, 200, { batch: saved.runtime?.dProductionBatches?.find(value => value.batchId === batch.batchId) ?? batch,
+      executionStatus: execution.status, job: execution.job });
   }
   if (req.method === "POST" && (realProductionOwnerDecisionRoute || realProductionAuthorizationRoute)) {
     const input = await requestBody(req);

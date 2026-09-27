@@ -8,6 +8,9 @@ import { createDBatchImportSoftwareService } from '../lib/d-batch-import-softwar
 import { fingerprintCanonicalRecord } from '../lib/production-contract-primitives.mjs';
 
 const now = '2026-08-22T07:25:00.000Z';
+const observationPolicy = { schemaVersion: 'd-platform-observation-policy-v1',
+  policyRef: 'policy:synthetic:batch-observation', version: 'v1', maxQueries: 10,
+  intervalMs: 0, expiresAt: '2026-09-01T00:00:00.000Z', requestTimeoutMs: 10_000 };
 
 async function fixture() {
   let currentTime = now;
@@ -41,18 +44,21 @@ async function fixture() {
     validUntil: '2026-09-01T00:00:00.000Z' };
   const inspection = ozonDEPreflightEvidenceFixture().record.inspection;
   const calls = [];
-  const service = createDBatchImportSoftwareService({ repository, runtimeMode: 'local_development',
+  const serviceOptions = { repository, runtimeMode: 'local_development',
     workerRegistry, serverClock: () => currentTime,
     services: new Map([[source.currentProductionBinding.bindingId,
       { worker: workerRegistry.get('worker:batch-service') }]]),
     loadCurrentProductionBinding: () => source.currentProductionBinding,
+    loadBatchObservationPolicy: () => observationPolicy,
     loadBatchMemberEvidence: async () => ({ capabilities: structuredClone(capability),
       inspection: structuredClone(inspection), checkedAt: now }),
     requestJson: async requestJson => { calls.push(requestJson);
       return requestJson.write ? { result: { task_id: 9001 } } :
         { result: { items: [{ offer_id: request.merchantSku, product_id: 94001, status: 'imported', errors: [] }] } };
-    } });
+    } };
+  const service = createDBatchImportSoftwareService(serviceOptions);
   return { repository, service, capability, calls, batch, candidateId: candidate.id,
+    restartService: () => createDBatchImportSoftwareService(serviceOptions),
     advanceClock: value => { currentTime = value; workerRegistry.heartbeat({ workerId: 'worker:batch-service',
       version: 'v1', capabilities: ['ozon-production-execution'], status: 'online' }); } };
 }
@@ -82,6 +88,8 @@ test('software service starts one persisted import task and duplicate start cann
 test('software service records the offer observation without claiming inventory or E success', async () => {
   const f = await fixture();
   await f.service.runAuthorizedBatch({ batchId: f.batch.batchId });
+  delete f.capability.productImport.maxItemsPerRequest;
+  f.capability.productImport.validUntil = '2026-08-22T07:20:00.000Z';
   const observed = await f.service.observeBatchChunk({ batchId: f.batch.batchId, chunkIndex: 0 });
   assert.equal(observed.status, 'imported_awaiting_inventory');
   assert.equal(observed.results[0].classification, 'imported');
@@ -102,4 +110,17 @@ test('an expired lease can be reclaimed without fresh import limit evidence', as
   assert.equal(reclaimed.status, 'waiting_platform');
   assert.equal(reclaimed.chunks[0].taskId, '9001');
   assert.equal(f.calls.filter(call => call.write).length, 1);
+});
+
+test('restarted software pump recovers only a saved task and never resends its import', async () => {
+  const f = await fixture();
+  await f.service.runAuthorizedBatch({ batchId: f.batch.batchId });
+  delete f.capability.productImport.maxItemsPerRequest;
+  f.capability.productImport.validUntil = '2026-08-22T07:20:00.000Z';
+  f.advanceClock('2026-08-22T07:31:00.000Z');
+  const restarted = f.restartService();
+  const result = await restarted.runDueBatchObservations();
+  assert.equal(result.status, 'imported_awaiting_inventory');
+  assert.deepEqual(f.calls.map(call => call.write), [true, false]);
+  assert.equal((await f.repository.readSnapshot()).runtime.dBatchImportJobs[0].chunks[0].observationReads, 1);
 });

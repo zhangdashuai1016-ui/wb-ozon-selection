@@ -1,20 +1,25 @@
 import { isDeepStrictEqual } from 'node:util';
 import { assertSafeRuntimeRecord } from './runtime-identity.mjs';
+import { assertDPlatformObservationPolicy } from './d-platform-observation-policy.mjs';
 
-export const D_BATCH_IMPORT_JOB_VERSION = 'd-batch-import-job-v1';
+export const D_BATCH_IMPORT_JOB_VERSION = 'd-batch-import-job-v2';
 const validRef = value => typeof value === 'string' && value.trim().length > 0;
 const validTime = value => validRef(value) && !Number.isNaN(Date.parse(value));
 const clone = value => structuredClone(value);
 const chunkStatuses = new Set(['not_sent', 'intent', 'waiting_platform', 'observed_pending',
-  'observed_imported', 'platform_failed', 'platform_skipped', 'unknown_outcome']);
+  'observed_imported', 'platform_failed', 'platform_skipped', 'unknown_outcome', 'observation_stopped']);
 
 function assertJob(job) {
+  assertDPlatformObservationPolicy(job?.observationPolicy);
   if (job?.schemaVersion !== D_BATCH_IMPORT_JOB_VERSION || !validRef(job.jobId) || !validRef(job.batchId) ||
       !Number.isSafeInteger(job.revision) || job.revision < 1 || !validRef(job.workerId) || !validRef(job.workerVersion) ||
       !validRef(job.leaseId) || !validTime(job.leaseExpiresAt) || !Array.isArray(job.chunks) ||
       job.chunks.length === 0 || job.chunks.some((chunk, index) => chunk.index !== index ||
         !Array.isArray(chunk.offerIds) || chunk.offerIds.length === 0 ||
         !validRef(chunk.limitEvidenceRef) || !chunkStatuses.has(chunk.status) ||
+        !Number.isSafeInteger(chunk.observationReads) || chunk.observationReads < 0 ||
+        chunk.observationReads > job.observationPolicy.maxQueries || !validTime(chunk.nextObservationAt) ||
+        typeof chunk.observationInFlight !== 'boolean' ||
         chunk.offerIds.some(offerId => !validRef(offerId)) || new Set(chunk.offerIds).size !== chunk.offerIds.length ||
         (['not_sent', 'intent'].includes(chunk.status) && (chunk.taskId !== null || chunk.results !== null)) ||
         (['waiting_platform', 'observed_pending', 'observed_imported', 'platform_failed', 'platform_skipped'].includes(chunk.status) &&
@@ -24,7 +29,9 @@ function assertJob(job) {
           (!Array.isArray(chunk.results) ||
             !isDeepStrictEqual(chunk.results.map(result => result.offerId), chunk.offerIds))) ||
         (chunk.status === 'unknown_outcome' && chunk.taskId !== null &&
-          (!/^[1-9][0-9]*$/.test(chunk.taskId) || !Number.isSafeInteger(Number(chunk.taskId))))) ||
+          (!/^[1-9][0-9]*$/.test(chunk.taskId) || !Number.isSafeInteger(Number(chunk.taskId)))) ||
+        (chunk.status === 'observation_stopped' &&
+          (chunk.taskId === null || !['query_limit','policy_expired'].includes(chunk.stopReason)))) ||
       new Set(job.chunks.flatMap(chunk => chunk.offerIds)).size !== job.chunks.flatMap(chunk => chunk.offerIds).length ||
       job.status !== statusFor(job.chunks)) {
     throw new Error('D_BATCH_IMPORT_JOB_INVALID');
@@ -34,15 +41,17 @@ function assertJob(job) {
 }
 
 function statusFor(chunks) {
-  if (chunks.some(chunk => chunk.status === 'unknown_outcome' || chunk.status === 'intent')) return 'unknown_outcome';
+  if (chunks.some(chunk => ['unknown_outcome','intent','observation_stopped'].includes(chunk.status))) return 'unknown_outcome';
+  if (chunks.some(chunk => chunk.status === 'waiting_platform' || chunk.status === 'observed_pending')) return 'waiting_platform';
   if (chunks.some(chunk => chunk.status === 'platform_failed' || chunk.status === 'platform_skipped')) return 'partial_failure';
   if (chunks.every(chunk => chunk.status === 'observed_imported')) return 'imported_awaiting_inventory';
-  if (chunks.some(chunk => chunk.status === 'waiting_platform' || chunk.status === 'observed_pending')) return 'waiting_platform';
   return 'claimed';
 }
 
 /** Persisted batch import state. Every chunk belongs to one task and every offer has one terminal observation. */
-export function createDBatchImportJob({ batch, chunks, workerId, workerVersion, leaseId, leaseExpiresAt, createdAt }) {
+export function createDBatchImportJob({ batch, chunks, workerId, workerVersion, leaseId, leaseExpiresAt, createdAt,
+  observationPolicy }) {
+  assertDPlatformObservationPolicy(observationPolicy);
   if (batch?.status !== 'authorized' || batch.externalRequestState !== 'not_sent' ||
       !validRef(batch.batchId) || !Array.isArray(batch.members) || !Array.isArray(chunks) ||
       !Array.isArray(batch.excludedOfferIds) ||
@@ -57,9 +66,10 @@ export function createDBatchImportJob({ batch, chunks, workerId, workerVersion, 
   }
   const job = { schemaVersion: D_BATCH_IMPORT_JOB_VERSION, jobId: `d-batch-import:${batch.batchId}`,
     batchId: batch.batchId, revision: 1, workerId, workerVersion, leaseId, leaseExpiresAt, status: 'claimed',
-    createdAt, updatedAt: createdAt, chunks: chunks.map((chunk, index) => ({ index,
+    createdAt, updatedAt: createdAt, observationPolicy: clone(observationPolicy), chunks: chunks.map((chunk, index) => ({ index,
       offerIds: [...chunk.offerIds], limitEvidenceRef: chunk.limitEvidenceRef,
-      status: 'not_sent', taskId: null, results: null })) };
+      status: 'not_sent', taskId: null, results: null, observationReads: 0, observationInFlight: false,
+      nextObservationAt: createdAt })) };
   return Object.freeze(assertJob(job));
 }
 
@@ -88,8 +98,40 @@ export function applyDBatchImportEvent({ job, event, workerId, leaseId, observed
     if (chunk.status !== 'intent' || !validRef(event.reason)) throw new Error('D_BATCH_IMPORT_UNKNOWN_INVALID');
     chunk.status = 'unknown_outcome';
     chunk.unknownReason = event.reason;
+  } else if (event.kind === 'batch_observation_started') {
+    if (!['waiting_platform', 'observed_pending', 'unknown_outcome'].includes(chunk.status) ||
+        chunk.taskId === null || event.taskId !== chunk.taskId || chunk.observationInFlight ||
+        chunk.observationReads >= job.observationPolicy.maxQueries ||
+        Date.parse(observedAt) < Date.parse(chunk.nextObservationAt) ||
+        Date.parse(observedAt) >= Date.parse(job.observationPolicy.expiresAt)) {
+      throw new Error('D_BATCH_IMPORT_OBSERVATION_NOT_DUE');
+    }
+    chunk.observationReads++;
+    chunk.observationInFlight = true;
+    chunk.nextObservationAt = new Date(Date.parse(observedAt) + job.observationPolicy.intervalMs).toISOString();
+  } else if (event.kind === 'batch_observation_failed') {
+    if (!chunk.observationInFlight || chunk.taskId === null || event.taskId !== chunk.taskId ||
+        !validRef(event.reason)) throw new Error('D_BATCH_IMPORT_OBSERVATION_FAILURE_INVALID');
+    chunk.observationInFlight = false;
+    chunk.lastObservationFailure = event.reason;
+    if (chunk.observationReads >= job.observationPolicy.maxQueries) {
+      chunk.status = 'observation_stopped';
+      chunk.stopReason = 'query_limit';
+    }
+  } else if (event.kind === 'batch_observation_stopped') {
+    if (!['waiting_platform','observed_pending','unknown_outcome'].includes(chunk.status) ||
+        chunk.taskId === null || event.taskId !== chunk.taskId || chunk.observationInFlight ||
+        !['query_limit','policy_expired'].includes(event.reason) ||
+        (event.reason === 'query_limit' && chunk.observationReads < job.observationPolicy.maxQueries) ||
+        (event.reason === 'policy_expired' && Date.parse(observedAt) < Date.parse(job.observationPolicy.expiresAt))) {
+      throw new Error('D_BATCH_IMPORT_OBSERVATION_STOP_INVALID');
+    }
+    chunk.status = 'observation_stopped';
+    chunk.stopReason = event.reason;
   } else if (event.kind === 'batch_import_observed') {
     if (!['waiting_platform', 'observed_pending', 'unknown_outcome'].includes(chunk.status) ||
+        !chunk.observationInFlight ||
+        Date.parse(observedAt) >= Date.parse(job.observationPolicy.expiresAt) ||
         chunk.taskId === null || event.taskId !== chunk.taskId ||
         !Array.isArray(event.results) || !isDeepStrictEqual(event.results.map(result => result.offerId), chunk.offerIds) ||
         event.results.some(result => !['imported', 'platform_failed', 'platform_skipped', 'waiting_platform', 'unknown_outcome'].includes(result.classification) ||
@@ -99,11 +141,24 @@ export function applyDBatchImportEvent({ job, event, workerId, leaseId, observed
             !Number.isSafeInteger(Number(result.importObservation.productId)))))) {
       throw new Error('D_BATCH_IMPORT_OBSERVATION_INVALID');
     }
+    if (chunk.results?.some((prior, index) =>
+      ['imported', 'platform_failed', 'platform_skipped'].includes(prior.classification) &&
+      (event.results[index].classification !== prior.classification ||
+        (prior.classification === 'imported' &&
+          event.results[index].importObservation.productId !== prior.importObservation.productId)))) {
+      throw new Error('D_BATCH_IMPORT_TERMINAL_OFFER_CHANGED');
+    }
     chunk.results = clone(event.results);
+    chunk.observationInFlight = false;
     chunk.status = event.results.some(result => result.classification === 'unknown_outcome') ? 'unknown_outcome' :
+      event.results.some(result => result.classification === 'waiting_platform') ? 'observed_pending' :
       event.results.some(result => result.classification === 'platform_failed') ? 'platform_failed' :
-      event.results.some(result => result.classification === 'platform_skipped') ? 'platform_skipped' :
-      event.results.some(result => result.classification === 'waiting_platform') ? 'observed_pending' : 'observed_imported';
+      event.results.some(result => result.classification === 'platform_skipped') ? 'platform_skipped' : 'observed_imported';
+    if (['unknown_outcome','observed_pending'].includes(chunk.status) &&
+        chunk.observationReads >= job.observationPolicy.maxQueries) {
+      chunk.status = 'observation_stopped';
+      chunk.stopReason = 'query_limit';
+    }
   } else throw new Error('D_BATCH_IMPORT_EVENT_INVALID');
   next.revision++;
   next.updatedAt = observedAt;
@@ -120,6 +175,7 @@ export function reclaimDBatchImportJob({ job, workerId, workerVersion, leaseId, 
       Date.parse(leaseExpiresAt) <= Date.parse(observedAt)) throw new Error('D_BATCH_IMPORT_RECLAIM_INVALID');
   const next = { ...clone(job), workerId, workerVersion, leaseId, leaseExpiresAt, updatedAt: observedAt,
     revision: job.revision + 1 };
+  for (const chunk of next.chunks) chunk.observationInFlight = false;
   assertJob(next);
   return Object.freeze(next);
 }
