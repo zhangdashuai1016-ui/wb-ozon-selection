@@ -5,6 +5,7 @@ import { fingerprintCanonicalRecord, assertNoProductionSecrets } from './product
 import { resolveProductionOwnerPreparation } from './production-owner-preparation.mjs';
 import { createProductionAuthorization } from './production-authorization.mjs';
 import { sameStoreRef } from './store-binding.mjs';
+import { merchantSkuClaimsForStore } from './business-mutation-transaction.mjs';
 
 export const D_BATCH_PRODUCTION_AUTHORIZATION_VERSION = 'd-batch-production-authorization-v1';
 const CENTRAL_MODES = new Set(['central_test', 'central_production']);
@@ -74,6 +75,8 @@ export async function commitBatchOwnerProductionAuthorization({ repository, runt
           member.candidate.sourceUrl !== first.candidate.sourceUrl) throw new Error('D_BATCH_PRODUCT_FAMILY_MISMATCH');
       if (!sameStoreRef(member.candidate.storeRef, first.candidate.storeRef) ||
           member.candidate.targetPlatform !== first.candidate.targetPlatform) throw new Error('D_BATCH_STORE_SCOPE_MISMATCH');
+      if (merchantSkuClaimsForStore(document, member.candidate)
+        .some(claim => claim.merchantSku === member.offerId)) throw new Error('D_BATCH_OFFER_RESERVED');
       if (batches.some(batch => batch.members.some(saved => saved.offerId === member.offerId))) throw new Error('D_BATCH_OFFER_RESERVED');
     }
     if (first.candidate.targetPlatform !== 'ozon') throw new Error('D_BATCH_PLATFORM_UNSUPPORTED');

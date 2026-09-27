@@ -486,7 +486,11 @@ export async function commitSingleOwnerProductionAuthorization({ repository, run
     auditEventId: `audit:${key}`, authorizationRef: `production-auth:${sku.skuPackageId}:${input.sourcePreparationFingerprint}:${decisionId}`,
     externalRequestState: "not_sent", externalRequestRef: null, serverClock,
     softwareJobEffect: { schemaVersion: "business-mutation-domain-handoff-effect-v1", kind: "software_job", operation: "enqueue", jobType: "d_production_execution" },
-    mutate: ({ candidate, observedAt, evidencePacks, currentCommissionCatalogs }) => {
+    includeMerchantSkuClaims: true,
+    mutate: ({ candidate, observedAt, evidencePacks, currentCommissionCatalogs, merchantSkuClaims }) => {
+      if (merchantSkuClaims.some(claim => claim.merchantSku === input.merchantSku)) {
+        throw new Error('PRODUCTION_AUTHORIZATION_OFFER_RESERVED');
+      }
       const currentSku = candidate.lifecycleV11?.skuPackage;
       const card = currentSku?.productionConfirmationCard;
       const preparation = currentSku?.c2FinalAssets?.productionAuthorizationPreparation;

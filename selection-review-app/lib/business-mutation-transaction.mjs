@@ -493,7 +493,7 @@ function applyC1PaidKeywordEvidenceSettlement({ current, jobBefore, settledJob, 
 
 /** Only saved identifiers are projected under the same lock as the draft write.
  * This detects local collisions; it does not inspect or certify platform offers. */
-function merchantSkuClaimsForStore(document, target) {
+export function merchantSkuClaimsForStore(document, target) {
   if (!isCompleteStoreRef(target.storeRef, target.targetStore)) throw new Error("PRODUCTION_COMMERCIAL_DRAFT_STORE_REQUIRED");
   const claims = [];
   for (const candidate of document.candidates) {
