@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-27T11:14:13.212Z",
+  "frozenAt": "2026-09-27T11:59:54.369Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 811,
-      "sha256": "eb2b2d3064700ea9e51f612a5c9de3fc1a86f649c504ad5a570c3209c8c804ed",
+      "sha256": "8794a4bc11f224f72859bfa8095aa4a8dacd7ede8394f4040149807c0cd7cce6",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -1988,7 +1988,7 @@
       },
       {
         "path": "tests/c1-final-plan-revision-use-case.test.mjs",
-        "sha256": "78d2647d52555a26874bab9c20a0683efa4665a3837c91060206d3550e808be9"
+        "sha256": "3cad66625c94b3773ee0edfcb994955dd0dd15ac55e4ffb65344a118315d4eef"
       },
       {
         "path": "tests/c1-frozen-schema-refresh.test.mjs",
@@ -2396,7 +2396,7 @@
       },
       {
         "path": "tests/e-readback-software-use-case.test.mjs",
-        "sha256": "ddb002614fa1d387fac243ea6338c46fc0d6bfba2250433cad94ff63cb05cf05"
+        "sha256": "1f994a20d1650b4c2147ef0dbd7184cf091ab8ed29e3e0230e576c2513bb723b"
       },
       {
         "path": "tests/e-stage-readback.test.mjs",
@@ -2828,7 +2828,7 @@
       },
       {
         "path": "tests/owner-product-facts.test.mjs",
-        "sha256": "b3a976195ce6fa66850b806f50f108df1ce529c18b481c5e77ff3be9ff2b25e2"
+        "sha256": "c825e6a2fbffd97fec756c8c5b39c5b3eb36e0a4bbf27cf0956f9f573c30d7a6"
       },
       {
         "path": "tests/ozon-account-discovery-configuration.test.mjs",
@@ -3012,7 +3012,7 @@
       },
       {
         "path": "tests/production-commercial-draft.test.mjs",
-        "sha256": "dc96391ab212e96664b5fccfa4f26ad60b9871b08b1063be10996118351d4c05"
+        "sha256": "de953a43f17492c6f1f555e73874a5bc8f7abac4b556f182a5ec4362399c6d99"
       },
       {
         "path": "tests/production-entity-persistence.test.mjs",

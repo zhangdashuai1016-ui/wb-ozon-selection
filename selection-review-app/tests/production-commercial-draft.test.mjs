@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
 import { productionOwnerDecisionFixture } from './fixtures/production-owner-decision-fixture.mjs';
 import { createFormalC1C2Fixture } from './fixtures/formal-c1-flow-fixture.mjs';
 import { createMemoryBusinessStateRepository } from '../lib/business-state-repository.mjs';
@@ -156,7 +158,7 @@ test('same idempotency key with changed business input fails without rewriting i
 test('atomic persistence failure leaves commercial draft, audit and idempotency absent', async t => {
   const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises');
   const { createJsonBusinessStateRepository } = await import('../lib/business-state-repository.mjs');
-  const directory = await mkdtemp('/private/tmp/commercial-draft-atomic-');
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'commercial-draft-atomic-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const f = setup(), initial = await f.repository.readSnapshot(), filePath = `${directory}/state.json`;
   await writeFile(filePath, JSON.stringify(initial));

@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
 import { imageTextFixture, OCR_AT } from './fixtures/c1-image-text-fixture.mjs';
 import { createMemoryBusinessStateRepository } from '../lib/business-state-repository.mjs';
 import { createC1FinalPlanRevisionUseCase } from '../lib/c1-final-plan-revision-use-case.mjs';
@@ -83,7 +85,7 @@ test('idempotent replay rejects missing, duplicate or replaced detached predeces
 test('atomic JSON write failure rolls back candidate, detached history, audit and idempotency together', async t => {
   const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises');
   const { createJsonBusinessStateRepository } = await import('../lib/business-state-repository.mjs');
-  const directory = await mkdtemp('/private/tmp/final-revision-atomic-');
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'final-revision-atomic-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const filePath = `${directory}/state.json`, f = setup(), initial = await f.repository.readSnapshot();
   await writeFile(filePath, JSON.stringify(initial));

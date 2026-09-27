@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
 import { productionOwnerDecisionFixture } from './fixtures/production-owner-decision-fixture.mjs';
 import { prepareOwnerProductFacts, readOwnerProductFacts, OWNER_PRODUCT_FACT_LABELS } from '../lib/owner-product-facts.mjs';
 import { createOwnerProductFactsUseCase } from '../lib/owner-product-facts-use-case.mjs';
@@ -110,7 +112,7 @@ test('stale source and SKU mismatch cannot partially save any declaration', asyn
 test('atomic storage failure leaves declarations, history, audit and idempotency unchanged', async t => {
   const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises');
   const { createJsonBusinessStateRepository } = await import('../lib/business-state-repository.mjs');
-  const directory = await mkdtemp('/private/tmp/owner-product-facts-'); t.after(() => rm(directory, { recursive: true, force: true }));
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'owner-product-facts-')); t.after(() => rm(directory, { recursive: true, force: true }));
   const f = setup(), initial = await f.repository.readSnapshot(), filePath = `${directory}/state.json`;
   await writeFile(filePath, JSON.stringify(initial));
   const repository = createJsonBusinessStateRepository({ filePath, atomicWriter: async (_path, document) => {
