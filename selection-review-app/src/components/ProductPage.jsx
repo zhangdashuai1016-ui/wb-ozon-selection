@@ -5,6 +5,7 @@ import { toggleLocalSupplierSkuSelection } from "../aSupplierCaptureSelection.js
 import { profitStepGaps, profitStepSubmission } from "../../lib/profit-step-review.mjs";
 import { commissionEstimateProposal } from "../../lib/commission-estimate-authorization.mjs";
 import { buildBExactCommissionInput, buildBEvidenceRefreshInput } from "../bExactCommissionInput.js";
+import { siblingBatchReview } from "../siblingBatchReview.js";
 import EliminateControl from "./EliminateControl.jsx";
 import C1LocalPreparationPanel, { showsC1LocalPreparation } from "./C1LocalPreparationPanel.jsx";
 import C1PaidDraftPanel from "./C1PaidDraftPanel.jsx";
@@ -14,6 +15,7 @@ import C1RightsReviewPanel from "./C1RightsReviewPanel.jsx";
 import C1OzonAttributePanel from "./C1OzonAttributePanel.jsx";
 import C2FinalAssetsPanel from "./C2FinalAssetsPanel.jsx";
 import FinalProductPlanCard from "./FinalProductPlanCard.jsx";
+import SiblingBatchPreparation from './SiblingBatchPreparation.jsx';
 
 /**
  * One product page for the owner: the six steps of a product, with only the step that is actually open expanded.
@@ -29,7 +31,7 @@ export const PRODUCT_STEPS = Object.freeze([
   { key: "readback", title: "回读" }
 ]);
 
-function SiblingSkuSection({ candidate, siblingSkuIds, onCreate }) {
+function SiblingSkuSection({ candidate, siblingSkuIds, siblings, onCreate }) {
   const [selectedIds, setSelectedIds] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -37,7 +39,8 @@ function SiblingSkuSection({ candidate, siblingSkuIds, onCreate }) {
   const choices = candidate.sourceCapture.skuChoices.filter(choice =>
     candidate.sourceCapture.selectedSkuIds.includes(choice.sourceSkuId) &&
     choice.sourceSkuId !== parentSkuId && !siblingSkuIds.includes(choice.sourceSkuId));
-  if (choices.length === 0) return null;
+  const review = siblingBatchReview(candidate, siblings);
+  if (choices.length === 0 && (!review || review.rows.length === 0)) return null;
   const selected = selectedIds ?? choices.map(choice => choice.sourceSkuId);
   function toggle(sourceSkuId) {
     setSelectedIds(selected.includes(sourceSkuId) ? selected.filter(id => id !== sourceSkuId) : [...selected, sourceSkuId]);
@@ -57,8 +60,9 @@ function SiblingSkuSection({ candidate, siblingSkuIds, onCreate }) {
   }
   return <section className="product-section" aria-label="追加同款规格">
     <h3>同款规格清单</h3>
-    <p className="product-section-hint">下面只列已选且未处理的供应规格。一次建立内部 A 记录，保留共用市场和采集来源；利润、颜色事实、图片与生产授权仍须由软件逐项核验。</p>
-    <form onSubmit={submit}>
+    <p className="product-section-hint">一件商品的一张规格清单。首件历史任务保持排除；以下每行显示本规格实际完成情况与缺项。</p>
+    {review?.excludedSourceSkuIds.length ? <p>已排除首件供应 SKU {review.excludedSourceSkuIds.join('、')}，历史生产结果不重发。</p> : null}
+    {choices.length > 0 ? <form onSubmit={submit}>
       <ul>{choices.map(choice => <li key={choice.sourceSkuId}>
         <label><input type="checkbox" checked={selected.includes(choice.sourceSkuId)} disabled={saving}
           onChange={() => toggle(choice.sourceSkuId)} />
@@ -67,7 +71,16 @@ function SiblingSkuSection({ candidate, siblingSkuIds, onCreate }) {
       <button className="button secondary" type="submit" disabled={saving || selected.length === 0}>
         {saving ? '正在建立…' : `建立 ${selected.length} 个规格的内部记录`}
       </button>
-    </form>
+    </form> : null}
+    {review?.rows.length ? <table><thead><tr><th>规格</th><th>批量准备</th><th>价格／库存</th></tr></thead>
+      <tbody>{review.rows.map(row => <tr key={row.sourceSkuId}>
+        <td>{row.color} · {row.sourceSkuId}</td>
+        <td>{row.gaps.length ? <ul>{row.gaps.map(gap => <li key={gap}>{gap}</li>)}</ul> : '资料齐全，待整批核对'}</td>
+        <td>{row.writePriceCny === null ? '后台价待核验' : `后台价 ¥${row.writePriceCny}`} · {row.stock === null ? '库存待核验' : `库存 ${row.stock}`}</td>
+      </tr>)}</tbody></table> : null}
+    {review?.rows.length ? <p role="status">{review.ready
+      ? '全部规格已具备逐行核对条件；整批生产确认入口仍须完成后才能提交。'
+      : '整批尚有缺项，不能提交生产授权。'}</p> : null}
     {error ? <p role="alert">{error}</p> : null}
   </section>;
 }
@@ -1777,7 +1790,8 @@ function SavedC2Assets({ skuPackage }) {
 
 export default function ProductPage({
   candidate, view = null, titleZh = null, extensionStatus = null,
-  onSaveDraft, onChooseSkus, onCreateSiblingSku = null, siblingSkuIds = [], onRequestCapture, onReviewCaptureAndRequest, onRecaptureSource,
+  onSaveDraft, onChooseSkus, onCreateSiblingSku = null, onConfirmSiblingBatchA = null,
+  onAuthorizeSiblingProductionBatch = null, siblingSkuIds = [], siblingCandidates = [], onRequestCapture, onReviewCaptureAndRequest, onRecaptureSource,
   onConfirmProfitStep, onDeclareCargoFacts, onDeclareExtraHandlingFees, onDeclareUniformSupply, onReadOzonPage, onOpenLegacyCard,
   onBack, onEliminateCandidate,
   productionIdentity = null, onPrepareC1Local = null,
@@ -2016,7 +2030,12 @@ export default function ProductPage({
       Array.isArray(candidate.sourceCapture?.skuChoices) &&
       Array.isArray(candidate.sourceCapture?.selectedSkuIds) &&
       candidate.lifecycleV11?.skuPackage?.dSoftwareExecution?.checkpoints?.some(checkpoint => checkpoint.kind === 'import_task_received')
-      ? <SiblingSkuSection key={candidate.id} candidate={candidate} siblingSkuIds={siblingSkuIds} onCreate={onCreateSiblingSku} /> : null}
+      ? <SiblingSkuSection key={candidate.id} candidate={candidate} siblingSkuIds={siblingSkuIds}
+          siblings={siblingCandidates} onCreate={onCreateSiblingSku} /> : null}
+    {candidate.sourceCapture?.mode === 'a_supplier_capture' && siblingCandidates.length > 0 &&
+      typeof onConfirmSiblingBatchA === 'function' && typeof onAuthorizeSiblingProductionBatch === 'function'
+      ? <SiblingBatchPreparation key={`${candidate.id}:batch`} parent={candidate} siblings={siblingCandidates}
+          onConfirmA={onConfirmSiblingBatchA} onAuthorize={onAuthorizeSiblingProductionBatch} /> : null}
 
     {/* 选规格：插件采回来的每个规格，按它自己的重量算出来的运费和利润。这里只勾选，不开始任何工作。 */}
     {choosing ? (skuTable === null

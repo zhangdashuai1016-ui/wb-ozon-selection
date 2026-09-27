@@ -150,5 +150,13 @@ test('owner-only sibling API creates one persistent A branch; replay, conflicts 
   const beforeInvalid = await readFile(dataFile, 'utf8');
   assert.equal((await post(batchRoute, { dataRevision: 12, supplierSkuIds: [originalSkuId] })).status, 409);
   assert.equal(await readFile(dataFile, 'utf8'), beforeInvalid);
+  const aRoute = `/api/candidates/${parent.id}/sibling-batch-a-confirm`;
+  const aInvalid = await post(aRoute, { parentCandidateId: parent.id, parentRevision: 12,
+    shared: {}, members: [] });
+  assert.equal(aInvalid.status, 400);
+  assert.equal(aInvalid.body.code, 'SIBLING_BATCH_A_INPUT_INVALID');
+  assert.equal(await readFile(dataFile, 'utf8'), beforeInvalid);
+  assert.equal((await post(aRoute, { parentCandidateId: parent.id }, 'https://other.example.test')).status, 403);
+  assert.equal(await readFile(dataFile, 'utf8'), beforeInvalid);
   assert.equal(stderr.join(''), '');
 });

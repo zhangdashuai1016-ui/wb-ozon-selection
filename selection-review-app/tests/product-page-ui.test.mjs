@@ -103,6 +103,46 @@ test('追加已采集颜色只需选规格，内部候选名称由软件生成',
   assert.doesNotMatch(html, /这件规格的商品名称|请写明这个颜色/u);
 });
 
+test('one family page keeps created specifications visible with precise missing stages', async () => {
+  const parent = candidate({ sourceCapture: { mode: 'a_supplier_capture', status: 'captured_waiting_owner_selection',
+    selectedSkuIds: ['6222816678021', '6222816678023'], skuChoices: [
+      { sourceSkuId: '6222816678021', attributes: { 颜色: '卡其色' } },
+      { sourceSkuId: '6222816678023', attributes: { 颜色: '黑cp' } }
+    ] }, lifecycleV11: { skuPackage: { supplierSkuId: '6222816678021', technicalStatus: 'unknown_outcome',
+      dSoftwareExecution: { checkpoints: [{ kind: 'import_task_received' }] } } } });
+  const child = { id: 'candidate:synthetic-black', siblingSourceV1: {
+    parentCandidateId: parent.id, supplierSkuId: '6222816678023' } };
+  const html = await render(props({ candidate: parent, onCreateSiblingSku: forbidden,
+    siblingSkuIds: ['6222816678023'], siblingCandidates: [child] }));
+  assert.match(html, /已排除首件供应 SKU 6222816678021/u);
+  assert.match(html, /黑cp · 6222816678023/u);
+  assert.match(html, /A 供应规格及数量 1 证据待确认/u);
+  assert.match(html, /B 当前店铺正式利润待完成/u);
+  assert.match(html, /整批尚有缺项，不能提交生产授权/u);
+});
+
+test('one family page exposes common inputs, row price and stock overrides, and a gated final batch decision', async () => {
+  const parent = candidate({ sourceCapture: { mode: 'a_supplier_capture', status: 'captured_waiting_owner_selection',
+    selectedSkuIds: ['6222816678021', '6222816678023'], skuChoices: [
+      { sourceSkuId: '6222816678021', attributes: { 颜色: '卡其色' } },
+      { sourceSkuId: '6222816678023', attributes: { 颜色: '黑cp' }, priceCny: null, weight: null }
+    ] }, lifecycleV11: { skuPackage: { supplierSkuId: '6222816678021', technicalStatus: 'unknown_outcome',
+      dSoftwareExecution: { checkpoints: [{ kind: 'import_task_received' }] } } } });
+  const child = { id: 'candidate:synthetic-black', dataRevision: 1,
+    siblingSourceV1: { parentCandidateId: parent.id, supplierSkuId: '6222816678023' },
+    realAConfirmationCard: { salesReview: { snapshotId: 'synthetic:sales', title: '合成市场商品' } } };
+  const html = await render(props({ candidate: parent, onCreateSiblingSku: forbidden,
+    onConfirmSiblingBatchA: forbidden, onAuthorizeSiblingProductionBatch: forbidden,
+    siblingSkuIds: ['6222816678023'], siblingCandidates: [child] }));
+  assert.match(html, /整批共用资料与逐行差异/u);
+  assert.match(html, /黑cp 单价/u);
+  assert.match(html, /黑cp 成交价覆盖/u);
+  assert.match(html, /黑cp 库存/u);
+  assert.match(html, /我已逐行核对所选规格为精确同款/u);
+  assert.match(html, /整批确认供货并分别计算正式利润/u);
+  assert.doesNotMatch(html, /一次确认整批最终内容/u);
+});
+
 test('sibling product page shows frozen revision recovery and editable 10096/10097 mapping entry', async () => {
   const [frozen, editable] = siblingColorState().candidates;
   const frozenHtml = await render(props({ candidate: frozen, onReviseSiblingColor: forbidden }));

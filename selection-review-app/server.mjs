@@ -1,5 +1,6 @@
 import { createInitialCandidate, queuedProcessing } from "./lib/candidate-initialization.mjs";
 import { createSiblingSkuCandidate, createSiblingSkuCandidatesBatch, siblingSkuCandidateInput, SiblingSkuCandidateError } from './lib/sibling-sku-candidate.mjs';
+import { commitSiblingBatchABAndC1 } from './lib/sibling-batch-a-b-c1.mjs';
 import { assertSiblingSkuColorProjection, assertSiblingSkuFinalCard } from './lib/sibling-sku-card-guard.mjs';
 import { createADiscoveryRuntimeServices, A_DISCOVERY_DECLINE_REASONS } from './lib/a-discovery-runtime-services.mjs';
 import { supplierImageSearchAvailability, readSupplierImageSearchPreparation, requireSupplierImageSearchPreparation,
@@ -8282,6 +8283,32 @@ async function handleApi(req, res, pathname) {
   }
 
   const siblingBatchRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/sibling-sku-batch$/);
+  const siblingBatchAConfirmRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/sibling-batch-a-confirm$/);
+  if (req.method === 'POST' && siblingBatchAConfirmRoute) {
+    const origin = String(req.headers.origin || '');
+    if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, '批量供应确认拒绝其他网页来源');
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== 'authenticated_identity_provider' || actor.actorType !== 'human' || !actor.roles.includes('owner')) {
+      throw httpError(403, '请先登录主人身份后确认整批供应规格');
+    }
+    const parentCandidateId = decodeURIComponent(siblingBatchAConfirmRoute[1]);
+    const input = await readJsonRequestBody(req, { maxBytes: 65536, requireJsonContentType: true });
+    if (input?.parentCandidateId !== parentCandidateId) throw httpError(409, '批量确认的原商品身份不一致');
+    let result;
+    try {
+      result = await commitSiblingBatchABAndC1({ repository: businessStateRepository,
+        runtimeMode: runtimeConfiguration.deploymentMode, actor, input, serverClock: now,
+        guooFilePath: runtimeConfiguration.guooTariffFile });
+    } catch (error) {
+      const code = String(error.code || error.message).split(':', 1)[0];
+      if (/^(?:SIBLING_BATCH_A|REAL_A|B_EVIDENCE|B_COMMISSION|B_COST_POLICY|C1_PRODUCT_PLAN|SUPPLIER_OPTION)_[A-Z_]+$/.test(code)) {
+        return json(res, /INPUT_INVALID/.test(code) ? 400 : 409,
+          { code, message: '整批 A/B/C1 未保存；请核对当前规格清单与完整证据。', externalRequests: 0, platformWrites: 0 });
+      }
+      throw error;
+    }
+    return json(res, 200, result);
+  }
   if (req.method === 'POST' && siblingBatchRoute) {
     const origin = String(req.headers.origin || '');
     if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, '追加规格拒绝其他网页来源');

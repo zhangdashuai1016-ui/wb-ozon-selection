@@ -531,6 +531,20 @@ export default function App() {
     return result;
   }
 
+  async function confirmSiblingBatchA(payload) {
+    const result = await api.confirmSiblingBatchA(payload.parentCandidateId, payload);
+    await load(true);
+    setNotice({ type: 'success', message: `整批 ${result.members.length} 个规格已各自完成 A、正式 B 利润和 C1 输入交接；C1 事实、素材和生产授权仍待核验。` });
+    return result;
+  }
+
+  async function authorizeSiblingProductionBatch(payload) {
+    const result = await api.authorizeProductionBatch(payload);
+    await load(true);
+    setNotice({ type: 'success', message: `整批 ${result.batch.members.length} 个规格的生产授权已原子保存；D 尚未开始。` });
+    return result;
+  }
+
   async function updateSelected(payload) {
     const navigationToken = selectionGuard.current.capture();
     if (!selected) return;
@@ -1215,9 +1229,9 @@ export default function App() {
   // The product page is read twice: once by the top bar, which names it and keeps the way back, once by the page itself.
   const productCandidate = view === "product" ? state.candidates.find(item => item.id === selectedId) ?? null : null;
   const productTitleZh = view === "product" ? discoveredTitleZh(discoveryView, productCandidate) : null;
-  const siblingSkuIds = productCandidate === null ? [] : state.candidates
-    .filter(item => item.siblingSourceV1?.parentCandidateId === productCandidate.id)
-    .map(item => item.siblingSourceV1.supplierSkuId);
+  const siblingCandidates = productCandidate === null ? [] : state.candidates
+    .filter(item => item.siblingSourceV1?.parentCandidateId === productCandidate.id);
+  const siblingSkuIds = siblingCandidates.map(item => item.siblingSourceV1.supplierSkuId);
   const deskNav = [
     { view: "desk", label: "选品台", count: counts.desk },
     { view: "board", label: "进行中", count: counts.board },
@@ -1321,7 +1335,10 @@ export default function App() {
           onSaveDraft={payload => runProductStep(api.saveSupplierDraft, payload)}
           onChooseSkus={payload => runProductStep(api.chooseSourceSkus, payload)}
           onCreateSiblingSku={createSiblingSkuBatch}
+          onConfirmSiblingBatchA={confirmSiblingBatchA}
+          onAuthorizeSiblingProductionBatch={authorizeSiblingProductionBatch}
           siblingSkuIds={siblingSkuIds}
+          siblingCandidates={siblingCandidates}
           onDeclareCargoFacts={payload => runProductStep(api.declareCargoFacts, payload)}
           onDeclareExtraHandlingFees={payload => runProductStep(api.declareExtraHandlingFees, payload)}
           onDeclareUniformSupply={payload => runProductStep(api.declareSkuUniformSupply, payload)}
