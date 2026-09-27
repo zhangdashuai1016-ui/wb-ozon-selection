@@ -538,6 +538,29 @@ export default function App() {
     return result;
   }
 
+  async function readSiblingBatchColorDictionary(child) {
+    const candidateId = child.id;
+    const skuPackageId = child.lifecycleV11.skuPackage.skuPackageId;
+    try {
+      const authorized = await api.authorizeC1ColorDictionary(candidateId, {
+        candidateId, skuPackageId, attributeId: '10096', dataRevision: child.dataRevision });
+      const read = await api.continueC1ColorDictionary(candidateId, {
+        candidateId, skuPackageId, attributeId: '10096', authorizationId: authorized.result.authorizationId,
+        dataRevision: authorized.candidate.dataRevision });
+      await load(true);
+      setNotice({ type: read.result?.status === 'succeeded' ? 'success' : 'error',
+        message: read.result?.status === 'succeeded' ? '本批官方颜色候选已保存，请逐行核对。' : '官方颜色读取结果未确定，请先核对原请求。' });
+      return read;
+    } catch (error) { await load(true); throw error; }
+  }
+
+  async function confirmSiblingBatchC1(payload) {
+    const result = await api.confirmSiblingBatchC1(payload.parentCandidateId, payload);
+    await load(true);
+    setNotice({ type: 'success', message: `整批 ${result.members.length} 个规格的独立 C1 事实和共享草稿已确认，正在等待最终素材。` });
+    return result;
+  }
+
   async function authorizeSiblingProductionBatch(payload) {
     const result = await api.authorizeProductionBatch(payload);
     await load(true);
@@ -1359,6 +1382,8 @@ export default function App() {
           onChooseSkus={payload => runProductStep(api.chooseSourceSkus, payload)}
           onCreateSiblingSku={createSiblingSkuBatch}
           onConfirmSiblingBatchA={confirmSiblingBatchA}
+          onConfirmSiblingBatchC1={confirmSiblingBatchC1}
+          onReadSiblingBatchColorDictionary={readSiblingBatchColorDictionary}
           onAuthorizeSiblingProductionBatch={authorizeSiblingProductionBatch}
           onUploadSiblingC2Asset={uploadSiblingC2Asset}
           onLinkSiblingC2Asset={linkSiblingC2Asset}

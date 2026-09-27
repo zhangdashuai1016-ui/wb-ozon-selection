@@ -190,7 +190,8 @@ export function platformSchemaEvidence({ storeRef } = {}) {
 export function createFormalC1DraftFixture({ at = FORMAL_C1_CREATED_AT, candidateRevision = 27,
   softwareJobId = "software-job:formal-c1:1", gatewayJobId = "gateway-job:synthetic:1",
   authorizationId = "authorization:c1-ai-draft:FORMAL-C1",
-  categoryName = "3D-пазл", projectCompetitorTexts = false,
+  categoryName = "3D-пазл", projectCompetitorTexts = false, platformAttributes = null,
+  platformRequiredFields = null,
   rightsReviewOptions = { brand: SYNTHETIC_LICENSED_BRAND, rights: SYNTHETIC_LICENSED_RIGHTS }, ...sourceOptions
 } = {}) {
   const state = phase7PassedState({ ...sourceOptions, fullC1Facts: true });
@@ -199,8 +200,11 @@ export function createFormalC1DraftFixture({ at = FORMAL_C1_CREATED_AT, candidat
   schema.categoryName = categoryName;
   schema.ruleVersion = schema.schemaRevision;
   schema.categoryId = "category:ozon:3d-puzzle";
-  schema.requiredFields = [{ fieldKey: "material", label: "材质", required: true, sourceAttributeKeys: ["material"] }];
+  schema.requiredFields = platformRequiredFields === null
+    ? [{ fieldKey: "material", label: "材质", required: true, sourceAttributeKeys: ["material"] }]
+    : structuredClone(platformRequiredFields);
   schema.categoryRestrictions = [];
+  if (platformAttributes !== null) schema.attributes = structuredClone(platformAttributes);
   schema.platformCompliance = { status: "clear" };
   const declared = packageFixture({ executableOzon: true }).c1ProductPlan.inputSnapshots.platformSchemaRules;
   schema.writeBindings = { ...structuredClone(declared.writeBindings), evidenceRef: schema.evidenceId, schemaRevision: schema.schemaRevision };

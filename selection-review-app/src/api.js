@@ -229,6 +229,9 @@ export const api = {
   confirmSiblingBatchC2: (parentCandidateId, payload) => request(`/api/candidates/${encodeURIComponent(parentCandidateId)}/sibling-batch-c2-confirm`, {
     method: "POST", body: JSON.stringify(payload)
   }),
+  confirmSiblingBatchC1: (parentCandidateId, payload) => request(`/api/candidates/${encodeURIComponent(parentCandidateId)}/sibling-batch-c1-confirm`, {
+    method: "POST", body: JSON.stringify(payload)
+  }),
   saveProductionOwnerDecision: (candidateId, payload) =>
     request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/production-owner-decision`, {
       method: "POST", body: JSON.stringify(payload)

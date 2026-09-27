@@ -5,8 +5,20 @@ import { prepareC2FinalUploadManifest, confirmC2SoftwareFinalUploads } from './c
 import { createFinalProductPlanConfirmationCard } from './final-product-plan-confirmation-card.mjs';
 import { assertSiblingSkuFinalCard } from './sibling-sku-card-guard.mjs';
 import { createSoftwareExecutionRuntime, waitForOwner } from './software-execution-state.mjs';
+import { fingerprintCanonicalRecord } from './production-contract-primitives.mjs';
 
 const fail = code => { throw new Error(code); };
+
+export function isSiblingBatchC2Replay(document, input, actor) {
+  const fingerprint = fingerprintCanonicalRecord({ input, confirmedBy: actor.userId });
+  return input.members.length > 0 && input.members.every(member => {
+    const matches = document.candidates.filter(item => item.id === member.candidateId);
+    const child = matches.length === 1 ? matches[0] : null;
+    const receipt = child?.lifecycleV11?.siblingBatchC2ReceiptV1;
+    return receipt?.inputFingerprint === fingerprint && receipt.resultRevision === child.dataRevision &&
+      receipt.parentCandidateId === input.parentCandidateId;
+  });
+}
 
 /** All selected siblings receive independent C2 cards in one owner-confirmed transaction. */
 export async function commitSiblingBatchC2Final({ repository, runtimeMode, actor, input, verifiedAssets, serverClock }) {
@@ -30,7 +42,19 @@ export async function commitSiblingBatchC2Final({ repository, runtimeMode, actor
     if (parents.length !== 1 || parents[0].dataRevision !== input.parentRevision) fail('SIBLING_BATCH_C2_PARENT_CHANGED');
     const parent = parents[0];
     const selected = parent.sourceCapture?.selectedSkuIds?.filter(id => id !== parent.lifecycleV11?.skuPackage?.supplierSkuId);
-    if (!Array.isArray(selected) || selected.length !== input.members.length) fail('SIBLING_BATCH_C2_SCOPE_MISMATCH');
+    if (!Array.isArray(selected) || selected.length !== input.members.length ||
+        new Set(selected).size !== selected.length) fail('SIBLING_BATCH_C2_SCOPE_MISMATCH');
+    const inputFingerprint = fingerprintCanonicalRecord({ input, confirmedBy: actor.userId });
+    const replay = input.members.map(member => document.candidates.find(item => item.id === member.candidateId));
+    const memberSkuIds = replay.map(child => child?.siblingSourceV1?.supplierSkuId);
+    if (new Set(memberSkuIds).size !== selected.length ||
+        memberSkuIds.some(id => !selected.includes(id))) fail('SIBLING_BATCH_C2_SCOPE_MISMATCH');
+    if (isSiblingBatchC2Replay(document, input, actor)) {
+      return { changed: false, document, result: { status: 'idempotent_replay',
+        members: replay.map(child => ({ candidateId: child.id, resultRevision: child.dataRevision })),
+        externalRequests: 0, platformWrites: 0 } };
+    }
+    if (replay.some(child => child?.lifecycleV11?.siblingBatchC2ReceiptV1)) fail('SIBLING_BATCH_C2_REPLAY_CONFLICT');
     const at = serverClock();
     const prepared = input.members.map(member => {
       const matches = document.candidates.filter(item => item.id === member.candidateId);
@@ -72,6 +96,10 @@ export async function commitSiblingBatchC2Final({ repository, runtimeMode, actor
     }
     for (const { child, skuPackage } of prepared) {
       child.lifecycleV11 = { ...child.lifecycleV11, skuPackage: structuredClone(skuPackage),
+        siblingBatchC2ReceiptV1: { schemaVersion: 'sibling-batch-c2-receipt-v1',
+          parentCandidateId: parent.id, sourceRevision: child.dataRevision,
+          resultRevision: child.dataRevision + 1, inputFingerprint, confirmedBy: actor.userId,
+          confirmedAt: at },
         status: 'awaiting_owner_business_confirmation', platformWrites: 0 };
       child.listingPreparation = { ...(child.listingPreparation ?? {}), status: 'awaiting_owner_business_confirmation',
         reason: '整批最终素材已逐规格确认，等待一次最终商业授权。', decisionItems: [], writeOccurred: false, platformWrites: 0 };

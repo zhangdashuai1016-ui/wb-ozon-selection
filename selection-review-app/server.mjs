@@ -1,7 +1,8 @@
 import { createInitialCandidate, queuedProcessing } from "./lib/candidate-initialization.mjs";
 import { createSiblingSkuCandidate, createSiblingSkuCandidatesBatch, siblingSkuCandidateInput, SiblingSkuCandidateError } from './lib/sibling-sku-candidate.mjs';
 import { commitSiblingBatchABAndC1 } from './lib/sibling-batch-a-b-c1.mjs';
-import { commitSiblingBatchC2Final } from './lib/sibling-batch-c2-final.mjs';
+import { commitSiblingBatchC1Preparation } from './lib/sibling-batch-c1-preparation.mjs';
+import { commitSiblingBatchC2Final, isSiblingBatchC2Replay } from './lib/sibling-batch-c2-final.mjs';
 import { assertSiblingSkuColorProjection, assertSiblingSkuFinalCard } from './lib/sibling-sku-card-guard.mjs';
 import { createADiscoveryRuntimeServices, A_DISCOVERY_DECLINE_REASONS } from './lib/a-discovery-runtime-services.mjs';
 import { supplierImageSearchAvailability, readSupplierImageSearchPreparation, requireSupplierImageSearchPreparation,
@@ -8373,7 +8374,31 @@ async function handleApi(req, res, pathname) {
 
   const siblingBatchRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/sibling-sku-batch$/);
   const siblingBatchAConfirmRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/sibling-batch-a-confirm$/);
+  const siblingBatchC1Route = pathname.match(/^\/api\/candidates\/([^/]+)\/sibling-batch-c1-confirm$/);
   const siblingBatchC2Route = pathname.match(/^\/api\/candidates\/([^/]+)\/sibling-batch-c2-confirm$/);
+  if (req.method === 'POST' && siblingBatchC1Route) {
+    const origin = String(req.headers.origin || '');
+    if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, '整批颜色事实确认拒绝其他网页来源');
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== 'authenticated_identity_provider' || actor.actorType !== 'human' || !actor.roles.includes('owner')) {
+      throw httpError(403, '请先登录主人身份后确认整批颜色事实');
+    }
+    const input = await readJsonRequestBody(req, { maxBytes: 65536, requireJsonContentType: true });
+    if (input?.parentCandidateId !== decodeURIComponent(siblingBatchC1Route[1])) {
+      throw httpError(400, '整批颜色事实商品身份不一致');
+    }
+    try {
+      return json(res, 200, await commitSiblingBatchC1Preparation({ repository: businessStateRepository,
+        runtimeMode: runtimeConfiguration.deploymentMode, actor, input, serverClock: now }));
+    } catch (error) {
+      const code = String(error.code || error.message).split(':', 1)[0];
+      if (/^(?:SIBLING_BATCH_C1|C1_SIBLING_SHARED|C1_COLOR_DICTIONARY|C1_SKU_RIGHTS|C1_G1|C2_C1)/.test(code)) {
+        return json(res, 409, { code, message: '整批 C1 未保存；请核对官方颜色、逐行事实、权利和共用草稿。',
+          externalRequests: 0, paidCalls: 0, platformWrites: 0 });
+      }
+      throw error;
+    }
+  }
   if (req.method === 'POST' && siblingBatchC2Route) {
     const origin = String(req.headers.origin || '');
     if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, '整批素材确认拒绝其他网页来源');
@@ -8389,7 +8414,7 @@ async function handleApi(req, res, pathname) {
     const parent = snapshot.candidates.find(item => item.id === input.parentCandidateId);
     if (!parent || parent.dataRevision !== input.parentRevision) throw httpError(409, '原商品规格清单已变化，请刷新核对');
     const verifiedAssets = new Map();
-    for (const member of input.members) {
+    if (!isSiblingBatchC2Replay(snapshot, input, actor)) for (const member of input.members) {
       const child = snapshot.candidates.find(item => item.id === member.candidateId);
       if (!child || child.siblingSourceV1?.parentCandidateId !== parent.id || child.dataRevision !== member.candidateRevision) {
         throw httpError(409, '整批素材包含过期或不属于本批的规格');

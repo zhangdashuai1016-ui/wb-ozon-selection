@@ -4,7 +4,12 @@ import { C1_SCHEMA_CONTENT_FIELDS } from '../../lib/lifecycle-b-input-bundle.mjs
 
 function siblingCandidate({ candidateId, frozen }) {
   const fixture = createFormalC1DraftFixture({ candidateId, variantKey: '颜色:黑cp',
-    skuAttributes: { 颜色: '黑cp' } });
+    skuAttributes: { 颜色: '黑cp', model_name: 'synthetic-model' },
+    platformRequiredFields: [
+      { fieldKey: 'material', label: '材质', required: true, sourceAttributeKeys: ['material'] },
+      { fieldKey: '9048', label: '型号', required: true, sourceAttributeKeys: ['model_name'] },
+      { fieldKey: '85', label: '品牌', required: true }
+    ] });
   const candidate = structuredClone(fixture.candidate);
   candidate.productName = frozen ? '合成黑cp已冻结缺映射' : '合成黑cp未冻结可映射';
   candidate.workflowStatus = 'listing_preparation';
@@ -28,7 +33,7 @@ function siblingCandidate({ candidateId, frozen }) {
       attributes: { 颜色: '黑cp' } }] };
   candidate.siblingSourceV1 = { supplierSkuId: sku.supplierSkuId,
     parentCandidateId: 'candidate:synthetic-parent', parentCardBinding: {
-      descriptionCategoryId: 17028665, typeId: 92935, model: 'synthetic-model', brand: 'synthetic-brand',
+      descriptionCategoryId: 17028665, typeId: 92935, model: 'synthetic-model', brand: 'Нет бренда',
       parentImageSha256s: ['a'.repeat(64)] } };
   return candidate;
 }
