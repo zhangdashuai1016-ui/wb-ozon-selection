@@ -197,6 +197,7 @@ export function createFormalC1DraftFixture({ at = FORMAL_C1_CREATED_AT, candidat
   const schema = platformSchemaEvidence({ storeRef: state.skuPackage.g1Identity.storeRef });
   schema.storeRef = structuredClone(state.skuPackage.g1Identity.storeRef);
   schema.categoryName = categoryName;
+  schema.ruleVersion = schema.schemaRevision;
   schema.categoryId = "category:ozon:3d-puzzle";
   schema.requiredFields = [{ fieldKey: "material", label: "材质", required: true, sourceAttributeKeys: ["material"] }];
   schema.categoryRestrictions = [];

@@ -9,6 +9,7 @@ import { prepareCurrentC1AiDraftRequest, assertCurrentC1AiDraftRequestSources } 
 import { validateC1AiDraftRequest, validateC1AiDraftOutput, validateC1AiDraftReceipt, mergeC1AiDraftReceipt } from "../lib/c1-ai-draft-contract.mjs";
 import { C1_SEO_REVIEW_OUTPUT_VERSION, createC1SeoReferenceContext } from "../lib/c1-seo-review-contract.mjs";
 import { buildC1GatewayJob } from "../lib/c1-ai-gateway.mjs";
+import { decodeC1GatewayInput } from "../lib/c1-gateway-input-encoding.mjs";
 import { fingerprintCanonicalRecord } from "../lib/production-contract-primitives.mjs";
 
 function local() {
@@ -85,7 +86,7 @@ test("Russian attribute translations bind each canonical index and frozen value 
 test("language references are sent to the gateway with their own evidence hash, never as facts or image analysis", () => {
   const { request } = local(), before = structuredClone(request);
   const job = buildC1GatewayJob({ candidateId: request.sourceIdentity.candidateId, dataRevision: 12, request });
-  const payload = JSON.parse(job.input.text.split("\n\n").at(-1));
+  const payload = decodeC1GatewayInput(JSON.parse(job.input.text.split("\n\n").at(-1)));
   assert.deepEqual(payload.referenceContext, request.referenceContext);
   assert.deepEqual(payload.verifiedFacts, request.verifiedFacts);
   assert.deepEqual(job.input.images, []);

@@ -59,13 +59,11 @@ test('duplicate predecessor ID rejects the entire commit, including candidate an
   assert.deepEqual(await f.repository.readSnapshot(), before);
 });
 
-test('history loading rejects missing, duplicate, foreign or secret-bearing records before invoking the mutation', async () => {
+test('history loading rejects missing or duplicate records before invoking the mutation', async () => {
   for (const corrupt of [
     d => { d.c1FinalPlanRevisionHistoryRecords = []; },
     d => { d.c1FinalPlanRevisionHistoryRecords = [null]; },
-    d => { d.c1FinalPlanRevisionHistoryRecords.push(structuredClone(d.c1FinalPlanRevisionHistoryRecords[0])); },
-    d => { d.c1FinalPlanRevisionHistoryRecords[0].candidateId = 'foreign'; },
-    d => { d.c1FinalPlanRevisionHistoryRecords[0].previousC1References.apiKey = 'synthetic-secret-value'; }
+    d => { d.c1FinalPlanRevisionHistoryRecords.push(structuredClone(d.c1FinalPlanRevisionHistoryRecords[0])); }
   ]) {
     const f = fixture(); await executeBusinessMutation(f.input);
     await f.repository.transact(document => { corrupt(document); return { changed: true, document, result: null }; });
@@ -74,6 +72,18 @@ test('history loading rejects missing, duplicate, foreign or secret-bearing reco
       action: 'inspect_final_history', idempotencyKey: 'synthetic:history:read', includeFinalPlanHistory: true,
       mutate: ({ candidate }) => { calls++; return { candidate, result: { inspected: true } }; } }), /HISTORY_|RUNTIME_IDENTITY_INVALID/);
     assert.equal(calls, 0);
+    assert.deepEqual(await f.repository.readSnapshot(), before);
+  }
+});
+
+test('history storage rejects foreign scope and secret-bearing records without persisting either', async () => {
+  for (const [corrupt, error] of [
+    [d => { d.c1FinalPlanRevisionHistoryRecords[0].candidateId = 'foreign'; }, /PRODUCTION_ENTITY_SCOPE_MISMATCH/],
+    [d => { d.c1FinalPlanRevisionHistoryRecords[0].previousC1References.apiKey = 'synthetic-secret-value'; }, /RUNTIME_IDENTITY_INVALID/]
+  ]) {
+    const f = fixture(); await executeBusinessMutation(f.input);
+    const before = await f.repository.readSnapshot();
+    await assert.rejects(f.repository.transact(document => { corrupt(document); return { changed: true, document, result: null }; }), error);
     assert.deepEqual(await f.repository.readSnapshot(), before);
   }
 });
