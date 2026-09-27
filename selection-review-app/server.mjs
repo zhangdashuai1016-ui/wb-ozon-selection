@@ -6072,6 +6072,10 @@ async function handleApi(req, res, pathname) {
     const input = await requestBody(req);
     if (input?.candidateId !== c1FinalPlanRevisionRoute[1] || Object.keys(input).some(key => !["candidateId", "skuPackageId", "dataRevision"].includes(key))) throw httpError(400, "新方案准备只接受当前商品、SKU及修订号");
     const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      return json(res, 403, { code: "C1_FINAL_REVISION_OWNER_REQUIRED", message: "请先登录主人身份后准备新版方案。",
+        paidCalls: 0, externalRequests: 0, platformWrites: 0 });
+    }
     const current = (await businessStateRepository.readSnapshot()).candidates.find(item => item.id === input.candidateId);
     if (!current || !Number.isSafeInteger(input.dataRevision) || current.dataRevision !== input.dataRevision ||
         current.lifecycleV11?.skuPackage?.skuPackageId !== input.skuPackageId) throw httpError(409, "商品资料已变化，请刷新后准备新版方案。");

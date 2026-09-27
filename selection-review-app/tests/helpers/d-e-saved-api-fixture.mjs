@@ -31,7 +31,8 @@ export async function productionOwnerDecisionHttpFixture() {
 }
 
 /** Real server subprocess with password identity and a loopback dependency tripwire. No transport is injected into production. */
-export async function startSavedDEApi(t, { directory, port, document, binding, productionBindings=[binding], services = [], accountReadServices = [], discoveryBindings=[], credentialBindings = [], ossConfiguration = null, dictionaryResponder = null }) {
+export async function startSavedDEApi(t, { directory, port, document, binding, productionBindings=[binding], services = [], accountReadServices = [], discoveryBindings=[], credentialBindings = [], ossConfiguration = null, dictionaryResponder = null,
+  identityProvider = "local_owner_password" }) {
   const dependencyPort = Number(process.env.SELECTION_REVIEW_TEST_GATEWAY_PORT);
   if (![port, dependencyPort].every(value => Number.isSafeInteger(value) && value > 0 && ![4317, 4318, 4173].includes(value)) || port === dependencyPort) {
     throw new Error("TEST_REQUIRES_ISOLATED_PORT");
@@ -76,7 +77,7 @@ export async function startSavedDEApi(t, { directory, port, document, binding, p
   });
   const env = { ...process.env, SELECTION_REVIEW_API_PORT: String(port), SELECTION_REVIEW_DATA_FILE: dataFile,
     SELECTION_REVIEW_PUBLIC_ORIGIN:base,SELECTION_REVIEW_ALLOWED_ORIGINS:base,
-    SELECTION_REVIEW_IDENTITY_PROVIDER: "local_owner_password", SELECTION_REVIEW_OWNER_IDENTITY_FILE: path.join(privateDirectory, "owner.json"),
+    SELECTION_REVIEW_IDENTITY_PROVIDER: identityProvider, SELECTION_REVIEW_OWNER_IDENTITY_FILE: path.join(privateDirectory, "owner.json"),
     SELECTION_REVIEW_STORE_BINDINGS_JSON: JSON.stringify([{ targetStore: binding.storeRef.stableStoreId, platform: binding.platform, storeRef: binding.storeRef }]),
     SELECTION_REVIEW_PRODUCTION_BINDINGS_JSON: JSON.stringify(productionBindings), SELECTION_REVIEW_DE_SERVICE_BINDINGS_JSON: JSON.stringify(services),
     SELECTION_REVIEW_OZON_DE_CREDENTIAL_BINDINGS_JSON: JSON.stringify(credentialBindings),

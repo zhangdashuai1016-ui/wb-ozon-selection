@@ -11,6 +11,39 @@ const port = Number(process.env.SELECTION_REVIEW_TEST_PORT);
 const published = await loadPublishedSchemaValidator();
 const validateSku = published.getSchema("product-lifecycle-v1.1"), validateJob = published.getSchema("software-job-v1.schema.json");
 
+test("final-plan revision requires owner identity before revealing dictionary read state", async t => {
+  const responses = [];
+  for (const unsettled of [false, true]) {
+    await t.test(unsettled ? "unsettled read" : "ordinary state", async child => {
+      const fixture = await productionOwnerDecisionHttpFixture();
+      if (unsettled) fixture.candidate.lifecycleV11.c1ColorDictionaryReadsV1 = { "10096": {
+        schemaVersion: "c1-color-dictionary-read-v1", status: "request_sent",
+        authorizationId: "synthetic:sent", externalRequestRef: "synthetic:sent:request"
+      } };
+      const directory = await mkdtemp(path.join(tmpdir(), "final-plan-owner-http-"));
+      const api = await startSavedDEApi(child, { directory, port, document: fixture.document,
+        binding: fixture.binding, services: [], identityProvider: "development_default" });
+      const before = await api.readBytes();
+      const input = { candidateId: fixture.candidate.id,
+        skuPackageId: fixture.candidate.lifecycleV11.skuPackage.skuPackageId,
+        dataRevision: fixture.candidate.dataRevision };
+      const response = await api.post(`/api/candidates/${encodeURIComponent(input.candidateId)}/lifecycle/c1/revise-final-plan`,
+        input, { authenticated: false });
+      assert.equal(response.status, 403, JSON.stringify(response.body));
+      assert.equal(response.body.code, "C1_FINAL_REVISION_OWNER_REQUIRED");
+      assert.equal(response.body.externalRequests, 0);
+      assert.equal(response.body.paidCalls, 0);
+      assert.equal(response.body.platformWrites, 0);
+      assert.deepEqual(await api.readBytes(), before);
+      assert.equal(api.dependencyRequests(), 0);
+      assert.equal(api.dictionaryRequests(), 0);
+      responses.push(response.body);
+      await api.assertClean();
+    });
+  }
+  assert.deepEqual(responses[0], responses[1]);
+});
+
 test("new final-plan preparation reports missing local OCR without changing business state or authorizing production", async t => {
   const fixture = await productionOwnerDecisionHttpFixture();
   const directory = await mkdtemp(path.join(tmpdir(), "final-plan-prepare-http-"));
