@@ -7,18 +7,28 @@ import { createProductionAuthorization } from './production-authorization.mjs';
 import { sameStoreRef } from './store-binding.mjs';
 import { merchantSkuClaimsForStore } from './business-mutation-transaction.mjs';
 
-export const D_BATCH_PRODUCTION_AUTHORIZATION_VERSION = 'd-batch-production-authorization-v1';
+export const D_BATCH_PRODUCTION_AUTHORIZATION_VERSION = 'd-batch-production-authorization-v2';
+export const D_BATCH_POST_IMPORT_SCOPE_VERSION = 'd-batch-post-import-scope-v1';
 const CENTRAL_MODES = new Set(['central_test', 'central_production']);
 const text = value => typeof value === 'string' && value.trim().length > 0;
 
 function assertBatchInput(input) {
-  if (!input || Object.keys(input).sort().join() !== 'confirmAll,excludedOfferIds,members' || input.confirmAll !== true ||
+  if (!input || Object.keys(input).sort().join() !== 'confirmAll,excludedOfferIds,members,postImportScope' || input.confirmAll !== true ||
       !Array.isArray(input.members) || input.members.length === 0 || !Array.isArray(input.excludedOfferIds) ||
       input.excludedOfferIds.some(value => !text(value)) || new Set(input.excludedOfferIds).size !== input.excludedOfferIds.length ||
       input.members.some(member => !member || Object.keys(member).sort().join() !== 'candidateId,ownerInput' || !text(member.candidateId) ||
         !member.ownerInput || typeof member.ownerInput !== 'object') ||
       new Set(input.members.map(member => member.candidateId)).size !== input.members.length) {
     throw new Error('D_BATCH_AUTHORIZATION_INPUT_INVALID');
+  }
+  const scope = input.postImportScope;
+  if (!scope || Object.keys(scope).sort().join() !== 'eReadbackOfferIds,inventoryAction,schemaVersion' ||
+      scope.schemaVersion !== D_BATCH_POST_IMPORT_SCOPE_VERSION ||
+      !['create_only','write_authorized_stock'].includes(scope.inventoryAction) ||
+      !Array.isArray(scope.eReadbackOfferIds) ||
+      scope.eReadbackOfferIds.length !== input.members.length ||
+      scope.eReadbackOfferIds.some((offerId, index) => offerId !== input.members[index].ownerInput.merchantSku)) {
+    throw new Error('D_BATCH_POST_IMPORT_SCOPE_INVALID');
   }
   assertNoProductionSecrets(input, 'dBatchAuthorizationInput');
 }
@@ -90,6 +100,7 @@ export async function commitBatchOwnerProductionAuthorization({ repository, runt
     const batch = { schemaVersion: D_BATCH_PRODUCTION_AUTHORIZATION_VERSION, batchId,
       inputFingerprint, ownerActorId: actor.userId, confirmedAt: observedAt,
       storeRef: structuredClone(first.candidate.storeRef), excludedOfferIds: [...input.excludedOfferIds],
+      postImportScope: structuredClone(input.postImportScope),
       status: 'authorized', externalRequestState: 'not_sent', members };
     assertSafeRuntimeRecord(batch, 'dBatchAuthorization');
     for (const { candidate, sku, result } of prepared) {

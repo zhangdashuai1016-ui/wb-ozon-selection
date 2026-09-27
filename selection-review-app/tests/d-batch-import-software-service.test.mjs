@@ -71,6 +71,20 @@ test('software service requires a current batch limit before admission and sends
   assert.equal(f.calls.length, 0);
   assert.equal((await f.repository.readSnapshot()).runtime.dBatchImportJobs, undefined);
 });
+test('new batch authorization scope stops before import until inventory and E continuation are available',async()=>{
+  const f=await fixture();
+  await f.repository.transact(document=>{
+    const batch=document.runtime.dProductionBatches[0];
+    batch.schemaVersion='d-batch-production-authorization-v2';
+    batch.postImportScope={schemaVersion:'d-batch-post-import-scope-v1',inventoryAction:'create_only',
+      eReadbackOfferIds:batch.members.map(member=>member.offerId)};
+    return {changed:true,document,result:null};
+  });
+  await assert.rejects(f.service.runAuthorizedBatch({batchId:f.batch.batchId}),
+    /D_BATCH_SERVICE_POST_IMPORT_EXECUTION_NOT_AVAILABLE/);
+  assert.equal(f.calls.length,0);
+  assert.equal((await f.repository.readSnapshot()).runtime.dBatchImportJobs,undefined);
+});
 
 test('software service starts one persisted import task and duplicate start cannot resend', async () => {
   const f = await fixture();

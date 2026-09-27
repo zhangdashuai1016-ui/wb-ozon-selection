@@ -13,7 +13,9 @@ test('one authenticated batch confirmation persists authorization and reports un
   const api = await startSavedDEApi(t, { directory, port, document: fixture.document,
     binding: fixture.binding, services: [] });
   const input = { confirmAll: true, excludedOfferIds: ['FIRST-EXCLUDED'],
-    members: [{ candidateId: fixture.candidate.id, ownerInput: fixture.owner.args.input }] };
+    members: [{ candidateId: fixture.candidate.id, ownerInput: fixture.owner.args.input }],
+    postImportScope: { schemaVersion: 'd-batch-post-import-scope-v1', inventoryAction: 'create_only',
+      eReadbackOfferIds: [fixture.owner.args.input.merchantSku] } };
   const denied = await api.post('/api/d-batches/authorize', input, { authenticated: false });
   assert.equal(denied.status, 401);
   const before = await api.readBytes();

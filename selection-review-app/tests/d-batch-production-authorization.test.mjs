@@ -12,7 +12,9 @@ import { commitBatchOwnerProductionAuthorization } from '../lib/d-batch-producti
 function fixture() {
   const source = productionOwnerDecisionFixture();
   const input = { confirmAll: true, excludedOfferIds: ['MERCHANT-FIRST-ALREADY-SENT'],
-    members: [{ candidateId: source.candidate.id, ownerInput: source.args.input }] };
+    members: [{ candidateId: source.candidate.id, ownerInput: source.args.input }],
+    postImportScope: { schemaVersion: 'd-batch-post-import-scope-v1', inventoryAction: 'create_only',
+      eReadbackOfferIds: [source.args.input.merchantSku] } };
   return { source, input, args: { repository: source.repository, runtimeMode: 'local_development',
     actor: source.args.actor, configuration: source.configuration, serverClock: source.args.serverClock } };
 }
@@ -40,7 +42,8 @@ function twoMemberFixture() {
   const input = { confirmAll: true, excludedOfferIds: ['MERCHANT-FIRST-ALREADY-SENT'], members: [
     { candidateId: first.candidate.id, ownerInput: first.args.input },
     { candidateId: second.candidate.id, ownerInput: { ...second.args.input, merchantSku: 'MERCHANT-SECOND' } }
-  ] };
+  ], postImportScope: { schemaVersion: 'd-batch-post-import-scope-v1', inventoryAction: 'create_only',
+    eReadbackOfferIds: [first.args.input.merchantSku, 'MERCHANT-SECOND'] } };
   const args = { repository, runtimeMode: 'local_development', actor: first.args.actor,
     configuration: first.configuration, serverClock: first.args.serverClock };
   return { repository, input, args };
@@ -50,6 +53,7 @@ test('two member authorization is atomic and each member gets its own identity',
   const { repository, input, args } = twoMemberFixture();
   const batch = await commitBatchOwnerProductionAuthorization({ ...args, input });
   assert.equal(batch.members.length, 2);
+  assert.deepEqual(batch.postImportScope.eReadbackOfferIds,batch.members.map(member=>member.offerId));
   assert.equal(new Set(batch.members.map(member => member.authorizationId)).size, 2);
   const saved = await repository.readSnapshot();
   assert.equal(saved.candidates.filter(candidate => candidate.lifecycleV11.skuPackage.productionAuthorization).length, 2);
@@ -96,4 +100,18 @@ test('stale revision, exclusion and existing unknown outcome leave every record 
   const before = await source.repository.readSnapshot();
   await assert.rejects(() => commitBatchOwnerProductionAuthorization({ ...args, input }), /ALREADY_STARTED/);
   assert.deepEqual(await source.repository.readSnapshot(), before);
+});
+test('post-import action and exact E member scope require one explicit owner decision',async()=>{
+ for(const change of [
+  input=>{delete input.postImportScope;},
+  input=>{input.postImportScope.inventoryAction='automatic';},
+  input=>{input.postImportScope.eReadbackOfferIds=[];},
+  input=>{input.postImportScope.eReadbackOfferIds=['OTHER-OFFER'];}
+ ]){
+  const {source,input,args}=fixture();change(input);
+  const before=await source.repository.readSnapshot();
+  await assert.rejects(()=>commitBatchOwnerProductionAuthorization({...args,input}),
+    /D_BATCH_(POST_IMPORT_SCOPE|AUTHORIZATION_INPUT)_INVALID/);
+  assert.deepEqual(await source.repository.readSnapshot(),before);
+ }
 });

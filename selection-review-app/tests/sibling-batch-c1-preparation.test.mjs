@@ -244,7 +244,9 @@ async function authorizePreparedColors(repository, actor, checkStale) {
     return { changed: true, document, result: null };
   });
   const authorizationInput = { confirmAll: true, excludedOfferIds: ['SYNTHETIC-FIRST-UNKNOWN'],
-    members: decisions.map(({ candidateId, ownerInput }) => ({ candidateId, ownerInput })) };
+    members: decisions.map(({ candidateId, ownerInput }) => ({ candidateId, ownerInput })),
+    postImportScope: { schemaVersion: 'd-batch-post-import-scope-v1', inventoryAction: 'create_only',
+      eReadbackOfferIds: decisions.map(({ ownerInput }) => ownerInput.merchantSku) } };
   const beforeAuthorization = await repository.readSnapshot();
   if (checkStale) {
     const stale = structuredClone(authorizationInput);

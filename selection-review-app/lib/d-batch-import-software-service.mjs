@@ -13,7 +13,8 @@ const text = value => typeof value === 'string' && value.trim() !== '';
 
 function savedBatch(document, batchId) {
   const matches = document.runtime?.dProductionBatches?.filter(batch => batch.batchId === batchId);
-  if (matches?.length !== 1 || matches[0].schemaVersion !== 'd-batch-production-authorization-v1') {
+  if (matches?.length !== 1 || !['d-batch-production-authorization-v1',
+    'd-batch-production-authorization-v2'].includes(matches[0].schemaVersion)) {
     throw new Error('D_BATCH_SERVICE_BATCH_NOT_UNIQUE');
   }
   return matches[0];
@@ -203,13 +204,15 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
   return Object.freeze({
     async runAuthorizedBatch({ batchId }) {
       const snapshot = await repository.readSnapshot();
-      savedBatch(snapshot, batchId);
+      const batch=savedBatch(snapshot, batchId);
       const jobs = snapshot.runtime?.dBatchImportJobs?.filter(job => job.batchId === batchId) ?? [];
       if (jobs.length > 1) throw new Error('D_BATCH_SERVICE_JOB_NOT_UNIQUE');
       if (jobs.length === 1 && (jobs[0].chunks.every(chunk => chunk.status !== 'not_sent') ||
           jobs[0].chunks.some(chunk => ['intent', 'unknown_outcome'].includes(chunk.status)))) {
         return { status: 'idempotent_replay', executionStatus: jobs[0].status, job: clone(jobs[0]) };
       }
+      if(batch.schemaVersion==='d-batch-production-authorization-v2')
+        throw new Error('D_BATCH_SERVICE_POST_IMPORT_EXECUTION_NOT_AVAILABLE');
       const ready = await prepare(batchId);
       return runtime.run({ batchId, members: ready.members, adapterCapabilities: ready.adapterCapabilities,
         workerId: ready.workerId });
