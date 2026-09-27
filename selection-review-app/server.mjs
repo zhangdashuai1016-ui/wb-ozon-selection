@@ -217,6 +217,7 @@ import { createLocalDevelopmentWorkerRegistry } from "./lib/worker-registry.mjs"
 import { assertRuntimeBoundaries } from "./lib/multi-user-central-runtime.mjs";
 import { commitSingleOwnerProductionAuthorization, PRODUCTION_AUTHORIZATION_VERSION } from "./lib/production-authorization.mjs";
 import { commitBatchOwnerProductionAuthorization } from './lib/d-batch-production-authorization.mjs';
+import { projectDBatchExecutionView } from './lib/d-batch-execution-view.mjs';
 import { createDEProductionRuntimeServices, DERuntimeUnavailableError } from "./lib/d-e-runtime-services.mjs";
 import { buildDESavedJobRuntimeView } from "./lib/d-e-runtime-view.mjs";
 import { buildProductionOwnerPreparationView, resolveProductionOwnerPreparation, ProductionOwnerPreparationError } from "./lib/production-owner-preparation.mjs";
@@ -7266,6 +7267,47 @@ async function handleApi(req, res, pathname) {
       currentCommissionCatalogs: data.currentCommissionCatalogs, observedAt: now()
     }));
   }
+  const batchExecutionRoute=pathname.match(/^\/api\/d-batches\/([^/]+)$/);
+  if(req.method==='GET'&&batchExecutionRoute){
+    const actor=runtimeIdentityProvider.resolveActor({request:req});
+    if(actor.source!=='authenticated_identity_provider'||actor.actorType!=='human'||
+        !actor.roles.includes('owner'))throw httpError(403,'请先登录主人身份查看生产批次');
+    let batchId;
+    try{batchId=decodeURIComponent(batchExecutionRoute[1]);}
+    catch{throw httpError(400,'生产批次身份无效');}
+    if(!/^d-batch:[A-Za-z0-9:_-]{1,180}$/.test(batchId))throw httpError(400,'生产批次身份无效');
+    const saved=await readData();
+    try{return json(res,200,projectDBatchExecutionView(saved,batchId));}
+    catch(error){if(error.message==='D_BATCH_VIEW_BATCH_NOT_FOUND')throw httpError(404,'生产批次不存在');
+      throw error;}
+  }
+  const batchResumeRoute=pathname.match(/^\/api\/d-batches\/([^/]+)\/resume$/);
+  if(req.method==='POST'&&batchResumeRoute){
+    const origin=String(req.headers.origin||'');
+    if(origin&&!allowedReviewOrigins.has(origin))throw httpError(403,'生产批次拒绝其他网页来源');
+    const actor=runtimeIdentityProvider.resolveActor({request:req});
+    if(actor.source!=='authenticated_identity_provider'||actor.actorType!=='human'||
+        !actor.roles.includes('owner'))throw httpError(403,'请先登录主人身份恢复未发出的库存续作');
+    let batchId;
+    try{batchId=decodeURIComponent(batchResumeRoute[1]);}
+    catch{throw httpError(400,'生产批次身份无效');}
+    if(!/^d-batch:[A-Za-z0-9:_-]{1,180}$/.test(batchId))throw httpError(400,'生产批次身份无效');
+    const input=await readJsonRequestBody(req,{maxBytes:1024,requireJsonContentType:true});
+    if(!input||Object.keys(input).length!==1||input.confirmUnsentStockContinuation!==true)
+      throw httpError(400,'必须明确确认只恢复未发出的库存续作');
+    try{
+      const continuation=await deRuntimeServices.resumeAuthorizedBatchContinuations({batchId});
+      return json(res,200,{continuation,
+        executionView:projectDBatchExecutionView(await readData(),batchId)});
+    }catch(error){
+      const code=String(error.code||error.message).split(':',1)[0];
+      if(/^(?:D_BATCH_SERVICE_|DE_RUNTIME_UNAVAILABLE_BATCH_IMPORT)/.test(code))
+        return json(res,/NOTHING_UNSENT|SCOPE_INVALID/.test(code)?409:422,
+          {code,message:'仅能恢复当前批次明确未发出的库存续作；请查看逐项结果。',
+            externalRequests:0,platformWrites:0});
+      throw error;
+    }
+  }
   if (req.method === 'POST' && pathname === '/api/d-batches/authorize') {
     const origin = String(req.headers.origin || '');
     if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, '生产批次拒绝其他网页来源');
@@ -7309,11 +7351,13 @@ async function handleApi(req, res, pathname) {
       const job = saved.runtime?.dBatchImportJobs?.find(value => value.batchId === batch.batchId);
       if (job?.chunks.some(chunk => chunk.status !== 'not_sent')) throw error;
       const current = saved.runtime?.dProductionBatches?.find(value => value.batchId === batch.batchId);
-      return json(res, 200, { batch: current ?? batch, executionStatus: 'prewrite_blocked',
+      return json(res, 200, { batch: current ?? batch,
+        executionView:projectDBatchExecutionView(saved,batch.batchId),executionStatus: 'prewrite_blocked',
         reasonCode: code, externalRequests: 0, platformWrites: 0 });
     }
     const saved = await readData();
     return json(res, 200, { batch: saved.runtime?.dProductionBatches?.find(value => value.batchId === batch.batchId) ?? batch,
+      executionView:projectDBatchExecutionView(saved,batch.batchId),
       executionStatus: execution.status, job: execution.job });
   }
   if (req.method === "POST" && (realProductionOwnerDecisionRoute || realProductionAuthorizationRoute)) {

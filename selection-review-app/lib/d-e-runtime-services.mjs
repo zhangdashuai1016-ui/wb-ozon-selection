@@ -125,7 +125,7 @@ export function createDEProductionRuntimeServices({ repository, runtimeMode, ser
   function scheduleBatchObservation() {
     if(!batchObservationPumpStarted)return;
     batchObservationTimer=setTimeout(()=>{
-      batchObservationActive=batchImportService.runDueBatchObservations();
+      batchObservationActive=batchImportService.runDueBatchContinuations();
       batchObservationActive.then(()=>{batchObservationActive=null;scheduleBatchObservation();},error=>{
         batchObservationActive=null;
         batchObservationPumpStarted=false;
@@ -510,6 +510,10 @@ export function createDEProductionRuntimeServices({ repository, runtimeMode, ser
     async continueAuthorizedBatchImport(input) {
       if(batchImportService===null) throw new DERuntimeUnavailableError('BATCH_IMPORT');
       return batchImportService.runAuthorizedBatch(input);
+    },
+    async resumeAuthorizedBatchContinuations(input){
+      if(batchImportService===null)throw new DERuntimeUnavailableError('BATCH_IMPORT');
+      return batchImportService.resumeAuthorizedBatchContinuations(input);
     },
     async observeBatchImportChunk(input) {
       if(batchImportService===null) throw new DERuntimeUnavailableError('BATCH_IMPORT');

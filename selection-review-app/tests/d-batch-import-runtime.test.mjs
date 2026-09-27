@@ -7,6 +7,7 @@ import { createLocalDevelopmentWorkerRegistry } from '../lib/worker-registry.mjs
 import { createStoreIsolatedOzonSellerApiDEAdapter } from '../lib/ozon-seller-api-de-adapter.mjs';
 import { createPersistedDBatchImportRuntime } from '../lib/d-batch-import-runtime.mjs';
 import { fingerprintCanonicalRecord } from '../lib/production-contract-primitives.mjs';
+import { projectDBatchExecutionView } from '../lib/d-batch-execution-view.mjs';
 
 const at = '2026-08-22T07:25:00.000Z';
 const observationPolicy = { schemaVersion: 'd-platform-observation-policy-v1',
@@ -15,7 +16,7 @@ const observationPolicy = { schemaVersion: 'd-platform-observation-policy-v1',
 const binding = { warehouseRef: 'warehouse:synthetic:dandanshu', credentialAlias: 'credential-alias:synthetic:dandanshu' };
 
 async function fixture({ failReceipt = false, createAdapterFailures = 0, observationItems = null, count = 2,
-  inventoryAction = null } = {}) {
+  inventoryAction = null, maxItemsPerRequest = null, failImportCall = null } = {}) {
   let currentTime = at;
   const colors = count === 2 ? ['white', 'black'] : ['black', 'navy', 'khaki'];
   const sources = [];
@@ -39,7 +40,7 @@ async function fixture({ failReceipt = false, createAdapterFailures = 0, observa
     assetId: asset.assetId, platformAcceptedUrl: asset.platformAcceptedUrl, sha256: asset.sha256,
     order: asset.order, authorizationStatus: 'approved', stable: true, evidenceRef: `evidence:asset:${asset.assetId}` })));
   capability.productImport.endpoint = '/v3/product/import';
-  capability.productImport.maxItemsPerRequest = count === 2 ? 2 : 10;
+  capability.productImport.maxItemsPerRequest = maxItemsPerRequest ?? (count === 2 ? 2 : 10);
   capability.productImport.validUntil = '2026-09-01T00:00:00.000Z';
   const document = initialBusinessStateDocument({ now: at });
   document.candidates = sources.map((source, index) => ({ id: source.fixture.candidateId,
@@ -86,7 +87,11 @@ async function fixture({ failReceipt = false, createAdapterFailures = 0, observa
       return createStoreIsolatedOzonSellerApiDEAdapter({ adapterCapabilities: capability,
       requestJson: async request => {
         calls.push(request);
-        if (request.write) return { result: { task_id: 500 + calls.filter(call => call.write).length } };
+        if (request.write) {
+          const sendCount=calls.filter(call=>call.write).length;
+          if(sendCount===failImportCall)throw new Error('synthetic import response lost');
+          return { result: { task_id: 500 + sendCount } };
+        }
         const items = observationItems?.[readCount++] ?? [
           { offer_id: 'BATCH-A', product_id: 910001, status: 'imported', errors: [] },
           { offer_id: 'BATCH-B', product_id: 0, status: 'failed', errors: [] }
@@ -129,6 +134,41 @@ test('v2 imported offer atomically creates only its own frozen stock continuatio
   assert.equal(stock.authorizationId,saved.runtime.dProductionBatches[0].members[0].authorizationId);
   assert.deepEqual(calls.map(call=>call.write),[true,false]);
 });
+test('mixed imported, failed and unknown offers retain separate results without an import replay',async()=>{
+  const {repository,runtime,members,capability,calls}=await fixture({count:3,
+    inventoryAction:'create_only',observationItems:[[
+      {offer_id:'BATCH-02',product_id:910002,status:'imported',errors:[]},
+      {offer_id:'BATCH-03',product_id:0,status:'failed',errors:[]}
+    ]]});
+  const input={batchId:'d-batch:synthetic',members,adapterCapabilities:capability,
+    workerId:'worker:batch-synthetic'};
+  await runtime.run(input);
+  assert.equal((await runtime.observe({...input,chunkIndex:0})).status,'unknown_outcome');
+  const saved=await repository.readSnapshot();
+  assert.deepEqual(saved.runtime.dProductionBatches[0].members.map(member=>member.status),
+    ['imported_awaiting_inventory_and_e','platform_failed','unknown_outcome']);
+  assert.deepEqual(saved.runtime.dBatchStockJobs.map(job=>job.offerId),['BATCH-02']);
+  const view=projectDBatchExecutionView(saved,input.batchId);
+  assert.deepEqual(view.members.map(member=>member.importStatus),
+    ['imported','platform_failed','unknown_outcome']);
+  assert.deepEqual(view.members.map(member=>member.eStatus),
+    ['not_started','not_started','not_started']);
+  assert.equal((await runtime.run(input)).status,'idempotent_replay');
+  assert.equal(calls.filter(call=>call.write).length,1);
+});
+
+test('a sent unknown chunk never replays or sends a later untouched chunk',async()=>{
+  const {repository,runtime,members,capability,calls}=await fixture({count:3,
+    maxItemsPerRequest:1,failImportCall:2});
+  const input={batchId:'d-batch:synthetic',members,adapterCapabilities:capability,
+    workerId:'worker:batch-synthetic'};
+  assert.equal((await runtime.run(input)).status,'unknown_outcome');
+  const chunks=(await repository.readSnapshot()).runtime.dBatchImportJobs[0].chunks;
+  assert.deepEqual(chunks.map(chunk=>chunk.status),['waiting_platform','unknown_outcome','not_sent']);
+  assert.equal((await runtime.run(input)).status,'idempotent_replay');
+  assert.equal(calls.filter(call=>call.write).length,2);
+  assert.equal(calls.some(call=>call.body.items?.some(item=>item.offer_id==='BATCH-04')),false);
+});
 
 test('adapter startup failure can resume only a never-sent chunk', async () => {
   const { repository, runtime, members, capability, calls } = await fixture({ createAdapterFailures: 1 });
@@ -150,6 +190,20 @@ test('current single-SKU preflight must still pass for every batch member before
     adapterCapabilities: capability, workerId: 'worker:batch-synthetic' }), /MEMBER_NOT_READY/);
   assert.deepEqual(await repository.readSnapshot(), before);
   assert.equal(calls.length, 0);
+});
+
+test('a live single-SKU D job reserves the same offer against batch admission',async()=>{
+  const {repository,runtime,members,capability,calls}=await fixture();
+  await repository.transact(document=>{
+    document.runtime.softwareJobs=[{candidateId:members[0].request.candidateId,
+      jobType:'d_production_execution',status:'claimed'}];
+    return {changed:true,document,result:null};
+  });
+  await assert.rejects(runtime.run({batchId:'d-batch:synthetic',members,
+    adapterCapabilities:capability,workerId:'worker:batch-synthetic'}),
+  /MEMBER_CHANGED_OR_SINGLE_BUSY/);
+  assert.equal(calls.length,0);
+  assert.equal((await repository.readSnapshot()).runtime.dBatchImportJobs,undefined);
 });
 
 test('a failed receipt checkpoint leaves the sent intent unknown and forbids replay', async () => {

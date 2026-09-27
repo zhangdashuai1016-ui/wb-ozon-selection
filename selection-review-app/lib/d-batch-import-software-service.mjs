@@ -10,6 +10,8 @@ import { assertDPlatformObservationPolicy } from './d-platform-observation-polic
 import { applyDBatchStockEvent, reclaimDBatchStockJob } from './d-batch-stock-state.mjs';
 import { randomUUID } from 'node:crypto';
 import { OzonDEHttpTransportError } from './ozon-de-http-configuration.mjs';
+import { createDBatchOfferRecord, createDBatchEJob, applyDBatchEJobEvent,
+  reclaimDBatchEJob, createDBatchEReadback } from './d-batch-offer-readback.mjs';
 
 const clone = value => structuredClone(value);
 const text = value => typeof value === 'string' && value.trim() !== '';
@@ -108,6 +110,10 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
       throw new Error('D_BATCH_SERVICE_BATCH_NOT_RUNNABLE');
     }
     const members = [];
+    const planCreatedAt=batch.schemaVersion==='d-batch-production-authorization-v2'
+      ?batch.confirmedAt:createdAt;
+    if(!text(planCreatedAt)||Number.isNaN(Date.parse(planCreatedAt)))
+      throw new Error('D_BATCH_SERVICE_PLAN_TIME_REQUIRED');
     let workerId = null;
     for (const saved of batch.members) {
       const candidate = candidateFor(document, saved);
@@ -124,7 +130,7 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
       const sku = candidate.lifecycleV11.skuPackage;
       const plan = sku.dAssetTransport?.intent?.productionPlan ?? createProductionPlan({
         productionAuthorization: sku.productionAuthorization, candidateId: candidate.id,
-        candidateRevision: candidate.dataRevision, skuPackage: sku, createdAt });
+        candidateRevision: candidate.dataRevision, skuPackage: sku, createdAt:planCreatedAt });
       const evidence = await loadBatchMemberEvidence({ candidate: clone(candidate), productionBinding: clone(binding), batch: clone(batch) });
       const preflight = await runPlatformWritePreflight({ productionPlan: plan, checkedAt: evidence.checkedAt,
         inspectPlatform: async () => clone(evidence.inspection) });
@@ -219,12 +225,13 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
     const importJobs=document.runtime?.dBatchImportJobs?.filter(job=>job.batchId===batch.batchId)??[];
     const observations=importJobs.flatMap(job=>job.chunks.flatMap(chunk=>(chunk.results??[])
       .filter(result=>result.offerId===stockJob.offerId)
-      .map(result=>({taskId:chunk.taskId,result}))));
+      .map(result=>({chunkIndex:chunk.index,taskId:chunk.taskId,result}))));
     if(importJobs.length!==1||observations.length!==1||observations[0].taskId!==stockJob.taskId||
         observations[0].result.classification!=='imported'||
         observations[0].result.importObservation?.productId!==stockJob.productId)
       throw new Error('D_BATCH_STOCK_IMPORT_SOURCE_CHANGED');
     return {batch,member:matching[0],candidate:candidateFor(document,matching[0]),
+      chunkIndex:observations[0].chunkIndex,
       importObservation:observations[0].result.importObservation};
   }
   function eligibleStockWorker(stockJob){
@@ -255,9 +262,11 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
     if(service.worker.workerId!==stockJob.workerId)
       throw new Error('D_BATCH_STOCK_WORKER_SCOPE_CHANGED');
     const sku=candidate.lifecycleV11.skuPackage;
+    if(!text(batch.confirmedAt)||Number.isNaN(Date.parse(batch.confirmedAt)))
+      throw new Error('D_BATCH_STOCK_PLAN_TIME_REQUIRED');
     const plan=sku.dAssetTransport?.intent?.productionPlan??createProductionPlan({
       productionAuthorization:sku.productionAuthorization,candidateId:candidate.id,
-      candidateRevision:candidate.dataRevision,skuPackage:sku,createdAt:serverClock()});
+      candidateRevision:candidate.dataRevision,skuPackage:sku,createdAt:batch.confirmedAt});
     const evidence=await loadBatchMemberEvidence({candidate:clone(candidate),
       productionBinding:clone(binding),batch:clone(batch)});
     const preflight=await runPlatformWritePreflight({productionPlan:plan,checkedAt:evidence.checkedAt,
@@ -343,10 +352,26 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
     }
     return {status:'idle'};
   }
-  async function runDueBatchStockWrites(){
+  async function runDueBatchStockWrites({allowedBatchIds=null}={}){
     const document=await repository.readSnapshot();
-    for(const job of document.runtime?.dBatchStockJobs??[]){
-      if(job.status!=='ready_to_write')continue;
+    for(const saved of document.runtime?.dBatchStockJobs??[]){
+      if(saved.status!=='ready_to_write'||allowedBatchIds!==null&&!allowedBatchIds.has(saved.batchId))continue;
+      let job=saved;
+      if(Date.parse(serverClock())>=Date.parse(job.leaseExpiresAt)){
+        const worker=eligibleStockWorker(job);
+        job=await repository.transact(current=>{
+          const jobs=current.runtime?.dBatchStockJobs??[];
+          const held=jobs.find(value=>value.jobId===saved.jobId);
+          if(!held||held.status!=='ready_to_write')throw new Error('D_BATCH_STOCK_JOB_CHANGED');
+          stockSource(current,held);
+          const at=serverClock();
+          const next=reclaimDBatchStockJob({job:held,workerId:worker.workerId,
+            workerVersion:worker.version,leaseId:`lease:${randomUUID()}`,
+            leaseExpiresAt:new Date(Date.parse(at)+held.leaseDurationMs).toISOString(),observedAt:at});
+          jobs[jobs.indexOf(held)]=next;
+          return {changed:true,document:current,result:clone(next)};
+        });
+      }
       eligibleStockWorker(job);
       const ready=await prepareStock(job);
       const policy=ready.capabilities.inventoryWrite?.prerequisitePolicy;
@@ -420,6 +445,186 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
     }
     return {status:'idle'};
   }
+  let activeEReadback=null;
+  async function runDueBatchEReadbacks(){
+    if(activeEReadback)return activeEReadback;
+    activeEReadback=(async()=>{
+      const snapshot=await repository.readSnapshot();
+      for(const saved of snapshot.runtime?.dBatchStockJobs??[]){
+        if(!['inventory_deferred','stock_accepted'].includes(saved.status))continue;
+        if(saved.inventoryAction==='create_only'&&saved.status!=='inventory_deferred'||
+            saved.inventoryAction==='write_authorized_stock'&&saved.status!=='stock_accepted')continue;
+        const priorJobs=snapshot.runtime?.dBatchEJobs?.filter(job=>job.batchId===saved.batchId&&
+          job.offerId===saved.offerId)??[];
+        if(priorJobs.length>1)throw new Error('D_BATCH_E_JOB_NOT_UNIQUE');
+        if(priorJobs[0]&&(['completed','read_failed','observation_stopped'].includes(priorJobs[0].status)||
+            priorJobs[0].status==='read_in_flight'&&
+              Date.parse(serverClock())<Date.parse(priorJobs[0].leaseExpiresAt)))continue;
+        const worker=workerRegistry.findEligible(['ozon-independent-readback'])
+          .find(value=>value.workerId===saved.workerId);
+        if(!worker||worker.version!==saved.workerVersion)
+          throw new Error('D_BATCH_E_WORKER_NOT_CURRENT');
+        const ready=await prepareStock(saved);
+        const source=stockSource(snapshot,saved);
+        const projected=createDBatchOfferRecord({batch:source.batch,member:source.member,
+          chunkIndex:source.chunkIndex,stockJob:saved,request:ready.request,
+          importObservation:source.importObservation,createdAt:saved.createdAt});
+        let job=await repository.transact(document=>{
+          const stock=document.runtime?.dBatchStockJobs?.find(value=>value.jobId===saved.jobId);
+          if(!stock||stock.status!==saved.status||stock.leaseId!==saved.leaseId)
+            throw new Error('D_BATCH_E_STOCK_SOURCE_CHANGED');
+          const current=stockSource(document,stock);
+          const record=createDBatchOfferRecord({batch:current.batch,member:current.member,
+            chunkIndex:current.chunkIndex,stockJob:stock,request:ready.request,
+            importObservation:current.importObservation,createdAt:stock.createdAt});
+          if(!isDeepStrictEqual(record,projected))throw new Error('D_BATCH_E_RECORD_DRIFT');
+          const records=document.runtime.dBatchOfferRecords??[];
+          const jobs=document.runtime.dBatchEJobs??[];
+          if(!Array.isArray(records)||!Array.isArray(jobs))throw new Error('D_BATCH_E_STORE_INVALID');
+          const existingRecords=records.filter(value=>value.recordId===record.recordId);
+          const existingJobs=jobs.filter(value=>value.recordId===record.recordId);
+          if(existingRecords.length>1||existingJobs.length>1||
+              (existingRecords.length===1&&!isDeepStrictEqual(existingRecords[0],record))||
+              existingRecords.length!==existingJobs.length)
+            throw new Error('D_BATCH_E_SOURCE_CONFLICT');
+          if(existingJobs.length===1){
+            let held=existingJobs[0];
+            if(Date.parse(serverClock())>=Date.parse(held.leaseExpiresAt)){
+              const at=serverClock();
+              held=reclaimDBatchEJob({job:held,workerId:worker.workerId,
+                workerVersion:worker.version,leaseId:`lease:${randomUUID()}`,
+                leaseExpiresAt:new Date(Date.parse(at)+held.leaseDurationMs).toISOString(),observedAt:at});
+              jobs[jobs.indexOf(existingJobs[0])]=held;
+              return {changed:true,document,result:clone(held)};
+            }
+            return {changed:false,result:clone(held)};
+          }
+          const at=serverClock();
+          const created=createDBatchEJob({record,workerId:worker.workerId,workerVersion:worker.version,
+            leaseId:`lease:${randomUUID()}`,
+            leaseExpiresAt:new Date(Date.parse(at)+stock.leaseDurationMs).toISOString(),
+            leaseDurationMs:stock.leaseDurationMs,observationPolicy:stock.observationPolicy,createdAt:at});
+          records.push(record);jobs.push(created);
+          document.runtime.dBatchOfferRecords=records;document.runtime.dBatchEJobs=jobs;
+          return {changed:true,document,result:clone(created)};
+        });
+        const checkpoint=async(event,result=null)=>repository.transact(document=>{
+          const jobs=document.runtime?.dBatchEJobs??[];
+          const held=jobs.find(value=>value.jobId===job.jobId);
+          if(!held)throw new Error('D_BATCH_E_JOB_MISSING');
+          const stock=document.runtime?.dBatchStockJobs?.find(value=>value.jobId===saved.jobId);
+          if(!stock||stock.status!==saved.status)throw new Error('D_BATCH_E_STOCK_SOURCE_CHANGED');
+          stockSource(document,stock);
+          const next=applyDBatchEJobEvent({job:held,event,workerId:job.workerId,
+            leaseId:job.leaseId,observedAt:serverClock()});
+          jobs[jobs.indexOf(held)]=next;
+          if(result){
+            if(result.sourceRecordId!==projected.recordId||result.readbackId!==event.resultId)
+              throw new Error('D_BATCH_E_RESULT_SCOPE_INVALID');
+            const results=document.runtime.dBatchEReadbacks??[];
+            if(!Array.isArray(results)||results.some(value=>value.readbackId===result.readbackId))
+              throw new Error('D_BATCH_E_RESULT_DUPLICATE');
+            results.push(result);document.runtime.dBatchEReadbacks=results;
+            if(result.status!=='not_verified'){
+              const batch=savedBatch(document,saved.batchId);
+              const member=batch.members.find(value=>value.offerId===saved.offerId);
+              if(!member)throw new Error('D_BATCH_E_MEMBER_MISSING');
+              member.status=result.status;
+            }
+          }
+          return {changed:true,document,result:clone(next)};
+        });
+        if(Date.parse(serverClock())>=Date.parse(job.observationPolicy.expiresAt)||
+            job.readCount>=job.observationPolicy.maxQueries){
+          const stopped=await checkpoint({kind:'observation_stopped',
+            reason:job.readCount>=job.observationPolicy.maxQueries?'query_limit':'policy_expired'});
+          return {status:'observation_stopped',job:stopped};
+        }
+        job=await checkpoint({kind:'read_started'});
+        const guard=async()=>{
+          const currentWorker=workerRegistry.findEligible(['ozon-independent-readback'])
+            .find(value=>value.workerId===job.workerId);
+          if(!currentWorker||currentWorker.version!==job.workerVersion)
+            throw new Error('D_BATCH_E_WORKER_NOT_CURRENT');
+          const current=await repository.readSnapshot();
+          const held=current.runtime?.dBatchEJobs?.find(value=>value.jobId===job.jobId);
+          const stock=current.runtime?.dBatchStockJobs?.find(value=>value.jobId===saved.jobId);
+          if(!held||!stock||held.leaseId!==job.leaseId||held.status!=='read_in_flight'||
+              stock.status!==saved.status||Date.parse(serverClock())>=Date.parse(held.leaseExpiresAt)||
+              Date.parse(serverClock())>=Date.parse(held.observationPolicy.expiresAt))
+            throw new Error('D_BATCH_E_READ_GUARD_BLOCKED');
+          stockSource(current,stock);
+        };
+        const guardedRequest=async(request,options)=>{
+          if(request.write!==false)throw new Error('D_BATCH_E_READ_ONLY_REQUIRED');
+          await guard();
+          return requestJson(request,{...options,beforeRequestSend:guard});
+        };
+        const adapter=createStoreIsolatedOzonSellerApiDEAdapter({requestJson:guardedRequest,
+          adapterCapabilities:ready.capabilities});
+        const controller=new AbortController();
+        const timeoutMs=Math.min(job.observationPolicy.requestTimeoutMs,
+          Date.parse(job.leaseExpiresAt)-Date.parse(serverClock()),
+          Date.parse(job.observationPolicy.expiresAt)-Date.parse(serverClock()));
+        const timer=setTimeout(()=>controller.abort(new Error('D_BATCH_E_READ_TIMEOUT')),
+          Math.max(1,timeoutMs));
+        try{
+          const observation=await adapter.readbackSellerApi({platform:projected.platform,
+            store:projected.store,storeRef:projected.storeRef,warehouseRef:projected.warehouseRef,
+            credentialAlias:projected.credentialAlias,warehouseId:projected.warehouseId,
+            skuPackageId:projected.skuPackageId,supplierSkuId:projected.supplierSkuId,
+            merchantSku:projected.offerId,platformProductId:projected.productId,writeAllowed:false},
+          {signal:controller.signal});
+          const result=createDBatchEReadback({record:projected,observation,readAt:serverClock()});
+          const settled=await checkpoint({kind:'read_completed',resultId:result.readbackId},result);
+          return {status:result.status,job:settled,result};
+        }catch(error){
+          const reason=controller.signal.aborted?'request_timeout':
+            error instanceof OzonDEHttpTransportError?'transport_failure':
+            String(error?.message).startsWith('OZON_DE_READBACK_')?'platform_data_invalid':'system_failure';
+          const result=createDBatchEReadback({record:projected,observation:null,
+            readAt:serverClock(),readFailure:reason});
+          let settled;
+          try{settled=await checkpoint({kind:'read_failed',resultId:result.readbackId},result);}
+          catch(checkpointError){throw new AggregateError([error,checkpointError],
+            'D_BATCH_E_FAILURE_CHECKPOINT_FAILED');}
+          if(reason==='system_failure')throw error;
+          return {status:'read_failed',job:settled,result};
+        }finally{clearTimeout(timer);}
+      }
+      return {status:'idle'};
+    })();
+    try{return await activeEReadback;}finally{activeEReadback=null;}
+  }
+  const activeWriteBatches=new Set();
+  const MAX_ACTIVE_BATCH_WRITES=32;
+  function activateStockContinuation(batchId){
+    if(!activeWriteBatches.has(batchId)&&activeWriteBatches.size>=MAX_ACTIVE_BATCH_WRITES)
+      throw new Error('D_BATCH_SERVICE_ACTIVE_WRITE_CAPACITY_REACHED');
+    activeWriteBatches.add(batchId);
+  }
+  async function runDueBatchContinuations(){
+    const current=await repository.readSnapshot();
+    for(const batchId of activeWriteBatches){
+      const job=current.runtime?.dBatchImportJobs?.find(value=>value.batchId===batchId);
+      if(!job||Date.parse(serverClock())>=Date.parse(job.observationPolicy.expiresAt))
+        activeWriteBatches.delete(batchId);
+    }
+    const importObservation=await runDueBatchObservations();
+    if(importObservation.status!=='idle')return importObservation;
+    const prerequisite=await runDueBatchStockPrerequisites();
+    if(prerequisite.status!=='idle')return prerequisite;
+    if(activeWriteBatches.size>0){
+      const snapshot=await repository.readSnapshot();
+      const due=snapshot.runtime?.dBatchStockJobs?.some(job=>
+        activeWriteBatches.has(job.batchId)&&job.status==='ready_to_write');
+      if(due){
+        const write=await runDueBatchStockWrites({allowedBatchIds:activeWriteBatches});
+        if(write.status!=='idle')return write;
+      }
+    }
+    return runDueBatchEReadbacks();
+  }
   return Object.freeze({
     async runAuthorizedBatch({ batchId }) {
       const snapshot = await repository.readSnapshot();
@@ -430,11 +635,32 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
           jobs[0].chunks.some(chunk => ['intent', 'unknown_outcome'].includes(chunk.status)))) {
         return { status: 'idempotent_replay', executionStatus: jobs[0].status, job: clone(jobs[0]) };
       }
-      if(batch.schemaVersion==='d-batch-production-authorization-v2')
-        throw new Error('D_BATCH_SERVICE_POST_IMPORT_EXECUTION_NOT_AVAILABLE');
+      if(batch.schemaVersion==='d-batch-production-authorization-v2'&&
+          !activeWriteBatches.has(batchId)&&activeWriteBatches.size>=MAX_ACTIVE_BATCH_WRITES)
+        throw new Error('D_BATCH_SERVICE_ACTIVE_WRITE_CAPACITY_REACHED');
       const ready = await prepare(batchId);
-      return runtime.run({ batchId, members: ready.members, adapterCapabilities: ready.adapterCapabilities,
+      const result=await runtime.run({ batchId, members: ready.members, adapterCapabilities: ready.adapterCapabilities,
         workerId: ready.workerId });
+      if(batch.schemaVersion==='d-batch-production-authorization-v2')activateStockContinuation(batchId);
+      return result;
+    },
+    async resumeAuthorizedBatchContinuations({batchId}){
+      const document=await repository.readSnapshot(),batch=savedBatch(document,batchId);
+      if(batch.schemaVersion!=='d-batch-production-authorization-v2')
+        throw new Error('D_BATCH_SERVICE_RESUME_SCOPE_INVALID');
+      const jobs=document.runtime?.dBatchImportJobs?.filter(job=>job.batchId===batchId)??[];
+      if(jobs.length!==1)throw new Error('D_BATCH_SERVICE_RESUME_JOB_REQUIRED');
+      const stockJobs=document.runtime?.dBatchStockJobs?.filter(job=>job.batchId===batchId)??[];
+      if(stockJobs.length===0||!stockJobs.some(job=>['awaiting_prerequisites','ready_to_write'].includes(job.status)))
+        throw new Error('D_BATCH_SERVICE_RESUME_NOTHING_UNSENT');
+      for(const job of stockJobs.filter(value=>['awaiting_prerequisites','ready_to_write'].includes(value.status))){
+        eligibleStockWorker(job);
+        if(Date.parse(serverClock())>=Date.parse(job.observationPolicy.expiresAt))
+          throw new Error('D_BATCH_SERVICE_RESUME_POLICY_EXPIRED');
+        await prepareStock(job);
+      }
+      activateStockContinuation(batchId);
+      return {status:'continuation_activated',batchId};
     },
     async observeBatchChunk({ batchId, chunkIndex }) {
       const ready = await prepareObservation(batchId, chunkIndex);
@@ -447,6 +673,7 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
       const workerId = resolveService(candidateFor(document, batch.members[0])).service.worker.workerId;
       return runtime.reclaim({ batchId, workerId });
     },
-    runDueBatchObservations,runDueBatchStockPrerequisites,runDueBatchStockWrites
+    runDueBatchObservations,runDueBatchStockPrerequisites,runDueBatchStockWrites,
+    runDueBatchEReadbacks,runDueBatchContinuations
   });
 }

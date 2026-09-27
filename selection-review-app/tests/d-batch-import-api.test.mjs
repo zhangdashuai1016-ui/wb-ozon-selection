@@ -27,11 +27,19 @@ test('one authenticated batch confirmation persists authorization and reports un
   const confirmed = await api.post('/api/d-batches/authorize', input);
   assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
   assert.equal(confirmed.body.executionStatus, 'prewrite_blocked');
+  assert.equal(confirmed.body.executionView.members[0].offerId, fixture.owner.args.input.merchantSku);
   assert.equal(confirmed.body.reasonCode, 'DE_RUNTIME_UNAVAILABLE_BATCH_IMPORT');
   assert.equal(confirmed.body.externalRequests, 0);
   const replay = await api.post('/api/d-batches/authorize', input);
   assert.equal(replay.status, 200, JSON.stringify(replay.body));
   assert.equal(replay.body.batch.batchId, confirmed.body.batch.batchId);
+  const detail=await api.get(`/api/d-batches/${encodeURIComponent(confirmed.body.batch.batchId)}`);
+  assert.equal(detail.status,200);
+  assert.equal(detail.body.members[0].importStatus,'not_started');
+  const resume=await api.post(`/api/d-batches/${encodeURIComponent(confirmed.body.batch.batchId)}/resume`,
+    {confirmUnsentStockContinuation:true});
+  assert.equal(resume.status,422);
+  assert.equal(resume.body.code,'DE_RUNTIME_UNAVAILABLE_BATCH_IMPORT');
   const saved = await api.readDocument();
   assert.equal(saved.runtime.dProductionBatches.length, 1);
   assert.equal(saved.runtime.dBatchImportJobs, undefined);

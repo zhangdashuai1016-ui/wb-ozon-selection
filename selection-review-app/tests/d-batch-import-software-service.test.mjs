@@ -6,13 +6,15 @@ import { createMemoryBusinessStateRepository, initialBusinessStateDocument } fro
 import { createLocalDevelopmentWorkerRegistry } from '../lib/worker-registry.mjs';
 import { createDBatchImportSoftwareService } from '../lib/d-batch-import-software-service.mjs';
 import { fingerprintCanonicalRecord } from '../lib/production-contract-primitives.mjs';
+import { createDBatchOfferRecord, createDBatchEReadback } from '../lib/d-batch-offer-readback.mjs';
+import { projectDBatchExecutionView } from '../lib/d-batch-execution-view.mjs';
 
 const now = '2026-08-22T07:25:00.000Z';
 const observationPolicy = { schemaVersion: 'd-platform-observation-policy-v1',
   policyRef: 'policy:synthetic:batch-observation', version: 'v1', maxQueries: 10,
   intervalMs: 0, expiresAt: '2026-09-01T00:00:00.000Z', requestTimeoutMs: 10_000 };
 
-async function fixture({stockFree=0,stockReceipt='accepted'}={}) {
+async function fixture({stockFree=0,stockReceipt='accepted',eMissingAttributes=false}={}) {
   let currentTime = now;
   const source = await preparedFixture();
   const request = source.prepared.executableRequest;
@@ -22,7 +24,7 @@ async function fixture({stockFree=0,stockReceipt='accepted'}={}) {
     siblingSourceV1: { parentCardBinding: { model: 'synthetic-model' } },
     lifecycleV11: { skuPackage: structuredClone(source.fixture.skuPackage) } };
   const batch = { schemaVersion: 'd-batch-production-authorization-v1', batchId: 'd-batch:service-test',
-    storeRef: structuredClone(request.storeRef), status: 'authorized', externalRequestState: 'not_sent',
+    confirmedAt:now,storeRef: structuredClone(request.storeRef), status: 'authorized', externalRequestState: 'not_sent',
     excludedOfferIds: ['FIRST-EXCLUDED'], members: [{ candidateId: candidate.id,
       skuPackageId: request.skuPackageId, offerId: request.merchantSku,
       resultRevision: candidate.dataRevision, authorizationId: source.authorization.authorizationId,
@@ -34,7 +36,7 @@ async function fixture({stockFree=0,stockReceipt='accepted'}={}) {
   const repository = createMemoryBusinessStateRepository(document);
   const workerRegistry = createLocalDevelopmentWorkerRegistry({ clock: () => currentTime });
   workerRegistry.register({ workerId: 'worker:batch-service', version: 'v1',
-    capabilities: ['ozon-production-execution'], observedAt: now });
+    capabilities: ['ozon-production-execution','ozon-independent-readback'], observedAt: now });
   const capability = formalCapabilities(request.store, source.authorization.lockedScope.finalUploads, request);
   capability.warehouseId = request.inventoryWrite.warehouseId;
   capability.inspectedAt = now;
@@ -44,6 +46,7 @@ async function fixture({stockFree=0,stockReceipt='accepted'}={}) {
     validUntil: '2026-09-01T00:00:00.000Z' };
   const inspection = ozonDEPreflightEvidenceFixture().record.inspection;
   const calls = [];
+  let stockWriteSent=false;
   const serviceOptions = { repository, runtimeMode: 'local_development',
     workerRegistry, serverClock: () => currentTime,
     services: new Map([[source.currentProductionBinding.bindingId,
@@ -58,16 +61,25 @@ async function fixture({stockFree=0,stockReceipt='accepted'}={}) {
         {offer_id:request.merchantSku,product_id:94001,status:'imported',errors:[]}]}};
       if(requestJson.endpoint==='/v3/product/info/list')return {items:[{offer_id:request.merchantSku,
         product_id:94001,errors:[],is_archived:false,is_autoarchived:false,
-        statuses:{status:'price_sent'}}]};
+        primary_image:[request.finalUploads[0].platformAcceptedUrl],
+        images:request.finalUploads.slice(1).map(asset=>asset.platformAcceptedUrl),
+        statuses:{status:'price_sent',moderate_status:'approved',validation_status:'success'}}]};
+      if(requestJson.endpoint==='/v4/product/info/attributes')return {result:eMissingAttributes?[]:
+        [{offer_id:request.merchantSku,product_id:94001}]};
+      if(requestJson.endpoint==='/v5/product/info/prices')return {items:[{offer_id:request.merchantSku,
+        product_id:94001,price:{price:request.platformWritePrice.amount,currency_code:'CNY'}}]};
       if(requestJson.endpoint==='/v2/product/info/stocks-by-warehouse/fbs')return {
         products:[{offer_id:request.merchantSku,product_id:94001,sku:194001,
-          warehouse_id:Number(request.inventoryWrite.warehouseId),free_stock:stockFree,present:stockFree,reserved:0}],
+          warehouse_id:Number(request.inventoryWrite.warehouseId),
+          free_stock:stockWriteSent?request.stock:stockFree,
+          present:stockWriteSent?request.stock:stockFree,reserved:0}],
         has_next:false,cursor:''};
       if(requestJson.endpoint==='/v2/products/stocks'){
         const saved=await repository.readSnapshot();
         assert.equal(saved.runtime.dBatchStockJobs[0].status,'stock_intent');
         assert.ok(saved.runtime.dBatchStockJobs[0].stockIntentAt);
         if(stockReceipt==='transport_unknown')throw new Error('SYNTHETIC_RESPONSE_LOST');
+        stockWriteSent=stockReceipt==='accepted';
         return {result:[{offer_id:request.merchantSku,product_id:94001,
           warehouse_id:Number(request.inventoryWrite.warehouseId),
           updated:stockReceipt==='accepted',errors:[]}]};
@@ -75,10 +87,10 @@ async function fixture({stockFree=0,stockReceipt='accepted'}={}) {
       throw new Error('Synthetic endpoint not configured');
     } };
   const service = createDBatchImportSoftwareService(serviceOptions);
-  return { repository, service, capability, calls, batch, candidateId: candidate.id,
+  return { repository, service, capability, calls, batch, request, candidateId: candidate.id,
     restartService: () => createDBatchImportSoftwareService(serviceOptions),
     advanceClock: value => { currentTime = value; workerRegistry.heartbeat({ workerId: 'worker:batch-service',
-      version: 'v1', capabilities: ['ozon-production-execution'], status: 'online' }); } };
+      version: 'v1', capabilities: ['ozon-production-execution','ozon-independent-readback'], status: 'online' }); } };
 }
 async function seedV2ObservedImport(f,inventoryAction){
   await f.service.runAuthorizedBatch({batchId:f.batch.batchId});
@@ -100,7 +112,7 @@ test('software service requires a current batch limit before admission and sends
   assert.equal(f.calls.length, 0);
   assert.equal((await f.repository.readSnapshot()).runtime.dBatchImportJobs, undefined);
 });
-test('new batch authorization scope stops before import until inventory and E continuation are available',async()=>{
+test('new batch authorization scope runs an explicit create-only import and software readback',async()=>{
   const f=await fixture();
   await f.repository.transact(document=>{
     const batch=document.runtime.dProductionBatches[0];
@@ -109,10 +121,15 @@ test('new batch authorization scope stops before import until inventory and E co
       eReadbackOfferIds:batch.members.map(member=>member.offerId)};
     return {changed:true,document,result:null};
   });
-  await assert.rejects(f.service.runAuthorizedBatch({batchId:f.batch.batchId}),
-    /D_BATCH_SERVICE_POST_IMPORT_EXECUTION_NOT_AVAILABLE/);
-  assert.equal(f.calls.length,0);
-  assert.equal((await f.repository.readSnapshot()).runtime.dBatchImportJobs,undefined);
+  const started=await f.service.runAuthorizedBatch({batchId:f.batch.batchId});
+  assert.equal(started.status,'waiting_platform');
+  assert.equal((await f.service.runDueBatchContinuations()).status,'imported_awaiting_inventory');
+  const e=await f.service.runDueBatchContinuations();
+  assert.equal(e.status,'card_observed_pending_inventory');
+  assert.equal((await f.service.runDueBatchContinuations()).status,'idle');
+  assert.equal(f.calls.filter(call=>call.write).length,1);
+  assert.equal((await f.service.runAuthorizedBatch({batchId:f.batch.batchId})).status,'idempotent_replay');
+  assert.equal(f.calls.filter(call=>call.write).length,1);
 });
 
 test('software service starts one persisted import task and duplicate start cannot resend', async () => {
@@ -200,4 +217,120 @@ test('authorized stock sends once after durable intent; restart cannot replay ac
     assert.equal((await f.restartService().runDueBatchStockWrites()).status,'idle');
     assert.equal(f.calls.filter(call=>call.endpoint==='/v2/products/stocks').length,1);
   }
+});
+test('per-offer E distinguishes card creation without stock from authorized stock readback',async()=>{
+  for(const inventoryAction of ['create_only','write_authorized_stock']){
+    const f=await fixture();
+    await seedV2ObservedImport(f,inventoryAction);
+    if(inventoryAction==='write_authorized_stock'){
+      await f.service.runDueBatchStockPrerequisites();
+      await f.service.runDueBatchStockWrites();
+    }
+    const saved=await f.repository.readSnapshot();
+    const batch=saved.runtime.dProductionBatches[0],chunk=saved.runtime.dBatchImportJobs[0].chunks[0];
+    const record=createDBatchOfferRecord({batch,member:batch.members[0],chunkIndex:0,
+      stockJob:saved.runtime.dBatchStockJobs[0],request:f.request,
+      importObservation:chunk.results[0].importObservation,createdAt:now});
+    assert.equal(record.inventoryModified,inventoryAction==='write_authorized_stock');
+    const media=record.readbackExpectation.media.map(item=>item.submittedUrl);
+    const observation={platform:'ozon',store:record.store,storeRef:record.storeRef,
+      warehouseRef:record.warehouseRef,credentialAlias:record.credentialAlias,
+      skuPackageId:record.skuPackageId,supplierSkuId:record.supplierSkuId,
+      merchantSku:record.offerId,platformProductId:record.productId,
+      currentPrice:record.expectedPrice,currentStock:inventoryAction==='create_only'?'unknown':record.expectedStock,
+      imageCount:media.length,errors:[],platformEvidenceRef:'receipt:synthetic:independent-readback',
+      mediaObservation:{sourceProtocol:'ozon-product-info-v3',primaryImageUrl:media[0],images:media.slice(1)},
+      inventoryObservation:{sourceProtocol:'ozon-product-stocks-by-warehouse-fbs-v2',hasNext:false,
+        rows:inventoryAction==='create_only'?[]:[{warehouseId:record.warehouseId,productId:record.productId,
+          sku:'194001',offerId:record.offerId,freeStock:record.expectedStock,present:record.expectedStock,reserved:0}]}};
+    const e=createDBatchEReadback({record,observation,readAt:now});
+    assert.equal(e.status,inventoryAction==='create_only'?'card_observed_pending_inventory':'card_and_stock_observed');
+    assert.equal(e.listedVerified,false);
+    const drift=createDBatchEReadback({record,observation:{...observation,platformProductId:'999999'},readAt:now});
+    assert.equal(drift.status,'not_verified');
+    assert.ok(drift.gaps.includes('platformProductId'));
+  }
+});
+test('software E persists one independent per-offer readback for each frozen inventory action',async()=>{
+  for(const inventoryAction of ['create_only','write_authorized_stock']){
+    const f=await fixture();
+    await seedV2ObservedImport(f,inventoryAction);
+    if(inventoryAction==='write_authorized_stock'){
+      await f.service.runDueBatchStockPrerequisites();
+      await f.service.runDueBatchStockWrites();
+    }
+    const result=await f.service.runDueBatchEReadbacks();
+    assert.equal(result.status,inventoryAction==='create_only'?
+      'card_observed_pending_inventory':'card_and_stock_observed');
+    assert.equal(result.result.listedVerified,false);
+    const saved=await f.repository.readSnapshot();
+    assert.equal(saved.runtime.dBatchOfferRecords.length,1);
+    assert.equal(saved.runtime.dBatchEReadbacks.length,1);
+    assert.equal(saved.runtime.dBatchEJobs[0].status,'completed');
+    assert.equal(saved.runtime.dProductionBatches[0].members[0].status,result.status);
+    const view=projectDBatchExecutionView(saved,f.batch.batchId);
+    assert.equal(view.members[0].eStatus,result.status);
+    assert.equal(view.members[0].inventoryStatus,inventoryAction==='create_only'?'inventory_deferred':'stock_accepted');
+    assert.equal(view.members[0].listedVerified,false);
+    assert.equal((await f.restartService().runDueBatchEReadbacks()).status,'idle');
+    assert.equal(f.calls.filter(call=>call.write).length,
+      inventoryAction==='create_only'?1:2);
+  }
+});
+test('explicit stock scope pumps import, prerequisite, stock and E without a second import',async()=>{
+  const f=await fixture();
+  await f.repository.transact(document=>{
+    const batch=document.runtime.dProductionBatches[0];
+    batch.schemaVersion='d-batch-production-authorization-v2';
+    batch.postImportScope={schemaVersion:'d-batch-post-import-scope-v1',
+      inventoryAction:'write_authorized_stock',
+      eReadbackOfferIds:batch.members.map(member=>member.offerId)};
+    return {changed:true,document,result:null};
+  });
+  assert.equal((await f.service.runAuthorizedBatch({batchId:f.batch.batchId})).status,'waiting_platform');
+  assert.equal((await f.service.runDueBatchContinuations()).status,'imported_awaiting_inventory');
+  assert.equal((await f.service.runDueBatchContinuations()).status,'ready_to_write');
+  assert.equal((await f.service.runDueBatchContinuations()).status,'stock_accepted');
+  assert.equal((await f.service.runDueBatchContinuations()).status,'card_and_stock_observed');
+  assert.equal((await f.service.runDueBatchContinuations()).status,'idle');
+  assert.equal(f.calls.filter(call=>call.endpoint==='/v3/product/import').length,1);
+  assert.equal(f.calls.filter(call=>call.endpoint==='/v2/products/stocks').length,1);
+});
+test('a restarted process only reads saved work until the owner resumes unsent stock',async()=>{
+  const f=await fixture();
+  await seedV2ObservedImport(f,'write_authorized_stock');
+  await f.service.runDueBatchStockPrerequisites();
+  f.advanceClock('2026-08-22T07:31:00.000Z');
+  const restarted=f.restartService();
+  assert.equal((await restarted.runDueBatchContinuations()).status,'idle');
+  assert.equal(f.calls.filter(call=>call.endpoint==='/v2/products/stocks').length,0);
+  assert.equal((await restarted.resumeAuthorizedBatchContinuations({batchId:f.batch.batchId})).status,
+    'continuation_activated');
+  assert.equal((await restarted.runDueBatchContinuations()).status,'stock_accepted');
+  assert.equal((await restarted.runDueBatchContinuations()).status,'card_and_stock_observed');
+  assert.equal(f.calls.filter(call=>call.endpoint==='/v2/products/stocks').length,1);
+});
+
+test('an unknown stock receipt stops E and cannot be resumed as an unsent write',async()=>{
+  const f=await fixture({stockReceipt:'incomplete'});
+  await seedV2ObservedImport(f,'write_authorized_stock');
+  await f.service.runDueBatchStockPrerequisites();
+  assert.equal((await f.service.runDueBatchStockWrites()).status,'unknown_outcome');
+  const restarted=f.restartService();
+  assert.equal((await restarted.runDueBatchContinuations()).status,'idle');
+  await assert.rejects(restarted.resumeAuthorizedBatchContinuations({batchId:f.batch.batchId}),
+    /RESUME_NOTHING_UNSENT/);
+  const saved=await f.repository.readSnapshot();
+  assert.equal(saved.runtime.dBatchEReadbacks,undefined);
+  assert.equal(f.calls.filter(call=>call.endpoint==='/v2/products/stocks').length,1);
+});
+test('create-only missing independent product readback remains unverified without a stock write',async()=>{
+  const f=await fixture({eMissingAttributes:true});
+  await seedV2ObservedImport(f,'create_only');
+  const failed=await f.service.runDueBatchEReadbacks();
+  assert.equal(failed.status,'read_failed');
+  assert.equal(failed.result.status,'not_verified');
+  assert.equal(failed.result.listedVerified,false);
+  assert.equal((await f.restartService().runDueBatchEReadbacks()).status,'idle');
+  assert.equal(f.calls.filter(call=>call.write).length,1);
 });

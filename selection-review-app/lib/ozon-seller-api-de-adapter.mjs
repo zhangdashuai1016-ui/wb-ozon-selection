@@ -364,7 +364,14 @@ function observedImportErrors(item) {
 }
 
 function observedErrors(infoItem) {
-  return Array.isArray(infoItem?.errors) ? structuredClone(infoItem.errors) : "unknown";
+  if (!Array.isArray(infoItem?.errors)) return "unknown";
+  const safeCode = value => typeof value === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(value)
+    ? value : "unclassified";
+  const errors = infoItem.errors.slice(0, 50).map(entry => ({
+    code: safeCode(entry?.code), level: safeCode(entry?.level)
+  }));
+  if (infoItem.errors.length > 50) errors[49] = { code: "additional_errors", level: "unknown" };
+  return errors;
 }
 
 function saleStatus(infoItem) {

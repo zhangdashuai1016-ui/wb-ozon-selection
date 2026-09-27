@@ -628,9 +628,12 @@ test("independent readback uses actual info errors and never queries a fabricate
   const driftResponses = readbackResponses();driftResponses["/v5/product/info/prices"].items[0].product_id = 999999;
   const driftAdapter=createStoreIsolatedOzonSellerApiDEAdapter({adapterCapabilities:readyCapabilities(),requestJson:async({endpoint})=>structuredClone(driftResponses[endpoint])});
   await assert.rejects(()=>driftAdapter.readbackSellerApi(independentReadbackQuery()),/IDENTITY_MISMATCH: prices/);
-  const errors=[{code:'failed_update'}],responses=readbackResponses({infoErrors:errors}),calls=[];
+  const errors=[{code:'failed_update',level:'ERROR',message:'private user@example.com'}],responses=readbackResponses({infoErrors:errors}),calls=[];
   const adapter=createStoreIsolatedOzonSellerApiDEAdapter({adapterCapabilities:readyCapabilities(),requestJson:async({endpoint})=>{calls.push(endpoint);return structuredClone(responses[endpoint]);}});
-  const observed=await adapter.readbackSellerApi(independentReadbackQuery());assert.deepEqual(observed.errors,errors);assert.equal(calls.includes('/v3/product/list'),false);
+  const observed=await adapter.readbackSellerApi(independentReadbackQuery());
+  assert.deepEqual(observed.errors,[{code:'failed_update',level:'ERROR'}]);
+  assert.equal(JSON.stringify(observed).includes('user@example.com'),false);
+  assert.equal(calls.includes('/v3/product/list'),false);
 });
 
 test("missing or malformed info error lists stay unknown in independent readback", async () => {

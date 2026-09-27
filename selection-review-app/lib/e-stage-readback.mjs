@@ -122,6 +122,16 @@ export function observedWarehouseAvailableStock(inventory, warehouseId, identity
 /** Content verification distinguishes unknown CDN identity from a proven change to known media. */
 export function productionReadbackContentGaps(expectation, observation) {
   if (!validateProductionReadbackExpectation(expectation)) return ["readback_expectation_missing_or_invalid"];
+  const gaps = productionReadbackMediaGaps(expectation, observation);
+  const stock = observedWarehouseAvailableStock(observation?.inventoryObservation, expectation.warehouseId, { productId: observation?.platformProductId, offerId: observation?.merchantSku });
+  if (stock === "unknown") gaps.push("warehouse_identity_or_quantity_unverified");
+  else if (stock !== observation.currentStock) gaps.push("warehouse_stock_mismatch");
+  return gaps;
+}
+
+/** Media evidence can be checked when the owner explicitly chose card creation without stock write. */
+export function productionReadbackMediaGaps(expectation, observation) {
+  if (!validateProductionReadbackExpectation(expectation)) return ["readback_expectation_missing_or_invalid"];
   const gaps = [];
   const sequence = observedMediaSequence(observation?.mediaObservation);
   if (!sequence) gaps.push("media_identity_unverified");
@@ -141,9 +151,6 @@ export function productionReadbackContentGaps(expectation, observation) {
     }
     if (observation.imageCount !== sequence.length) gaps.push("imageCount");
   }
-  const stock = observedWarehouseAvailableStock(observation?.inventoryObservation, expectation.warehouseId, { productId: observation?.platformProductId, offerId: observation?.merchantSku });
-  if (stock === "unknown") gaps.push("warehouse_identity_or_quantity_unverified");
-  else if (stock !== observation.currentStock) gaps.push("warehouse_stock_mismatch");
   return gaps;
 }
 
