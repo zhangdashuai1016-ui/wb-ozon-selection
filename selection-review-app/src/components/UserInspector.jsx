@@ -709,7 +709,7 @@ function ListingPreparationPanel({ candidate, captureControl, onStartOzonSalesCa
           </div>
         ) : null}
         {lifecycleSku?.businessPhase === "C1" && c1Plan ? <C1RightsReviewPanel candidate={candidate} identity={productionIdentity} onSave={onSaveC1RightsReview} /> : null}
-        <C1OzonAttributePanel candidate={candidate} identity={productionIdentity} onBackfill={onBackfillC1SupplyAttributes} onSaveMapping={onSaveC1OzonAttributeMapping} onRefreshSchema={onRefreshC1CategorySchema} onProposeAttributes={onProposeC1OzonAttributes} />
+        <C1OzonAttributePanel candidate={candidate} identity={productionIdentity} onBackfill={onBackfillC1SupplyAttributes} onSaveMapping={onSaveC1OzonAttributeMapping} onRefreshSchema={onRefreshC1CategorySchema} onProposeAttributes={onProposeC1OzonAttributes} onLoadMappingFacts={onLoadC1OzonAttributes} />
         <ComparableCapturePanel candidate={candidate} captureControl={captureControl} onStart={onStartOzonSalesCapture} />
         <C1PaidDraftPanel candidate={candidate} identity={productionIdentity} onAuthorize={onAuthorizeC1PaidDraft} onContinueSaved={onContinueSavedC1Draft} onReadOriginalResult={onReadOriginalC1DraftResult} onRetryKeywordHandoff={onRetryC1KeywordHandoff} onContinuePreparation={onContinueC1Preparation} />
         {lifecycleSku?.businessPhase === "C2" && !finalCard && !lifecycleSku.productionAuthorization ? <FinalPricingReviewForm candidate={candidate} onSave={onSaveFinalPricingReview} disabled={productionIdentity?.canSaveProductionOwnerDecision !== true} /> : null}

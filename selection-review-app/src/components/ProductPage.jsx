@@ -10,6 +10,8 @@ import C1LocalPreparationPanel, { showsC1LocalPreparation } from "./C1LocalPrepa
 import C1PaidDraftPanel from "./C1PaidDraftPanel.jsx";
 import C1ContentReviewPanel from "./C1ContentReviewPanel.jsx";
 import C1EditorialReviewPanel from "./C1EditorialReviewPanel.jsx";
+import C1RightsReviewPanel from "./C1RightsReviewPanel.jsx";
+import C1OzonAttributePanel from "./C1OzonAttributePanel.jsx";
 import C2FinalAssetsPanel from "./C2FinalAssetsPanel.jsx";
 import FinalProductPlanCard from "./FinalProductPlanCard.jsx";
 
@@ -69,6 +71,28 @@ function SiblingSkuSection({ candidate, siblingSkuIds, onCreate }) {
         {saving ? '正在建立…' : '建立独立规格'}
       </button>
     </form>
+    {error ? <p role="alert">{error}</p> : null}
+  </section>;
+}
+
+function SiblingColorRevisionControl({ candidate, onRevise }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const sku = candidate.lifecycleV11?.skuPackage;
+  if (!candidate.siblingSourceV1 || !['C1', 'C2'].includes(sku?.businessPhase) ||
+      !['facts_checked', 'seo_draft_ready'].includes(sku?.c1ProductPlan?.status)) return null;
+  async function revise() {
+    setSaving(true); setError('');
+    try { await onRevise({ candidateId: candidate.id, skuPackageId: sku.skuPackageId, dataRevision: candidate.dataRevision }); }
+    catch (cause) { setError(errorMessage(cause)); }
+    finally { setSaving(false); }
+  }
+  return <section className="product-section" aria-label="补齐本规格颜色映射">
+    <h3>本规格颜色映射</h3>
+    <p>如果 10096 商品颜色或 10097 颜色名称缺少本规格的确认，请建立新的 C1 修订后补齐。旧 C1/C2 保留历史；新版须重新确认事实、文案和最终素材，旧授权不会沿用。</p>
+    <button type="button" className="button secondary" disabled={saving || !onRevise} onClick={revise}>
+      {saving ? '正在建立修订…' : '建立新的 C1 颜色修订'}
+    </button>
     {error ? <p role="alert">{error}</p> : null}
   </section>;
 }
@@ -1764,6 +1788,9 @@ export default function ProductPage({
   onConfirmC1EditorialContent = null,
   onUploadLifecycleFinalAsset = null, onSaveC2UploadDraft = null, onConfirmLifecycleFinalAssets = null,
   onSaveProductionOwnerDecision = null, onSaveFinalPricingReview = null, onReviseC1FinalPlan = null,
+  onReviseSiblingColor = null, onSaveC1RightsReview = null, onBackfillC1SupplyAttributes = null,
+  onSaveC1OzonAttributeMapping = null, onRefreshC1CategorySchema = null,
+  onProposeC1OzonAttributes = null, onLoadC1OzonAttributes = null,
   onRecalculateBWithExactCommission = null, onRefreshBFeeEvidence = null,
   loadingLabel = "正在读取这件商品的找货资料…"
 }) {
@@ -2068,6 +2095,14 @@ export default function ProductPage({
       {findBody}
     </details> : null}
 
+    <SiblingColorRevisionControl candidate={candidate} onRevise={onReviseSiblingColor} />
+    {candidate.lifecycleV11?.skuPackage?.businessPhase === 'C1' ? <>
+      <C1RightsReviewPanel candidate={candidate} identity={productionIdentity} onSave={onSaveC1RightsReview} />
+      <C1OzonAttributePanel candidate={candidate} identity={productionIdentity}
+        onBackfill={onBackfillC1SupplyAttributes} onSaveMapping={onSaveC1OzonAttributeMapping}
+        onRefreshSchema={onRefreshC1CategorySchema} onProposeAttributes={onProposeC1OzonAttributes}
+        onLoadMappingFacts={onLoadC1OzonAttributes} />
+    </> : null}
     <C1LocalPreparationPanel candidate={candidate} identity={productionIdentity} onPrepare={onPrepareC1Local} />
     {showsC1LocalPreparation(candidate) ? <>
       {candidate.lifecycleV11.skuPackage.businessPhase === "C1" && candidate.c1ContentReviewView?.status !== "awaiting_confirmation" &&

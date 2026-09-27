@@ -35,6 +35,8 @@ test("C2界面只在新版等待态提供本地素材排序与一次主人确认
   assert.match(inspector, /c2Assets\.softwareState/);
   const assets = await readFile(path.join(appDir, "src", "components", "C2FinalAssetsPanel.jsx"), "utf8");
   assert.match(assets, /type="file" multiple/);
+  assert.match(assets, /本规格需要自己的首图/);
+  assert.match(assets, /candidate\.siblingSourceV1/);
   assert.match(assets, /\.jpg,\.jpeg,\.png,\.webp/);
   assert.match(assets, /视频内容校验尚未配置/);
   assert.match(assets, /上移/);

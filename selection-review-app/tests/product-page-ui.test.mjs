@@ -5,6 +5,7 @@ import { build } from 'vite';
 import react from '@vitejs/plugin-react';
 import { productionOwnerDecisionFixture } from './fixtures/production-owner-decision-fixture.mjs';
 import { finalAssets } from './helpers/c2-software-fixture.mjs';
+import { siblingColorState } from './fixtures/sibling-color-state.mjs';
 
 // The product page renders synthetic display data only: no saved records, no services, no requests.
 let renderer;
@@ -89,6 +90,19 @@ const okEstimate = {
 };
 const props = (extra = {}) => ({ candidate: candidate(), view: null, extensionStatus: { code: 'disconnected', label: '插件未安装或未连接' },
   onSaveDraft: forbidden, onRequestCapture: forbidden, onOpenLegacyCard: forbidden, onBack: forbidden, ...extra });
+
+test('sibling product page shows frozen revision recovery and editable 10096/10097 mapping entry', async () => {
+  const [frozen, editable] = siblingColorState().candidates;
+  const frozenHtml = await render(props({ candidate: frozen, onReviseSiblingColor: forbidden }));
+  assert.match(frozenHtml, /建立新的 C1 颜色修订/);
+  assert.match(frozenHtml, /旧 C1\/C2 保留历史/);
+  const editableHtml = await render(props({ candidate: editable, onSaveC1OzonAttributeMapping: forbidden,
+    onLoadC1OzonAttributes: forbidden }));
+  assert.match(editableHtml, /本规格供应原色：黑cp/);
+  assert.match(editableHtml, /10096 商品颜色/);
+  assert.match(editableHtml, /10097 颜色名称/);
+  assert.match(editableHtml, /查看当前规格可映射的事实/);
+});
 
 test('C2 确认后从保存数据显示素材顺序和方案卡，缺少卡片不可宣称生成成功', async () => {
   const finalUploadAssets = finalAssets().map((asset, index) => ({ ...asset,

@@ -1,6 +1,6 @@
 import { createInitialCandidate, queuedProcessing } from "./lib/candidate-initialization.mjs";
 import { createSiblingSkuCandidate, siblingSkuCandidateInput, SiblingSkuCandidateError } from './lib/sibling-sku-candidate.mjs';
-import { assertSiblingSkuFinalCard } from './lib/sibling-sku-card-guard.mjs';
+import { assertSiblingSkuColorProjection, assertSiblingSkuFinalCard } from './lib/sibling-sku-card-guard.mjs';
 import { createADiscoveryRuntimeServices, A_DISCOVERY_DECLINE_REASONS } from './lib/a-discovery-runtime-services.mjs';
 import { supplierImageSearchAvailability, readSupplierImageSearchPreparation, requireSupplierImageSearchPreparation,
   SupplierImageSearchPreparationError } from './lib/a-supplier-image-search-runtime-services.mjs';
@@ -251,6 +251,7 @@ import { assertCurrentC2UploadDraft, reserveC2Upload, settleC2Upload, saveC2Uplo
 import { createC2LocalAssetStore, normalizeC2LocalUpload } from "./lib/c2-local-asset-store.mjs";
 import { createC1ImageTextUseCase } from "./lib/c1-image-text-use-case.mjs";
 import { createC1FinalPlanRevisionUseCase } from "./lib/c1-final-plan-revision-use-case.mjs";
+import { createC1SiblingColorRevisionUseCase, C1SiblingColorRevisionError } from "./lib/c1-sibling-color-revision-use-case.mjs";
 import { createLocalImageTextAdapter } from "./lib/local-image-text-adapter.mjs";
 import {
   createPersistableAliyunOssAssetIntent,
@@ -304,6 +305,8 @@ const allowedExtensionOrigins = new Set(runtimeConfiguration.allowedExtensionOri
 const internalApiRequestToken = randomBytes(32).toString("base64url");
 const businessStateRepository = createConfiguredBusinessStateRepository(runtimeConfiguration);
 const c1FinalPlanRevisionUseCase = createC1FinalPlanRevisionUseCase({ repository: businessStateRepository,
+  runtimeMode: runtimeConfiguration.deploymentMode, serverClock: now });
+const c1SiblingColorRevisionUseCase = createC1SiblingColorRevisionUseCase({ repository: businessStateRepository,
   runtimeMode: runtimeConfiguration.deploymentMode, serverClock: now });
 const c1ImageTextUseCase = createC1ImageTextUseCase({ repository: businessStateRepository,
   runtimeMode: runtimeConfiguration.deploymentMode, assetStore: c2LocalAssetStore, serverClock: now,
@@ -3403,6 +3406,9 @@ async function prepareAndContinueC1FactKeywordEvidence(candidateId, input, { tri
       triggerReceipt,
       stagedAt: timestamp
     });
+    if (current.siblingSourceV1 && patch.lifecycleV11?.skuPackage?.c1ProductPlan?.status !== 'inputs_ready') {
+      assertSiblingSkuColorProjection({ ...current, lifecycleV11: patch.lifecycleV11 });
+    }
     current.lifecycleV11 = patch.lifecycleV11;
     current.listingPreparation = patch.listingPreparation;
     current.processing = { ...queuedProcessing(current.processing), ...patch.processing };
@@ -6024,6 +6030,36 @@ async function handleApi(req, res, pathname) {
   // 于是事实核验必然停住，之后界面上三个 can* 全是 false。这里补上那个缺掉的显式动作。
   // 它是免费的：只产生本机的关键词准备证据并保存文案请求，付费调用仍要主人在面板上另外授权
   // （见 continueC1SoftwareWhenEvidenceReady 里 "Planning alone grants no paid permission"）。
+  const c1SiblingColorRevisionRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/revise-sibling-color$/);
+  if (req.method === "POST" && c1SiblingColorRevisionRoute) {
+    const input = await requestBody(req);
+    if (!input || input.candidateId !== c1SiblingColorRevisionRoute[1] ||
+        Object.keys(input).sort().join(',') !== 'candidateId,dataRevision,skuPackageId' ||
+        !Number.isSafeInteger(input.dataRevision) || typeof input.skuPackageId !== 'string') {
+      throw httpError(400, '颜色修订只接受当前商品、SKU及修订号');
+    }
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    try {
+      const transaction = await c1SiblingColorRevisionUseCase.prepare({ actor, input: {
+        candidateId: input.candidateId, skuPackageId: input.skuPackageId,
+        expectedRevision: input.dataRevision } });
+      const saved = await readData();
+      const candidate = saved.candidates.find(item => item.id === input.candidateId);
+      if (!candidate) throw httpError(500, '颜色修订结果回读失败');
+      return json(res, 200, { status: transaction.status, result: transaction.result,
+        candidate: publicCandidate(candidate, saved.rules, {}, saved.evidencePacks || [], saved.currentCommissionCatalogs ?? []),
+        externalRequests: 0, paidCalls: 0, platformWrites: 0 });
+    } catch (error) {
+      const code = error.code ?? error.message;
+      if (error instanceof C1SiblingColorRevisionError ||
+          ['BUSINESS_MUTATION_REVISION_CONFLICT', 'BUSINESS_MUTATION_IDEMPOTENCY_CONFLICT'].includes(code)) {
+        return json(res, code.endsWith('OWNER_REQUIRED') ? 403 : 409, { code,
+          message: '当前颜色映射缺口无法安全修订；请核对状态，已发送或结果未知的作业须先对账。',
+          externalRequests: 0, paidCalls: 0, platformWrites: 0 });
+      }
+      throw error;
+    }
+  }
   const c1FinalPlanRevisionRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c1\/revise-final-plan$/);
   if (req.method === "POST" && c1FinalPlanRevisionRoute) {
     const input = await requestBody(req);
@@ -6167,6 +6203,13 @@ async function handleApi(req, res, pathname) {
         } });
         if (frozen.status === "committed") revision = frozen.candidate.dataRevision;
       } catch (error) {
+        if (error.message === 'SIBLING_COLOR_BINDING_INVALID') return json(res, 409, {
+          code: error.message,
+          message: '本规格 10096 商品颜色和 10097 颜色名称须分别绑定已确认的供应颜色；请在 C1 商品属性区查看事实、核对官方字典并保存两项映射。当前事实未冻结。',
+          requiredAttributeIds: ['10096', '10097'], ownerAction: 'complete_c1_color_mapping',
+          mappingRoute: `/api/candidates/${encodeURIComponent(input.candidateId)}/lifecycle/c1/ozon-attributes`,
+          externalRequests: 0, paidCalls: 0, platformWrites: 0
+        });
         if (error instanceof C1FactsVerificationError) {
           const message = error.code === "C1_FACTS_VERIFICATION_RIGHTS_REQUIRED"
             ? "请先保存本件商品的品牌与权利声明，再继续准备文案素材"
@@ -6718,6 +6761,13 @@ async function handleApi(req, res, pathname) {
         });
       } catch (error) {
         throw httpError(422, error.message);
+      }
+      if (current.siblingSourceV1) {
+        try { assertSiblingSkuColorProjection({ ...current, lifecycleV11: { ...current.lifecycleV11, skuPackage: result.skuPackage } }); }
+        catch (error) {
+          if (error.message !== 'SIBLING_COLOR_BINDING_INVALID') throw error;
+          throw httpError(422, `${error.message}: 请返回 C1 补齐 10096 商品颜色和 10097 颜色名称的主人映射`);
+        }
       }
       current.lifecycleV11 = {
         ...current.lifecycleV11,
@@ -8813,6 +8863,12 @@ const server = http.createServer(async (req, res) => {
   } catch (error) {
     if (error instanceof OwnerIdentityError) {
       return json(res, error.statusCode, { code: error.code, message: error.message });
+    }
+    if (error.message === 'SIBLING_COLOR_BINDING_INVALID') {
+      return json(res, 409, { code: error.message,
+        message: '本规格的 10096 商品颜色或 10097 颜色名称未通过当前供应颜色绑定；请返回 C1 商品属性区补齐映射。',
+        requiredAttributeIds: ['10096', '10097'], ownerAction: 'complete_c1_color_mapping',
+        externalRequests: 0, paidCalls: 0, platformWrites: 0 });
     }
     return respondWithError(req, res, error);
   }

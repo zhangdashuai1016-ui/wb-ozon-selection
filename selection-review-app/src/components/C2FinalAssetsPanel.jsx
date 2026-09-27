@@ -131,6 +131,7 @@ export default function C2FinalAssetsPanel({ candidate, onUpload, onSave, onConf
         <div><b>C2 最终上传素材</b><span>上传和顺序会保存在本地；排第一张的就是主图，最后一次确认才锁定最终素材。可以直接拖动调整顺序，也可以用「上移／下移」。</span></div>
         <span className="c2-asset-count">{assets.length}</span>
       </div>
+      {candidate.siblingSourceV1 ? <p role="status">本规格需要自己的首图：请上传并把体现当前颜色的图片排第一。首图不得与父卡任何已确认图片相同；现有上传入口就在下方。</p> : null}
       <label className={`c2-file-picker ${disabled || !onUpload ? "disabled" : ""}${fileDragActive ? " is-file-drop-target" : ""}`}>
         <input type="file" multiple accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" disabled={disabled || !onUpload} onChange={chooseFiles} />
         <b>{operation.saving ? "正在保存素材清单…" : "添加最终图片"}</b>

@@ -872,11 +872,25 @@ export default function App() {
     try {
       const result = await api.saveC1OzonAttributeMapping(selected.id, payload);
       const count = result?.result?.mappedAttributeIds?.length ?? 0;
-      setNotice({ type: "success", message: `已保存 ${count} 条Ozon属性映射；每个值都经Ozon字典逐字核对，没有付费调用。` });
+      setNotice({ type: "success", message: `已保存 ${count} 条Ozon属性映射；字典项逐字核对，自由文本项按当前类目资料保存，没有付费调用。` });
       await load(true);
       return result;
     } catch (error) {
       setNotice({ type: "error", message: errorMessage(error) });
+      await load(true);
+      throw error;
+    }
+  }
+
+  async function reviseSiblingColor(payload) {
+    if (!selected || payload.candidateId !== selected.id) throw new Error('当前商品已变化，未建立颜色修订。');
+    try {
+      const result = await api.reviseSiblingColor(selected.id, payload);
+      setNotice({ type: 'success', message: '已建立新的 C1 修订；请核对本规格的颜色映射及权利声明。旧版保留历史。' });
+      await load(true);
+      return result;
+    } catch (error) {
+      setNotice({ type: 'error', message: errorMessage(error) });
       await load(true);
       throw error;
     }
@@ -1309,6 +1323,13 @@ export default function App() {
           onSaveProductionOwnerDecision={saveProductionOwnerDecision}
           onSaveFinalPricingReview={saveFinalPricingReview}
           onReviseC1FinalPlan={reviseC1FinalPlan}
+          onReviseSiblingColor={reviseSiblingColor}
+          onSaveC1RightsReview={saveC1RightsReview}
+          onBackfillC1SupplyAttributes={backfillC1SupplyAttributes}
+          onSaveC1OzonAttributeMapping={saveC1OzonAttributeMapping}
+          onRefreshC1CategorySchema={refreshC1CategorySchema}
+          onProposeC1OzonAttributes={proposeC1OzonAttributes}
+          onLoadC1OzonAttributes={api.getC1OzonAttributes}
           onOpenLegacyCard={() => setView("review")}
           onEliminateCandidate={eliminateCandidate}
           onBack={() => setView("desk")}

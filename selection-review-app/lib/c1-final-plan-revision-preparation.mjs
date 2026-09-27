@@ -26,6 +26,9 @@ export function buildC1FinalPlanHistoryReferences(lifecycle) {
   }
   return references;
 }
+export function clearC1FinalPlanActiveReferences(lifecycle) {
+  for (const key of PREVIOUS_C1_REFERENCE_FIELDS) delete lifecycle[key];
+}
 
 /** Pure preparation for the existing C1 -> SEO -> C2 flow. No receipt or owner decision is invented. */
 export function prepareC1FinalPlanRevision({ candidate, expectedRevision, preparedAt }) {
@@ -92,7 +95,7 @@ export function prepareC1FinalPlanRevision({ candidate, expectedRevision, prepar
     sourceFactsRevisionId: sourceFactsRevision.revisionId,
     productionAuthorized: false, externalCalls: 0, paidCalls: 0, oldHistoryOverwritten: false };
   const previousC1References = buildC1FinalPlanHistoryReferences(life);
-  for (const key of PREVIOUS_C1_REFERENCE_FIELDS) delete next.lifecycleV11[key];
+  clearC1FinalPlanActiveReferences(next.lifecycleV11);
   next.lifecycleV11.c1FinalPlanRevisionPreparation = preparation;
   const historyRecord = { schemaVersion: "c1-final-plan-revision-history-v1", preparationId, candidateId: candidate.id,
     sourceCandidateRevision: expectedRevision, sourceSkuRevision: previous.dataRevision,

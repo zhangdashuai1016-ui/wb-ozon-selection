@@ -59,7 +59,10 @@ function confirmedField(fields, key) {
   return text(typeof raw === 'object' && raw !== null ? raw.value : raw);
 }
 
-function assertColorProjection(candidate, sku, c1) {
+export function assertSiblingSkuColorProjection(candidate) {
+  if (!candidate.siblingSourceV1) return;
+  const sku = candidate.lifecycleV11?.skuPackage;
+  const c1 = sku?.c1ProductPlan;
   const choice = candidate.sourceCapture?.skuChoices;
   const color = choice?.length === 1 && choice[0].sourceSkuId === sku.supplierSkuId
     ? text(choice[0].attributes?.颜色) : null;
@@ -83,28 +86,37 @@ function assertColorProjection(candidate, sku, c1) {
     if (!String(error.message).startsWith('OZON_OPTIONAL_')) throw error;
     throw new Error('SIBLING_COLOR_BINDING_INVALID');
   }
-  // Ozon 10096 groups a broad color; 10097 carries the owner's exact variant color.
-  // Both must originate from this SKU's frozen Chinese supplier fact and reach the import projection.
-  for (const [fieldKey, dictionary] of [['10096', true], ['10097', false]]) {
+  // Both attributes must originate from this SKU's supplier fact. Their value
+  // types come from the frozen category schema, not from a historical category.
+  for (const fieldKey of ['10096', '10097']) {
     const matching = mappings.filter(mapping => String(mapping.attributeId) === fieldKey);
     const projection = mapped.filter(field => field.fieldKey === fieldKey);
     const schema = schemaAttributes.filter(field => field.fieldKey === fieldKey);
+    const schemaField = schema[0];
+    const requiredField = c1.productAttributes.requiredPlatformFields?.filter(field => field.fieldKey === fieldKey) ?? [];
     const emitted = optional.attributes.filter(field => field.id === Number(fieldKey));
-    if (matching.length !== 1 || projection.length !== 1 || schema.length !== 1 || emitted.length !== 1 ||
+    const required = schemaField?.required === true;
+    const projectedValue = required ? requiredField[0]?.fact?.value : projection[0]?.fact?.value;
+    if (matching.length !== 1 || projection.length !== 1 || schema.length !== 1 ||
+        (required ? requiredField.length !== 1 || emitted.length !== 0 : emitted.length !== 1) ||
         matching[0].sourceFactPath !== sourcePath || matching[0].sourceFactValue !== color ||
         !text(matching[0].value) || !text(matching[0].confirmationRef ?? sku.ozonAttributeMappingsV1.confirmationRef) ||
         projection[0].sourceFactPath !== sourcePath || projection[0].fact?.verificationStatus !== 'confirmed' ||
-        schema[0].required !== false || !Number.isSafeInteger(schema[0].dictionaryId) ||
-        emitted[0].values?.length !== 1 || emitted[0].values[0].value !== matching[0].value) {
+        ![true, false].includes(schemaField.required) || !Number.isSafeInteger(schemaField.dictionaryId) ||
+        (required ? requiredField[0].fact?.verificationStatus !== 'confirmed' :
+          emitted[0].values?.length !== 1 || emitted[0].values[0].value !== matching[0].value)) {
       throw new Error('SIBLING_COLOR_BINDING_INVALID');
     }
-    if (dictionary ?
+    if (schemaField.dictionaryId > 0 ?
       (schema[0].dictionaryId <= 0 || !Number.isSafeInteger(matching[0].dictionaryValueId) ||
        matching[0].dictionaryValueId <= 0 || projection[0].fact.value?.value !== matching[0].value ||
        projection[0].fact.value?.dictionaryValueId !== matching[0].dictionaryValueId ||
-       emitted[0].values[0].dictionary_value_id !== matching[0].dictionaryValueId) :
-      (schema[0].dictionaryId !== 0 || matching[0].dictionaryValueId != null ||
-       projection[0].fact.value !== matching[0].value || emitted[0].values[0].dictionary_value_id !== 0)) {
+       projectedValue?.value !== matching[0].value ||
+       projectedValue?.dictionaryValueId !== matching[0].dictionaryValueId ||
+       (!required && emitted[0].values[0].dictionary_value_id !== matching[0].dictionaryValueId)) :
+      (matching[0].dictionaryValueId != null ||
+       projection[0].fact.value !== matching[0].value || projectedValue !== matching[0].value ||
+       (!required && emitted[0].values[0].dictionary_value_id !== 0))) {
       throw new Error('SIBLING_COLOR_BINDING_INVALID');
     }
   }
@@ -126,7 +138,7 @@ export function assertSiblingSkuFinalCard(candidate) {
       confirmedField(fields, '9048') !== binding.model || confirmedField(fields, '85') !== binding.brand) {
     throw new Error('SIBLING_CARD_GROUPING_MISMATCH');
   }
-  assertColorProjection(candidate, sku, c1);
+  assertSiblingSkuColorProjection(candidate);
   const main = preparation?.finalUploads?.[0];
   if (main?.role !== 'main_image' || !/^[a-f0-9]{64}$/.test(String(main.sha256 ?? '')) ||
       binding.parentImageSha256s.includes(main.sha256) ||

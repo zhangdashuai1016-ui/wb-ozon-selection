@@ -10,6 +10,7 @@ import {
 } from "./runtime-identity.mjs";
 import { c2StableAssetTransportApplicationBlockReason, settleC2StableAssetTransport } from "./c2-asset-lifecycle.mjs";
 import { createC2SoftwareContainer } from "./c2-software-orchestrator.mjs";
+import { assertSiblingSkuColorProjection } from "./sibling-sku-card-guard.mjs";
 import { assertCurrentC1AiDraftRequest, mergeC1AiDraftReceipt } from "./c1-ai-draft-contract.mjs";
 import { fingerprintCanonicalRecord } from "./production-contract-primitives.mjs";
 import { buildC1FactKeywordAtomicPatch, assertC1PaidKeywordPreparedResult } from "./c1-fact-keyword-persistence.mjs";
@@ -46,6 +47,16 @@ function finalPlanHistoryRecords(document, allowMissing = false) {
       record.schemaVersion !== "c1-final-plan-revision-history-v1" ||
       typeof record.preparationId !== "string" || !record.preparationId ||
       typeof record.candidateId !== "string" || !record.candidateId)) throw new Error("C1_FINAL_REVISION_HISTORY_INVALID");
+  return records;
+}
+function siblingColorHistoryRecords(document, allowMissing = false) {
+  const records = document.c1SiblingColorRevisionHistoryRecords;
+  if (records === undefined && allowMissing) return [];
+  if (!Array.isArray(records) || records.some(record => record?.schemaVersion !== 'c1-sibling-color-revision-history-v1' ||
+      typeof record.preparationId !== 'string' || !record.preparationId ||
+      typeof record.candidateId !== 'string' || !record.candidateId)) {
+    throw new Error('C1_SIBLING_COLOR_REVISION_HISTORY_INVALID');
+  }
   return records;
 }
 const SOFTWARE_JOB_INPUT_KEYS = Object.freeze([
@@ -576,6 +587,15 @@ export async function executeBusinessMutation({
             fingerprintCanonicalRecord(matches[0]) !== ref.fingerprint) throw new Error("C1_FINAL_REVISION_HISTORY_CONFLICT");
         assertSafeBusinessMutationCandidate(matches[0], "finalPlanHistoryRecord");
       }
+      if (operation === 'prepare_sibling_color_revision') {
+        const ref = existing.siblingColorHistoryRef;
+        const matches = ref ? siblingColorHistoryRecords(document).filter(record => record.preparationId === ref.preparationId) : [];
+        if (matches.length !== 1 || matches[0].candidateId !== targetCandidateId ||
+            ref.preparationId !== existing.candidateSnapshot?.lifecycleV11?.c1SiblingColorRevisionPreparation?.historyRef ||
+            fingerprintCanonicalRecord(matches[0]) !== ref.fingerprint) {
+          throw new Error('C1_SIBLING_COLOR_REVISION_HISTORY_CONFLICT');
+        }
+      }
       assertReplaySoftwareJob(document, existing.result, existing.candidateSnapshot);
       if (applicationEffect) {
         const savedJob = findSoftwareJobInDocument(document, applicationEffect.jobId);
@@ -630,6 +650,11 @@ export async function executeBusinessMutation({
     if (nextCandidate.id !== targetCandidateId || Number(nextCandidate.dataRevision) !== sourceRevision) {
       throw new Error("BUSINESS_MUTATION_CANDIDATE_IDENTITY_INVALID");
     }
+    const nextSku = nextCandidate.lifecycleV11?.skuPackage;
+    if (nextCandidate.siblingSourceV1 && ["C1", "C2"].includes(nextSku?.businessPhase) &&
+        nextSku?.c1ProductPlan?.status !== "inputs_ready") {
+      assertSiblingSkuColorProjection(nextCandidate);
+    }
     assertSafeBusinessMutationCandidate(nextCandidate, "businessMutation.candidate");
     nextCandidate.dataRevision = sourceRevision + 1;
     const result = structuredClone(outcome.result);
@@ -651,6 +676,30 @@ export async function executeBusinessMutation({
       }
       document.c1FinalPlanRevisionHistoryRecords = [...records, structuredClone(history)];
     } else if (operation === "prepare_final_plan_revision") throw new Error("C1_FINAL_REVISION_HISTORY_REQUIRED");
+    if (Object.hasOwn(outcome, 'historyRecord')) {
+      const history = outcome.historyRecord;
+      const preparation = nextCandidate.lifecycleV11?.c1SiblingColorRevisionPreparation;
+      const keys = ['schemaVersion', 'preparationId', 'candidateId', 'sourceCandidateRevision',
+        'sourceSkuRevision', 'previousSkuPackage', 'previousC1References'];
+      if (operation !== 'prepare_sibling_color_revision' || !history || Object.keys(history).length !== keys.length ||
+          !keys.every(key => Object.hasOwn(history, key)) ||
+          history.schemaVersion !== 'c1-sibling-color-revision-history-v1' ||
+          history.candidateId !== targetCandidateId || history.preparationId !== preparation?.historyRef ||
+          history.sourceCandidateRevision !== sourceRevision ||
+          history.sourceSkuRevision !== current.lifecycleV11?.skuPackage?.dataRevision ||
+          !isDeepStrictEqual(history.previousSkuPackage, current.lifecycleV11.skuPackage) ||
+          !isDeepStrictEqual(history.previousC1References, buildC1FinalPlanHistoryReferences(current.lifecycleV11))) {
+        throw new Error('C1_SIBLING_COLOR_REVISION_HISTORY_INVALID');
+      }
+      assertSafeBusinessMutationCandidate(history, 'siblingColorHistoryRecord');
+      const records = siblingColorHistoryRecords(document, true);
+      if (records.some(record => record.preparationId === history.preparationId)) {
+        throw new Error('C1_SIBLING_COLOR_REVISION_HISTORY_CONFLICT');
+      }
+      document.c1SiblingColorRevisionHistoryRecords = [...records, structuredClone(history)];
+    } else if (operation === 'prepare_sibling_color_revision') {
+      throw new Error('C1_SIBLING_COLOR_REVISION_HISTORY_REQUIRED');
+    }
     if (createsDomainHandoff) {
       if (nextCandidate.lifecycleV11?.skuPackage?.productionAuthorization?.authorizedByActorId !== actor.userId) {
         throw new Error("BUSINESS_MUTATION_DOMAIN_HANDOFF_OWNER_CONFLICT");
@@ -721,6 +770,10 @@ export async function executeBusinessMutation({
       ...(outcome.finalPlanHistoryRecord ? { finalPlanHistoryRef: {
         preparationId: outcome.finalPlanHistoryRecord.preparationId,
         fingerprint: fingerprintCanonicalRecord(outcome.finalPlanHistoryRecord)
+      } } : {}),
+      ...(outcome.historyRecord ? { siblingColorHistoryRef: {
+        preparationId: outcome.historyRecord.preparationId,
+        fingerprint: fingerprintCanonicalRecord(outcome.historyRecord)
       } } : {}),
       recordedAt: observedAt
     });
