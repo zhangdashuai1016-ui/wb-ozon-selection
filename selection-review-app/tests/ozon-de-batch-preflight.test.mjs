@@ -30,11 +30,13 @@ test('batch member reads only its saved authorization and scope without a single
 test('batch E uses current read evidence after write verification expires, and rejects drift or missing read grants', async () => {
   const {context,record}=ozonDEPreflightEvidenceFixture();
   const candidate=context.candidate,authorization=candidate.lifecycleV11.skuPackage.productionAuthorization;
+  assert.equal(Object.hasOwn(candidate.lifecycleV11.skuPackage,'merchantSku'),false);
+  assert.ok(authorization.lockedScope.merchantSku);
   const binding=structuredClone(context.productionBinding);
   binding.verification.expiresAt='2026-08-22T07:20:00.000Z';
   const batch={schemaVersion:'d-batch-production-authorization-v2',batchId:'d-batch:synthetic:e-read',status:'imported_awaiting_inventory',
     members:[{candidateId:candidate.id,skuPackageId:authorization.lockedScope.skuPackageId,
-      offerId:candidate.lifecycleV11.skuPackage.merchantSku,authorizationId:authorization.authorizationId,
+      offerId:authorization.lockedScope.merchantSku,authorizationId:authorization.authorizationId,
       authorizationFingerprint:fingerprintCanonicalRecord(authorization),resultRevision:candidate.dataRevision}]};
   batch.postImportScope={eReadbackOfferIds:[batch.members[0].offerId]};
   assert.throws(()=>assertCurrentProductionExecutionBinding({productionAuthorization:authorization,
@@ -55,6 +57,11 @@ test('batch E uses current read evidence after write verification expires, and r
   await assert.rejects(provider.loadBatchEReadEvidence({...input,productionBinding:{...binding,credentialAlias:'credential-alias:synthetic:other'}}),
     /OZON_DE_PREFLIGHT_EVIDENCE_READ_ROUTING_CHANGED/);
   await assert.rejects(provider.loadBatchEReadEvidence({...input,offerId:'UNCONFIRMED-OFFER'}),
+    /OZON_DE_PREFLIGHT_EVIDENCE_CONTEXT_INVALID/);
+  const forgedBatch=structuredClone(batch);
+  forgedBatch.members[0].offerId='UNCONFIRMED-OFFER';
+  forgedBatch.postImportScope.eReadbackOfferIds=['UNCONFIRMED-OFFER'];
+  await assert.rejects(provider.loadBatchEReadEvidence({...input,batch:forgedBatch,offerId:'UNCONFIRMED-OFFER'}),
     /OZON_DE_PREFLIGHT_EVIDENCE_CONTEXT_INVALID/);
   assert.equal(reads,1);
   record.protocols.independentReadback.status='denied';

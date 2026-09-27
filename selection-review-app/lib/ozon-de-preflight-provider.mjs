@@ -152,7 +152,7 @@ function batchEReadScope({candidate,productionBinding,batch,offerId}) {
     members[0].resultRevision === candidate.dataRevision &&
     candidate.id === locked.candidateId && candidate.lifecycleV11.skuPackage.skuPackageId === locked.skuPackageId &&
     candidate.lifecycleV11.skuPackage.supplierSkuId === locked.supplierSkuId &&
-    candidate.lifecycleV11.skuPackage.merchantSku === offerId &&
+    locked.merchantSku === offerId &&
     ['waiting_platform','partial_failure','unknown_outcome','imported_awaiting_inventory'].includes(batch.status), 'CONTEXT_INVALID');
   const [binding] = normalizeProductionBindings([productionBinding], [{
     targetStore:locked.storeRef.stableStoreId,platform:locked.platform,storeRef:locked.storeRef

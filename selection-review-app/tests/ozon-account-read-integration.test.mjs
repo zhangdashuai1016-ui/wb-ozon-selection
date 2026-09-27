@@ -158,6 +158,8 @@ test('batch E reuses the completed account receipt after write verification expi
   const document=await f.repository.readSnapshot(),candidate=document.candidates[0];
   const record=document.runtime.ozonDEPreflightEvidence[pa.authorizationId];
   assert.equal(record.schemaVersion,'ozon-de-preflight-evidence-v4');
+  assert.equal(Object.hasOwn(candidate.lifecycleV11.skuPackage,'merchantSku'),false);
+  assert.ok(pa.lockedScope.merchantSku);
   const binding=structuredClone(f.configuration.productionBindings[0]);
   binding.verification.expiresAt=new Date(Date.parse(f.base.owner.formal.at)-1).toISOString();
   const expiredSource=createOzonAccountReadEvidenceSource({repository:f.repository,
@@ -169,7 +171,7 @@ test('batch E reuses the completed account receipt after write verification expi
     serverClock:()=>f.base.owner.formal.at});
   const batch={schemaVersion:'d-batch-production-authorization-v2',batchId:'d-batch:synthetic:account-e',status:'imported_awaiting_inventory',
     members:[{candidateId:candidate.id,skuPackageId:pa.lockedScope.skuPackageId,
-      offerId:candidate.lifecycleV11.skuPackage.merchantSku,authorizationId:pa.authorizationId,
+      offerId:pa.lockedScope.merchantSku,authorizationId:pa.authorizationId,
       authorizationFingerprint:fingerprintCanonicalRecord(pa),resultRevision:candidate.dataRevision}]};
   batch.postImportScope={eReadbackOfferIds:[batch.members[0].offerId]};
   const input={candidate,productionBinding:binding,batch,offerId:batch.members[0].offerId};
@@ -177,6 +179,12 @@ test('batch E reuses the completed account receipt after write verification expi
   const ready=await expiredProvider.loadBatchEReadEvidence(input);
   assert.equal(ready.capabilities.independentReadback.status,'verified');
   assert.equal(f.requests.length,before,'saved receipt check must not issue another account request');
+  const forgedBatch=structuredClone(batch);
+  forgedBatch.members[0].offerId='UNCONFIRMED-OFFER';
+  forgedBatch.postImportScope.eReadbackOfferIds=['UNCONFIRMED-OFFER'];
+  await assert.rejects(expiredProvider.loadBatchEReadEvidence({...input,batch:forgedBatch,offerId:'UNCONFIRMED-OFFER'}),
+    /OZON_DE_PREFLIGHT_EVIDENCE_CONTEXT_INVALID/);
+  assert.equal(f.requests.length,before,'a substituted offer must stop before any account read');
   await f.repository.transact(state=>{
     const permission=state.runtime.softwareJobAuthorizationRecords.find(value=>value.authorizationId===record.provenance.readAuthorizationRef);
     permission.useCount=2;
