@@ -14,6 +14,8 @@ test('one current final card yields one batch authorization request and excludes
   const decision = siblingBatchAuthorizationInput(parent, [child], source.args.input.bindingId,
     { inventoryAction: 'create_only' });
   assert.equal(decision.ready, true);
+  assert.equal(decision.input.parentCandidateId, parent.id);
+  assert.equal(decision.input.parentRevision, parent.dataRevision);
   assert.deepEqual(decision.input.excludedOfferIds, ['MERCHANT-PREVIOUS']);
   assert.equal(decision.input.members[0].ownerInput.merchantSku, 'MERCHANT-CHILD');
   assert.equal(decision.input.members[0].ownerInput.confirmExactScope, true);
@@ -21,6 +23,9 @@ test('one current final card yields one batch authorization request and excludes
   stale.productionOwnerPreparation.source.dataRevision -= 1;
   assert.equal(siblingBatchAuthorizationInput(parent, [stale], source.args.input.bindingId,
     { inventoryAction: 'create_only' }).ready, false);
+  assert.deepEqual(siblingBatchAuthorizationInput({ ...parent, dataRevision: null }, [child],
+    source.args.input.bindingId, { inventoryAction: 'create_only' }),
+  { ready: false, reason: '父卡身份或当前版本缺失，请刷新批次清单。', input: null });
 });
 
 test('one final decision locks the existing post-import contract and ordered E offer scope', () => {
@@ -30,6 +35,9 @@ test('one final decision locks the existing post-import contract and ordered E o
   const createOnly = siblingBatchAuthorizationInput(parent, [child, second], bindingId,
     { inventoryAction: 'create_only' });
   assert.equal(createOnly.ready, true);
+  assert.deepEqual({ parentCandidateId: createOnly.input.parentCandidateId,
+    parentRevision: createOnly.input.parentRevision },
+  { parentCandidateId: parent.id, parentRevision: parent.dataRevision });
   assert.deepEqual(createOnly.input.postImportScope, { schemaVersion: 'd-batch-post-import-scope-v1',
     inventoryAction: 'create_only', eReadbackOfferIds: ['MERCHANT-CHILD', 'MERCHANT-SECOND'] });
   assert.deepEqual(createOnly.input.members.map(member => member.candidateId), [child.id, second.id]);

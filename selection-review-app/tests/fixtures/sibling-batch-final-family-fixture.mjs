@@ -59,7 +59,9 @@ async function fixture(extraBroadValues = []) {
     targetPlatform:child.targetPlatform,targetStore: child.targetStore,
     storeRef: structuredClone(child.storeRef),sourceUrl:child.sourceUrl,
     sourceCapture: { captureId: 'synthetic:one-capture', offerId: 'synthetic:one-offer',
-      selectedSkuIds: [merged.skuPackage.supplierSkuId, child.siblingSourceV1.supplierSkuId] },
+      selectedSkuIds: [merged.skuPackage.supplierSkuId, child.siblingSourceV1.supplierSkuId],
+      skuChoices: [{ sourceSkuId: child.siblingSourceV1.supplierSkuId,
+        attributes: { 颜色: '黑cp' } }] },
     lifecycleV11: { skuPackage: { ...merged.skuPackage, technicalStatus: 'unknown_outcome',
       productionAuthorization:{lockedScope:{merchantSku:'SYNTHETIC-FIRST-UNKNOWN'}} },
       c1AiDraftRequestV1: structuredClone(formal.request), c1AiDraftJobRefV1: {
@@ -96,6 +98,8 @@ async function fixture(extraBroadValues = []) {
       colorMappings: { '10096': 'synthetic-broad-color', '10097': 'synthetic-exact-color' } }] };
   return { repository, actor, input, childId: child.id };
 }
+
+export { fixture as oneColorFixture };
 
 export async function threeColorFixture(colorCount = 3) {
   const extra = Array.from({ length: Math.max(0,colorCount - 3) }, (_, index) => ({
@@ -172,4 +176,3 @@ export async function threeColorC2Fixture(colorCount = 3) {
       approvedAssetIds: child.lifecycleV11.c2UploadDraft.selection.map(item => item.assetId) })) };
   return { repository, actor, input: c2Input, verifiedAssets };
 }
-

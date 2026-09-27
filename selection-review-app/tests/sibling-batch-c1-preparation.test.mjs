@@ -5,7 +5,10 @@ import { commitSiblingBatchC1Preparation } from '../lib/sibling-batch-c1-prepara
 import { commitSiblingBatchC2Final } from '../lib/sibling-batch-c2-final.mjs';
 import { productionOwnerDecisionFixture } from './fixtures/production-owner-decision-fixture.mjs';
 import { commitBatchOwnerProductionAuthorization } from '../lib/d-batch-production-authorization.mjs';
-import { at, threeColorFixture, threeColorC2Fixture } from './fixtures/sibling-batch-final-family-fixture.mjs';
+import { siblingBatchAuthorizationInput } from '../src/siblingBatchAuthorizationInput.js';
+import { prepareProductionCommercialDraft } from '../lib/production-commercial-draft.mjs';
+import { buildProductionOwnerPreparationView } from '../lib/production-owner-preparation.mjs';
+import { at, oneColorFixture, threeColorFixture, threeColorC2Fixture } from './fixtures/sibling-batch-final-family-fixture.mjs';
 
 test('three selected colors share one saved dictionary and one formal parent draft but each receives its own C1 and C2', async () => {
   const { repository, actor, input, ids } = await threeColorFixture();
@@ -62,24 +65,32 @@ async function authorizePreparedColors(repository, actor, checkStale) {
   const decisions = saved.candidates.slice(1).map((child, index) => {
     const fixture = productionOwnerDecisionFixture(createMemoryBusinessStateRepository,
       { sourceCandidate: child, sourceAt: at });
-    return { candidateId: child.id, ownerInput: { ...fixture.args.input, merchantSku: `SYNTHETIC-COLOR-${index}` },
-      fixture };
+    const candidate = prepareProductionCommercialDraft({ candidate: fixture.candidate,
+      merchantSku: `SYNTHETIC-COLOR-${index}`, stock: 50 + index,
+      savedByUserId: 'synthetic-owner', savedAt: at, merchantSkuClaims: [] }).candidate;
+    const preparation = buildProductionOwnerPreparationView({ candidate,
+      configuration: fixture.configuration, evidencePacks: fixture.evidencePacks,
+      currentCommissionCatalogs: fixture.currentCommissionCatalogs, observedAt: at });
+    assert.equal(preparation.ready, true);
+    return { candidateId: child.id, candidate, preparation, fixture };
   });
   await repository.transact(document => {
-    for (const { candidateId, fixture } of decisions) {
+    for (const { candidateId, candidate } of decisions) {
       const index = document.candidates.findIndex(item => item.id === candidateId);
-      document.candidates[index] = structuredClone(fixture.candidate);
+      document.candidates[index] = structuredClone(candidate);
     }
     document.evidencePacks = structuredClone(decisions[0].fixture.evidencePacks);
     document.currentCommissionCatalogs = structuredClone(decisions[0].fixture.currentCommissionCatalogs);
     return { changed: true, document, result: null };
   });
   const parent=(await repository.readSnapshot()).candidates[0];
-  const authorizationInput = { confirmAll: true,parentCandidateId:parent.id,parentRevision:parent.dataRevision,
-    excludedOfferIds: ['SYNTHETIC-FIRST-UNKNOWN'],
-    members: decisions.map(({ candidateId, ownerInput }) => ({ candidateId, ownerInput })),
-    postImportScope: { schemaVersion: 'd-batch-post-import-scope-v1', inventoryAction: 'create_only',
-      eReadbackOfferIds: decisions.map(({ ownerInput }) => ownerInput.merchantSku) } };
+  const pageDecision = siblingBatchAuthorizationInput(parent,
+    decisions.map(({ candidate, preparation }) => ({ ...candidate, productionOwnerPreparation: preparation })),
+    decisions[0].fixture.args.input.bindingId, { inventoryAction: 'create_only' });
+  assert.equal(pageDecision.ready, true, pageDecision.reason);
+  const authorizationInput = pageDecision.input;
+  assert.deepEqual(authorizationInput.members.map(member => member.candidateId),
+    decisions.map(({ candidateId }) => candidateId));
   const beforeAuthorization = await repository.readSnapshot();
   if (checkStale) {
     const stale = structuredClone(authorizationInput);
@@ -157,7 +168,7 @@ test('a cross-color main image conflict saves no final card for any row', async 
 });
 
 test('one saved official color receipt and common facts advance a sibling from C1 to C2 without another read', async () => {
-  const { repository, actor, input, childId } = await fixture();
+  const { repository, actor, input, childId } = await oneColorFixture();
   const result = await commitSiblingBatchC1Preparation({ repository, runtimeMode: 'local_development',
     actor, input, serverClock: () => at });
   assert.equal(result.externalRequests, 0);
@@ -175,7 +186,7 @@ test('stale revision or unsupported official color saves no partial C1 state', a
     input => { input.members[0].candidateRevision += 1; },
     input => { input.members[0].colorMappings['10096'] = 'not-in-official-receipt'; }
   ]) {
-    const { repository, actor, input } = await fixture();
+    const { repository, actor, input } = await oneColorFixture();
     change(input);
     const before = await repository.readSnapshot();
     await assert.rejects(() => commitSiblingBatchC1Preparation({ repository, runtimeMode: 'local_development',

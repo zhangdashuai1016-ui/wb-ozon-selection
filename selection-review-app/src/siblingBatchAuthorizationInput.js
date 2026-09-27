@@ -3,6 +3,10 @@ import { siblingBatchReview } from './siblingBatchReview.js';
 
 /** Compose a single owner decision from current server preparations only. */
 export function siblingBatchAuthorizationInput(parent, candidates, bindingId, options = {}) {
+  if (typeof parent?.id !== 'string' || parent.id.trim() === '' ||
+      !Number.isSafeInteger(parent.dataRevision) || parent.dataRevision < 1) {
+    return { ready: false, reason: '父卡身份或当前版本缺失，请刷新批次清单。', input: null };
+  }
   const review = siblingBatchReview(parent, candidates);
   if (!review?.ready) return { ready: false, reason: '批次成员还有 A/B/C1/C2 或当前价格、库存缺项。', input: null };
   if (!['create_only', 'write_authorized_stock'].includes(options.inventoryAction)) {
@@ -31,7 +35,9 @@ export function siblingBatchAuthorizationInput(parent, candidates, bindingId, op
       bindingId: binding.bindingId, configurationVersion: binding.configurationVersion,
       merchantSku: commercial.merchantSku, confirmExactScope: true } });
   }
-  return { ready: true, reason: '', input: { confirmAll: true, excludedOfferIds: [excluded], members,
+  return { ready: true, reason: '', input: { confirmAll: true,
+    parentCandidateId: parent.id, parentRevision: parent.dataRevision,
+    excludedOfferIds: [excluded], members,
     postImportScope: { schemaVersion: 'd-batch-post-import-scope-v1', inventoryAction: options.inventoryAction,
       eReadbackOfferIds: members.map(member => member.ownerInput.merchantSku) } } };
 }
