@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-27T11:59:54.369Z",
+  "frozenAt": "2026-09-27T13:59:18.949Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 811,
-      "sha256": "8794a4bc11f224f72859bfa8095aa4a8dacd7ede8394f4040149807c0cd7cce6",
+      "artifactCount": 812,
+      "sha256": "7d836bcf0b1c1945391a303133713773c2ed0567dee76264a5e7121bff3fb07f",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -412,7 +412,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "202273a16c36e1360eb0b58022516c41f320d8efc5493812faaac05cc13b0638"
+        "sha256": "bc3d59bc06822bf16fcfdab639a709bd7caf6d336f4cf3c0568c13b781e3b5ea"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -1000,11 +1000,15 @@
       },
       {
         "path": "lib/sibling-sku-candidate.mjs",
-        "sha256": "93445ffdb1dbd8f46eb3a8e1df2321c096c333a7e4888aebe1a3b41a53a5bb9f"
+        "sha256": "a2255292915ee7304ce26b5b2f4f8d0f33961c06d2623d60a2b02e457261a39d"
       },
       {
         "path": "lib/sibling-sku-card-guard.mjs",
         "sha256": "9a34291cb51dcd2377ab7a08755478d82f0a67695280399e483d2602a8f4d837"
+      },
+      {
+        "path": "lib/sibling-sku-name.mjs",
+        "sha256": "76c73219fe9d1566c6f2afc35fc6599564f4e56d74e6dce827ce42ca3b318a29"
       },
       {
         "path": "lib/sku-choice-estimate.mjs",
@@ -1596,7 +1600,7 @@
       },
       {
         "path": "src/components/ProductPage.jsx",
-        "sha256": "a23c7e5a46c6d99b32e123af77bbe453add372dfecfe4a45515bea4a2f03ea16"
+        "sha256": "4e7327c55961eeda2610be4e39f7cd757360e5434264f07178312c52fb42fae7"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -2996,7 +3000,7 @@
       },
       {
         "path": "tests/product-page-ui.test.mjs",
-        "sha256": "430ed5fe60e196992672404cfde8cc1de790ecfd20ec2f3238ce271d1e751beb"
+        "sha256": "f4d0569952eb3d2905ffbdec849ca59ba08ae5a7974ec3c7185d1c36b7626545"
       },
       {
         "path": "tests/production-authorization-rollback-acceptance.test.mjs",
@@ -3160,11 +3164,11 @@
       },
       {
         "path": "tests/sibling-sku-api.test.mjs",
-        "sha256": "edd7fbcb8db4ebc257010874ba63d5994d4ed4195c474946ee8413b081da172e"
+        "sha256": "9753cdc3282e5225d36b6a05a7f2f9226c76e5ea46d548290e970b31f4c3a763"
       },
       {
         "path": "tests/sibling-sku-candidate.test.mjs",
-        "sha256": "945e3d9563e8a039bb5e9604287f6b68d53046531110768629bbde433fe151e5"
+        "sha256": "5926c8f27da118f335242e133031e092d760824b8666652d9932c199fc8a80de"
       },
       {
         "path": "tests/sku-choice-estimate.test.mjs",
@@ -5520,6 +5524,7 @@
         "lib/discovery-market-snapshot.mjs",
         "lib/supplier-draft.mjs",
         "lib/sku-choice-estimate.mjs",
+        "lib/sibling-sku-name.mjs",
         "lib/sibling-sku-candidate.mjs",
         "lib/sibling-sku-card-guard.mjs",
         "lib/profit-step-review.mjs",

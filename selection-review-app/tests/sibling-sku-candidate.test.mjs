@@ -6,7 +6,7 @@ import { collectRealOzonSalesSnapshot } from '../lib/sales-snapshot.mjs';
 import { buildDiscoveryMarketSalesSnapshot } from '../lib/discovery-market-snapshot.mjs';
 import { buildRealAConfirmationCard } from '../lib/real-a-confirmation-card.mjs';
 import { assertSafeBusinessMutationCandidate } from '../lib/runtime-identity.mjs';
-import { createSiblingSkuCandidate } from '../lib/sibling-sku-candidate.mjs';
+import { createSiblingSkuCandidate, siblingSkuCandidateName } from '../lib/sibling-sku-candidate.mjs';
 import { assertSiblingSkuFinalCard } from '../lib/sibling-sku-card-guard.mjs';
 import { SYNTHETIC_STORE_REF } from './fixtures/store-binding-fixture.mjs';
 import { productionOwnerDecisionFixture } from './fixtures/production-owner-decision-fixture.mjs';
@@ -77,7 +77,7 @@ function fixture() {
     ] } } }] };
 }
 
-const input = { dataRevision: 12, supplierSkuId: BLACK_CP, productName: '小猫战术背心 · 黑cp' };
+const input = { dataRevision: 12, supplierSkuId: BLACK_CP };
 const create = (document, override = input) => createSiblingSkuCandidate({ document,
   parentCandidateId: 'candidate:vest-parent', input: override, id: 'candidate:vest-blackcp', timestamp, storeBindings: bindings });
 
@@ -88,6 +88,7 @@ test('blackcp starts its own A branch with one captured SKU and no inherited pro
   assert.equal(result.created, true);
   assert.deepEqual(document.candidates[1], before);
   const child = result.candidate;
+  assert.equal(child.productName, `原商品同款：小猫战术背心 · 供应商原色 黑cp · SKU ${BLACK_CP}`);
   assert.equal(child.siblingSourceV1.supplierSkuId, BLACK_CP);
   assert.equal(child.siblingSourceV1.parentRevision, 12);
   assert.equal(child.siblingSourceV1.parentCardBinding.model, 'AL655668666570');
@@ -189,6 +190,27 @@ test('repeated request returns the same child and never creates a second import 
     assert.throws(() => create(document, changed), { code: 'SIBLING_REPLAY_CONFLICT' });
     assert.equal(JSON.stringify(document), serialized);
   }
+});
+
+test('internal sibling label comes only from the captured colour and rejects invalid old source values', () => {
+  assert.equal(siblingSkuCandidateName({ productName: '小猫战术背心' },
+    { sourceSkuId: BLACK_CP, attributes: { 颜色: ' 黑cp ' } }),
+    `原商品同款：小猫战术背心 · 供应商原色 黑cp · SKU ${BLACK_CP}`);
+  for (const color of ['', ' ', '黑cp\n', '<script>', 'https://example.test/private', 'token=private', 'x'.repeat(121)]) {
+    const document = fixture();
+    document.candidates[0].sourceCapture.skuChoices[0].attributes.颜色 = color;
+    const before = JSON.stringify(document);
+    assert.throws(() => create(document), { code: 'SIBLING_NAME_SOURCE_INVALID' });
+    assert.equal(JSON.stringify(document), before);
+  }
+  const document = fixture();
+  assert.throws(() => create(document, { ...input, productName: '卡其色背心' }),
+    { code: 'SIBLING_NAME_CONFLICT' });
+  assert.equal(document.candidates.length, 1);
+  const unsafeParent = fixture();
+  unsafeParent.candidates[0].productName = 'https://example.test/private';
+  assert.throws(() => create(unsafeParent), { code: 'SIBLING_NAME_SOURCE_INVALID' });
+  assert.equal(unsafeParent.candidates.length, 1);
 });
 
 test('newer provider snapshot preserves older real page category evidence for B', () => {

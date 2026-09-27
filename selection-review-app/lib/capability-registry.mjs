@@ -1710,6 +1710,7 @@ export const CAPABILITY_ARTIFACT_ASSIGNMENTS = Object.freeze([
       "lib/discovery-market-snapshot.mjs",
       "lib/supplier-draft.mjs",
       "lib/sku-choice-estimate.mjs",
+      "lib/sibling-sku-name.mjs",
       "lib/sibling-sku-candidate.mjs",
       "lib/sibling-sku-card-guard.mjs",
       "lib/profit-step-review.mjs",

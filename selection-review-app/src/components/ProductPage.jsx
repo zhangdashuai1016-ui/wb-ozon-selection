@@ -3,6 +3,7 @@ import { errorMessage } from "../formState.js";
 import { storeLabel } from "../selectionDeskView.js";
 import { toggleLocalSupplierSkuSelection } from "../aSupplierCaptureSelection.js";
 import { profitStepGaps, profitStepSubmission } from "../../lib/profit-step-review.mjs";
+import { siblingSkuCandidateName } from "../../lib/sibling-sku-name.mjs";
 import { commissionEstimateProposal } from "../../lib/commission-estimate-authorization.mjs";
 import { buildBExactCommissionInput, buildBEvidenceRefreshInput } from "../bExactCommissionInput.js";
 import EliminateControl from "./EliminateControl.jsx";
@@ -39,12 +40,24 @@ function SiblingSkuSection({ candidate, siblingSkuIds, onCreate }) {
     candidate.sourceCapture.selectedSkuIds.includes(choice.sourceSkuId) &&
     choice.sourceSkuId !== parentSkuId && !siblingSkuIds.includes(choice.sourceSkuId));
   if (choices.length === 0) return null;
+  function choose(event) {
+    const nextSkuId = event.target.value;
+    setSupplierSkuId(nextSkuId);
+    setError('');
+    if (!nextSkuId) { setProductName(''); return; }
+    try {
+      setProductName(siblingSkuCandidateName(candidate, choices.find(choice => choice.sourceSkuId === nextSkuId)));
+    } catch (cause) {
+      setProductName('');
+      setError(errorMessage(cause));
+    }
+  }
   async function submit(event) {
     event.preventDefault();
     setSaving(true);
     setError('');
     try {
-      await onCreate({ dataRevision: candidate.dataRevision, supplierSkuId, productName: productName.trim() });
+      await onCreate({ dataRevision: candidate.dataRevision, supplierSkuId });
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -56,18 +69,15 @@ function SiblingSkuSection({ candidate, siblingSkuIds, onCreate }) {
     <p className="product-section-hint">一次只建立一个独立 A 阶段规格。市场、采集和主人同重同价声明保留来源；供货确认、利润、素材与生产授权要逐规格完成。</p>
     <form onSubmit={submit}>
       <label>供应规格
-        <select value={supplierSkuId} onChange={event => setSupplierSkuId(event.target.value)} required disabled={saving}>
+        <select value={supplierSkuId} onChange={choose} required disabled={saving}>
           <option value="">请选择</option>
           {choices.map(choice => <option key={choice.sourceSkuId} value={choice.sourceSkuId}>
             {choice.attributes?.颜色 || choice.variantName || choice.sourceSkuId} · {choice.sourceSkuId}
           </option>)}
         </select>
       </label>
-      <label>这件规格的商品名称
-        <input value={productName} onChange={event => setProductName(event.target.value)} maxLength={200}
-          placeholder="请写明这个颜色，勿沿用上一色名称" required disabled={saving} />
-      </label>
-      <button className="button secondary" type="submit" disabled={saving || !supplierSkuId || !productName.trim()}>
+      {productName ? <p role="status">内部候选名称由软件生成：{productName}。正式商品标题和 Ozon 颜色仍待本规格核验。</p> : null}
+      <button className="button secondary" type="submit" disabled={saving || !supplierSkuId || !productName}>
         {saving ? '正在建立…' : '建立独立规格'}
       </button>
     </form>

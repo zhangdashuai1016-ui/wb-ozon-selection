@@ -91,6 +91,18 @@ const okEstimate = {
 const props = (extra = {}) => ({ candidate: candidate(), view: null, extensionStatus: { code: 'disconnected', label: '插件未安装或未连接' },
   onSaveDraft: forbidden, onRequestCapture: forbidden, onOpenLegacyCard: forbidden, onBack: forbidden, ...extra });
 
+test('追加已采集颜色只需选规格，内部候选名称由软件生成', async () => {
+  const parent = candidate({ sourceCapture: { mode: 'a_supplier_capture', status: 'captured_waiting_owner_selection',
+    selectedSkuIds: ['6222816678023'], skuChoices: [
+      { sourceSkuId: '6222816678023', attributes: { 颜色: '黑cp' } }
+    ] }, lifecycleV11: { skuPackage: { supplierSkuId: '6222816678021',
+      dSoftwareExecution: { checkpoints: [{ kind: 'import_task_received' }] } } } });
+  const html = await render(props({ candidate: parent, onCreateSiblingSku: forbidden, siblingSkuIds: [] }));
+  assert.match(html, /aria-label="追加同款规格"/u);
+  assert.match(html, /黑cp · 6222816678023/u);
+  assert.doesNotMatch(html, /这件规格的商品名称|请写明这个颜色/u);
+});
+
 test('sibling product page shows frozen revision recovery and editable 10096/10097 mapping entry', async () => {
   const [frozen, editable] = siblingColorState().candidates;
   const frozenHtml = await render(props({ candidate: frozen, onReviseSiblingColor: forbidden }));

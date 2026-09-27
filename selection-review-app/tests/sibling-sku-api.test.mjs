@@ -90,7 +90,7 @@ test('owner-only sibling API creates one persistent A branch; replay, conflicts 
     child.stdout.on('data', onData); child.once('error', done); child.once('exit', onExit);
   });
   const route = `/api/candidates/${parent.id}/sibling-sku`;
-  const input = { dataRevision: 12, supplierSkuId, productName: '合成背心 · 黑cp' };
+  const input = { dataRevision: 12, supplierSkuId };
   let cookie = '';
   async function post(uri, body, origin = base) {
     const response = await fetch(`${base}${uri}`, { method: 'POST', headers: { Origin: origin,
@@ -115,6 +115,7 @@ test('owner-only sibling API creates one persistent A branch; replay, conflicts 
   assert.deepEqual(saved.candidates.find(candidate => candidate.id === parent.id), parent);
   const sibling = saved.candidates.find(candidate => candidate.id !== parent.id);
   assert.equal(sibling.siblingSourceV1.supplierSkuId, supplierSkuId);
+  assert.equal(sibling.productName, `原商品同款：合成背心 · 供应商原色 黑cp · SKU ${supplierSkuId}`);
   assert.equal(sibling.lifecycleV11, undefined);
   assert.equal(saved.candidates.length, 2);
   assert.equal(saved.dispatches.length, 0);

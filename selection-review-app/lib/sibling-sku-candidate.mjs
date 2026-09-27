@@ -4,15 +4,10 @@ import { normalize1688CaptureSource } from './source-capture.mjs';
 import { inForceSkuUniformSupply } from './sku-choice-estimate.mjs';
 import { isCompleteStoreRef, sameStoreRef } from './store-binding.mjs';
 import { parentCardBinding } from './sibling-sku-card-guard.mjs';
+import { siblingSkuCandidateName, SiblingSkuCandidateError } from './sibling-sku-name.mjs';
 import { validateSalesSnapshot } from './sales-snapshot.mjs';
 
-export class SiblingSkuCandidateError extends Error {
-  constructor(code, message) {
-    super(message);
-    this.name = 'SiblingSkuCandidateError';
-    this.code = code;
-  }
-}
+export { siblingSkuCandidateName, SiblingSkuCandidateError } from './sibling-sku-name.mjs';
 
 const fail = (code, message) => { throw new SiblingSkuCandidateError(code, message); };
 const text = value => typeof value === 'string' ? value.trim() : '';
@@ -22,9 +17,10 @@ export function siblingSkuCandidateInput(value) {
       Object.keys(value).some(key => !['dataRevision', 'supplierSkuId', 'productName'].includes(key)) ||
       !Number.isSafeInteger(value.dataRevision) || value.dataRevision < 1 ||
       text(value.supplierSkuId) !== value.supplierSkuId || !/^[1-9][0-9]{0,39}$/.test(value.supplierSkuId) ||
-      text(value.productName) !== value.productName || value.productName.length > 200 || value.productName.length === 0 ||
-      /[\u0000-\u001f\u007f]/u.test(value.productName)) {
-    fail('SIBLING_INPUT_INVALID', '追加规格必须提供当前修订、精确供应 SKU 和商品名称');
+      (value.productName !== undefined && (text(value.productName) !== value.productName ||
+        value.productName.length > 200 || value.productName.length === 0 ||
+        /[\u0000-\u001f\u007f]/u.test(value.productName)))) {
+    fail('SIBLING_INPUT_INVALID', '追加规格必须提供当前修订和精确供应 SKU');
   }
   return value;
 }
@@ -39,7 +35,8 @@ export function createSiblingSkuCandidate({ document, parentCandidateId, input, 
   const existing = candidates.find(candidate => candidate.siblingSourceV1?.parentCandidateId === parentCandidateId &&
     candidate.siblingSourceV1?.supplierSkuId === input.supplierSkuId);
   if (existing) {
-    if (existing.siblingSourceV1.parentRevision !== input.dataRevision || existing.productName !== input.productName) {
+    if (existing.siblingSourceV1.parentRevision !== input.dataRevision ||
+        (input.productName !== undefined && existing.productName !== input.productName)) {
       fail('SIBLING_REPLAY_CONFLICT', '该供应 SKU 已按另一份输入建立候选，请打开已有候选');
     }
     return { candidate: existing, created: false };
@@ -64,6 +61,10 @@ export function createSiblingSkuCandidate({ document, parentCandidateId, input, 
   }
   const choices = capture.skuChoices.filter(choice => String(choice.sourceSkuId) === input.supplierSkuId);
   if (choices.length !== 1) fail('SIBLING_SKU_IDENTITY_INVALID', '目标 SKU 在采集记录中不是唯一规格');
+  const productName = siblingSkuCandidateName(parent, choices[0]);
+  if (input.productName !== undefined && input.productName !== productName) {
+    fail('SIBLING_NAME_CONFLICT', '商品名称由已采集规格生成，请刷新页面后重新建立');
+  }
   const sales = currentSalesSnapshot(parent);
   if (!sales) fail('SIBLING_MARKET_EVIDENCE_MISSING', '原商品没有可复用的有效市场快照');
   const salesSnapshots = parent.salesSnapshotsV11.filter(snapshot => validateSalesSnapshot(snapshot).valid);
@@ -85,7 +86,7 @@ export function createSiblingSkuCandidate({ document, parentCandidateId, input, 
     throw error;
   }
   const child = createInitialCandidate({
-    input: { targetStore: parent.targetStore, productName: input.productName, sourceUrl: source.sourceUrl,
+    input: { targetStore: parent.targetStore, productName, sourceUrl: source.sourceUrl,
       productUrl: sales.productUrl, group: parent.group },
     source: 'user', id, timestamp, storeBindings
   });
