@@ -14,7 +14,8 @@ const observationPolicy = { schemaVersion: 'd-platform-observation-policy-v1',
   intervalMs: 0, expiresAt: '2026-09-01T00:00:00.000Z', requestTimeoutMs: 10_000 };
 const binding = { warehouseRef: 'warehouse:synthetic:dandanshu', credentialAlias: 'credential-alias:synthetic:dandanshu' };
 
-async function fixture({ failReceipt = false, createAdapterFailures = 0, observationItems = null, count = 2 } = {}) {
+async function fixture({ failReceipt = false, createAdapterFailures = 0, observationItems = null, count = 2,
+  inventoryAction = null } = {}) {
   let currentTime = at;
   const colors = count === 2 ? ['white', 'black'] : ['black', 'navy', 'khaki'];
   const sources = [];
@@ -45,10 +46,14 @@ async function fixture({ failReceipt = false, createAdapterFailures = 0, observa
     dataRevision: source.fixture.candidateRevision, targetPlatform: 'ozon', targetStore: 'dandanshu',
     storeRef: structuredClone(members[index].request.storeRef),
     lifecycleV11: { skuPackage: structuredClone(source.fixture.skuPackage) } }));
-  document.runtime.dProductionBatches = [{ schemaVersion: 'd-batch-production-authorization-v1',
+  document.runtime.dProductionBatches = [{ schemaVersion: inventoryAction===null ?
+    'd-batch-production-authorization-v1':'d-batch-production-authorization-v2',
     batchId: 'd-batch:synthetic', status: 'authorized', externalRequestState: 'not_sent',
     storeRef: structuredClone(members[0].request.storeRef),
-    excludedOfferIds: ['BATCH-FIRST'], members: sources.map((source, index) => ({
+    excludedOfferIds: ['BATCH-FIRST'], ...(inventoryAction===null?{}:{postImportScope:{
+      schemaVersion:'d-batch-post-import-scope-v1',inventoryAction,
+      eReadbackOfferIds:members.map(member=>member.request.merchantSku)}}),
+    members: sources.map((source, index) => ({
       candidateId: source.fixture.candidateId, skuPackageId: source.fixture.skuPackage.skuPackageId,
       offerId: members[index].request.merchantSku, resultRevision: source.fixture.candidateRevision,
       authorizationId: source.authorization.authorizationId,
@@ -109,6 +114,20 @@ test('persisted batch intent sends once, then one task read settles each offer i
     ['imported_awaiting_inventory_and_e', 'platform_failed']);
   assert.equal(saved.candidates.some(candidate => candidate.lifecycleV11.skuPackage.productionRecord), false);
   assert.deepEqual(calls.map(call => call.write), [true, false]);
+});
+test('v2 imported offer atomically creates only its own frozen stock continuation',async()=>{
+  const {repository,runtime,members,capability,calls}=await fixture({inventoryAction:'create_only'});
+  const input={batchId:'d-batch:synthetic',members,adapterCapabilities:capability,workerId:'worker:batch-synthetic'};
+  await runtime.run(input);
+  const result=await runtime.observe({...input,chunkIndex:0});
+  assert.equal(result.status,'partial_failure');
+  const saved=await repository.readSnapshot();
+  assert.equal(saved.runtime.dBatchStockJobs.length,1);
+  const stock=saved.runtime.dBatchStockJobs[0];
+  assert.equal(stock.offerId,'BATCH-A');
+  assert.equal(stock.status,'inventory_deferred');
+  assert.equal(stock.authorizationId,saved.runtime.dProductionBatches[0].members[0].authorizationId);
+  assert.deepEqual(calls.map(call=>call.write),[true,false]);
 });
 
 test('adapter startup failure can resume only a never-sent chunk', async () => {

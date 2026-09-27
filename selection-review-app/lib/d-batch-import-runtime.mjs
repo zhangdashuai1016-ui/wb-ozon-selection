@@ -11,6 +11,7 @@ import { sameStoreRef } from './store-binding.mjs';
 import { prepareSingleSkuDExecution } from './d-e-software-closure.mjs';
 import { assertDPlatformObservationPolicy } from './d-platform-observation-policy.mjs';
 import { OzonDEHttpTransportError } from './ozon-de-http-configuration.mjs';
+import { createDBatchStockJob } from './d-batch-stock-state.mjs';
 
 export const D_BATCH_IMPORT_RUNTIME_VERSION = 'd-batch-import-runtime-v1';
 const clone = value => structuredClone(value);
@@ -28,12 +29,17 @@ function locate(document, batchId) {
 }
 
 function assertCurrentMembers(document, batch, members) {
-  if (batch.schemaVersion !== 'd-batch-production-authorization-v1' ||
+  if (!['d-batch-production-authorization-v1','d-batch-production-authorization-v2'].includes(batch.schemaVersion) ||
       !Array.isArray(members) || members.length !== batch.members.length ||
       members.some((member, index) => member.request?.merchantSku !== batch.members[index].offerId ||
         member.request?.candidateId !== batch.members[index].candidateId)) {
     throw new Error('D_BATCH_IMPORT_MEMBER_SCOPE_MISMATCH');
   }
+  if (batch.schemaVersion === 'd-batch-production-authorization-v2' &&
+      (batch.postImportScope?.schemaVersion !== 'd-batch-post-import-scope-v1' ||
+        !['create_only','write_authorized_stock'].includes(batch.postImportScope.inventoryAction) ||
+        !isDeepStrictEqual(batch.postImportScope.eReadbackOfferIds,batch.members.map(member=>member.offerId))))
+    throw new Error('D_BATCH_IMPORT_POST_IMPORT_SCOPE_INVALID');
   for (let index = 0; index < members.length; index++) {
     const member = members[index], saved = batch.members[index];
     const matches = document.candidates.filter(candidate => candidate.id === saved.candidateId);
@@ -158,19 +164,34 @@ export function createPersistedDBatchImportRuntime({ repository, runtimeMode = '
       if (!job) throw new Error('D_BATCH_IMPORT_JOB_MISSING');
       if (job.workerVersion !== savedWorker.version) throw new Error('D_BATCH_IMPORT_WORKER_CHANGED');
       if (event.kind === 'batch_import_intent') assertCurrentMembers(document, batch, members);
-      const next = applyDBatchImportEvent({ job, event, workerId, leaseId, observedAt: now() });
+      const checkpointAt=now();
+      const next = applyDBatchImportEvent({ job, event, workerId, leaseId, observedAt: checkpointAt });
       jobs[jobs.indexOf(job)] = next;
       if (event.kind === 'batch_import_intent') batch.externalRequestState = 'intent_persisted';
       if (event.kind === 'batch_import_task_received') batch.externalRequestState = 'task_received';
       if (event.kind === 'batch_import_unknown') batch.externalRequestState = 'unknown_outcome';
       if (event.kind === 'batch_import_observed') {
+        const stockJobs=document.runtime.dBatchStockJobs ?? [];
+        if(!Array.isArray(stockJobs))throw new Error('D_BATCH_STOCK_STORE_INVALID');
         for (const result of event.results) {
           const target = batch.members.find(member => member.offerId === result.offerId);
           if (!target) throw new Error('D_BATCH_IMPORT_OBSERVED_OFFER_MISSING');
           target.status = result.classification === 'imported' ? 'imported_awaiting_inventory_and_e' : result.classification;
           target.taskId = event.taskId;
           target.productId = result.importObservation?.productId ?? null;
+          if(batch.schemaVersion==='d-batch-production-authorization-v2' && result.classification==='imported'){
+            const existing=stockJobs.filter(entry=>entry.batchId===batchId&&entry.offerId===result.offerId);
+            if(existing.length>1)throw new Error('D_BATCH_STOCK_JOB_NOT_UNIQUE');
+            if(existing.length===0)stockJobs.push(createDBatchStockJob({batch,member:target,
+              taskId:event.taskId,productId:result.importObservation.productId,
+              workerId:job.workerId,workerVersion:job.workerVersion,leaseId:job.leaseId,
+              leaseExpiresAt:job.leaseExpiresAt,createdAt:checkpointAt}));
+            else if(existing[0].candidateId!==target.candidateId||existing[0].productId!==result.importObservation.productId||
+                existing[0].taskId!==event.taskId||existing[0].authorizationFingerprint!==target.authorizationFingerprint)
+              throw new Error('D_BATCH_STOCK_JOB_SOURCE_CONFLICT');
+          }
         }
+        if(batch.schemaVersion==='d-batch-production-authorization-v2')document.runtime.dBatchStockJobs=stockJobs;
       }
       batch.status = next.status;
       return { changed: true, document, result: clone(next) };
