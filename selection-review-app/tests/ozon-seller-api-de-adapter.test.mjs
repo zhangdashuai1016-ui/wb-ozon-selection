@@ -128,6 +128,21 @@ test('batch adapter sends one multi-item task and classifies each offer without 
     taskId: receipt.taskId, offerIds: receipt.offerIds });
   assert.deepEqual(observed.results.map(result => result.classification), ['imported', 'platform_failed']);
   assert.deepEqual(calls.map(call => call.write), [true, false]);
+  for (const resultItems of [
+    [{ offer_id: scope.members[0].request.merchantSku, product_id: 910001, status: 'imported', errors: [] }],
+    [{ offer_id: scope.members[0].request.merchantSku, product_id: 910001, status: 'imported', errors: [] },
+      { offer_id: scope.members[0].request.merchantSku, product_id: 910001, status: 'imported', errors: [] }],
+    [{ offer_id: scope.members[0].request.merchantSku, product_id: 910001, status: 'imported', errors: [] },
+      { offer_id: 'UNEXPECTED', product_id: 910003, status: 'imported', errors: [] }]
+  ]) {
+    const unsafe = createStoreIsolatedOzonSellerApiDEAdapter({ adapterCapabilities: capability,
+      requestJson: async () => ({ result: { items: resultItems } }) });
+    const observation = await unsafe.observeBatchImportTask({ batchId: scope.batchId, chunkIndex: 0,
+      taskId: receipt.taskId, offerIds: receipt.offerIds });
+    assert.equal(observation.results.some(result => result.classification !== 'unknown_outcome'),
+      resultItems.every(item => item.offer_id !== 'UNEXPECTED') && resultItems.length === 1);
+    assert.equal(observation.results.some(result => result.classification === 'unknown_outcome'), true);
+  }
 });
 
 function executableRequest({ store, warehouseId, offerId } = {}) {

@@ -7188,13 +7188,21 @@ async function handleApi(req, res, pathname) {
         runtimeMode: runtimeConfiguration.deploymentMode, actor, input,
         configuration: runtimeConfiguration, serverClock: now });
     } catch (error) {
+      if (error instanceof ExactCommissionRequiredForProductionError) {
+        return json(res, 422, { code: error.code, ownerNextStep: error.ownerNextStep,
+          message: '批次中有规格仍需使用精确佣金完成正式利润复算；整批授权未保存。',
+          externalRequests: 0, platformWrites: 0 });
+      }
       if (error instanceof ProductionOwnerPreparationError) {
         return json(res, /CHANGED|EXPIRED/.test(error.code) ? 409 : 422,
           { code: error.code, message: error.message, externalRequests: 0, platformWrites: 0 });
       }
       const code = String(error.code || error.message).split(':', 1)[0];
-      if (/^D_BATCH_[A-Z_]+$/.test(code)) {
-        return json(res, code === 'D_BATCH_AUTHORIZATION_INPUT_INVALID' ? 400 : 409,
+      if (/^(?:D_BATCH|PRODUCTION_OWNER|PRODUCTION_AUTHORIZATION|BUSINESS_MUTATION|RUNTIME_OPERATION)_[A-Z_]+$/.test(code)) {
+        const status = code === 'D_BATCH_AUTHORIZATION_INPUT_INVALID' ? 400 :
+          /FORBIDDEN|AUTHENTICATED|AUTHORIZER/.test(code) ? 403 :
+          /NOT_FOUND/.test(code) ? 404 : /CONFLICT|DRIFT|GATE_REJECTED|ALREADY_STARTED|RESERVED/.test(code) ? 409 : 422;
+        return json(res, status,
           { code, message: '批次授权未保存；请刷新规格清单并核对每项资料与历史任务。', externalRequests: 0, platformWrites: 0 });
       }
       throw error;

@@ -604,13 +604,15 @@ export function createStoreIsolatedOzonSellerApiDEAdapter({ requestJson, adapter
       if (!batchRequest) throw new Error('OZON_BATCH_CHUNK_NOT_FOUND');
       await persistCheckpoint({ kind: 'batch_import_intent', batchId, chunkIndex,
         offerIds: batchRequest.offerIds, limitEvidenceRef: batchRequest.limitEvidenceRef });
-      project(members[0].executionContext.serverClock());
+      const currentRequests = project(members[0].executionContext.serverClock());
+      if (!isDeepStrictEqual(currentRequests[chunkIndex], batchRequest)) throw new Error('OZON_BATCH_SCOPE_CHANGED_AFTER_INTENT');
       let response, runningGuard = false;
       try {
         response = await call({ endpoint: OZON_PRODUCT_IMPORT_ENDPOINT, body: batchRequest.body,
           write: true, executionKey: `${batchId}:${chunkIndex}` }, { signal, beforeRequestSend: async () => {
           runningGuard = true;
-          project(members[0].executionContext.serverClock());
+          const currentRequests = project(members[0].executionContext.serverClock());
+          if (!isDeepStrictEqual(currentRequests[chunkIndex], batchRequest)) throw new Error('OZON_BATCH_SCOPE_CHANGED_BEFORE_SEND');
           if (beforeRequestSend) await beforeRequestSend();
           signal?.throwIfAborted();
           runningGuard = false;
@@ -646,15 +648,15 @@ export function createStoreIsolatedOzonSellerApiDEAdapter({ requestJson, adapter
       { signal, beforeRequestSend });
       signal?.throwIfAborted();
       const items = response?.result?.items;
-      if (!Array.isArray(items) || items.some(item => !offerIds.includes(item?.offer_id))) {
-        throw new Error('OZON_BATCH_OBSERVATION_IDENTITY_UNVERIFIED');
-      }
+      if (!Array.isArray(items)) throw new Error('OZON_BATCH_OBSERVATION_IDENTITY_UNVERIFIED');
+      const hasExtraItem = items.some(item => !offerIds.includes(item?.offer_id));
       const results = offerIds.map(merchantSku => {
         const matches = items.filter(item => item.offer_id === merchantSku);
         const query = { batchId, chunkIndex, taskId, merchantSku };
-        const observation = normalizeImportObservation({ result: { items: matches } }, query, capabilities);
+        const observation = normalizeImportObservation({ result: { items: hasExtraItem ? [] : matches } }, query, capabilities);
         return { offerId: merchantSku, classification: observation.classification,
-          gapCode: observation.gapCode, importObservation: observation.importObservation };
+          gapCode: hasExtraItem ? 'batch_import_extra_offer' : observation.gapCode,
+          importObservation: observation.importObservation };
       });
       return freeze({ batchId, chunkIndex, taskId, results });
     },
