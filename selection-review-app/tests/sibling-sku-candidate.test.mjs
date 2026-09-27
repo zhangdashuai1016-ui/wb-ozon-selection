@@ -6,7 +6,7 @@ import { collectRealOzonSalesSnapshot } from '../lib/sales-snapshot.mjs';
 import { buildDiscoveryMarketSalesSnapshot } from '../lib/discovery-market-snapshot.mjs';
 import { buildRealAConfirmationCard } from '../lib/real-a-confirmation-card.mjs';
 import { assertSafeBusinessMutationCandidate } from '../lib/runtime-identity.mjs';
-import { createSiblingSkuCandidate, siblingSkuCandidateName } from '../lib/sibling-sku-candidate.mjs';
+import { createSiblingSkuCandidate, createSiblingSkuCandidatesBatch, siblingSkuCandidateName } from '../lib/sibling-sku-candidate.mjs';
 import { assertSiblingSkuFinalCard } from '../lib/sibling-sku-card-guard.mjs';
 import { SYNTHETIC_STORE_REF } from './fixtures/store-binding-fixture.mjs';
 import { productionOwnerDecisionFixture } from './fixtures/production-owner-decision-fixture.mjs';
@@ -78,6 +78,31 @@ function fixture() {
 }
 
 const input = { dataRevision: 12, supplierSkuId: BLACK_CP };
+
+test('one selected-variant list prepares three A records and excludes the first and unselected color', () => {
+  const document = fixture(), parent = document.candidates[0];
+  for (const [sourceSkuId, color] of [['6222816678020', 'CP'], ['6222816678019', '黑色']]) {
+    parent.sourceCapture.selectedSkuIds.push(sourceSkuId);
+    parent.sourceCapture.skuChoices.push({ sourceSkuId, variantName: color, attributes: { 颜色: color }, priceCny: null, weight: null });
+    parent.skuUniformSupplyV1.sourceSkuIds.push(sourceSkuId);
+  }
+  parent.sourceCapture.skuChoices.push({ sourceSkuId: '6222816678022', variantName: '军绿', attributes: { 颜色: '军绿' } });
+  const before = structuredClone(parent);
+  let next = 0;
+  const run = supplierSkuIds => createSiblingSkuCandidatesBatch({ document, parentCandidateId: parent.id,
+    input: { dataRevision: 12, supplierSkuIds }, nextId: () => `candidate:batch-${++next}`,
+    timestamp, storeBindings: bindings });
+  const selected = [BLACK_CP, '6222816678020', '6222816678019'];
+  const result = run(selected);
+  assert.equal(result.createdCount, 3);
+  assert.deepEqual(result.candidates.map(candidate => candidate.siblingSourceV1.supplierSkuId), selected);
+  assert.deepEqual(document.candidates.at(-1), before);
+  assert.equal(run(selected).createdCount, 0);
+  const saved = structuredClone(document);
+  assert.throws(() => run([BLACK_CP, KHaki]), error => error.code === 'SIBLING_PARENT_SKU_REJECTED');
+  assert.throws(() => run(['6222816678022']), error => error.code === 'SIBLING_CAPTURE_INVALID');
+  assert.deepEqual(document, saved);
+});
 const create = (document, override = input) => createSiblingSkuCandidate({ document,
   parentCandidateId: 'candidate:vest-parent', input: override, id: 'candidate:vest-blackcp', timestamp, storeBindings: bindings });
 

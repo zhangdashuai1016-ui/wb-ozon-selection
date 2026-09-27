@@ -117,3 +117,24 @@ export function createSiblingSkuCandidate({ document, parentCandidateId, input, 
   candidates.unshift(child);
   return { candidate: child, created: true };
 }
+
+/** Prepare the owner's selected variants in one atomic candidate mutation. */
+export function createSiblingSkuCandidatesBatch({ document, parentCandidateId, input, nextId, timestamp, storeBindings }) {
+  if (!input || Object.keys(input).sort().join() !== 'dataRevision,supplierSkuIds' ||
+      !Number.isSafeInteger(input.dataRevision) || input.dataRevision < 1 ||
+      !Array.isArray(input.supplierSkuIds) || input.supplierSkuIds.length === 0 ||
+      new Set(input.supplierSkuIds).size !== input.supplierSkuIds.length ||
+      input.supplierSkuIds.some(supplierSkuId => typeof supplierSkuId !== 'string' ||
+        !/^[1-9][0-9]{0,39}$/.test(supplierSkuId)) || typeof nextId !== 'function') {
+    fail('SIBLING_BATCH_INPUT_INVALID', '请提交当前修订及不重复的精确供应规格');
+  }
+  const draft = structuredClone(document);
+  const results = input.supplierSkuIds.map(supplierSkuId => createSiblingSkuCandidate({
+    document: draft, parentCandidateId, input: { dataRevision: input.dataRevision, supplierSkuId },
+    id: nextId(draft.candidates), timestamp, storeBindings
+  }));
+  document.candidates = draft.candidates;
+  return { candidates: results.map(result => result.candidate),
+    createdIds: results.filter(result => result.created).map(result => result.candidate.id),
+    createdCount: results.filter(result => result.created).length };
+}

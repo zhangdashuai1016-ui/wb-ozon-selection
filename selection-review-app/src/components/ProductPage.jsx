@@ -3,7 +3,6 @@ import { errorMessage } from "../formState.js";
 import { storeLabel } from "../selectionDeskView.js";
 import { toggleLocalSupplierSkuSelection } from "../aSupplierCaptureSelection.js";
 import { profitStepGaps, profitStepSubmission } from "../../lib/profit-step-review.mjs";
-import { siblingSkuCandidateName } from "../../lib/sibling-sku-name.mjs";
 import { commissionEstimateProposal } from "../../lib/commission-estimate-authorization.mjs";
 import { buildBExactCommissionInput, buildBEvidenceRefreshInput } from "../bExactCommissionInput.js";
 import EliminateControl from "./EliminateControl.jsx";
@@ -31,8 +30,7 @@ export const PRODUCT_STEPS = Object.freeze([
 ]);
 
 function SiblingSkuSection({ candidate, siblingSkuIds, onCreate }) {
-  const [supplierSkuId, setSupplierSkuId] = useState('');
-  const [productName, setProductName] = useState('');
+  const [selectedIds, setSelectedIds] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const parentSkuId = candidate.lifecycleV11?.skuPackage?.supplierSkuId;
@@ -40,24 +38,17 @@ function SiblingSkuSection({ candidate, siblingSkuIds, onCreate }) {
     candidate.sourceCapture.selectedSkuIds.includes(choice.sourceSkuId) &&
     choice.sourceSkuId !== parentSkuId && !siblingSkuIds.includes(choice.sourceSkuId));
   if (choices.length === 0) return null;
-  function choose(event) {
-    const nextSkuId = event.target.value;
-    setSupplierSkuId(nextSkuId);
+  const selected = selectedIds ?? choices.map(choice => choice.sourceSkuId);
+  function toggle(sourceSkuId) {
+    setSelectedIds(selected.includes(sourceSkuId) ? selected.filter(id => id !== sourceSkuId) : [...selected, sourceSkuId]);
     setError('');
-    if (!nextSkuId) { setProductName(''); return; }
-    try {
-      setProductName(siblingSkuCandidateName(candidate, choices.find(choice => choice.sourceSkuId === nextSkuId)));
-    } catch (cause) {
-      setProductName('');
-      setError(errorMessage(cause));
-    }
   }
   async function submit(event) {
     event.preventDefault();
     setSaving(true);
     setError('');
     try {
-      await onCreate({ dataRevision: candidate.dataRevision, supplierSkuId });
+      await onCreate({ dataRevision: candidate.dataRevision, supplierSkuIds: selected });
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -65,20 +56,16 @@ function SiblingSkuSection({ candidate, siblingSkuIds, onCreate }) {
     }
   }
   return <section className="product-section" aria-label="追加同款规格">
-    <h3>追加同款规格</h3>
-    <p className="product-section-hint">一次只建立一个独立 A 阶段规格。市场、采集和主人同重同价声明保留来源；供货确认、利润、素材与生产授权要逐规格完成。</p>
+    <h3>同款规格清单</h3>
+    <p className="product-section-hint">下面只列已选且未处理的供应规格。一次建立内部 A 记录，保留共用市场和采集来源；利润、颜色事实、图片与生产授权仍须由软件逐项核验。</p>
     <form onSubmit={submit}>
-      <label>供应规格
-        <select value={supplierSkuId} onChange={choose} required disabled={saving}>
-          <option value="">请选择</option>
-          {choices.map(choice => <option key={choice.sourceSkuId} value={choice.sourceSkuId}>
-            {choice.attributes?.颜色 || choice.variantName || choice.sourceSkuId} · {choice.sourceSkuId}
-          </option>)}
-        </select>
-      </label>
-      {productName ? <p role="status">内部候选名称由软件生成：{productName}。正式商品标题和 Ozon 颜色仍待本规格核验。</p> : null}
-      <button className="button secondary" type="submit" disabled={saving || !supplierSkuId || !productName}>
-        {saving ? '正在建立…' : '建立独立规格'}
+      <ul>{choices.map(choice => <li key={choice.sourceSkuId}>
+        <label><input type="checkbox" checked={selected.includes(choice.sourceSkuId)} disabled={saving}
+          onChange={() => toggle(choice.sourceSkuId)} />
+        {choice.attributes?.颜色 || choice.variantName || '颜色待核验'} · 供应 SKU {choice.sourceSkuId}</label>
+      </li>)}</ul>
+      <button className="button secondary" type="submit" disabled={saving || selected.length === 0}>
+        {saving ? '正在建立…' : `建立 ${selected.length} 个规格的内部记录`}
       </button>
     </form>
     {error ? <p role="alert">{error}</p> : null}

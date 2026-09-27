@@ -18,6 +18,7 @@ if (!Number.isSafeInteger(port) || port < 1 || [4317, 4318, 4173].includes(port)
 const base = `http://127.0.0.1:${port}`;
 const supplierSkuId = '6222816678023';
 const originalSkuId = '6222816678021';
+const secondSkuId = '6222816678020';
 const at = '2026-09-24T12:00:00.000Z';
 const binding = { targetStore: 'dandanshu', platform: 'ozon', storeRef: SYNTHETIC_STORE_REF };
 
@@ -30,8 +31,9 @@ function sourceCandidate() {
     status: 'captured_waiting_owner_selection', sourceUrl: parent.sourceUrl, offerId: '1038877014153',
     title: '合成背心', observedAt: at, collectionMethod: 'synthetic_fixture', titleSource: 'page', offerIdSource: 'url',
     priceRanges: [], pageFields: {}, supplierAttributes: { 材质: '牛津布' },
-    selectedSkuIds: [supplierSkuId, originalSkuId], skuChoices: [
+    selectedSkuIds: [supplierSkuId, secondSkuId, originalSkuId], skuChoices: [
       { sourceSkuId: supplierSkuId, variantName: '黑cp', attributes: { 颜色: '黑cp' } },
+      { sourceSkuId: secondSkuId, variantName: 'CP', attributes: { 颜色: 'CP' } },
       { sourceSkuId: originalSkuId, variantName: '卡其色', attributes: { 颜色: '卡其色' } }
     ] };
   parent.salesSnapshotsV11 = [collectMockOzonSalesSnapshot({ sourceMode: 'mock_ozon_fixture',
@@ -42,7 +44,7 @@ function sourceCandidate() {
   parent.supplierDraftV1 = { offerId: '1038877014153', goodsPriceRmb: 18, packedWeightKg: 0.2,
     domesticShippingRmb: 0, allInPurchaseRmb: 18, dimensionsCm: { length: 20, width: 15, height: 4 }, targetSalePriceRub: 900 };
   parent.skuUniformSupplyV1 = { schemaVersion: 'candidate-sku-uniform-supply-v1', declaredBy: 'owner',
-    captureId: parent.sourceCapture.captureId, sourceSkuIds: [supplierSkuId, originalSkuId],
+    captureId: parent.sourceCapture.captureId, sourceSkuIds: [supplierSkuId, secondSkuId, originalSkuId],
     sourceRef: 'synthetic:owner-declaration', basisAtDeclaration: { goodsPriceRmb: 18, packedWeightKg: 0.2 } };
   const authorized = authorizedProductionFixture({ candidateId: parent.id, supplierSkuId: originalSkuId,
     storeRef: SYNTHETIC_STORE_REF, sourceCandidateRevision: 11 });
@@ -132,5 +134,21 @@ test('owner-only sibling API creates one persistent A branch; replay, conflicts 
     assert.equal(rejected.status, 409, JSON.stringify(rejected.body));
   }
   assert.equal(await readFile(dataFile, 'utf8'), after);
+  const batchRoute = `/api/candidates/${parent.id}/sibling-sku-batch`;
+  const batchInput = { dataRevision: 12, supplierSkuIds: [supplierSkuId, secondSkuId] };
+  const prepared = await post(batchRoute, batchInput);
+  assert.equal(prepared.status, 201, JSON.stringify(prepared.body));
+  assert.equal(prepared.body.createdCount, 1);
+  assert.equal(prepared.body.status, 'a_preparation_only');
+  const batchSaved = JSON.parse(await readFile(dataFile, 'utf8'));
+  assert.deepEqual(batchSaved.candidates.filter(candidate => candidate.siblingSourceV1).map(candidate => candidate.siblingSourceV1.supplierSkuId).sort(),
+    [supplierSkuId, secondSkuId].sort());
+  assert.equal(batchSaved.runtime.softwareJobs.length, 0);
+  const replayBatch = await post(batchRoute, batchInput);
+  assert.equal(replayBatch.status, 200);
+  assert.equal(replayBatch.body.createdCount, 0);
+  const beforeInvalid = await readFile(dataFile, 'utf8');
+  assert.equal((await post(batchRoute, { dataRevision: 12, supplierSkuIds: [originalSkuId] })).status, 409);
+  assert.equal(await readFile(dataFile, 'utf8'), beforeInvalid);
   assert.equal(stderr.join(''), '');
 });

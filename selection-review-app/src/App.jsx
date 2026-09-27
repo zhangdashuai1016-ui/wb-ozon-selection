@@ -523,12 +523,11 @@ export default function App() {
     }
   }
 
-  async function createSiblingSku(payload) {
+  async function createSiblingSkuBatch(payload) {
     const parentCandidateId = selectedId;
-    const navigationToken = selectionGuard.current.capture();
-    const result = await api.createSiblingSku(parentCandidateId, payload);
+    const result = await api.createSiblingSkuBatch(parentCandidateId, payload);
     await load(true);
-    navigateResult(result.candidate, navigationToken);
+    setNotice({ type: 'success', message: `已建立 ${result.createdCount} 个规格的内部 A 记录；正式利润、颜色、图片和生产授权仍待核验。` });
     return result;
   }
 
@@ -1321,7 +1320,7 @@ export default function App() {
           loadingLabel={productDraftError ? `读取这件商品的找货资料失败：${productDraftError}` : "正在读取这件商品的找货资料…"}
           onSaveDraft={payload => runProductStep(api.saveSupplierDraft, payload)}
           onChooseSkus={payload => runProductStep(api.chooseSourceSkus, payload)}
-          onCreateSiblingSku={createSiblingSku}
+          onCreateSiblingSku={createSiblingSkuBatch}
           siblingSkuIds={siblingSkuIds}
           onDeclareCargoFacts={payload => runProductStep(api.declareCargoFacts, payload)}
           onDeclareExtraHandlingFees={payload => runProductStep(api.declareExtraHandlingFees, payload)}

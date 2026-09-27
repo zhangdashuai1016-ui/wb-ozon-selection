@@ -303,6 +303,10 @@ export const api = {
     request(`/api/candidates/${encodeURIComponent(candidateId)}/sibling-sku`, {
       method: 'POST', body: JSON.stringify(payload)
     }),
+  createSiblingSkuBatch: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/sibling-sku-batch`, {
+      method: 'POST', body: JSON.stringify(payload)
+    }),
   updateCandidate: (id, payload) =>
     request(`/api/candidates/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
   saveUserEvaluation: (id, payload) =>

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { preparedFixture } from "./helpers/d-software-fixture.mjs";
+import { preparedFixture, capabilities as formalCapabilities } from "./helpers/d-software-fixture.mjs";
+import { finalAssets as syntheticFinalAssets } from './helpers/c2-software-fixture.mjs';
 import { assertOzonInventoryPrerequisitePolicy, isCurrentInventoryPrerequisitePolicy,
   OZON_STOCK_QUANT_SIZE_REMOVAL_REF } from "../lib/ozon-inventory-prerequisite-policy.mjs";
 import {
@@ -86,6 +87,48 @@ const formalExecution = await preparedFixture({ merchantSku: "SUP-MUSIC-001",
 const executionContext = formalExecution.executionContext;
 const writeCapabilities = readyCapabilities({ assets: formalExecution.prepared.executableRequest.finalUploads,
   host: new URL(formalExecution.prepared.executableRequest.finalUploads[0].platformAcceptedUrl).hostname });
+
+test('batch adapter sends one multi-item task and classifies each offer without replaying failed members', async () => {
+  const assets = syntheticFinalAssets().map((asset, index) => ({ ...asset,
+    assetId: `${asset.assetId}:black`, assetRef: index === 0 ? 'https://assets.example.com/owner/black-main.jpg' : asset.assetRef,
+    sha256: index === 0 ? 'c'.repeat(64) : asset.sha256 }));
+  const second = await preparedFixture({ candidateId: 'candidate:batch-second', supplierSkuId: 'SHELF-BLACK',
+    merchantSku: 'MERCHANT-BLACK', assets, warehouseRef: executionBinding().warehouseRef,
+    credentialAlias: executionBinding().credentialAlias });
+  const member = source => ({ request: source.prepared.executableRequest, executionContext: source.executionContext,
+    colorKey: source === formalExecution ? 'white' : 'black', modelKey: 'same-product',
+    sourceTechnicalStatus: 'not_started' });
+  const members = [member(formalExecution), member(second)];
+  const capability = formalCapabilities('dandanshu', members.flatMap(value => value.request.finalUploads),
+    members[0].request);
+  capability.warehouseId = '70001';
+  capability.assetTransport.resolvedAssets = members.flatMap(value => value.request.finalUploads.map(asset => ({
+    assetId: asset.assetId, platformAcceptedUrl: asset.platformAcceptedUrl, sha256: asset.sha256,
+    order: asset.order, authorizationStatus: 'approved', stable: true, evidenceRef: `synthetic:${asset.assetId}`
+  })));
+  capability.productImport.endpoint = '/v3/product/import';
+  capability.productImport.maxItemsPerRequest = 2;
+  capability.productImport.validUntil = '2026-09-01T00:00:00.000Z';
+  const calls = [], checkpoints = [];
+  const adapter = createStoreIsolatedOzonSellerApiDEAdapter({ adapterCapabilities: capability,
+    requestJson: async request => {
+      calls.push(request);
+      if (request.endpoint === '/v3/product/import') return { result: { task_id: 501 } };
+      return { result: { items: [
+        { offer_id: members[0].request.merchantSku, product_id: 910001, status: 'imported', errors: [] },
+        { offer_id: members[1].request.merchantSku, product_id: 0, status: 'failed', errors: [] }
+      ] } };
+    } });
+  const scope = { batchId: 'd-batch:synthetic', members, excludedOfferIds: ['MERCHANT-FIRST'], chunkIndex: 0 };
+  const receipt = await adapter.executeBatchImport(scope, { persistCheckpoint: async event => checkpoints.push(event) });
+  assert.equal(receipt.status, 'waiting_platform');
+  assert.deepEqual(checkpoints.map(event => event.kind), ['batch_import_intent', 'batch_import_task_received']);
+  assert.equal(calls[0].body.items.length, 2);
+  const observed = await adapter.observeBatchImportTask({ batchId: scope.batchId, chunkIndex: 0,
+    taskId: receipt.taskId, offerIds: receipt.offerIds });
+  assert.deepEqual(observed.results.map(result => result.classification), ['imported', 'platform_failed']);
+  assert.deepEqual(calls.map(call => call.write), [true, false]);
+});
 
 function executableRequest({ store, warehouseId, offerId } = {}) {
   const request = structuredClone(formalExecution.prepared.executableRequest);

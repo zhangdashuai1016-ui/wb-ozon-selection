@@ -8,6 +8,9 @@ import { isDeepStrictEqual } from "node:util";
 import { observedMediaSequence, observedWarehouseAvailableStock, isObservedHttpsMediaUrl } from "./e-stage-readback.mjs";
 import { assertCurrentDExecutionContext, isStoreIdentityAnchored, productionExecutionPrewriteFailure } from "./platform-write-preflight.mjs";
 import { blockingImportErrors } from "./ozon-import-error-level.mjs";
+import { assertDExecutableRequest } from './d-executable-request-contract.mjs';
+import { projectProductionPlanImportPayload } from './production-plan.mjs';
+import { buildOzonSellerBatchImportRequests } from './ozon-seller-api-production-adapter.mjs';
 
 export const OZON_SELLER_API_DE_ADAPTER_VERSION = "ozon-seller-api-de-adapter-v3";
 export const OZON_PRODUCT_IMPORT_ENDPOINT = "/v3/product/import";
@@ -168,7 +171,9 @@ export function inspectAdapterCapabilities({
       endpoint: OZON_PRODUCT_IMPORT_ENDPOINT,
       statusEndpoint: OZON_PRODUCT_IMPORT_INFO_ENDPOINT,
       protocolVersion: productImport?.protocolVersion || null,
-      evidenceRef: productImport?.evidenceRef || null
+      evidenceRef: productImport?.evidenceRef || null,
+      maxItemsPerRequest: productImport?.maxItemsPerRequest ?? null,
+      validUntil: productImport?.validUntil ?? null
     },
     assetTransport: {
       status: status === "ready" ? "verified" : (assetTransport?.status || "unknown"),
@@ -561,6 +566,97 @@ export function createStoreIsolatedOzonSellerApiDEAdapter({ requestJson, adapter
         requestReceiptRef: receipt("ozon-import-receipt", { taskId, executionKey: request.executionKey,
           storeRef: capabilities.storeRef, evidenceRef: capabilities.productImport.evidenceRef }),
         inventoryWriteState: "not_sent", retryAllowed: false });
+    },
+
+    async executeBatchImport({ batchId, members, excludedOfferIds, chunkIndex },
+      { persistCheckpoint, signal, beforeRequestSend } = {}) {
+      assertObservationOptions(signal, beforeRequestSend);
+      if (!isCanonicalFrozenRef(batchId) || !Array.isArray(members) || members.length === 0 ||
+          !Number.isSafeInteger(chunkIndex) || chunkIndex < 0 || typeof persistCheckpoint !== 'function') {
+        throw new Error('OZON_BATCH_EXECUTION_INPUT_INVALID');
+      }
+      const project = checkedAt => {
+        const inputs = members.map(member => {
+          assertDExecutableRequest(member.request);
+          assertCurrentDExecutionContext({ request: member.request, executionContext: member.executionContext });
+          if (!sameStoreRef(member.request.storeRef, capabilities.storeRef) ||
+              member.request.warehouseRef !== capabilities.warehouseRef ||
+              member.request.credentialAlias !== capabilities.credentialAlias) throw new Error('OZON_BATCH_STORE_SCOPE_MISMATCH');
+          const resolution = resolveFinalUploads({
+            finalUploads: member.executionContext.productionPlan.sourceAuthorization.lockedScope.finalUploads,
+            adapterCapabilities: capabilities });
+          const mediaFields = ['assetId', 'sha256', 'order', 'role', 'platformAcceptedUrl'];
+          if (resolution.status !== 'ready' || resolution.resolvedAssets.length !== member.request.finalUploads.length ||
+              resolution.resolvedAssets.some((asset, index) => mediaFields.some(field =>
+                !isDeepStrictEqual(asset[field], member.request.finalUploads[index][field])))) {
+            throw new Error('OZON_BATCH_ASSET_SCOPE_MISMATCH');
+          }
+          return { colorKey: member.colorKey, modelKey: member.modelKey,
+            sourceTechnicalStatus: member.sourceTechnicalStatus,
+            payload: projectProductionPlanImportPayload({ productionPlan: member.executionContext.productionPlan,
+              resolvedFinalUploads: member.request.finalUploads }) };
+        });
+        return buildOzonSellerBatchImportRequests({ members: inputs, excludedOfferIds,
+          productImportCapability: capabilities.productImport, checkedAt });
+      };
+      const requests = project(members[0].executionContext.serverClock());
+      const batchRequest = requests[chunkIndex];
+      if (!batchRequest) throw new Error('OZON_BATCH_CHUNK_NOT_FOUND');
+      await persistCheckpoint({ kind: 'batch_import_intent', batchId, chunkIndex,
+        offerIds: batchRequest.offerIds, limitEvidenceRef: batchRequest.limitEvidenceRef });
+      project(members[0].executionContext.serverClock());
+      let response, runningGuard = false;
+      try {
+        response = await call({ endpoint: OZON_PRODUCT_IMPORT_ENDPOINT, body: batchRequest.body,
+          write: true, executionKey: `${batchId}:${chunkIndex}` }, { signal, beforeRequestSend: async () => {
+          runningGuard = true;
+          project(members[0].executionContext.serverClock());
+          if (beforeRequestSend) await beforeRequestSend();
+          signal?.throwIfAborted();
+          runningGuard = false;
+        } });
+      } catch (error) {
+        if (runningGuard) throw error;
+        rethrowProgrammingError(error);
+        const prewriteCode = transportPrewriteCode(error);
+        if (prewriteCode !== null) return knownPrewriteRejection(prewriteCode);
+        return unknownOutcome('product_batch_import_transport', 'request_failed',
+          { batchId, chunkIndex, offerIds: batchRequest.offerIds });
+      }
+      const observedTaskId = response?.result?.task_id;
+      if (!isExternalNumericId(observedTaskId)) return unknownOutcome('product_batch_import_receipt', 'task_id_missing',
+        { batchId, chunkIndex, offerIds: batchRequest.offerIds });
+      const taskId = String(observedTaskId);
+      await persistCheckpoint({ kind: 'batch_import_task_received', batchId, chunkIndex,
+        taskId, offerIds: batchRequest.offerIds });
+      return freeze({ status: 'waiting_platform', batchId, chunkIndex, taskId,
+        offerIds: batchRequest.offerIds, requestReceiptRef: receipt('ozon-batch-import-receipt',
+          { batchId, chunkIndex, taskId, offerIds: batchRequest.offerIds }), retryAllowed: false });
+    },
+
+    async observeBatchImportTask({ batchId, chunkIndex, taskId, offerIds }, { signal, beforeRequestSend } = {}) {
+      assertObservationOptions(signal, beforeRequestSend);
+      if (!isCanonicalFrozenRef(batchId) || !Number.isSafeInteger(chunkIndex) || chunkIndex < 0 ||
+          !isPersistedNumericId(taskId) || !Array.isArray(offerIds) || offerIds.length === 0 ||
+          offerIds.some(offerId => !nonEmpty(offerId)) || new Set(offerIds).size !== offerIds.length) {
+        throw new Error('OZON_BATCH_OBSERVATION_SCOPE_REJECTED');
+      }
+      const response = await call({ endpoint: OZON_PRODUCT_IMPORT_INFO_ENDPOINT,
+        body: { task_id: Number(taskId) }, write: false, executionKey: `${batchId}:${chunkIndex}` },
+      { signal, beforeRequestSend });
+      signal?.throwIfAborted();
+      const items = response?.result?.items;
+      if (!Array.isArray(items) || items.some(item => !offerIds.includes(item?.offer_id))) {
+        throw new Error('OZON_BATCH_OBSERVATION_IDENTITY_UNVERIFIED');
+      }
+      const results = offerIds.map(merchantSku => {
+        const matches = items.filter(item => item.offer_id === merchantSku);
+        const query = { batchId, chunkIndex, taskId, merchantSku };
+        const observation = normalizeImportObservation({ result: { items: matches } }, query, capabilities);
+        return { offerId: merchantSku, classification: observation.classification,
+          gapCode: observation.gapCode, importObservation: observation.importObservation };
+      });
+      return freeze({ batchId, chunkIndex, taskId, results });
     },
 
     async observeImportTask(query, { signal, beforeRequestSend } = {}) {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildOzonSellerImportRequest,
+  buildOzonSellerBatchImportRequests,
   createOzonSellerApiProductionAdapter
 } from "../lib/ozon-seller-api-production-adapter.mjs";
 import { fingerprintAuthorizedMedia } from "../lib/production-authorization-preparation.mjs";
@@ -16,6 +17,44 @@ function authorizedMediaFor(finalUploads) {
     images: finalUploads.slice(1).map((asset) => asset.assetRef)
   };
 }
+
+function batchMember(offerId, colorKey, mainImage) {
+  const finalUploads = [
+    { assetId: `main-${colorKey}`, assetRef: mainImage, ownerConfirmed: true, productionEligible: true },
+    { assetId: 'shared-detail', assetRef: 'https://assets.example/shared-detail.jpg', ownerConfirmed: true, productionEligible: true }
+  ];
+  return { colorKey, modelKey: 'same-product', sourceTechnicalStatus: 'not_started', payload: payload({ merchantSku: offerId, supplierSkuId: offerId,
+    storeRef: { stableStoreId: 'dandanshu', platformStoreId: 'synthetic-store', mappingVersion: 'v1' },
+    warehouseRef: 'warehouse:synthetic', credentialAlias: 'credential:synthetic',
+    finalUploads, authorizedMedia: authorizedMediaFor(finalUploads) }) };
+}
+
+test('batch import uses a current evidenced limit and one image per color', () => {
+  const members = [batchMember('offer-1', 'black', 'https://assets.example/black.jpg'),
+    batchMember('offer-2', 'black', 'https://assets.example/black.jpg'),
+    batchMember('offer-3', 'khaki', 'https://assets.example/khaki.jpg')];
+  const capability = { status: 'verified', endpoint: '/v3/product/import', evidenceRef: 'synthetic:limit', maxItemsPerRequest: 2,
+    validUntil: '2026-09-28T00:00:00.000Z' };
+  const batches = buildOzonSellerBatchImportRequests({ members, productImportCapability: capability,
+    checkedAt: '2026-09-27T00:00:00.000Z' });
+  assert.deepEqual(batches.map(batch => batch.offerIds), [['offer-1', 'offer-2'], ['offer-3']]);
+  assert.deepEqual(batches.map(batch => batch.batchSize), [2, 1]);
+  assert.equal(batches[0].body.items[0].primary_image, batches[0].body.items[1].primary_image);
+  assert.notEqual(batches[0].body.items[0].primary_image, batches[1].body.items[0].primary_image);
+  assert.throws(() => buildOzonSellerBatchImportRequests({ members,
+    productImportCapability: { ...capability, validUntil: '2026-09-26T00:00:00.000Z' },
+    checkedAt: '2026-09-27T00:00:00.000Z' }), /LIMIT_EVIDENCE_REQUIRED/);
+  assert.throws(() => buildOzonSellerBatchImportRequests({ members: [members[0],
+    batchMember('offer-4', 'khaki', 'https://assets.example/black.jpg')],
+    productImportCapability: capability, checkedAt: '2026-09-27T00:00:00.000Z' }), /DIFFERENT_COLOR_IMAGE_MISMATCH/);
+  assert.throws(() => buildOzonSellerBatchImportRequests({ members: [members[0],
+    batchMember('offer-4', 'black', 'https://assets.example/other-black.jpg')],
+    productImportCapability: capability, checkedAt: '2026-09-27T00:00:00.000Z' }), /SAME_COLOR_IMAGE_MISMATCH/);
+  assert.throws(() => buildOzonSellerBatchImportRequests({ members, excludedOfferIds: ['offer-1'],
+    productImportCapability: capability, checkedAt: '2026-09-27T00:00:00.000Z' }), /EXCLUDED_OFFER/);
+  assert.throws(() => buildOzonSellerBatchImportRequests({ members: [{ ...members[0], sourceTechnicalStatus: 'unknown_outcome' }],
+    productImportCapability: capability, checkedAt: '2026-09-27T00:00:00.000Z' }), /SOURCE_ALREADY_STARTED/);
+});
 
 function payload(overrides = {}) {
   const finalUploads = overrides.finalUploads ?? [

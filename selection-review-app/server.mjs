@@ -1,5 +1,5 @@
 import { createInitialCandidate, queuedProcessing } from "./lib/candidate-initialization.mjs";
-import { createSiblingSkuCandidate, siblingSkuCandidateInput, SiblingSkuCandidateError } from './lib/sibling-sku-candidate.mjs';
+import { createSiblingSkuCandidate, createSiblingSkuCandidatesBatch, siblingSkuCandidateInput, SiblingSkuCandidateError } from './lib/sibling-sku-candidate.mjs';
 import { assertSiblingSkuColorProjection, assertSiblingSkuFinalCard } from './lib/sibling-sku-card-guard.mjs';
 import { createADiscoveryRuntimeServices, A_DISCOVERY_DECLINE_REASONS } from './lib/a-discovery-runtime-services.mjs';
 import { supplierImageSearchAvailability, readSupplierImageSearchPreparation, requireSupplierImageSearchPreparation,
@@ -213,6 +213,7 @@ import { createRepositoryBackedSoftwareJobStore } from "./lib/software-job-repos
 import { createLocalDevelopmentWorkerRegistry } from "./lib/worker-registry.mjs";
 import { assertRuntimeBoundaries } from "./lib/multi-user-central-runtime.mjs";
 import { commitSingleOwnerProductionAuthorization, PRODUCTION_AUTHORIZATION_VERSION } from "./lib/production-authorization.mjs";
+import { commitBatchOwnerProductionAuthorization } from './lib/d-batch-production-authorization.mjs';
 import { createDEProductionRuntimeServices, DERuntimeUnavailableError } from "./lib/d-e-runtime-services.mjs";
 import { buildDESavedJobRuntimeView } from "./lib/d-e-runtime-view.mjs";
 import { buildProductionOwnerPreparationView, resolveProductionOwnerPreparation, ProductionOwnerPreparationError } from "./lib/production-owner-preparation.mjs";
@@ -7173,6 +7174,33 @@ async function handleApi(req, res, pathname) {
       currentCommissionCatalogs: data.currentCommissionCatalogs, observedAt: now()
     }));
   }
+  if (req.method === 'POST' && pathname === '/api/d-batches/authorize') {
+    const origin = String(req.headers.origin || '');
+    if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, '生产批次拒绝其他网页来源');
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== 'authenticated_identity_provider' || actor.actorType !== 'human' || !actor.roles.includes('owner')) {
+      throw httpError(403, '请先登录主人身份后确认整批准确范围');
+    }
+    const input = await readJsonRequestBody(req, { maxBytes: 65536, requireJsonContentType: true });
+    let batch;
+    try {
+      batch = await commitBatchOwnerProductionAuthorization({ repository: businessStateRepository,
+        runtimeMode: runtimeConfiguration.deploymentMode, actor, input,
+        configuration: runtimeConfiguration, serverClock: now });
+    } catch (error) {
+      if (error instanceof ProductionOwnerPreparationError) {
+        return json(res, /CHANGED|EXPIRED/.test(error.code) ? 409 : 422,
+          { code: error.code, message: error.message, externalRequests: 0, platformWrites: 0 });
+      }
+      const code = String(error.code || error.message).split(':', 1)[0];
+      if (/^D_BATCH_[A-Z_]+$/.test(code)) {
+        return json(res, code === 'D_BATCH_AUTHORIZATION_INPUT_INVALID' ? 400 : 409,
+          { code, message: '批次授权未保存；请刷新规格清单并核对每项资料与历史任务。', externalRequests: 0, platformWrites: 0 });
+      }
+      throw error;
+    }
+    return json(res, 200, { batch, executionStatus: 'not_started', externalRequests: 0, platformWrites: 0 });
+  }
   if (req.method === "POST" && (realProductionOwnerDecisionRoute || realProductionAuthorizationRoute)) {
     const input = await requestBody(req);
     if (input?.contractVersion !== PRODUCTION_AUTHORIZATION_VERSION) {
@@ -8242,6 +8270,37 @@ async function handleApi(req, res, pathname) {
     });
     return json(res, 200, { candidate });
     /* c8 ignore stop */
+  }
+
+  const siblingBatchRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/sibling-sku-batch$/);
+  if (req.method === 'POST' && siblingBatchRoute) {
+    const origin = String(req.headers.origin || '');
+    if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, '追加规格拒绝其他网页来源');
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== 'authenticated_identity_provider' || actor.actorType !== 'human' || !actor.roles.includes('owner')) {
+      throw httpError(403, '请先登录主人身份后准备规格清单');
+    }
+    const parentCandidateId = decodeURIComponent(siblingBatchRoute[1]);
+    const body = await readJsonRequestBody(req, { maxBytes: 4096, requireJsonContentType: true });
+    let result;
+    try {
+      result = await mutateDataWhenChanged(data => {
+        const outcome = createSiblingSkuCandidatesBatch({ document: data, parentCandidateId, input: body,
+          nextId: candidates => nextCandidateId(candidates, 'USR'), timestamp: now(), storeBindings: runtimeConfiguration.storeBindings });
+        for (const candidate of outcome.candidates) if (outcome.createdIds.includes(candidate.id)) {
+          addHistory(candidate, 'user', 'siblingSkuBatchPrepared',
+            `规格清单一次建立供应 SKU ${candidate.siblingSourceV1.supplierSkuId} 的 A 记录；B/C1/C2 与生产授权尚待逐项软件核验`, now());
+        }
+        return { changed: outcome.createdCount > 0, result: {
+          candidates: outcome.candidates.map(candidate => publicCandidate(candidate, data.rules)),
+          createdCount: outcome.createdCount, status: 'a_preparation_only', platformWrites: 0
+        } };
+      });
+    } catch (error) {
+      if (error instanceof SiblingSkuCandidateError) throw httpError(error.code === 'SIBLING_BATCH_INPUT_INVALID' ? 400 : 409, error.message, { code: error.code });
+      throw error;
+    }
+    return json(res, result.createdCount > 0 ? 201 : 200, result);
   }
 
   const siblingSkuRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/sibling-sku$/);

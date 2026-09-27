@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { ozonHashtagAttributeValue } from "./ozon-hashtag-attribute.mjs";
 export { ozonHashtagAttributeValue };
 import { fingerprintAuthorizedMedia } from "./production-authorization-preparation.mjs";
@@ -233,6 +234,59 @@ export function buildOzonSellerImportRequest(payload) {
     published: false,
     activated: false
   });
+}
+
+/** Combine already validated, independently scoped SKU payloads into one import task. */
+export function buildOzonSellerBatchImportRequests({ members, excludedOfferIds = [], productImportCapability, checkedAt }) {
+  if (!Array.isArray(members) || members.length === 0) throw new Error("OZON_BATCH_MEMBERS_REQUIRED");
+  if (!Array.isArray(excludedOfferIds) || excludedOfferIds.some(value => !nonEmpty(value)) ||
+      new Set(excludedOfferIds).size !== excludedOfferIds.length) throw new Error("OZON_BATCH_EXCLUSIONS_INVALID");
+  const limit = productImportCapability?.maxItemsPerRequest;
+  if (productImportCapability?.status !== "verified" || !nonEmpty(productImportCapability.evidenceRef) ||
+      productImportCapability.endpoint !== "/v3/product/import" ||
+      !Number.isSafeInteger(limit) || limit < 1 || !nonEmpty(productImportCapability.validUntil) ||
+      !nonEmpty(checkedAt) || Number.isNaN(Date.parse(checkedAt)) ||
+      Number.isNaN(Date.parse(productImportCapability.validUntil)) ||
+      Date.parse(checkedAt) >= Date.parse(productImportCapability.validUntil)) {
+    throw new Error("OZON_BATCH_LIMIT_EVIDENCE_REQUIRED");
+  }
+  const offers = new Set();
+  const byColor = new Map();
+  const mainColors = new Map();
+  let expectedGrouping = null;
+  const first = members[0]?.payload;
+  const requests = members.map(member => {
+    const { payload, colorKey, modelKey, sourceTechnicalStatus } = member ?? {};
+    if (sourceTechnicalStatus !== "not_started") throw new Error("OZON_BATCH_SOURCE_ALREADY_STARTED");
+    if (!nonEmpty(colorKey) || !nonEmpty(modelKey) || !isObject(payload) || payload.store !== first?.store ||
+        !isObject(payload.storeRef) || !isDeepStrictEqual(payload.storeRef, first.storeRef) ||
+        payload.warehouseRef !== first.warehouseRef || payload.credentialAlias !== first.credentialAlias) {
+      throw new Error("OZON_BATCH_MEMBER_SCOPE_MISMATCH");
+    }
+    const request = buildOzonSellerImportRequest(payload);
+    const item = request.body.items[0];
+    if (excludedOfferIds.includes(item.offer_id)) throw new Error("OZON_BATCH_EXCLUDED_OFFER");
+    if (offers.has(item.offer_id)) throw new Error("OZON_BATCH_DUPLICATE_OFFER");
+    offers.add(item.offer_id);
+    const grouping = `${item.description_category_id}:${item.type_id}:${modelKey}`;
+    if (expectedGrouping !== null && grouping !== expectedGrouping) throw new Error("OZON_BATCH_GROUPING_MISMATCH");
+    expectedGrouping = grouping;
+    const priorImage = byColor.get(colorKey);
+    if (priorImage && priorImage !== item.primary_image) throw new Error("OZON_BATCH_SAME_COLOR_IMAGE_MISMATCH");
+    const priorColor = mainColors.get(item.primary_image);
+    if (priorColor && priorColor !== colorKey) throw new Error("OZON_BATCH_DIFFERENT_COLOR_IMAGE_MISMATCH");
+    byColor.set(colorKey, item.primary_image);
+    mainColors.set(item.primary_image, colorKey);
+    return { item, grouping };
+  });
+  const chunks = [];
+  for (let start = 0; start < requests.length; start += limit) {
+    const items = requests.slice(start, start + limit).map(({ item }) => structuredClone(item));
+    chunks.push(Object.freeze({ endpoint: "/v3/product/import", body: { items },
+      offerIds: items.map(item => item.offer_id), batchSize: items.length,
+      limitEvidenceRef: productImportCapability.evidenceRef, limitValidUntil: productImportCapability.validUntil }));
+  }
+  return Object.freeze(chunks);
 }
 
 function importItem(payload, offerId) {
