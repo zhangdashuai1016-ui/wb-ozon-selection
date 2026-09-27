@@ -59,6 +59,24 @@ test("C2 local file and draft survive JSON save/reopen with selection and source
   await assert.rejects(store.read(recovered[0]), error => error.extra.code === "c2_upload_file_changed");
 });
 
+test("one verified upload can be linked under an independent sibling asset identity", async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), "c2-linked-upload-test-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const store = createC2LocalAssetStore({ directory: path.join(directory, "files") });
+  const source = await store.write({ assetId: `c2-local:${ID}`, fileName: "main.png",
+    mediaType: "image", contentType: "image/png", stagedAt: TIME }, PNG);
+  const target = { assetId: `c2-local:${SECOND}`, fileName: "main.png",
+    mediaType: "image", contentType: "image/png", stagedAt: TIME };
+  const linked = await store.linkExisting(source, target);
+  assert.equal(linked.assetId, target.assetId);
+  assert.equal(linked.sha256, source.sha256);
+  assert.notEqual(linked.assetRef, source.assetRef);
+  assert.deepEqual((await store.read(linked, { verifyContent: true })).body, PNG);
+  await assert.rejects(store.linkExisting(source, target), { code: "EEXIST" });
+  await assert.rejects(store.linkExisting(source, { ...target, assetId: `c2-local:00000000-0000-4000-8000-000000000003`,
+    fileName: "other.png" }), error => error.extra?.code === "c2_link_identity_invalid");
+});
+
 test("complete pixel decoding rejects signature-only and damaged images before publishing a file", async t => {
   const directory = await mkdtemp(path.join(tmpdir(), "c2-decode-test-"));
   t.after(() => rm(directory, { recursive: true, force: true }));

@@ -223,6 +223,12 @@ export const api = {
       `/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c2/final-assets/upload?dataRevision=${encodeURIComponent(dataRevision)}&draftRevision=${encodeURIComponent(draftRevision)}&fileName=${encodeURIComponent(file.name)}`,
       file
     ),
+  linkSiblingC2Asset: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c2/final-assets/link`, {
+    method: "POST", body: JSON.stringify(payload)
+  }),
+  confirmSiblingBatchC2: (parentCandidateId, payload) => request(`/api/candidates/${encodeURIComponent(parentCandidateId)}/sibling-batch-c2-confirm`, {
+    method: "POST", body: JSON.stringify(payload)
+  }),
   saveProductionOwnerDecision: (candidateId, payload) =>
     request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/production-owner-decision`, {
       method: "POST", body: JSON.stringify(payload)

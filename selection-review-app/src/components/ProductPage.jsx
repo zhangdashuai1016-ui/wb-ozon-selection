@@ -1791,7 +1791,9 @@ function SavedC2Assets({ skuPackage }) {
 export default function ProductPage({
   candidate, view = null, titleZh = null, extensionStatus = null,
   onSaveDraft, onChooseSkus, onCreateSiblingSku = null, onConfirmSiblingBatchA = null,
-  onAuthorizeSiblingProductionBatch = null, siblingSkuIds = [], siblingCandidates = [], onRequestCapture, onReviewCaptureAndRequest, onRecaptureSource,
+  onAuthorizeSiblingProductionBatch = null, onUploadSiblingC2Asset = null, onLinkSiblingC2Asset = null,
+  onConfirmSiblingBatchC2 = null,
+  siblingSkuIds = [], siblingCandidates = [], onRequestCapture, onReviewCaptureAndRequest, onRecaptureSource,
   onConfirmProfitStep, onDeclareCargoFacts, onDeclareExtraHandlingFees, onDeclareUniformSupply, onReadOzonPage, onOpenLegacyCard,
   onBack, onEliminateCandidate,
   productionIdentity = null, onPrepareC1Local = null,
@@ -2035,7 +2037,9 @@ export default function ProductPage({
     {candidate.sourceCapture?.mode === 'a_supplier_capture' && siblingCandidates.length > 0 &&
       typeof onConfirmSiblingBatchA === 'function' && typeof onAuthorizeSiblingProductionBatch === 'function'
       ? <SiblingBatchPreparation key={`${candidate.id}:batch`} parent={candidate} siblings={siblingCandidates}
-          onConfirmA={onConfirmSiblingBatchA} onAuthorize={onAuthorizeSiblingProductionBatch} /> : null}
+          onConfirmA={onConfirmSiblingBatchA} onAuthorize={onAuthorizeSiblingProductionBatch}
+          onUploadAsset={onUploadSiblingC2Asset} onLinkAsset={onLinkSiblingC2Asset}
+          onConfirmC2={onConfirmSiblingBatchC2} /> : null}
 
     {/* 选规格：插件采回来的每个规格，按它自己的重量算出来的运费和利润。这里只勾选，不开始任何工作。 */}
     {choosing ? (skuTable === null

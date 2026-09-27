@@ -545,6 +545,29 @@ export default function App() {
     return result;
   }
 
+  async function uploadSiblingC2Asset(candidateId, context) {
+    try {
+      const result = await api.uploadLifecycleFinalAsset(candidateId, context);
+      await load(true);
+      return result;
+    } catch (error) { await load(true); throw error; }
+  }
+
+  async function linkSiblingC2Asset(candidateId, payload) {
+    try {
+      const result = await api.linkSiblingC2Asset(candidateId, payload);
+      await load(true);
+      return result;
+    } catch (error) { await load(true); throw error; }
+  }
+
+  async function confirmSiblingBatchC2(payload) {
+    const result = await api.confirmSiblingBatchC2(payload.parentCandidateId, payload);
+    await load(true);
+    setNotice({ type: 'success', message: '整批最终素材和独立确认卡已保存；尚未取得生产授权。' });
+    return result;
+  }
+
   async function updateSelected(payload) {
     const navigationToken = selectionGuard.current.capture();
     if (!selected) return;
@@ -1337,6 +1360,9 @@ export default function App() {
           onCreateSiblingSku={createSiblingSkuBatch}
           onConfirmSiblingBatchA={confirmSiblingBatchA}
           onAuthorizeSiblingProductionBatch={authorizeSiblingProductionBatch}
+          onUploadSiblingC2Asset={uploadSiblingC2Asset}
+          onLinkSiblingC2Asset={linkSiblingC2Asset}
+          onConfirmSiblingBatchC2={confirmSiblingBatchC2}
           siblingSkuIds={siblingSkuIds}
           siblingCandidates={siblingCandidates}
           onDeclareCargoFacts={payload => runProductStep(api.declareCargoFacts, payload)}

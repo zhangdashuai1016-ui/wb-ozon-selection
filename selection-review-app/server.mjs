@@ -1,6 +1,7 @@
 import { createInitialCandidate, queuedProcessing } from "./lib/candidate-initialization.mjs";
 import { createSiblingSkuCandidate, createSiblingSkuCandidatesBatch, siblingSkuCandidateInput, SiblingSkuCandidateError } from './lib/sibling-sku-candidate.mjs';
 import { commitSiblingBatchABAndC1 } from './lib/sibling-batch-a-b-c1.mjs';
+import { commitSiblingBatchC2Final } from './lib/sibling-batch-c2-final.mjs';
 import { assertSiblingSkuColorProjection, assertSiblingSkuFinalCard } from './lib/sibling-sku-card-guard.mjs';
 import { createADiscoveryRuntimeServices, A_DISCOVERY_DECLINE_REASONS } from './lib/a-discovery-runtime-services.mjs';
 import { supplierImageSearchAvailability, readSupplierImageSearchPreparation, requireSupplierImageSearchPreparation,
@@ -6874,6 +6875,7 @@ async function handleApi(req, res, pathname) {
     return json(res, 200, { candidate });
   }
   const c2UploadDraftRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c2\/upload-draft$/);
+  const c2LinkedAssetRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c2\/final-assets\/link$/);
   const c2LocalAssetPreviewRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c2\/local-assets\/([^/]+)$/);
   if (req.method === "GET" && c2LocalAssetPreviewRoute) {
     const data = await readData();
@@ -6895,6 +6897,93 @@ async function handleApi(req, res, pathname) {
       return structuredClone(current.lifecycleV11.c2UploadDraft);
     });
     return json(res, 200, { candidateId: draft.candidateId, dataRevision: draft.sourceCandidateRevision, draft, businessPhaseChanged: false, platformWrites: 0 });
+  }
+  if (req.method === "POST" && c2LinkedAssetRoute) {
+    const origin = String(req.headers.origin || '');
+    if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, '共享素材拒绝其他网页来源');
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== "authenticated_identity_provider" || actor.actorType !== "human" || !actor.roles.includes("owner")) {
+      return json(res, 403, { code: "C2_LINK_OWNER_REQUIRED", message: "只有主人可以选择同批已上传素材", platformWrites: 0 });
+    }
+    if (c2UploadInProgress) throw httpError(409, "本机正在处理另一份素材", { code: "c2_upload_busy" });
+    const input = await requestBody(req);
+    if (!input || Object.keys(input).sort().join() !== "dataRevision,draftRevision,role,sourceAssetId,sourceCandidateId,sourceDataRevision" ||
+        !Number.isSafeInteger(input.dataRevision) || !Number.isSafeInteger(input.draftRevision) ||
+        !Number.isSafeInteger(input.sourceDataRevision) || typeof input.sourceAssetId !== "string" ||
+        typeof input.sourceCandidateId !== "string" || !["main_image", "gallery_image"].includes(input.role)) {
+      throw httpError(400, "共享素材输入缺少当前商品、来源或顺序");
+    }
+    c2UploadInProgress = true;
+    try {
+      const targetId = c2LinkedAssetRoute[1];
+      const uploadId = randomUUID();
+      const { sourceAsset, reserved } = await mutateData(data => {
+        const sources = data.candidates.filter(item => item.id === input.sourceCandidateId);
+        const targets = data.candidates.filter(item => item.id === targetId);
+        if (sources.length !== 1 || targets.length !== 1 || input.sourceCandidateId === targetId) {
+          throw httpError(409, "共享素材来源或目标不唯一", { code: "c2_link_identity_invalid" });
+        }
+        const [source] = sources, [target] = targets;
+        const family = data.candidates.filter(item => item.id === source.siblingSourceV1?.parentCandidateId);
+        const selected = family.length === 1 ? family[0].sourceCapture?.selectedSkuIds : null;
+        if (!source.siblingSourceV1 || !target.siblingSourceV1 ||
+            source.siblingSourceV1.parentCandidateId !== target.siblingSourceV1.parentCandidateId ||
+            !Array.isArray(selected) || !selected.includes(source.siblingSourceV1.supplierSkuId) ||
+            !selected.includes(target.siblingSourceV1.supplierSkuId) ||
+            source.siblingSourceV1.supplierSkuId === family[0].lifecycleV11?.skuPackage?.supplierSkuId ||
+            target.siblingSourceV1.supplierSkuId === family[0].lifecycleV11?.skuPackage?.supplierSkuId ||
+            source.sourceCapture?.skuChoices?.[0]?.sourceSkuId !== source.siblingSourceV1.supplierSkuId ||
+            target.sourceCapture?.skuChoices?.[0]?.sourceSkuId !== target.siblingSourceV1.supplierSkuId ||
+            source.dataRevision !== input.sourceDataRevision || target.dataRevision !== input.dataRevision ||
+            source.targetPlatform !== target.targetPlatform || !sameStoreRef(source.storeRef, target.storeRef)) {
+          throw httpError(409, "只可引用同批同店当前规格已上传的素材", { code: "c2_link_identity_invalid" });
+        }
+        const sourceDraft = assertCurrentC2UploadDraft(source, { dataRevision: input.sourceDataRevision,
+          draftRevision: source.lifecycleV11?.c2UploadDraft?.revision ?? 0 }).draft;
+        const sourceAsset = sourceDraft?.uploads.filter(item => item.assetId === input.sourceAssetId && item.status === "ready");
+        const targetDraft = assertCurrentC2UploadDraft(target, { dataRevision: input.dataRevision,
+          draftRevision: input.draftRevision }).draft;
+        if (sourceAsset?.length !== 1 || targetDraft?.uploads.some(item => item.status === "uploading") ||
+            (input.role === "gallery_image" && !targetDraft?.selection?.length) ||
+            (input.role === "main_image" && Boolean(targetDraft?.selection?.length))) {
+          throw httpError(409, "请先确定本色主图，并核对来源文件登记", { code: "c2_link_selection_invalid" });
+        }
+        const sourceColor = source.sourceCapture?.skuChoices?.[0]?.attributes?.颜色;
+        const targetColor = target.sourceCapture?.skuChoices?.[0]?.attributes?.颜色;
+        if ((input.role === "main_image" || sourceDraft.selection?.[0]?.assetId === input.sourceAssetId) &&
+            (!sourceColor || sourceColor !== targetColor)) {
+          throw httpError(409, "不同颜色不能共用主图", { code: "c2_link_main_color_mismatch" });
+        }
+        const asset = sourceAsset[0];
+        const draft = reserveC2Upload(target, { dataRevision: input.dataRevision,
+          draftRevision: input.draftRevision, uploadId, fileName: asset.fileName,
+          mediaType: asset.mediaType, contentType: asset.contentType, startedAt: now() });
+        target.lifecycleV11.c2UploadDraft = draft;
+        return { sourceAsset: structuredClone(asset), reserved: structuredClone(draft.uploads.find(item => item.uploadId === uploadId)) };
+      });
+      let linked;
+      try { linked = await c2LocalAssetStore.linkExisting(sourceAsset, reserved); }
+      catch (error) {
+        await mutateData(data => {
+          const target = data.candidates.find(item => item.id === targetId);
+          target.lifecycleV11.c2UploadDraft = settleC2Upload(target.lifecycleV11.c2UploadDraft,
+            { uploadId, failureCode: "file_storage_unconfirmed", settledAt: now() });
+          return null;
+        });
+        throw error;
+      }
+      const draft = await mutateData(data => {
+        const target = data.candidates.find(item => item.id === targetId);
+        if (!target || target.dataRevision !== input.dataRevision) {
+          throw httpError(409, "引用文件已建立但目标修订变化，请核对素材登记", { code: "c2_link_receipt_conflict" });
+        }
+        target.lifecycleV11.c2UploadDraft = settleC2Upload(target.lifecycleV11.c2UploadDraft,
+          { uploadId, asset: linked, settledAt: now() });
+        return structuredClone(target.lifecycleV11.c2UploadDraft);
+      });
+      return json(res, 201, { candidateId: targetId, dataRevision: input.dataRevision,
+        asset: linked, draft, businessPhaseChanged: false, platformWrites: 0 });
+    } finally { c2UploadInProgress = false; }
   }
   if (req.method === "POST" && genericC2FinalAssetUploadRoute) {
     if (c2UploadInProgress) throw httpError(409, "本机正在接收另一份素材，请在其结束后上传", { code: "c2_upload_busy" });
@@ -8284,6 +8373,43 @@ async function handleApi(req, res, pathname) {
 
   const siblingBatchRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/sibling-sku-batch$/);
   const siblingBatchAConfirmRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/sibling-batch-a-confirm$/);
+  const siblingBatchC2Route = pathname.match(/^\/api\/candidates\/([^/]+)\/sibling-batch-c2-confirm$/);
+  if (req.method === 'POST' && siblingBatchC2Route) {
+    const origin = String(req.headers.origin || '');
+    if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, '整批素材确认拒绝其他网页来源');
+    const actor = runtimeIdentityProvider.resolveActor({ request: req });
+    if (actor.source !== 'authenticated_identity_provider' || actor.actorType !== 'human' || !actor.roles.includes('owner')) {
+      throw httpError(403, '请先登录主人身份后确认整批素材');
+    }
+    const input = await readJsonRequestBody(req, { maxBytes: 65536, requireJsonContentType: true });
+    if (input?.parentCandidateId !== decodeURIComponent(siblingBatchC2Route[1]) || !Array.isArray(input.members)) {
+      throw httpError(400, '整批素材商品身份不一致');
+    }
+    const snapshot = await readData();
+    const parent = snapshot.candidates.find(item => item.id === input.parentCandidateId);
+    if (!parent || parent.dataRevision !== input.parentRevision) throw httpError(409, '原商品规格清单已变化，请刷新核对');
+    const verifiedAssets = new Map();
+    for (const member of input.members) {
+      const child = snapshot.candidates.find(item => item.id === member.candidateId);
+      if (!child || child.siblingSourceV1?.parentCandidateId !== parent.id || child.dataRevision !== member.candidateRevision) {
+        throw httpError(409, '整批素材包含过期或不属于本批的规格');
+      }
+      verifiedAssets.set(child.id, await verifyAndAuthorizeStagedC2Assets({ candidate: child,
+        dataRevision: member.candidateRevision, draftRevision: member.draftRevision,
+        assets: member.approvedAssetIds?.map((assetId, index) => ({ assetId, order: index + 1 })) }));
+    }
+    try {
+      return json(res, 200, await commitSiblingBatchC2Final({ repository: businessStateRepository,
+        runtimeMode: runtimeConfiguration.deploymentMode, actor, input, verifiedAssets, serverClock: now }));
+    } catch (error) {
+      const code = String(error.code || error.message).split(':', 1)[0];
+      if (/^(?:SIBLING_BATCH_C2|C2_|FINAL_PLAN_CARD|SIBLING_COLOR|SIBLING_CARD|SIBLING_MAIN_IMAGE)/.test(code)) {
+        return json(res, 409, { code, message: '整批 C2 确认未保存；请核对每色主图、官方颜色事实和素材权利。',
+          externalRequests: 0, platformWrites: 0 });
+      }
+      throw error;
+    }
+  }
   if (req.method === 'POST' && siblingBatchAConfirmRoute) {
     const origin = String(req.headers.origin || '');
     if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, '批量供应确认拒绝其他网页来源');

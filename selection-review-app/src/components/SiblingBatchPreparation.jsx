@@ -26,12 +26,14 @@ function initialInputs(parent, review) {
   })) };
 }
 
-export default function SiblingBatchPreparation({ parent, siblings, onConfirmA, onAuthorize }) {
+export default function SiblingBatchPreparation({ parent, siblings, onConfirmA, onAuthorize, onUploadAsset, onLinkAsset, onConfirmC2 }) {
   const review = siblingBatchReview(parent, siblings);
   const [draft, setDraft] = useState(() => initialInputs(parent, review));
   const [bindingId, setBindingId] = useState('');
   const [finalConfirmed, setFinalConfirmed] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [sharedAssetId, setSharedAssetId] = useState('');
+  const [c2Confirmed, setC2Confirmed] = useState(false);
   const [error, setError] = useState('');
   if (!review?.rows.length) return null;
   const allCreated = review.rows.every(row => row.candidateId !== null);
@@ -40,6 +42,13 @@ export default function SiblingBatchPreparation({ parent, siblings, onConfirmA, 
   const sales = first?.realAConfirmationCard?.salesReview;
   const bindings = first?.productionOwnerPreparation?.executionBindings ?? [];
   const finalInput = siblingBatchAuthorizationInput(parent, siblings, bindingId);
+  const c2Rows = review.rows.map(row => ({ row, child: siblings.find(item => item.id === row.candidateId) }));
+  const allAtC2 = c2Rows.length > 0 && c2Rows.every(({ child }) =>
+    child?.lifecycleV11?.skuPackage?.businessPhase === 'C2' &&
+    child.lifecycleV11.skuPackage.c2FinalAssets?.status === 'awaiting_final_uploads');
+  const firstChild = c2Rows[0]?.child;
+  const sharedPool = firstChild?.lifecycleV11?.c2UploadDraft?.uploads?.filter(item => item.status === 'ready' &&
+    item.assetId !== firstChild.lifecycleV11.c2UploadDraft.selection?.[0]?.assetId) ?? [];
   function sharedField(key, value) { setDraft(current => ({ ...current,
     shared: { ...current.shared, [key]: value } })); }
   function dimensionField(key, value) { setDraft(current => ({ ...current,
@@ -78,6 +87,44 @@ export default function SiblingBatchPreparation({ parent, siblings, onConfirmA, 
     try {
       if (!finalConfirmed || !finalInput.ready) throw new Error(finalInput.reason || '请核对整批最终内容');
       await onAuthorize(finalInput.input);
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setSaving(false); }
+  }
+  async function uploadFor(child, file, share = false) {
+    if (!file || !child || !onUploadAsset) return;
+    setError(''); setSaving(true);
+    try {
+      const draftRevision = child.lifecycleV11?.c2UploadDraft?.revision ?? 0;
+      const result = await onUploadAsset(child.id, { dataRevision: child.dataRevision, draftRevision, file });
+      if (share) setSharedAssetId(result.asset.assetId);
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setSaving(false); }
+  }
+  async function applyShared() {
+    if (!sharedAssetId || !firstChild || !onLinkAsset) return;
+    const sourceAsset = sharedPool.find(asset => asset.assetId === sharedAssetId);
+    if (!sourceAsset) { setError('共用图片已变化，请重新选择'); return; }
+    setError(''); setSaving(true);
+    try {
+      for (const { child } of c2Rows.slice(1)) {
+        const draft = child.lifecycleV11?.c2UploadDraft;
+        if (!draft?.selection?.length) throw new Error(`${child.productName || child.id} 缺少本色主图`);
+        if (draft.uploads.some(asset => asset.status === 'ready' && asset.sha256 === sourceAsset.sha256)) continue;
+        await onLinkAsset(child.id, { dataRevision: child.dataRevision, draftRevision: draft.revision,
+          sourceCandidateId: firstChild.id, sourceDataRevision: firstChild.dataRevision,
+          sourceAssetId: sharedAssetId, role: 'gallery_image' });
+      }
+    } catch (cause) { setError(`${errorMessage(cause)}。已完成的素材引用会保留，请刷新后核对缺项。`); }
+    finally { setSaving(false); }
+  }
+  async function confirmBatchC2() {
+    if (!allAtC2 || !c2Confirmed || !onConfirmC2) return;
+    setError(''); setSaving(true);
+    try {
+      await onConfirmC2({ parentCandidateId: parent.id, parentRevision: parent.dataRevision,
+        confirmed: true, members: c2Rows.map(({ child }) => ({ candidateId: child.id,
+          candidateRevision: child.dataRevision, draftRevision: child.lifecycleV11.c2UploadDraft?.revision ?? 0,
+          approvedAssetIds: child.lifecycleV11.c2UploadDraft?.selection?.map(item => item.assetId) ?? [] })) });
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setSaving(false); }
   }
@@ -138,6 +185,30 @@ export default function SiblingBatchPreparation({ parent, siblings, onConfirmA, 
         {saving ? '正在保存整批授权…' : '一次确认整批最终内容'}</button>
       {!finalInput.ready ? <p role="status">{finalInput.reason}</p> : null}
     </form> : null}
+    {allAtC2 ? <div aria-label="整批最终素材">
+      <h4>按颜色上传主图，共用图库只上传一次</h4>
+      <p>每个颜色的首图分别确认；同色不同尺码可在已上传素材中建立独立引用。上传只是暂存，最终素材仍需整批核对。</p>
+      {c2Rows.map(({ row, child }) => <label key={row.sourceSkuId}>{row.color} 主图
+        <input aria-label={`${row.color} 主图文件`} type="file" accept="image/jpeg,image/png,image/webp"
+          disabled={saving || Boolean(child.lifecycleV11?.c2UploadDraft?.selection?.length)}
+          onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; void uploadFor(child, file); }} />
+        {child.lifecycleV11?.c2UploadDraft?.selection?.length ? ' 已暂存本色主图' : ' 缺少本色主图'}
+      </label>)}
+      <label>共用图库文件<input aria-label="共用图库文件" type="file" accept="image/jpeg,image/png,image/webp"
+        disabled={saving || !firstChild?.lifecycleV11?.c2UploadDraft?.selection?.length}
+        onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; void uploadFor(firstChild, file, true); }} /></label>
+      <label>已上传的共用图片<select value={sharedAssetId} onChange={event => setSharedAssetId(event.target.value)}>
+        <option value="">请选择共用图库图</option>{sharedPool.map(asset => <option key={asset.assetId} value={asset.assetId}>{asset.fileName}</option>)}
+      </select></label>
+      <button type="button" className="button secondary" disabled={saving || !sharedAssetId ||
+        c2Rows.some(({ child }) => !child.lifecycleV11?.c2UploadDraft?.selection?.length)} onClick={applyShared}>
+        将共用图片引用到其余规格</button>
+      <label><input type="checkbox" checked={c2Confirmed} onChange={event => setC2Confirmed(event.target.checked)} />
+        我已核对每个规格的最终素材来源权利、图片顺序和本色主图。</label>
+      <button type="button" className="button primary" disabled={saving || !c2Confirmed ||
+        c2Rows.some(({ child }) => !child.lifecycleV11?.c2UploadDraft?.selection?.length)} onClick={confirmBatchC2}>
+        一次确认整批最终素材并生成各自方案卡</button>
+    </div> : null}
     {error ? <p role="alert">{error}</p> : null}
   </section>;
 }

@@ -143,6 +143,24 @@ test('one family page exposes common inputs, row price and stock overrides, and 
   assert.doesNotMatch(html, /一次确认整批最终内容/u);
 });
 
+test('one family page offers distinct main images and one shared gallery input at C2', async () => {
+  const parent = candidate({ sourceCapture: { mode: 'a_supplier_capture', status: 'captured_waiting_owner_selection',
+    selectedSkuIds: ['first-unknown', 'black'], skuChoices: [
+      { sourceSkuId: 'first-unknown', attributes: { 颜色: '卡其色' } },
+      { sourceSkuId: 'black', attributes: { 颜色: '黑色' } }
+    ] }, lifecycleV11: { skuPackage: { supplierSkuId: 'first-unknown', technicalStatus: 'unknown_outcome' } } });
+  const child = { id: 'candidate:synthetic-black', dataRevision: 5, productName: '合成黑色',
+    siblingSourceV1: { parentCandidateId: parent.id, supplierSkuId: 'black' },
+    lifecycleV11: { skuPackage: { businessPhase: 'C2', c2FinalAssets: { status: 'awaiting_final_uploads' } } } };
+  const html = await render(props({ candidate: parent, siblingCandidates: [child],
+    onConfirmSiblingBatchA: forbidden, onAuthorizeSiblingProductionBatch: forbidden,
+    onUploadSiblingC2Asset: forbidden, onLinkSiblingC2Asset: forbidden, onConfirmSiblingBatchC2: forbidden }));
+  assert.match(html, /黑色 主图文件/u);
+  assert.match(html, /共用图库文件/u);
+  assert.match(html, /一次确认整批最终素材并生成各自方案卡/u);
+  assert.match(html, /一次确认整批最终内容/u);
+});
+
 test('sibling product page shows frozen revision recovery and editable 10096/10097 mapping entry', async () => {
   const [frozen, editable] = siblingColorState().candidates;
   const frozenHtml = await render(props({ candidate: frozen, onReviseSiblingColor: forbidden }));
