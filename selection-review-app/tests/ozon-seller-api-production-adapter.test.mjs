@@ -56,6 +56,24 @@ test('batch import uses a current evidenced limit and one image per color', () =
     productImportCapability: capability, checkedAt: '2026-09-27T00:00:00.000Z' }), /SOURCE_ALREADY_STARTED/);
 });
 
+test('a synthetic 32-spec list excludes the first and splits the remaining 31 by the evidenced limit', () => {
+  const excludedFirst = 'offer-01';
+  const colors = ['black', 'khaki', 'navy'];
+  const members = Array.from({ length: 31 }, (_, index) => {
+    const color = colors[index % colors.length];
+    return batchMember(`offer-${String(index + 2).padStart(2, '0')}`, color,
+      `https://assets.example/${color}.jpg`);
+  });
+  const chunks = buildOzonSellerBatchImportRequests({ members, excludedOfferIds: [excludedFirst],
+    productImportCapability: { status: 'verified', endpoint: '/v3/product/import', evidenceRef: 'synthetic:limit-ten',
+      maxItemsPerRequest: 10, validUntil: '2026-09-28T00:00:00.000Z' },
+    checkedAt: '2026-09-27T00:00:00.000Z' });
+  assert.deepEqual(chunks.map(chunk => chunk.batchSize), [10, 10, 10, 1]);
+  assert.equal(chunks.flatMap(chunk => chunk.offerIds).length, 31);
+  assert.equal(chunks.some(chunk => chunk.offerIds.includes(excludedFirst)), false);
+  assert.equal(new Set(chunks.flatMap(chunk => chunk.offerIds)).size, 31);
+});
+
 function payload(overrides = {}) {
   const finalUploads = overrides.finalUploads ?? [
     { assetId: "main", assetRef: "https://assets.example/main.jpg", ownerConfirmed: true, productionEligible: true },
