@@ -420,6 +420,19 @@ export function produceC1KeywordPlanningEvidence(
   inputEvidence = sanitizeSourceEvidence(inputEvidence);
 
   const plan = skuPackage.c1ProductPlan;
+  const salesSnapshot = plan.inputSnapshots.salesSnapshot;
+  const supplySnapshot = plan.inputSnapshots.confirmedSupplierSkuSnapshot;
+  const salesSnapshotVersion = nonEmpty(salesSnapshot.version) ? salesSnapshot.version
+    : nonEmpty(salesSnapshot.schemaVersion) ? salesSnapshot.schemaVersion : null;
+  const supplySnapshotVersion = nonEmpty(supplySnapshot.version) ? supplySnapshot.version
+    : nonEmpty(supplySnapshot.schemaVersion) ? supplySnapshot.schemaVersion : "c1-confirmed-supplier-sku-snapshot-v1";
+  if (salesSnapshotVersion === null) {
+    return freeze({ status: "not_ready", candidate: inputCandidate, skuPackage, evidence: null,
+      production: { ...base, resultSkuRevision: skuPackage.dataRevision,
+        factsVerifiedFromFrozenInputs: skuPackage.dataRevision !== sourceSkuRevision,
+        gaps: [gap("sales_snapshot_version_missing", "c1ProductPlan.inputSnapshots.salesSnapshot",
+          "冻结销售快照缺少有效版本，不能生成关键词准备证据")] } });
+  }
   const bindingGap = factsBindingGap(inputEvidence, plan);
   if (bindingGap) {
     return freeze({
@@ -452,10 +465,10 @@ export function produceC1KeywordPlanningEvidence(
       profitModelVersion: plan.inputSnapshots.profitModel.profitModelVersion,
       profitModelFingerprint: digest(plan.inputSnapshots.profitModel),
       salesSnapshotId: plan.inputRefs.salesSnapshotId,
-      salesSnapshotVersion: plan.inputSnapshots.salesSnapshot.version ?? plan.inputSnapshots.salesSnapshot.schemaVersion ?? null,
+      salesSnapshotVersion,
       salesSnapshotFingerprint: digest(plan.inputSnapshots.salesSnapshot),
       supplySnapshotId: plan.inputRefs.selectedSupplySnapshotId,
-      supplySnapshotVersion: plan.inputSnapshots.confirmedSupplierSkuSnapshot.version ?? plan.inputSnapshots.confirmedSupplierSkuSnapshot.schemaVersion ?? "c1-confirmed-supplier-sku-snapshot-v1",
+      supplySnapshotVersion,
       supplySnapshotFingerprint: digest(plan.inputSnapshots.confirmedSupplierSkuSnapshot),
       c1FactsFingerprint: digest({
         exactSkuVerification: plan.exactSkuVerification,
