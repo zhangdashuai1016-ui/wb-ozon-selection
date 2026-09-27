@@ -325,6 +325,23 @@ test('E pump interval is explicit and unknown scheduling errors stop the pump vi
   repository:{...f.repository,readSnapshot:async()=>{reads++;throw failure;}},eReadbackPumpIntervalMs:1000,onReadbackError:observed.resolve});
  runtime.start();assert.equal(await observed.promise,failure);await runtime.stop();assert.equal(reads,1);assert.deepEqual(f.calls,[]);
 });
+test('local batch observation pump keeps a live worker current but never revives an expired worker',async()=>{
+ const f=await fixture();
+ const errors=[];
+ const runtime=createDEProductionRuntimeServices({...f.options,
+  loadBatchMemberEvidence:async()=>{throw new Error('No batch job in this test');},
+  observationPumpIntervalMs:100000,onObservationError:error=>errors.push(error.message)});
+ runtime.start();
+ try{
+  f.advance(20000);
+  await new Promise(resolve=>setTimeout(resolve,650));
+  assert.equal(f.registry.findEligible(['ozon-production-execution']).length,1);
+  f.advance(31000);
+  await new Promise(resolve=>setTimeout(resolve,650));
+  assert.deepEqual(errors,['DE_RUNTIME_LOCAL_WORKER_HEARTBEAT_EXPIRED']);
+  assert.equal(f.registry.findEligible(['ozon-production-execution']).length,0);
+ }finally{await runtime.stop();}
+});
 test('inspection is bounded by its existing lease and forwards a real cancellation signal without retry',async()=>{
  const f=await fixture();let signal,inspections=0;
  const runtime=createDEProductionRuntimeServices({...f.options,deServiceBindings:f.options.deServiceBindings.map(binding=>({...binding,leaseDurationMs:1000})),

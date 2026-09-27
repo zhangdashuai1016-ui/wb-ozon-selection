@@ -93,6 +93,26 @@ export function createDEProductionRuntimeServices({ repository, runtimeMode, ser
             configurationVersion:productionBinding.configurationVersion}}}}) ?? null,
       requestJson }) : null;
   let batchObservationPumpStarted=false,batchObservationTimer=null,batchObservationActive=null;
+  let localWorkerHeartbeatStarted=false,localWorkerHeartbeatTimer=null;
+  function scheduleLocalWorkerHeartbeat() {
+    if(!localWorkerHeartbeatStarted)return;
+    localWorkerHeartbeatTimer=setTimeout(()=>{
+      for(const service of services.values()){
+        const eligible=workerRegistry.findEligible(['ozon-production-execution'])
+          .find(worker=>worker.workerId===service.worker.workerId);
+        if(!eligible || eligible.version!==service.worker.version ||
+          !isDeepStrictEqual(eligible.capabilities,service.worker.capabilities)){
+          localWorkerHeartbeatStarted=false;
+          batchObservationPumpStarted=false;clearTimeout(batchObservationTimer);
+          onObservationError(new Error('DE_RUNTIME_LOCAL_WORKER_HEARTBEAT_EXPIRED'));
+          return;
+        }
+        workerRegistry.heartbeat({workerId:eligible.workerId,version:eligible.version,
+          capabilities:eligible.capabilities,status:eligible.status});
+      }
+      scheduleLocalWorkerHeartbeat();
+    },500);
+  }
   function scheduleBatchObservation() {
     if(!batchObservationPumpStarted)return;
     batchObservationTimer=setTimeout(()=>{
@@ -454,11 +474,16 @@ export function createDEProductionRuntimeServices({ repository, runtimeMode, ser
       if(batchImportService!==null && observationPumpIntervalMs!==null && !batchObservationPumpStarted){
         batchObservationPumpStarted=true;scheduleBatchObservation();
       }
+      if(batchImportService!==null && observationPumpIntervalMs!==null &&
+        workerRegistry.persistenceClass==='local_development_ephemeral' && !localWorkerHeartbeatStarted){
+        localWorkerHeartbeatStarted=true;scheduleLocalWorkerHeartbeat();
+      }
       if(eReadbackPumpIntervalMs!==null&&!ePumpStarted){ePumpStarted=true;scheduleEReadback();}
     },
     async stop(){
       stopping=true;ePumpStarted=false;clearTimeout(ePumpTimer);
       batchObservationPumpStarted=false;clearTimeout(batchObservationTimer);
+      localWorkerHeartbeatStarted=false;clearTimeout(localWorkerHeartbeatTimer);
       for(const controller of eControllers.values())controller.abort(new Error('DE_RUNTIME_STOPPED'));
       await observationRuntime.stop();
       if(batchObservationActive)await batchObservationActive;
