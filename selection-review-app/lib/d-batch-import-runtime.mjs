@@ -185,7 +185,8 @@ export function createPersistedDBatchImportRuntime({ repository, runtimeMode = '
             if(existing.length===0)stockJobs.push(createDBatchStockJob({batch,member:target,
               taskId:event.taskId,productId:result.importObservation.productId,
               workerId:job.workerId,workerVersion:job.workerVersion,leaseId:job.leaseId,
-              leaseExpiresAt:job.leaseExpiresAt,createdAt:checkpointAt}));
+              leaseExpiresAt:job.leaseExpiresAt,leaseDurationMs,createdAt:checkpointAt,
+              observationPolicy:job.observationPolicy}));
             else if(existing[0].candidateId!==target.candidateId||existing[0].productId!==result.importObservation.productId||
                 existing[0].taskId!==event.taskId||existing[0].authorizationFingerprint!==target.authorizationFingerprint)
               throw new Error('D_BATCH_STOCK_JOB_SOURCE_CONFLICT');
