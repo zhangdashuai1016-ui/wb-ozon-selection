@@ -92,26 +92,35 @@ export function createDEProductionRuntimeServices({ repository, runtimeMode, ser
           scopeBinding:{productionBinding:{bindingId:productionBinding.bindingId,
             configurationVersion:productionBinding.configurationVersion}}}}) ?? null,
       requestJson }) : null;
+  const localWorkerHeartbeatIntervalMs=workerRegistry.persistenceClass==='local_development_ephemeral'
+    ? Math.floor(workerRegistry.heartbeatTtlMs/3) : null;
+  if(batchImportService!==null && observationPumpIntervalMs!==null &&
+    localWorkerHeartbeatIntervalMs!==null &&
+    (!Number.isSafeInteger(localWorkerHeartbeatIntervalMs)||localWorkerHeartbeatIntervalMs<250))
+    throw new Error('DE_RUNTIME_LOCAL_WORKER_HEARTBEAT_INTERVAL_INVALID');
   let batchObservationPumpStarted=false,batchObservationTimer=null,batchObservationActive=null;
   let localWorkerHeartbeatStarted=false,localWorkerHeartbeatTimer=null;
   function scheduleLocalWorkerHeartbeat() {
     if(!localWorkerHeartbeatStarted)return;
     localWorkerHeartbeatTimer=setTimeout(()=>{
-      for(const service of services.values()){
-        const eligible=workerRegistry.findEligible(['ozon-production-execution'])
-          .find(worker=>worker.workerId===service.worker.workerId);
-        if(!eligible || eligible.version!==service.worker.version ||
-          !isDeepStrictEqual(eligible.capabilities,service.worker.capabilities)){
-          localWorkerHeartbeatStarted=false;
-          batchObservationPumpStarted=false;clearTimeout(batchObservationTimer);
-          onObservationError(new Error('DE_RUNTIME_LOCAL_WORKER_HEARTBEAT_EXPIRED'));
-          return;
+      try{
+        for(const service of services.values()){
+          const eligible=workerRegistry.findEligible(['ozon-production-execution'])
+            .find(worker=>worker.workerId===service.worker.workerId);
+          if(!eligible || eligible.version!==service.worker.version ||
+            !isDeepStrictEqual(eligible.capabilities,service.worker.capabilities))
+            throw new Error('DE_RUNTIME_LOCAL_WORKER_HEARTBEAT_EXPIRED');
+          workerRegistry.heartbeat({workerId:eligible.workerId,version:eligible.version,
+            capabilities:eligible.capabilities,status:eligible.status});
         }
-        workerRegistry.heartbeat({workerId:eligible.workerId,version:eligible.version,
-          capabilities:eligible.capabilities,status:eligible.status});
+      }catch(error){
+        localWorkerHeartbeatStarted=false;
+        batchObservationPumpStarted=false;clearTimeout(batchObservationTimer);
+        onObservationError(error);
+        return;
       }
       scheduleLocalWorkerHeartbeat();
-    },500);
+    },localWorkerHeartbeatIntervalMs);
   }
   function scheduleBatchObservation() {
     if(!batchObservationPumpStarted)return;
