@@ -37,10 +37,11 @@ function colorPaths(sourcePlan) {
     .map((item, index) => item.fieldKey === '颜色' ? `productAttributes.supplierAttributes.${index}.fact` : null)
     .filter(Boolean);
   const official = (sourcePlan.productAttributes.ozonAttributes ?? [])
-    .map((item, index) => String(item.fieldKey) === '10096' ? `productAttributes.ozonAttributes.${index}.fact` : null)
+    .map((item, index) => ['10096', '10097'].includes(String(item.fieldKey))
+      ? { attributeId: String(item.fieldKey), path: `productAttributes.ozonAttributes.${index}.fact` } : null)
     .filter(Boolean);
-  const paths = [...supplier, ...official];
-  if (supplier.length !== 1 || official.length > 1 ||
+  const paths = [...supplier, ...official.map(item => item.path)];
+  if (supplier.length !== 1 || new Set(official.map(item => item.attributeId)).size !== official.length ||
       paths.some(path => factAt(sourcePlan, path)?.verificationStatus !== 'confirmed')) {
     fail('C1_SIBLING_NEUTRAL_SOURCE_COLOR_MISSING');
   }
@@ -63,6 +64,15 @@ export function buildC1SiblingNeutralContent(sourcePlan) {
       typeof value === 'string' && value.toLocaleLowerCase().includes(token.toLocaleLowerCase())));
   const neutralKeywords = sourcePlan.searchKeywordsDraft.keywords.filter(item => !colored(item));
   if (!neutralKeywords.length) fail('C1_SIBLING_NEUTRAL_KEYWORD_MISSING');
+  const hasKnownColor = value => typeof value === 'string' && tokens.some(token =>
+    value.toLocaleLowerCase().includes(token.toLocaleLowerCase()));
+  for (const piece of allPieces(sourcePlan)) {
+    if (!piece.factRefs.some(ref => paths.includes(ref))) continue;
+    if (!hasKnownColor(piece.text ?? piece.query) ||
+        (typeof piece.reviewZh === 'string' && !hasKnownColor(piece.reviewZh))) {
+      fail('C1_SIBLING_NEUTRAL_COLOR_ALIAS_REQUIRES_REVISION');
+    }
+  }
   const removeTokens = value => {
     if (typeof value !== 'string') return value;
     let result = value;
@@ -130,6 +140,19 @@ function adoptedFacts(plan, content) {
   }));
 }
 
+function assertPieceAssertions(content, facts) {
+  for (const piece of [content.seoTitleDraft, content.descriptionDraft, ...content.bulletPointsDraft,
+    ...content.searchKeywordsDraft.keywords]) {
+    if (!Array.isArray(piece.factRefs) || !Array.isArray(piece.assertions) ||
+        piece.factRefs.length !== piece.assertions.length ||
+        !isDeepStrictEqual([...piece.factRefs].sort(), piece.assertions.map(item => item.factPath).sort()) ||
+        piece.assertions.some(item => !Object.hasOwn(facts, item.factPath) ||
+          !isDeepStrictEqual(item.value, facts[item.factPath]))) {
+      fail('C1_SIBLING_NEUTRAL_ASSERTION_DIFFERENCE');
+    }
+  }
+}
+
 export function projectC1SiblingNeutralDraft({ sourcePlan, sourceIdentity, request, receipt, settledExecution,
   targetSkuPackage, sourceCandidateRevision, targetCandidateRevision, observedAt }) {
   const sourceKind = assertFormalSource({ sourcePlan, sourceIdentity, request, receipt, settledExecution, observedAt });
@@ -146,13 +169,7 @@ export function projectC1SiblingNeutralDraft({ sourcePlan, sourceIdentity, reque
   const content = buildC1SiblingNeutralContent(sourcePlan);
   const sourceFacts = adoptedFacts(sourcePlan, content), targetFacts = adoptedFacts(plan, content);
   if (!isDeepStrictEqual(sourceFacts, targetFacts)) fail('C1_SIBLING_NEUTRAL_FACT_DIFFERENCE');
-  for (const piece of [content.seoTitleDraft, content.descriptionDraft, ...content.bulletPointsDraft,
-    ...content.searchKeywordsDraft.keywords]) {
-    if (!isDeepStrictEqual([...piece.factRefs].sort(), piece.assertions.map(item => item.factPath).sort()) ||
-        piece.assertions.some(item => !isDeepStrictEqual(item.value, targetFacts[item.factPath]))) {
-      fail('C1_SIBLING_NEUTRAL_ASSERTION_DIFFERENCE');
-    }
-  }
+  assertPieceAssertions(content, targetFacts);
   const record = { schemaVersion: C1_SIBLING_NEUTRAL_REUSE_VERSION, observedAt, sourceKind,
     sourceCandidateId: sourceIdentity.candidateId, sourceCandidateRevision, targetCandidateRevision,
     sourcePlanFingerprint: fingerprintCanonicalRecord(sourcePlan), sourceContentFingerprint: fingerprintCanonicalRecord(contentOf(sourcePlan)),
@@ -176,6 +193,7 @@ export function projectC1SiblingNeutralDraft({ sourcePlan, sourceIdentity, reque
 
 export function assertC1SiblingNeutralReuse({ plan, resultSkuRevision }) {
   const record = plan?.draftOnlySeo?.siblingFormalReuseRecord;
+  const targetFacts = adoptedFacts(plan, contentOf(plan));
   if (record?.schemaVersion !== C1_SIBLING_NEUTRAL_REUSE_VERSION ||
       !['provider_receipt', 'owner_confirmed_editorial'].includes(record.sourceKind) ||
       record.targetPlanId !== plan.c1PlanId || record.resultSkuRevision !== resultSkuRevision ||
@@ -183,12 +201,13 @@ export function assertC1SiblingNeutralReuse({ plan, resultSkuRevision }) {
       record.targetIdentity.platform !== plan.identity.targetPlatform ||
       record.targetIdentity.storeRef.stableStoreId !== plan.identity.targetStore ||
       record.contentFingerprint !== fingerprintCanonicalRecord(contentOf(plan)) ||
-      record.adoptedFactFingerprint !== fingerprintCanonicalRecord(adoptedFacts(plan, contentOf(plan))) ||
-      !isDeepStrictEqual(record.adoptedFactPaths, Object.keys(adoptedFacts(plan, contentOf(plan)))) ||
+      record.adoptedFactFingerprint !== fingerprintCanonicalRecord(targetFacts) ||
+      !isDeepStrictEqual(record.adoptedFactPaths, Object.keys(targetFacts)) ||
       !isDeepStrictEqual(plan.draftOnlySeo, { status: 'draft_only', sourceType: 'sibling_shared_formal_provider',
         formalProviderResultAccepted: false, reason: null, siblingFormalReuseRecord: record })) {
     fail('C1_SIBLING_NEUTRAL_RECORD_INVALID');
   }
+  assertPieceAssertions(contentOf(plan), targetFacts);
   const colors = colorPaths(plan);
   if (record.adoptedFactPaths.some(path => colors.includes(path)) ||
       allPieces(plan).some(piece => piece.factRefs.some(path => colors.includes(path))) ||

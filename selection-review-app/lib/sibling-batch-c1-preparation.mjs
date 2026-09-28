@@ -67,17 +67,32 @@ function validateInput(actor, input, serverClock, requireConfirmation) {
   }
 }
 
-function prepareBatch(document, actor, input, serverClock) {
+function assertBatchScope(document, input) {
     const parents = document.candidates.filter(item => item.id === input.parentCandidateId);
     if (parents.length !== 1 || parents[0].dataRevision !== input.parentRevision) fail('SIBLING_BATCH_C1_PARENT_CHANGED');
     const parent = parents[0];
-    const sourcePlan = parent.lifecycleV11?.skuPackage?.c1ProductPlan;
     const selected = parent.sourceCapture?.selectedSkuIds?.filter(id => id !== parent.lifecycleV11?.skuPackage?.supplierSkuId);
+    const memberSkuIds = input.members.map(member =>
+      document.candidates.find(item => item.id === member.candidateId)?.siblingSourceV1?.supplierSkuId);
     if (!Array.isArray(selected) || selected.length !== input.members.length ||
-        new Set(selected).size !== selected.length ||
-        !input.members.every(member => selected.includes(document.candidates.find(item => item.id === member.candidateId)?.siblingSourceV1?.supplierSkuId))) {
+        new Set(selected).size !== selected.length || new Set(memberSkuIds).size !== memberSkuIds.length ||
+        !memberSkuIds.every(id => selected.includes(id))) {
       fail('SIBLING_BATCH_C1_SCOPE_MISMATCH');
     }
+    for (const member of input.members) {
+      const child = document.candidates.find(item => item.id === member.candidateId);
+      if (child?.siblingSourceV1?.parentCandidateId !== parent.id ||
+          child.sourceCapture?.captureId !== parent.sourceCapture?.captureId ||
+          child.sourceCapture?.offerId !== parent.sourceCapture?.offerId ||
+          child.lifecycleV11?.skuPackage?.supplierSkuId !== child.siblingSourceV1.supplierSkuId ||
+          !sameStoreRef(child.storeRef, parent.storeRef)) fail('SIBLING_BATCH_C1_MEMBER_CONFLICT');
+    }
+    return { parent, selected };
+}
+
+function prepareBatch(document, actor, input, serverClock) {
+    const { parent, selected } = assertBatchScope(document, input);
+    const sourcePlan = parent.lifecycleV11?.skuPackage?.c1ProductPlan;
     const source = sourcePlan?.draftOnlySeo?.sourceType === 'owner_confirmed_editorial'
       ? { request: null, receipt: null, settledExecution: null }
       : readCurrentAppliedC1Draft(parent, document.runtime?.softwareJobs ?? []);
@@ -152,11 +167,17 @@ export async function commitSiblingBatchC1Preparation({ repository, runtimeMode,
   validateInput(actor, input, serverClock, true);
   if (!/^[a-f0-9]{64}$/.test(input.previewFingerprint ?? '')) fail('SIBLING_BATCH_C1_PREVIEW_REQUIRED');
   return repository.transact(document => {
+    const { parent: currentParent } = assertBatchScope(document, input);
     const inputFingerprint = fingerprintCanonicalRecord({ input, confirmedBy: actor.userId });
     const replay = input.members.map(member => document.candidates.find(item => item.id === member.candidateId));
     if (replay.every(child => child?.lifecycleV11?.siblingBatchC1ReceiptV1?.inputFingerprint === inputFingerprint &&
         child.lifecycleV11.siblingBatchC1ReceiptV1.resultRevision === child.dataRevision &&
         child.lifecycleV11.siblingBatchC1ReceiptV1.parentCandidateId === input.parentCandidateId)) {
+      const sourcePlanFingerprint = fingerprintCanonicalRecord(currentParent.lifecycleV11?.skuPackage?.c1ProductPlan);
+      if (replay.some(child => child.lifecycleV11.skuPackage.c1ProductPlan.draftOnlySeo
+          ?.siblingFormalReuseRecord?.sourcePlanFingerprint !== sourcePlanFingerprint)) {
+        fail('SIBLING_BATCH_C1_PARENT_CHANGED');
+      }
       return { changed: false, document, result: { status: 'idempotent_replay', members: replay.map(child => ({
         candidateId: child.id, resultRevision: child.dataRevision })), externalRequests: 0, paidCalls: 0, platformWrites: 0 } };
     }

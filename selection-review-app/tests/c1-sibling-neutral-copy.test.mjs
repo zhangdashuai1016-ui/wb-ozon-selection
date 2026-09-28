@@ -5,6 +5,7 @@ import { buildC1SiblingNeutralContent } from '../lib/c1-sibling-neutral-copy.mjs
 // The saved first vest's editorial shape, reduced to the facts and content this projection reads.
 const paths = {
   type: 'productAttributes.ozonAttributes.3.fact', color: 'productAttributes.ozonAttributes.4.fact',
+  colorName: 'productAttributes.ozonAttributes.8.fact',
   material: 'productAttributes.ozonAttributes.5.fact', cats: 'productAttributes.ozonAttributes.6.fact',
   season: 'productAttributes.ozonAttributes.7.fact', form: 'productAttributes.ownerDeclaredFacts.0.fact',
   uses: 'productAttributes.ownerDeclaredFacts.1.fact', closure: 'productAttributes.ownerDeclaredFacts.2.fact',
@@ -25,13 +26,15 @@ const vestPlan = {
       { fieldKey: '10096', fact: { value: { value: 'хаки', dictionaryValueId: 258411654 }, verificationStatus: 'confirmed', sourceRefs: ['saved:color'] } },
       { fieldKey: '4967', fact: { value: { value: 'Оксфорд', dictionaryValueId: 61979 }, verificationStatus: 'confirmed', sourceRefs: ['saved:material'] } },
       { fieldKey: '4958', fact: { value: { value: 'Для кошек', dictionaryValueId: 33754 }, verificationStatus: 'confirmed', sourceRefs: ['saved:cats'] } },
-      { fieldKey: '5954', fact: { value: { value: 'На любой сезон', dictionaryValueId: 30937 }, verificationStatus: 'confirmed', sourceRefs: ['saved:season'] } }
+      { fieldKey: '5954', fact: { value: { value: 'На любой сезон', dictionaryValueId: 30937 }, verificationStatus: 'confirmed', sourceRefs: ['saved:season'] } },
+      { fieldKey: '10097', fact: { value: 'хаки', verificationStatus: 'confirmed', sourceRefs: ['saved:color-name'] } }
     ]
   },
   platformCategory: { categoryName: { value: 'Одежда для животных', verificationStatus: 'confirmed', sourceRefs: ['saved:category'] } },
   seoTitleDraft: piece('Одежда для животных: мини-жилет для кошек, хаки', '宠物服装：适用于猫的卡其色迷你背心。',
-    [paths.type, paths.form, paths.cats, paths.color], ['saved-vest-keywords/0'],
-    [{ value: 'Одежда для животных', dictionaryValueId: 96063 }, '迷你背心', { value: 'Для кошек', dictionaryValueId: 33754 }, { value: 'хаки', dictionaryValueId: 258411654 }]),
+    [paths.type, paths.form, paths.cats, paths.color, paths.colorName], ['saved-vest-keywords/0'],
+    [{ value: 'Одежда для животных', dictionaryValueId: 96063 }, '迷你背心', { value: 'Для кошек', dictionaryValueId: 33754 },
+      { value: 'хаки', dictionaryValueId: 258411654 }, 'хаки']),
   descriptionDraft: piece('Мини-жилет цвета хаки из ткани оксфорд подходит для кошек. Его также можно надеть на винную бутылку. Модель подходит для любого сезона.',
     '卡其色牛津布迷你背心适用于猫，也可以套在酒瓶上，四季适用。',
     [paths.form, paths.type, paths.cats, paths.color, paths.material, paths.season, paths.uses],
@@ -49,6 +52,7 @@ const vestPlan = {
   keywordEvidenceRefs: ['saved-vest-keywords/0', colorRef, 'saved-vest-keywords/2', 'saved-vest-keywords/3', 'saved-vest-keywords/4'],
   seoEvidenceLayer: { russianAttributes: [
     { factPath: paths.color, valueRu: 'хаки', reviewZh: '卡其色。' },
+    { factPath: paths.colorName, valueRu: 'хаки', reviewZh: '卡其色。' },
     { factPath: paths.material, valueRu: 'Оксфорд', reviewZh: '牛津布。' },
     { factPath: paths.cats, valueRu: 'Для кошек', reviewZh: '适用于猫。' } ] }
 };
@@ -67,7 +71,19 @@ test('saved vest shaped content keeps common Russian and Chinese claims but remo
   assert.ok(!JSON.stringify(productCopy).includes('хаки'));
   assert.ok(!JSON.stringify(productCopy).includes('卡其色'));
   assert.ok(!JSON.stringify(productCopy).includes(paths.color));
+  assert.ok(!JSON.stringify(productCopy).includes(paths.colorName));
   assert.ok(!JSON.stringify(productCopy).includes(colorRef));
   assert.deepEqual(differences.removedKeywords, ['хаки']);
   assert.equal(vestPlan.seoTitleDraft.text.endsWith('хаки'), true);
+});
+
+test('unverified color aliases in either language require an explicit source revision', () => {
+  for (const change of [
+    plan => { plan.seoTitleDraft.text = 'Одежда для животных: мини-жилет для кошек, Khaki'; },
+    plan => { plan.seoTitleDraft.reviewZh = '宠物服装：适用于猫的卡其迷你背心。'; }
+  ]) {
+    const source = structuredClone(vestPlan);
+    change(source);
+    assert.throws(() => buildC1SiblingNeutralContent(source), /C1_SIBLING_NEUTRAL_COLOR_ALIAS_REQUIRES_REVISION/);
+  }
 });

@@ -8522,7 +8522,10 @@ async function handleApi(req, res, pathname) {
           SIBLING_BATCH_C1_OFFICIAL_COLOR_REQUIRED: '10096 官方颜色尚未逐行选择；请在本页补齐并重新预览。',
           SIBLING_BATCH_C1_COLOR_NAME_REQUIRED: '10097 准确颜色名称尚未逐行填写；请在本页补齐并重新预览。',
           SIBLING_BATCH_C1_COLOR_FACT_MISSING: '供应原色事实未确认或与当前规格不一致；请先修订该规格的 A 阶段供应事实。',
-          SIBLING_BATCH_C1_PREVIEW_CHANGED: '批量预览已过期，当前事实或内容已变化；请在本页重新预览。'
+          SIBLING_BATCH_C1_PREVIEW_CHANGED: '批量预览已过期，当前事实或内容已变化；请在本页重新预览。',
+          SIBLING_BATCH_C1_PARENT_CHANGED: '首件 revision 或文案已变化；旧批次确认不能重放。',
+          SIBLING_BATCH_C1_SCOPE_MISMATCH: '当前已选规格与批量身份不一致；旧确认不能重放。',
+          C1_SIBLING_NEUTRAL_COLOR_ALIAS_REQUIRES_REVISION: '首件文案使用了无法由已确认颜色事实安全清理的别称；请先集中修订首件文案。'
         };
         return json(res, 409, { code, message: specific[code] ?? '整批 C1 未保存；请核对官方颜色、逐行事实、权利和共用草稿。',
           externalRequests: 0, paidCalls: 0, platformWrites: 0 });

@@ -11,6 +11,8 @@ import { buildProductionOwnerPreparationView } from '../lib/production-owner-pre
 import { attachProductionProfitEvidence } from './fixtures/production-profit-evidence-fixture.mjs';
 import { at, oneColorFixture, threeColorFixture, threeColorC2Fixture } from './fixtures/sibling-batch-final-family-fixture.mjs';
 import { loadPublishedSchemaValidator } from './helpers/published-schema-validator.mjs';
+import { assertC1SiblingNeutralReuse } from '../lib/c1-sibling-neutral-copy.mjs';
+import { fingerprintCanonicalRecord } from '../lib/production-contract-primitives.mjs';
 
 test('three selected colors share one saved dictionary and one formal parent draft but each receives its own C1 and C2', async () => {
   const { repository, actor, input, ids } = await threeColorFixture();
@@ -39,6 +41,38 @@ test('three selected colors share one saved dictionary and one formal parent dra
     actor, input, serverClock: () => at });
   assert.equal(replay.status, 'idempotent_replay');
   assert.deepEqual(await repository.readSnapshot(), saved);
+});
+
+test('saved batch replay rejects a changed parent revision, source copy, or batch membership without writes', async () => {
+  const { repository, actor, input } = await oneColorFixture();
+  await commitSiblingBatchC1Preparation({ repository, runtimeMode: 'local_development',
+    actor, input, serverClock: () => at });
+  const checkReplayConflict = async code => {
+    const before = await repository.readSnapshot();
+    await assert.rejects(() => commitSiblingBatchC1Preparation({ repository,
+      runtimeMode: 'local_development', actor, input, serverClock: () => at }), code);
+    assert.deepEqual(await repository.readSnapshot(), before);
+  };
+  await repository.transact(document => {
+    document.candidates[0].dataRevision += 1;
+    return { changed: true, document, result: null };
+  });
+  await checkReplayConflict(/SIBLING_BATCH_C1_PARENT_CHANGED/);
+  await repository.transact(document => {
+    const parent = document.candidates[0];
+    parent.dataRevision -= 1;
+    parent.lifecycleV11.skuPackage.c1ProductPlan.seoTitleDraft.value += ' revised';
+    return { changed: true, document, result: null };
+  });
+  await checkReplayConflict(/SIBLING_BATCH_C1_PARENT_CHANGED/);
+  await repository.transact(document => {
+    const parent = document.candidates[0];
+    parent.lifecycleV11.skuPackage.c1ProductPlan.seoTitleDraft.value =
+      parent.lifecycleV11.skuPackage.c1ProductPlan.seoTitleDraft.value.replace(/ revised$/, '');
+    parent.sourceCapture.selectedSkuIds = [parent.lifecycleV11.skuPackage.supplierSkuId];
+    return { changed: true, document, result: null };
+  });
+  await checkReplayConflict(/SIBLING_BATCH_C1_SCOPE_MISMATCH/);
 });
 
 test('one wrong color or one stale row saves no C1/C2 state for any of three colors', async () => {
@@ -244,4 +278,20 @@ test('a source job without a completed applied result cannot supply batch copy',
   await assert.rejects(() => commitSiblingBatchC1Preparation({ repository, runtimeMode: 'local_development',
     actor, input, serverClock: () => at }), /C1_CONTENT_REVIEW_APPLIED_RECEIPT_REQUIRED/);
   assert.deepEqual(await repository.readSnapshot(), before);
+});
+
+test('saved v2 copy rechecks each assertion against the current child fact even with a matching content fingerprint', async () => {
+  const { repository, actor, input, childId } = await oneColorFixture();
+  await commitSiblingBatchC1Preparation({ repository, runtimeMode: 'local_development', actor,
+    input, serverClock: () => at });
+  const saved = await repository.readSnapshot();
+  const plan = saved.candidates.find(item => item.id === childId).lifecycleV11.skuPackage.c1ProductPlan;
+  const reuse = plan.draftOnlySeo.siblingFormalReuseRecord;
+  plan.seoTitleDraft.assertions[0].value = 'tampered assertion';
+  reuse.contentFingerprint = fingerprintCanonicalRecord({ seoTitleDraft: plan.seoTitleDraft,
+    descriptionDraft: plan.descriptionDraft, bulletPointsDraft: plan.bulletPointsDraft,
+    searchKeywordsDraft: plan.searchKeywordsDraft, keywordEvidenceRefs: plan.keywordEvidenceRefs,
+    seoEvidenceLayer: plan.seoEvidenceLayer });
+  assert.throws(() => assertC1SiblingNeutralReuse({ plan, resultSkuRevision: reuse.resultSkuRevision }),
+    /C1_SIBLING_NEUTRAL_ASSERTION_DIFFERENCE/);
 });
