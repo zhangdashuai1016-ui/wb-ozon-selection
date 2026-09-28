@@ -274,6 +274,7 @@ import { createRepositoryBackedOzonDEPreflightEvidenceReader } from "./lib/ozon-
 import { createOzonAccountReadBindingResolver } from "./lib/ozon-account-read-preparation.mjs";
 import { createOzonAccountReadEvidenceSource } from "./lib/ozon-account-read-evidence.mjs";
 import { loadOzonDEProtocolCatalog } from "./lib/ozon-de-protocol-catalog.mjs";
+import { loadOzonProductImportBatchLimitEvidence } from "./lib/ozon-product-import-batch-limit.mjs";
 import { createOzonAccountReadServices } from "./lib/ozon-account-read-services.mjs";
 import { createConfiguredOzonAccountDiscoveryRuntime } from './lib/ozon-account-discovery-runtime.mjs';
 import { OzonAccountReadError } from "./lib/ozon-account-read-contract.mjs";
@@ -556,8 +557,14 @@ const ossRuntimeProvider = createAliyunOssRuntimeProvider({ config: runtimeConfi
 const ozonAccountEvidenceSource = createOzonAccountReadEvidenceSource({ repository: businessStateRepository,
   loadCurrentReadBinding: createOzonAccountReadBindingResolver(runtimeConfiguration),
   protocolCatalog: await loadOzonDEProtocolCatalog() });
+let batchLimitEvidencePromise = null;
+const loadBatchLimitEvidence = () => {
+  batchLimitEvidencePromise ??= loadOzonProductImportBatchLimitEvidence();
+  return batchLimitEvidencePromise;
+};
 const ozonDEPreflightProvider = createOzonDEPreflightProvider({ serverClock: now,
   verifySourceSnapshot: ozonAccountEvidenceSource.verifySnapshot,
+  loadBatchLimitEvidence,
   readEvidence: createRepositoryBackedOzonDEPreflightEvidenceReader({ repository: businessStateRepository,
     verifySourceReceipt: ozonAccountEvidenceSource.verifySourceReceipt }) });
 // 查询策略解析器只构造一次，D 运行时与账户读取服务（按钮）共用，避免两处读法不一致。

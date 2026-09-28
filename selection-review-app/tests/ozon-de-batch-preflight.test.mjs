@@ -17,13 +17,13 @@ test('batch member reads only its saved authorization and scope without a single
   const provider = createOzonDEPreflightProvider({ serverClock: () => '2026-08-22T07:25:00.000Z',
     readEvidence: async () => { reads++; return record; } });
   const result = await provider.loadBatchMemberEvidence({ candidate,
-    productionBinding: context.productionBinding, batch });
+    productionBinding: context.productionBinding, batch,purpose:'import_observation' });
   assert.equal(reads, 1);
   assert.equal(result.capabilities.status, 'not_ready');
   assert.ok(result.capabilities.gaps.some(gap => gap.code === 'evidence_protocol_version_outdated'));
   batch.members[0].resultRevision++;
   await assert.rejects(provider.loadBatchMemberEvidence({ candidate,
-    productionBinding: context.productionBinding, batch }), /OZON_DE_PREFLIGHT_EVIDENCE_CONTEXT_INVALID/);
+    productionBinding: context.productionBinding, batch,purpose:'import_observation' }), /OZON_DE_PREFLIGHT_EVIDENCE_CONTEXT_INVALID/);
   assert.equal(reads, 1);
 });
 

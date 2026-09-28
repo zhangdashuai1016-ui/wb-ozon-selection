@@ -44,6 +44,8 @@ async function fixture({stockFree=0,stockReceipt='accepted',eMissingAttributes=f
   capability.productImport = { status: 'verified', protocolVersion: 'ozon-product-import-v3',
     evidenceRef: 'evidence:synthetic:import-limit', endpoint: '/v3/product/import',
     statusEndpoint: '/v1/product/import/info', maxItemsPerRequest: 10,
+    limitEvidenceRef: 'synthetic:batch-limit',
+    limitObservedAt: '2026-08-22T07:00:00.000Z',
     validUntil: '2026-09-01T00:00:00.000Z' };
   capability.independentReadback={status:'verified',evidenceRef:'evidence:synthetic:readback',
     protocolVersion:'ozon-independent-readback-v2',endpoints:structuredClone(OZON_DE_READBACK_ENDPOINTS)};

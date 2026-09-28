@@ -691,16 +691,18 @@ function assertAa66ProjectionConsistency(ready) {
 }
 
 test("aa66正式ready形状投影通过公共Schema并保留运行时同源边界", async () => {
-  const [c2, lifecycle, editorial, completedEditorial, c2Assets] = await Promise.all([
+  const [c2, lifecycle, editorial, completedEditorial, c2Assets, siblingReuse] = await Promise.all([
     schema("c2-software-input-v1.schema.json"),
     schema("product-lifecycle-v1.1.schema.json"),
     schema("c1-editorial-source-v1.schema.json"),
     schema("c1-editorial-source-v2.schema.json"),
-    schema("c2-asset-lifecycle-v1.1.schema.json")
+    schema("c2-asset-lifecycle-v1.1.schema.json"),
+    schema("c1-sibling-formal-reuse-v1.schema.json")
   ]);
   const documents = new Map([[c2.$id, c2], [lifecycle.$id, lifecycle], [editorial.$id, editorial], ["c1-editorial-source-v1.schema.json", editorial],
     [completedEditorial.$id, completedEditorial], ["c1-editorial-source-v2.schema.json", completedEditorial],
-    [c2Assets.$id, c2Assets], ["c2-asset-lifecycle-v1.1.schema.json", c2Assets]]);
+    [c2Assets.$id, c2Assets], ["c2-asset-lifecycle-v1.1.schema.json", c2Assets],
+    [siblingReuse.$id, siblingReuse], ["c1-sibling-formal-reuse-v1.schema.json", siblingReuse]]);
   const { ready } = aa66ReadyProjection();
   assertExactSchemaKeys(ready, c2, "ready");
   assertExactSchemaKeys(ready.c1, c2.$defs.c1Snapshot, "ready.c1");

@@ -108,6 +108,8 @@ test('batch adapter sends one multi-item task and classifies each offer without 
   })));
   capability.productImport.endpoint = '/v3/product/import';
   capability.productImport.maxItemsPerRequest = 2;
+  capability.productImport.limitEvidenceRef = 'synthetic:batch-limit';
+  capability.productImport.limitObservedAt = '2026-08-22T07:00:00.000Z';
   capability.productImport.validUntil = '2026-09-01T00:00:00.000Z';
   const calls = [], checkpoints = [];
   const adapter = createStoreIsolatedOzonSellerApiDEAdapter({ adapterCapabilities: capability,
@@ -143,6 +145,19 @@ test('batch adapter sends one multi-item task and classifies each offer without 
       resultItems.every(item => item.offer_id !== 'UNEXPECTED') && resultItems.length === 1);
     assert.equal(observation.results.some(result => result.classification === 'unknown_outcome'), true);
   }
+  let currentTime = '2026-08-22T07:25:00.000Z';
+  const expiringMembers = members.map(value => ({ ...value,
+    executionContext: { ...value.executionContext, serverClock: () => currentTime } }));
+  const expiringCalls = [];
+  const expiringCapability = structuredClone(capability);
+  expiringCapability.productImport.validUntil = '2026-08-22T07:25:30.000Z';
+  const expiringAdapter = createStoreIsolatedOzonSellerApiDEAdapter({ adapterCapabilities: expiringCapability,
+    requestJson: async request => { expiringCalls.push(request); return { result: { task_id: 502 } }; } });
+  await assert.rejects(expiringAdapter.executeBatchImport({ ...scope, members: expiringMembers },
+    { persistCheckpoint: async event => {
+      if (event.kind === 'batch_import_intent') currentTime = expiringCapability.productImport.validUntil;
+    } }), /OZON_BATCH_LIMIT_EVIDENCE_REQUIRED/);
+  assert.equal(expiringCalls.length, 0);
 });
 
 function executableRequest({ store, warehouseId, offerId } = {}) {

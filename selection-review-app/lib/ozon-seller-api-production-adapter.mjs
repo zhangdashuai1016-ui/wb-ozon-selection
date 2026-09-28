@@ -243,10 +243,14 @@ export function buildOzonSellerBatchImportRequests({ members, excludedOfferIds =
       new Set(excludedOfferIds).size !== excludedOfferIds.length) throw new Error("OZON_BATCH_EXCLUSIONS_INVALID");
   const limit = productImportCapability?.maxItemsPerRequest;
   if (productImportCapability?.status !== "verified" || !nonEmpty(productImportCapability.evidenceRef) ||
+      !nonEmpty(productImportCapability.limitEvidenceRef) ||
       productImportCapability.endpoint !== "/v3/product/import" ||
-      !Number.isSafeInteger(limit) || limit < 1 || !nonEmpty(productImportCapability.validUntil) ||
+      !Number.isSafeInteger(limit) || limit < 1 || limit > 100 || !nonEmpty(productImportCapability.validUntil) ||
+      !nonEmpty(productImportCapability.limitObservedAt) ||
       !nonEmpty(checkedAt) || Number.isNaN(Date.parse(checkedAt)) ||
+      Number.isNaN(Date.parse(productImportCapability.limitObservedAt)) ||
       Number.isNaN(Date.parse(productImportCapability.validUntil)) ||
+      Date.parse(checkedAt) < Date.parse(productImportCapability.limitObservedAt) ||
       Date.parse(checkedAt) >= Date.parse(productImportCapability.validUntil)) {
     throw new Error("OZON_BATCH_LIMIT_EVIDENCE_REQUIRED");
   }
@@ -284,7 +288,7 @@ export function buildOzonSellerBatchImportRequests({ members, excludedOfferIds =
     const items = requests.slice(start, start + limit).map(({ item }) => structuredClone(item));
     chunks.push(Object.freeze({ endpoint: "/v3/product/import", body: { items },
       offerIds: items.map(item => item.offer_id), batchSize: items.length,
-      limitEvidenceRef: productImportCapability.evidenceRef, limitValidUntil: productImportCapability.validUntil }));
+      limitEvidenceRef: productImportCapability.limitEvidenceRef, limitValidUntil: productImportCapability.validUntil }));
   }
   return Object.freeze(chunks);
 }

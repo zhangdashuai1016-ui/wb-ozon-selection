@@ -20,6 +20,7 @@ import { createProductionPlan } from '../lib/production-plan.mjs';
 import { runPlatformWritePreflight } from '../lib/platform-write-preflight.mjs';
 import { createDPlatformObservationPolicyResolver } from '../lib/runtime-configuration.mjs';
 import { fingerprintCanonicalRecord } from '../lib/production-contract-primitives.mjs';
+import { loadOzonProductImportBatchLimitEvidence } from '../lib/ozon-product-import-batch-limit.mjs';
 
 async function fixture({ clockOffsetMs = 0 } = {}) {
   const base = await productionOwnerDecisionHttpFixture(), clock = () => new Date(Date.parse(base.owner.formal.at) + clockOffsetMs).toISOString();
@@ -192,6 +193,64 @@ test('batch E reuses the completed account receipt after write verification expi
   });
   await assert.rejects(expiredProvider.loadBatchEReadEvidence(input),/OZON_DE_PREFLIGHT_EVIDENCE_BATCH_E_READ_NOT_AUTHORIZED/);
   assert.equal(f.requests.length,before);
+});
+
+test('saved v4 account receipt and separate public limit jointly prepare a batch without altering the receipt',async()=>{
+  const f=await fixture(),catalog=await loadOzonDEProtocolCatalog(),connected=f.connectCatalog(catalog);
+  f.input.expiresAt='2026-10-15T00:00:00.000Z';
+  const account=await connected.services.authorizeAndRun({actor:f.base.owner.args.actor,input:f.input});
+  assert.equal(account.status,'completed');
+  const saved=await authorizeProduction(f),pa=saved.candidate.lifecycleV11.skuPackage.productionAuthorization;
+  await connected.services.continueProduction({candidateId:f.input.candidateId,
+    jobId:saved.result.softwareJobRef.jobId,expectedRevision:saved.candidate.dataRevision});
+  const before=await f.repository.readSnapshot(),candidate=before.candidates[0];
+  const record=before.runtime.ozonDEPreflightEvidence[pa.authorizationId];
+  assert.equal(record.schemaVersion,'ozon-de-preflight-evidence-v4');
+  const batch={batchId:'d-batch:synthetic:account-limit',status:'authorized',
+    members:[{candidateId:candidate.id,skuPackageId:pa.lockedScope.skuPackageId,
+      authorizationId:pa.authorizationId,authorizationFingerprint:fingerprintCanonicalRecord(pa),
+      resultRevision:candidate.dataRevision}]};
+  const limit=await loadOzonProductImportBatchLimitEvidence();
+  const provider=createOzonDEPreflightProvider({readEvidence:connected.reader,
+    serverClock:()=> '2026-09-28T00:41:00.000Z',
+    loadBatchLimitEvidence:async()=>limit});
+  const input={candidate,productionBinding:f.configuration.productionBindings[0],batch};
+  const prepared=await provider.loadBatchMemberEvidence(input);
+  assert.equal(prepared.capabilities.productImport.status,'verified');
+  assert.equal(prepared.capabilities.productImport.maxItemsPerRequest,100);
+  assert.equal(prepared.capabilities.productImport.limitEvidenceRef,limit.evidenceRef);
+  assert.notEqual(prepared.capabilities.productImport.limitEvidenceRef,
+    prepared.capabilities.productImport.evidenceRef);
+  const observer=createOzonDEPreflightProvider({readEvidence:connected.reader,
+    serverClock:()=> '2026-09-28T00:41:00.000Z',
+    loadBatchLimitEvidence:async()=>{throw new Error('LIMIT_SOURCE_REMOVED');}});
+  const historical=await observer.loadBatchMemberEvidence({...input,purpose:'import_observation'});
+  assert.equal(historical.capabilities.productImport.status,'verified');
+  assert.equal(historical.capabilities.productImport.maxItemsPerRequest,null);
+  assert.deepEqual(await f.repository.readSnapshot(),before,'limit projection cannot rewrite v4 account evidence');
+  assert.equal(f.requests.length,3,'only the originally authorized account reads occurred');
+  const denied=await fixture();
+  denied.input.expiresAt='2026-10-15T00:00:00.000Z';
+  denied.responses['/v1/roles'].roles[0].methods=denied.responses['/v1/roles'].roles[0].methods
+    .filter(method=>method!=='/v3/product/import');
+  const deniedConnected=denied.connectCatalog(catalog);
+  assert.equal((await deniedConnected.services.authorizeAndRun({actor:denied.base.owner.args.actor,
+    input:denied.input})).status,'completed');
+  const deniedSaved=await authorizeProduction(denied),deniedPa=deniedSaved.candidate.lifecycleV11.skuPackage.productionAuthorization;
+  await deniedConnected.services.continueProduction({candidateId:denied.input.candidateId,
+    jobId:deniedSaved.result.softwareJobRef.jobId,expectedRevision:deniedSaved.candidate.dataRevision});
+  const deniedDocument=await denied.repository.readSnapshot(),deniedCandidate=deniedDocument.candidates[0];
+  const deniedBatch={batchId:'d-batch:synthetic:denied-import',status:'authorized',members:[{
+    candidateId:deniedCandidate.id,skuPackageId:deniedPa.lockedScope.skuPackageId,
+    authorizationId:deniedPa.authorizationId,authorizationFingerprint:fingerprintCanonicalRecord(deniedPa),
+    resultRevision:deniedCandidate.dataRevision}]};
+  const deniedProvider=createOzonDEPreflightProvider({readEvidence:deniedConnected.reader,
+    serverClock:()=> '2026-09-28T00:41:00.000Z',loadBatchLimitEvidence:async()=>limit});
+  const deniedPrepared=await deniedProvider.loadBatchMemberEvidence({candidate:deniedCandidate,
+    productionBinding:denied.configuration.productionBindings[0],batch:deniedBatch});
+  assert.equal(deniedPrepared.capabilities.productImport.status,'denied');
+  assert.equal(deniedPrepared.capabilities.status,'not_ready');
+  assert.equal(denied.requests.length,3);
 });
 
 // Reads the account once through the real transport and returns the completed receipt plus the composed evidence.

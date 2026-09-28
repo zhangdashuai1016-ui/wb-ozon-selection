@@ -41,6 +41,8 @@ async function fixture({ failReceipt = false, createAdapterFailures = 0, observa
     order: asset.order, authorizationStatus: 'approved', stable: true, evidenceRef: `evidence:asset:${asset.assetId}` })));
   capability.productImport.endpoint = '/v3/product/import';
   capability.productImport.maxItemsPerRequest = maxItemsPerRequest ?? (count === 2 ? 2 : 10);
+  capability.productImport.limitEvidenceRef = 'synthetic:batch-limit';
+  capability.productImport.limitObservedAt = '2026-08-22T07:00:00.000Z';
   capability.productImport.validUntil = '2026-09-01T00:00:00.000Z';
   const document = initialBusinessStateDocument({ now: at });
   document.candidates = sources.map((source, index) => ({ id: source.fixture.candidateId,

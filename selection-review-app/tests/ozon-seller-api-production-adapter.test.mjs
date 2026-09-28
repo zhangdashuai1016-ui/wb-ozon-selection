@@ -6,6 +6,7 @@ import {
   createOzonSellerApiProductionAdapter
 } from "../lib/ozon-seller-api-production-adapter.mjs";
 import { fingerprintAuthorizedMedia } from "../lib/production-authorization-preparation.mjs";
+import { loadOzonProductImportBatchLimitEvidence } from '../lib/ozon-product-import-batch-limit.mjs';
 
 // 本轮不许真发请求：可达性探针一律打桩。
 const reachable = async () => ({ reachable: true, statusCode: 200 });
@@ -33,12 +34,14 @@ test('batch import uses a current evidenced limit and one image per color', () =
   const members = [batchMember('offer-1', 'black', 'https://assets.example/black.jpg'),
     batchMember('offer-2', 'black', 'https://assets.example/black.jpg'),
     batchMember('offer-3', 'khaki', 'https://assets.example/khaki.jpg')];
-  const capability = { status: 'verified', endpoint: '/v3/product/import', evidenceRef: 'synthetic:limit', maxItemsPerRequest: 2,
+  const capability = { status: 'verified', endpoint: '/v3/product/import', evidenceRef: 'synthetic:protocol',
+    limitEvidenceRef: 'synthetic:limit', limitObservedAt:'2026-09-26T00:00:00.000Z',maxItemsPerRequest: 2,
     validUntil: '2026-09-28T00:00:00.000Z' };
   const batches = buildOzonSellerBatchImportRequests({ members, productImportCapability: capability,
     checkedAt: '2026-09-27T00:00:00.000Z' });
   assert.deepEqual(batches.map(batch => batch.offerIds), [['offer-1', 'offer-2'], ['offer-3']]);
   assert.deepEqual(batches.map(batch => batch.batchSize), [2, 1]);
+  assert.equal(batches[0].limitEvidenceRef,capability.limitEvidenceRef);
   assert.equal(batches[0].body.items[0].primary_image, batches[0].body.items[1].primary_image);
   assert.notEqual(batches[0].body.items[0].primary_image, batches[1].body.items[0].primary_image);
   assert.throws(() => buildOzonSellerBatchImportRequests({ members,
@@ -65,13 +68,41 @@ test('a synthetic 32-spec list excludes the first and splits the remaining 31 by
       `https://assets.example/${color}.jpg`);
   });
   const chunks = buildOzonSellerBatchImportRequests({ members, excludedOfferIds: [excludedFirst],
-    productImportCapability: { status: 'verified', endpoint: '/v3/product/import', evidenceRef: 'synthetic:limit-ten',
+    productImportCapability: { status: 'verified', endpoint: '/v3/product/import', evidenceRef: 'synthetic:protocol',
+      limitEvidenceRef: 'synthetic:limit-ten',limitObservedAt:'2026-09-26T00:00:00.000Z',
       maxItemsPerRequest: 10, validUntil: '2026-09-28T00:00:00.000Z' },
     checkedAt: '2026-09-27T00:00:00.000Z' });
   assert.deepEqual(chunks.map(chunk => chunk.batchSize), [10, 10, 10, 1]);
   assert.equal(chunks.flatMap(chunk => chunk.offerIds).length, 31);
   assert.equal(chunks.some(chunk => chunk.offerIds.includes(excludedFirst)), false);
   assert.equal(new Set(chunks.flatMap(chunk => chunk.offerIds)).size, 31);
+});
+
+test('official per-request limit keeps 31 in one task and splits 101 into 100 plus one',async()=>{
+  const evidence=await loadOzonProductImportBatchLimitEvidence();
+  const productImportCapability={status:'verified',endpoint:'/v3/product/import',
+    evidenceRef:'synthetic:account-method-grant',limitEvidenceRef:evidence.evidenceRef,
+    maxItemsPerRequest:evidence.maxItemsPerRequest,limitObservedAt:evidence.observedAt,
+    validUntil:evidence.validUntil};
+  const members=Array.from({length:101},(_,index)=>batchMember(`offer-${index+2}`,'black',
+    'https://assets.example/black.jpg'));
+  const checkedAt='2026-09-28T00:41:00.000Z';
+  const first31=buildOzonSellerBatchImportRequests({members:members.slice(0,31),
+    excludedOfferIds:['offer-1'],productImportCapability,checkedAt});
+  assert.deepEqual(first31.map(chunk=>chunk.batchSize),[31]);
+  const all=buildOzonSellerBatchImportRequests({members,excludedOfferIds:['offer-1'],
+    productImportCapability,checkedAt});
+  assert.deepEqual(all.map(chunk=>chunk.batchSize),[100,1]);
+  assert.equal(all[0].limitEvidenceRef,evidence.evidenceRef);
+  for(const change of [
+    {limitEvidenceRef:null},{maxItemsPerRequest:101},
+    {limitObservedAt:'2026-09-28T00:42:00.000Z'},
+    {validUntil:checkedAt}
+  ]){
+    assert.throws(()=>buildOzonSellerBatchImportRequests({members:members.slice(0,31),
+      productImportCapability:{...productImportCapability,...change},checkedAt}),
+    /OZON_BATCH_LIMIT_EVIDENCE_REQUIRED/);
+  }
 });
 
 function payload(overrides = {}) {

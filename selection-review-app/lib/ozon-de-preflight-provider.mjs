@@ -12,6 +12,7 @@ import { assertDPlatformObservationScope } from './d-platform-observation-contra
 import { decodeAttempt } from './d-execution-request-codec.mjs';
 import { ozonProductionConnectionRequirements } from './ozon-production-strategy.mjs';
 import { STORE_IDENTITY_PATHS, canStoreIdentityPathAnchor } from './platform-write-preflight-contract.mjs';
+import { assertOzonProductImportBatchLimitEvidence } from './ozon-product-import-batch-limit.mjs';
 
 const scopeFields = ['candidateId','skuPackageId','supplierSkuId','authorizationId','sourceCandidateRevision','storeRef','warehouseRef','warehouseId','credentialAlias','bindingId','configurationVersion'];
 const inspectionFields = ['observedStore','observedStoreRef','storeIdentityStatus','storeIdentityEvidenceRef','permissionStatus','permissionEvidenceRef','connections','platformWritableFields','imagePermissionStatus','imagePermissionEvidenceRef','priceFieldCurrency','priceCurrencyEvidenceRef','risks'];
@@ -249,8 +250,10 @@ export function inspectOzonDEPreflightCapabilities({candidate,authorization,scop
 return gaps.length === 0 ? result : {...structuredClone(result),status:'not_ready',evidenceRef:null,gaps};
 }
 /** No network, credential reader, retry or write dependency exists in this provider. */
-export function createOzonDEPreflightProvider({readEvidence,serverClock,verifySourceSnapshot=null}) {
-  requireValue(typeof readEvidence === 'function' && typeof serverClock === 'function' && (verifySourceSnapshot === null || typeof verifySourceSnapshot === 'function'), 'DEPENDENCY_INVALID');
+export function createOzonDEPreflightProvider({readEvidence,serverClock,verifySourceSnapshot=null,loadBatchLimitEvidence=null}) {
+  requireValue(typeof readEvidence === 'function' && typeof serverClock === 'function' &&
+    (verifySourceSnapshot === null || typeof verifySourceSnapshot === 'function') &&
+    (loadBatchLimitEvidence === null || typeof loadBatchLimitEvidence === 'function'), 'DEPENDENCY_INVALID');
   async function read(scope, now) {
     try {
       const value = await readEvidence(structuredClone(scope));
@@ -287,12 +290,20 @@ export function createOzonDEPreflightProvider({readEvidence,serverClock,verifySo
         adapterVersion:OZON_SELLER_API_DE_ADAPTER_VERSION,protocolVersion:'ozon-single-sku-d-e-v3',
         evidenceRef:record.evidenceId,independentReadback:structuredClone(protocol)}});
     },
-    async loadBatchMemberEvidence({candidate,productionBinding,batch}) {
+    async loadBatchMemberEvidence({candidate,productionBinding,batch,purpose='new_import'}) {
+      requireValue(['new_import','import_observation','stock_write'].includes(purpose), 'BATCH_EVIDENCE_PURPOSE_INVALID');
       const checkedAt = serverClock();
       const {scope,authorization} = inputScope({candidate,productionBinding,batch,
         job:{jobType:'d_batch_import',batchId:batch?.batchId}},checkedAt);
       const {record,reason,systemError} = await read(scope,checkedAt);
       const capabilities = inspectOzonDEPreflightCapabilities({candidate,authorization,scope,record,reason,now:checkedAt});
+      if (purpose === 'new_import') {
+        requireValue(loadBatchLimitEvidence !== null, 'BATCH_LIMIT_SOURCE_REQUIRED');
+        const limit = assertOzonProductImportBatchLimitEvidence(await loadBatchLimitEvidence());
+        capabilities.productImport = {...capabilities.productImport,
+          maxItemsPerRequest:limit.maxItemsPerRequest,limitEvidenceRef:limit.evidenceRef,
+          limitObservedAt:limit.observedAt,validUntil:limit.validUntil};
+      }
       const inspection = record === null ? unknownInspection(scope,batch.batchId,reason,systemError) : structuredClone(record.inspection);
       return Object.freeze({capabilities,inspection,checkedAt});
     },

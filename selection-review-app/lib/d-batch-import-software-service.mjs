@@ -79,6 +79,9 @@ function combineCapabilities(members, batch) {
     }
   }
   if (!Number.isSafeInteger(first.productImport?.maxItemsPerRequest) ||
+      first.productImport.maxItemsPerRequest > 100 ||
+      !text(first.productImport?.limitEvidenceRef) ||
+      !text(first.productImport?.limitObservedAt) ||
       !text(first.productImport?.validUntil)) throw new Error('D_BATCH_SERVICE_LIMIT_EVIDENCE_REQUIRED');
   return { ...clone(first), assetTransport: { ...clone(first.assetTransport), resolvedAssets: [...assets.values()].map(asset => clone(asset)) } };
 }
@@ -159,7 +162,7 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
     const candidate = candidateFor(document, saved[0]);
     const { service, binding } = resolveService(candidate);
     const evidence = await loadBatchMemberEvidence({ candidate: clone(candidate),
-      productionBinding: clone(binding), batch: clone(batch) });
+      productionBinding: clone(binding), batch: clone(batch),purpose:'import_observation' });
     const capability = evidence.capabilities;
     if (capability?.status !== 'ready' || !sameStoreRef(capability.storeRef, batch.storeRef) ||
         capability.productImport?.status !== 'verified' ||
@@ -301,7 +304,7 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
       productionAuthorization:sku.productionAuthorization,candidateId:candidate.id,
       candidateRevision:candidate.dataRevision,skuPackage:sku,createdAt:batch.confirmedAt});
     const evidence=await loadBatchMemberEvidence({candidate:clone(candidate),
-      productionBinding:clone(binding),batch:clone(batch)});
+      productionBinding:clone(binding),batch:clone(batch),purpose:'stock_write'});
     const preflight=await runPlatformWritePreflight({productionPlan:plan,checkedAt:evidence.checkedAt,
       inspectPlatform:async()=>clone(evidence.inspection)});
     const prepared=prepareSingleSkuDExecution({productionPlan:plan,
