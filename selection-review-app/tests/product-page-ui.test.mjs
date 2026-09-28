@@ -136,7 +136,11 @@ test('one family page exposes common inputs, row price and stock overrides, and 
     siblingSkuIds: ['6222816678023'], siblingCandidates: [child] }));
   assert.match(html, /整批共用资料与逐行差异/u);
   assert.match(html, /黑cp 单价/u);
-  assert.match(html, /黑cp 成交价覆盖/u);
+  assert.match(html, /黑cp 本规格目标成交价/u);
+  assert.match(html, /本规格目标成交价留空时沿用上方共用目标成交价/u);
+  assert.match(html, /库存初始填写 100/u);
+  assert.match(html, /首件冻结货号或来源身份不完整/u);
+  assert.match(html, /disabled=""[^>]*>整批确认供货并分别计算正式利润/u);
   assert.match(html, /黑cp 库存/u);
   assert.match(html, /我已逐行核对所选规格为精确同款/u);
   assert.match(html, /整批确认供货并分别计算正式利润/u);

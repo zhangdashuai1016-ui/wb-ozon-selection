@@ -1197,6 +1197,9 @@ label em { color: var(--red); font-style: normal; font-size: 9px; }
 .product-step-index { display: grid; place-items: center; width: 17px; height: 17px; border-radius: 999px; background: #fff; border: 1px solid var(--line-dark); font-size: 10px; }
 .product-section { margin-top: 18px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; display: grid; gap: 10px; }
 .product-section h3 { margin: 0; font-size: 17px; color: var(--green); }
+.product-section .sibling-batch-confirmation { display: flex; flex-direction: row; align-items: center; gap: 12px; max-width: none; min-height: 44px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; line-height: 1.5; }
+.product-section .sibling-batch-confirmation:hover { background: var(--green-soft); }
+.product-section .sibling-batch-confirmation input[type="checkbox"] { flex: none; width: 20px; height: 20px; margin: 0; padding: 0; accent-color: var(--green); cursor: pointer; }
 .final-product-plan-card { min-width: 0; color: #151b19; font-size: 14px; line-height: 1.65; }
 .final-product-plan-card p { margin: 0; }
 .final-product-plan-card h4 { margin: 0 0 8px; font-size: 15px; }

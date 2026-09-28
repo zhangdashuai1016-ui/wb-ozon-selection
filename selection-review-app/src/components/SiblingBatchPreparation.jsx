@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { errorMessage } from '../formState.js';
 import { siblingBatchReview } from '../siblingBatchReview.js';
 import { siblingBatchAuthorizationInput } from '../siblingBatchAuthorizationInput.js';
+import { siblingMerchantSkuSuggestions, siblingBatchMemberDefaults } from '../siblingBatchFormDefaults.js';
 import { inForceSkuUniformSupply, capturedSkuWeightKg } from '../../lib/sku-choice-estimate.mjs';
 
 const numberOrNull = value => value === '' ? null : Number(value);
@@ -14,7 +15,7 @@ const executionStatusNames = Object.freeze({ not_started: '未开始', not_sent:
   succeeded: '已完成', verified: '已独立核验' });
 const executionStatusLabel = status => executionStatusNames[status] ?? `未识别状态（${status}）`;
 
-function initialInputs(parent, review) {
+function initialInputs(parent, review, merchantSkus) {
   const draft = parent.supplierDraftV1 ?? {};
   const uniform = inForceSkuUniformSupply(parent);
   const basis = uniform?.basisAtDeclaration?.goodsPriceRmb === draft.goodsPriceRmb &&
@@ -25,12 +26,12 @@ function initialInputs(parent, review) {
     route: parent.lifecycleEvidenceContextV11?.route ?? '', quantityOneEvidenceSourceNote: '',
     dimensionsCm: { length: draft.dimensionsCm?.length ?? '', width: draft.dimensionsCm?.width ?? '',
       height: draft.dimensionsCm?.height ?? '' }, confirmExactSkuSupply: false, confirmSalesReview: false },
-  members: Object.fromEntries(review.rows.map(row => {
+  members: Object.fromEntries((review?.rows ?? []).map(row => {
     const choice = parent.sourceCapture.skuChoices.find(item => item.sourceSkuId === row.sourceSkuId);
     const declared = basis?.sourceSkuIds.includes(row.sourceSkuId);
     return [row.sourceSkuId, { unitProductPrice: choice?.priceCny ?? (declared ? draft.goodsPriceRmb : ''),
       weightKg: capturedSkuWeightKg(choice) ?? (declared ? draft.packedWeightKg : ''),
-      targetSalePriceRub: '', merchantSku: '', stock: '' }];
+      ...siblingBatchMemberDefaults(row.sourceSkuId, merchantSkus) }];
   })) };
 }
 
@@ -39,7 +40,11 @@ export default function SiblingBatchPreparation({ parent, siblings, onConfirmA, 
   onRefreshExecution, onResumeStock,
   onUploadAsset, onLinkAsset, onConfirmC2 }) {
   const review = siblingBatchReview(parent, siblings);
-  const [draft, setDraft] = useState(() => initialInputs(parent, review));
+  let merchantSkuSuggestions;
+  let merchantSkuError = '';
+  try { merchantSkuSuggestions = siblingMerchantSkuSuggestions(parent, review?.rows ?? []); }
+  catch (cause) { merchantSkuError = errorMessage(cause); }
+  const [draft, setDraft] = useState(() => initialInputs(parent, review, merchantSkuSuggestions));
   const [bindingId, setBindingId] = useState('');
   const [inventoryAction, setInventoryAction] = useState('');
   const [sharedStock, setSharedStock] = useState('');
@@ -96,6 +101,7 @@ export default function SiblingBatchPreparation({ parent, siblings, onConfirmA, 
       if (!sales || !allAtA || !draft.shared.confirmExactSkuSupply || !draft.shared.confirmSalesReview) {
         throw new Error('整批供应身份、销售快照或主人确认缺失');
       }
+      if (merchantSkuError) throw new Error(merchantSkuError);
       const payload = { parentCandidateId: parent.id, parentRevision: parent.dataRevision,
         shared: { targetSalePriceRub: Number(draft.shared.targetSalePriceRub),
           unitDomesticFreight: Number(draft.shared.unitDomesticFreight),
@@ -231,27 +237,30 @@ export default function SiblingBatchPreparation({ parent, siblings, onConfirmA, 
           value={draft.shared.quantityOneEvidenceSourceNote}
           onChange={event => sharedField('quantityOneEvidenceSourceNote', event.target.value)} /></label>
       </div>
-      <table><thead><tr><th>颜色与供应 SKU</th><th>单价 ¥</th><th>打包重量 kg</th><th>成交价覆盖 RUB</th><th>商家货号</th><th>库存</th></tr></thead>
+      <p>商家货号建议只适用于首件已冻结的 Ozon／1688 同族货号规则，可逐行修改；尚未核验 Ozon 平台是否占用。库存初始填写 100，仅是待确认草稿，不代表授权或已写入平台。</p>
+      {merchantSkuError ? <p role="alert">{merchantSkuError}</p> : null}
+      <table><thead><tr><th>颜色与供应 SKU</th><th>单价 ¥</th><th>打包重量 kg</th><th>本规格目标成交价 RUB（不同于共用价时填写）</th><th>商家货号</th><th>库存</th></tr></thead>
         <tbody>{review.rows.map(row => { const values = draft.members[row.sourceSkuId]; return <tr key={row.sourceSkuId}>
           <td>{row.color} · {row.sourceSkuId}</td>
           <td><input aria-label={`${row.color} 单价`} required type="number" min="0.01" step="0.01" value={values.unitProductPrice}
             onChange={event => memberField(row.sourceSkuId, 'unitProductPrice', event.target.value)} /></td>
           <td><input aria-label={`${row.color} 重量`} required type="number" min="0.001" step="0.001" value={values.weightKg}
             onChange={event => memberField(row.sourceSkuId, 'weightKg', event.target.value)} /></td>
-          <td><input aria-label={`${row.color} 成交价覆盖`} type="number" min="0.01" step="0.01" value={values.targetSalePriceRub}
+          <td><input aria-label={`${row.color} 本规格目标成交价`} type="number" min="0.01" step="0.01" value={values.targetSalePriceRub}
             onChange={event => memberField(row.sourceSkuId, 'targetSalePriceRub', event.target.value)} /></td>
           <td><input aria-label={`${row.color} 商家货号`} required value={values.merchantSku}
             onChange={event => memberField(row.sourceSkuId, 'merchantSku', event.target.value)} /></td>
           <td><input aria-label={`${row.color} 库存`} required type="number" min="0" step="1" value={values.stock}
             onChange={event => memberField(row.sourceSkuId, 'stock', event.target.value)} /></td>
         </tr>; })}</tbody></table>
-      <label><input type="checkbox" checked={draft.shared.confirmExactSkuSupply}
+      <p>本规格目标成交价留空时沿用上方共用目标成交价。</p>
+      <label className="sibling-batch-confirmation"><input type="checkbox" checked={draft.shared.confirmExactSkuSupply}
         onChange={event => sharedField('confirmExactSkuSupply', event.target.checked)} />
         我已逐行核对所选规格为精确同款、每个规格一件起订，以及上方价格、重量、包装和来源。</label>
-      <label><input type="checkbox" checked={draft.shared.confirmSalesReview}
+      <label className="sibling-batch-confirmation"><input type="checkbox" checked={draft.shared.confirmSalesReview}
         onChange={event => sharedField('confirmSalesReview', event.target.checked)} />
         我已核对共用销售快照仍适用且商品可比；它只作为各规格的市场证据。</label>
-      <button className="button secondary" type="submit" disabled={saving || !sales ||
+      <button className="button secondary" type="submit" disabled={saving || !sales || Boolean(merchantSkuError) ||
         !draft.shared.confirmExactSkuSupply || !draft.shared.confirmSalesReview}>
         {saving ? '正在保存…' : '整批确认供货并分别计算正式利润'}</button>
     </form> : null}

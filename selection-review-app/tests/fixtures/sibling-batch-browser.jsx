@@ -1,7 +1,44 @@
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import SiblingBatchPreparation from '../../src/components/SiblingBatchPreparation.jsx';
+import '../../src/styles.css';
 import fixture from './sibling-batch-browser-data.json';
+
+const firstSkuId = '6222816678021';
+const offerId = '1038877014153';
+const merchantSku = `OZ-1688-${offerId}-${firstSkuId}`;
+const colors = [['6222816678023', '黑cp'], ['6222816678020', 'CP'], ['6222816678019', '黑色']];
+const storeRef = { stableStoreId: 'synthetic-store', platformStoreId: 'synthetic-seller' };
+const aParent = {
+  id: 'candidate:synthetic-a-parent', dataRevision: 12, targetPlatform: 'ozon', storeRef,
+  supplierDraftV1: { offerId, goodsPriceRmb: 18, packedWeightKg: 0.2, targetSalePriceRub: 848,
+    domesticShippingRmb: 6.5, dimensionsCm: { length: 25, width: 35, height: 2 } },
+  sourceCapture: { offerId, selectedSkuIds: [firstSkuId, ...colors.map(([id]) => id)],
+    skuChoices: [[firstSkuId, '卡其色'], ...colors].map(([sourceSkuId, color]) => ({
+      sourceSkuId, attributes: { 颜色: color }, priceCny: 18, weightKg: 0.2 })) },
+  lifecycleV11: { productionCommercialDraftV1: { merchantSku }, skuPackage: {
+    skuPackageId: 'sku:synthetic-first', supplierSkuId: firstSkuId,
+    productionAuthorization: { schemaVersion: 'production-entity-reference-v1', entityId: 'auth:synthetic',
+      scope: { candidateId: 'candidate:synthetic-a-parent', skuPackageId: 'sku:synthetic-first',
+        platform: 'ozon', storeRef, supplierSkuId: firstSkuId } },
+    productionConfirmationCard: { ownerDecision: { merchantSku } },
+    dHandoff: { candidateId: 'candidate:synthetic-a-parent', skuPackageId: 'sku:synthetic-first',
+      productionAuthorizationId: 'auth:synthetic',
+      identity: { platform: 'ozon', storeRef, supplierSkuId: firstSkuId, merchantSku } } } }
+};
+const aSiblings = colors.map(([sourceSkuId, color]) => ({ id: `candidate:synthetic-${sourceSkuId}`,
+  dataRevision: 1, siblingSourceV1: { parentCandidateId: aParent.id, supplierSkuId: sourceSkuId },
+  realAConfirmationCard: { salesReview: { snapshotId: 'sales:synthetic', title: `合成背心 ${color}` } } }));
+
+function AFormFixture() {
+  const [payload, setPayload] = useState(null);
+  return <main className="page-panel" style={{ maxWidth: 1320, margin: '24px auto', padding: 16 }}>
+    <h1>合成三色批次 A 表单</h1>
+    <SiblingBatchPreparation parent={aParent} siblings={aSiblings} onConfirmA={value => {
+      setPayload(value); return Promise.resolve({ saved: false }); }} />
+    {payload ? <pre id="a-payload">{JSON.stringify(payload, null, 2)}</pre> : null}
+  </main>;
+}
 
 function BrowserFixture() {
   const [siblings, setSiblings] = useState(fixture.siblings);
@@ -45,4 +82,5 @@ function BrowserFixture() {
   </main>;
 }
 
-createRoot(document.getElementById('root')).render(<BrowserFixture />);
+createRoot(document.getElementById('root')).render(new URLSearchParams(location.search).get('view') === 'a'
+  ? <AFormFixture /> : <BrowserFixture />);
