@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-28T01:21:22.942Z",
+  "frozenAt": "2026-09-28T01:52:54.935Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 849,
-      "sha256": "b1249d2c666a1668c300a4fa2153c0d8f38039f8b1f2d38af79870d0d085c444",
+      "sha256": "ca5be288540f22e81f0135ce9778f9133ee018502be15d04c9bd54868ffb0f21",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -796,7 +796,7 @@
       },
       {
         "path": "lib/ozon-de-preflight-provider.mjs",
-        "sha256": "82045b5bafa04c4bc82a0c4ad98cf6fc64a739fadbd96c1d9f63fd932ccad9c1"
+        "sha256": "b00d696ebb2ebb1faffa529ec0598f92876d24797323576c89da47c36f11ca37"
       },
       {
         "path": "lib/ozon-de-protocol-catalog.mjs",
@@ -2344,7 +2344,7 @@
       },
       {
         "path": "tests/d-batch-import-runtime.test.mjs",
-        "sha256": "5a310993ec0682ad844227b3bac73f554228840e4cf1e386b86b36f6927a40eb"
+        "sha256": "2d1a9a9de1beb0bb4b8d60937047110a0b36f69101c858b4bc02608e38f202ce"
       },
       {
         "path": "tests/d-batch-import-software-service.test.mjs",
@@ -2996,7 +2996,7 @@
       },
       {
         "path": "tests/ozon-de-batch-preflight.test.mjs",
-        "sha256": "6f33ed30f1d3bb9a1890be182567ad570d4bfb48e4a7193d038a77c2ea064666"
+        "sha256": "f01af8c837982b9128d56a016cf4e439b71ea70d7269c583528a12d125689a98"
       },
       {
         "path": "tests/ozon-de-http-transport.test.mjs",

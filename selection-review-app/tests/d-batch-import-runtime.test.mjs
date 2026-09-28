@@ -9,6 +9,8 @@ import { OzonDEHttpTransportError } from '../lib/ozon-de-http-configuration.mjs'
 import { createPersistedDBatchImportRuntime } from '../lib/d-batch-import-runtime.mjs';
 import { fingerprintCanonicalRecord } from '../lib/production-contract-primitives.mjs';
 import { projectDBatchExecutionView } from '../lib/d-batch-execution-view.mjs';
+import { deSoftwareJobScopeFixture } from './fixtures/d-e-software-job-scope-fixture.mjs';
+import { validateProductionRecord } from '../lib/production-record-contract.mjs';
 
 const at = '2026-08-22T07:25:00.000Z';
 const observationPolicy = { schemaVersion: 'd-platform-observation-policy-v1',
@@ -408,5 +410,29 @@ test('31 authorized members send four persisted tasks within the synthetic limit
   assert.equal(new Set(saved.runtime.dBatchImportJobs[0].chunks.map(chunk => chunk.taskId)).size, 4);
   assert.equal(calls.some(call => call.body.items?.some(item => item.offer_id === 'BATCH-FIRST')), false);
   assert.equal((await runtime.run(input)).status, 'idempotent_replay');
+  assert.equal(calls.filter(call => call.write).length, 4);
+});
+
+test('a previously successful first SKU stays excluded when the other 31 import as one batch', async () => {
+  const { completedCandidate } = await deSoftwareJobScopeFixture();
+  const firstRecord = completedCandidate.lifecycleV11.skuPackage.productionRecord;
+  assert.equal(validateProductionRecord(firstRecord).valid, true);
+  const firstOfferId = firstRecord.merchantSku;
+  const { repository, runtime, restartRuntime, members, capability, calls } = await fixture({ count: 31 });
+  await repository.transact(document => {
+    document.candidates.unshift(structuredClone(completedCandidate));
+    document.runtime.dProductionBatches[0].excludedOfferIds = [firstOfferId];
+    return { changed: true, document, result: null };
+  });
+  const input = { batchId: 'd-batch:synthetic', members, adapterCapabilities: capability,
+    workerId: 'worker:batch-synthetic' };
+  assert.equal((await runtime.run(input)).status, 'waiting_platform');
+  const writes = calls.filter(call => call.write);
+  assert.deepEqual(writes.map(call => call.body.items.length), [10, 10, 10, 1]);
+  assert.equal(writes.flatMap(call => call.body.items).some(item => item.offer_id === firstOfferId), false);
+  const saved = await repository.readSnapshot();
+  assert.deepEqual(saved.candidates.find(candidate => candidate.id === completedCandidate.id), completedCandidate);
+  assert.deepEqual(saved.runtime.dProductionBatches[0].excludedOfferIds, [firstOfferId]);
+  assert.equal((await restartRuntime().run(input)).status, 'idempotent_replay');
   assert.equal(calls.filter(call => call.write).length, 4);
 });

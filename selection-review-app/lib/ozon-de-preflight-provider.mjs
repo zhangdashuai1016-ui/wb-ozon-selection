@@ -296,13 +296,15 @@ export function createOzonDEPreflightProvider({readEvidence,serverClock,verifySo
       const {scope,authorization} = inputScope({candidate,productionBinding,batch,
         job:{jobType:'d_batch_import',batchId:batch?.batchId}},checkedAt);
       const {record,reason,systemError} = await read(scope,checkedAt);
-      const capabilities = inspectOzonDEPreflightCapabilities({candidate,authorization,scope,record,reason,now:checkedAt});
+      let capabilities = inspectOzonDEPreflightCapabilities({candidate,authorization,scope,record,reason,now:checkedAt});
       if (purpose === 'new_import') {
         requireValue(loadBatchLimitEvidence !== null, 'BATCH_LIMIT_SOURCE_REQUIRED');
         const limit = assertOzonProductImportBatchLimitEvidence(await loadBatchLimitEvidence());
-        capabilities.productImport = {...capabilities.productImport,
+        requireValue(Date.parse(checkedAt) >= Date.parse(limit.observedAt) &&
+          Date.parse(checkedAt) < Date.parse(limit.validUntil), 'BATCH_LIMIT_NOT_CURRENT');
+        capabilities = Object.freeze({...capabilities,productImport:Object.freeze({...capabilities.productImport,
           maxItemsPerRequest:limit.maxItemsPerRequest,limitEvidenceRef:limit.evidenceRef,
-          limitObservedAt:limit.observedAt,validUntil:limit.validUntil};
+          limitObservedAt:limit.observedAt,validUntil:limit.validUntil})});
       }
       const inspection = record === null ? unknownInspection(scope,batch.batchId,reason,systemError) : structuredClone(record.inspection);
       return Object.freeze({capabilities,inspection,checkedAt});
