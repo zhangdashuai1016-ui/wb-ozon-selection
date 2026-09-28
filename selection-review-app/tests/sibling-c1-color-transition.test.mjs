@@ -9,7 +9,7 @@ import { createC1SiblingColorRevisionUseCase, prepareC1SiblingColorRevision } fr
 import { createC1OzonAttributeMappingUseCase } from "../lib/c1-ozon-attribute-mapping-use-case.mjs";
 import { assertSiblingSkuColorProjection } from "../lib/sibling-sku-card-guard.mjs";
 import { createC1ColorDictionaryReadUseCase } from '../lib/c1-color-dictionary-read-use-case.mjs';
-import { siblingColorState } from './fixtures/sibling-color-state.mjs';
+import { siblingColorSchemaPack, siblingColorState } from './fixtures/sibling-color-state.mjs';
 import { createInternalEvidenceValidity, inspectLifecycleEvidenceValidity } from '../lib/lifecycle-evidence-validity.mjs';
 
 const AT = "2026-08-12T13:00:00.000Z";
@@ -97,7 +97,7 @@ test("owner maps both schema typed colors before a sibling C1 freeze", async () 
     { fieldKey: "10097", label: "Название цвета", labelZh: "颜色名称", required: false, complexId: 0, dictionaryId: 0 }
   ];
   const repository = createMemoryBusinessStateRepository({ candidates: [candidate],
-    evidencePacks: siblingColorState().evidencePacks });
+    evidencePacks: [siblingColorSchemaPack(candidate)] });
   const actor = createActorContext({ userId: "synthetic-owner", sessionId: "sibling-map", actorType: "human",
     roles: ["owner"], source: "authenticated_identity_provider", authenticatedAt: AT });
   let externalReads = 0;

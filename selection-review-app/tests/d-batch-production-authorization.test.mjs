@@ -5,6 +5,9 @@ import { productionOwnerDecisionFixture } from './fixtures/production-owner-deci
 import { commitSiblingBatchC2Final } from '../lib/sibling-batch-c2-final.mjs';
 import { createMemoryBusinessStateRepository } from '../lib/business-state-repository.mjs';
 import { commitBatchOwnerProductionAuthorization } from '../lib/d-batch-production-authorization.mjs';
+import { loadPublishedSchemaValidator } from './helpers/published-schema-validator.mjs';
+
+const schemaValidator = await loadPublishedSchemaValidator();
 
 async function fixture(count=1) {
   const {repository,actor,input:c2Input,verifiedAssets}=await threeColorC2Fixture(count);
@@ -46,6 +49,11 @@ test('two member authorization is atomic and each member gets its own identity',
   assert.deepEqual(batch.postImportScope.eReadbackOfferIds,batch.members.map(member=>member.offerId));
   assert.equal(new Set(batch.members.map(member => member.authorizationId)).size, 2);
   const saved = await repository.readSnapshot();
+  const validateAuthorization = schemaValidator.getSchema('production-authorization-v1.2');
+  for (const candidate of saved.candidates.filter(candidate => candidate.id !== input.parentCandidateId)) {
+    const authorization = candidate.lifecycleV11.skuPackage.productionAuthorization;
+    assert.equal(validateAuthorization(authorization), true, JSON.stringify(validateAuthorization.errors));
+  }
   assert.equal(saved.candidates.filter(candidate => candidate.id!==input.parentCandidateId&&
     candidate.lifecycleV11.skuPackage.productionAuthorization).length, 2);
   const stale = await twoMemberFixture();

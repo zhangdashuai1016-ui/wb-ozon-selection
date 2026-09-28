@@ -42,14 +42,18 @@ function siblingCandidate({ candidateId, frozen }) {
 export function siblingColorState() {
   const frozen = siblingCandidate({ candidateId: 'SYNTHETIC-COLOR-FROZEN', frozen: true });
   const editable = siblingCandidate({ candidateId: 'SYNTHETIC-COLOR-EDITABLE', frozen: false });
-  const schema = editable.lifecycleV11.skuPackage.c1ProductPlan.inputSnapshots.platformSchemaRules;
+  return { meta: { version: 2, automationStarted: false }, rules: {},
+    candidates: [frozen, editable], dispatches: [], runtime: {}, evidencePacks: [siblingColorSchemaPack(editable)] };
+}
+
+/** Build evidence for the exact candidate and frozen schema under test. */
+export function siblingColorSchemaPack(candidate) {
+  const schema = candidate.lifecycleV11.skuPackage.c1ProductPlan.inputSnapshots.platformSchemaRules;
   const evidenceData = Object.fromEntries([...C1_SCHEMA_CONTENT_FIELDS, 'schemaRevision', 'requiredFields']
     .map(field => [field, structuredClone(schema[field])]));
-  const schemaPack = { id: schema.evidenceId, kind: 'schema', status: 'active',
+  return { id: schema.evidenceId, kind: 'schema', status: 'active',
     scope: { platform: schema.platform, store: schema.store, storeRef: structuredClone(schema.storeRef),
-      category: `ozon:${schema.descriptionCategoryId}:${schema.typeId}`, ruleVersion: 'ozon-current' },
+      category: `ozon:${schema.descriptionCategoryId}:${schema.typeId}`, ruleVersion: schema.ruleVersion },
     sourceType: 'isolated_test', sourceRef: 'synthetic:current-schema',
     checkedAt: schema.collectedAt, expiresAt: '2099-01-01T00:00:00.000Z', evidenceData };
-  return { meta: { version: 2, automationStarted: false }, rules: {},
-    candidates: [frozen, editable], dispatches: [], runtime: {}, evidencePacks: [schemaPack] };
 }

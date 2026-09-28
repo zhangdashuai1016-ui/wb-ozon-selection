@@ -29,9 +29,15 @@ function clone(value) {
 
 function generateProductionAuthorizationReferenceSchema(schema) {
   const generated = clone(schema);
-  if (schema.$id === "production-authorization-v1.2") generated.$defs.executionBinding = clone(PRODUCTION_EXECUTION_BINDING_SCHEMA);
+  if (!["production-authorization-v1.1", "production-authorization-v1.2"].includes(schema.$id)) {
+    throw new Error(`UNSUPPORTED_PRODUCTION_AUTHORIZATION_SCHEMA:${schema.$id}`);
+  }
+  const currentVersion = schema.$id === "production-authorization-v1.2";
+  if (currentVersion) generated.$defs.executionBinding = clone(PRODUCTION_EXECUTION_BINDING_SCHEMA);
   const trie = {};
-  for (const segments of C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS.runtimePaths.filter(segments => segments[0] === "lockedScope")) {
+  const paths = C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS.runtimePaths.filter(segments =>
+    segments[0] === "lockedScope" && (currentVersion || !segments.includes("siblingFormalReuseRecord")));
+  for (const segments of paths) {
     let node = trie;
     for (const segment of segments) node = node[segment] ??= {};
   }

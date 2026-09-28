@@ -448,10 +448,14 @@ test("published D schema rejects old unencoded states, unknown fields and transp
   }
 });
 
-test("published authorization guard permits opaque IDs only at the declared frozen C1 paths (3 direct + 6 pricing reuse + 4 editorial source)", async () => {
-  const validateGuard = schemaValidator.getSchema("production-authorization-v1.1#/$defs/authorizationSecretGuard");
-  const paths = C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS.runtimePaths.filter(segments => segments[0] === "lockedScope");
-  assert.equal(paths.length, 13);
+test("published authorization guards preserve 13 historical C1 paths and permit 10 sibling paths only in v1.2", async () => {
+  const allPaths = C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS.runtimePaths.filter(segments => segments[0] === "lockedScope");
+  const historicalPaths = allPaths.filter(segments => !segments.includes("siblingFormalReuseRecord"));
+  const siblingPaths = allPaths.filter(segments => segments.includes("siblingFormalReuseRecord"));
+  assert.equal(historicalPaths.length, 13);
+  assert.equal(siblingPaths.length, 10);
+  assert.equal(allPaths.length, 23);
+  const paths = historicalPaths;
   assert.equal(new Set(paths.map(segments => segments.join("."))).size, paths.length);
   assert.deepEqual({
     direct: paths.filter(segments => !segments.includes("pricingReuseRecord") && !segments.includes("editorialSource")).length,
@@ -460,19 +464,26 @@ test("published authorization guard permits opaque IDs only at the declared froz
   }, { direct: 3, pricingReuse: 6, editorialSource: 4 });
   const opaqueId = "authorization:c1-ai-draft:synthetic-fixture";
   const nested = (segments, value) => segments.reduceRight((child, field) => ({ [field]: child }), value);
-  for (const segments of paths) {
-    assert.equal(validateGuard(nested(segments, opaqueId)), true, JSON.stringify(validateGuard.errors));
-    for (const value of [`${opaqueId}\n`, `${opaqueId}\r`, `${opaqueId}\r\n`, "authorization=private-value", "https://example.test/?token=private-value", { authorizationId: opaqueId }]) {
-      assert.equal(validateGuard(nested(segments, value)), false, `${segments.join(".")}: ${JSON.stringify(value)}`);
+  for (const [version, permittedPaths] of [["v1.1", historicalPaths], ["v1.2", allPaths]]) {
+    const validateGuard = schemaValidator.getSchema(`production-authorization-${version}#/$defs/authorizationSecretGuard`);
+    assert.ok(validateGuard);
+    assert.equal(new Set(permittedPaths.map(segments => segments.join("."))).size, permittedPaths.length);
+    for (const segments of permittedPaths) {
+      assert.equal(validateGuard(nested(segments, opaqueId)), true, JSON.stringify(validateGuard.errors));
+      for (const value of [`${opaqueId}\n`, `${opaqueId}\r`, `${opaqueId}\r\n`, "authorization=private-value", "https://example.test/?token=private-value", { authorizationId: opaqueId }]) {
+        assert.equal(validateGuard(nested(segments, value)), false, `${version} ${segments.join(".")}: ${JSON.stringify(value)}`);
+      }
+      const extraSecret = nested(segments, opaqueId);
+      const parent = segments.slice(0, -1).reduce((object, field) => object[field], extraSecret);
+      parent.cookie = "private-value";
+      assert.equal(validateGuard(extraSecret), false);
+      assert.equal(validateGuard(nested(["untrusted", ...segments], opaqueId)), false);
+      assert.equal(validateGuard(nested([...segments.slice(0, -2), "anotherAuthorization", "authorizationId"], opaqueId)), false);
     }
-    const extraSecret = nested(segments, opaqueId);
-    const parent = segments.slice(0, -1).reduce((object, field) => object[field], extraSecret);
-    parent.cookie = "private-value";
-    assert.equal(validateGuard(extraSecret), false);
-    assert.equal(validateGuard(nested(["untrusted", ...segments], opaqueId)), false);
-    assert.equal(validateGuard(nested([...segments.slice(0, -2), "anotherAuthorization", "authorizationId"], opaqueId)), false);
+    assert.equal(validateGuard({ authorizationId: opaqueId }), false);
   }
-  assert.equal(validateGuard({ authorizationId: opaqueId }), false);
+  const validateHistorical = schemaValidator.getSchema("production-authorization-v1.1#/$defs/authorizationSecretGuard");
+  for (const segments of siblingPaths) assert.equal(validateHistorical(nested(segments, opaqueId)), false);
 });
 
 test("runtime guard preserves real ProductionAuthorization and D intent C1 paths but rejects adjacent or arbitrary opaque IDs", async () => {
