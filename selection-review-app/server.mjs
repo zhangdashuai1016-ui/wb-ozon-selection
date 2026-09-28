@@ -1,7 +1,7 @@
 import { createInitialCandidate, queuedProcessing } from "./lib/candidate-initialization.mjs";
 import { createSiblingSkuCandidate, createSiblingSkuCandidatesBatch, siblingSkuCandidateInput, SiblingSkuCandidateError } from './lib/sibling-sku-candidate.mjs';
 import { commitSiblingBatchABAndC1 } from './lib/sibling-batch-a-b-c1.mjs';
-import { commitSiblingBatchC1Preparation } from './lib/sibling-batch-c1-preparation.mjs';
+import { commitSiblingBatchC1Preparation, previewSiblingBatchC1Preparation } from './lib/sibling-batch-c1-preparation.mjs';
 import { commitSiblingBatchC2Final, isSiblingBatchC2Replay } from './lib/sibling-batch-c2-final.mjs';
 import { assertSiblingSkuColorProjection, assertSiblingSkuFinalCard } from './lib/sibling-sku-card-guard.mjs';
 import { createADiscoveryRuntimeServices, A_DISCOVERY_DECLINE_REASONS } from './lib/a-discovery-runtime-services.mjs';
@@ -8494,8 +8494,9 @@ async function handleApi(req, res, pathname) {
   const siblingBatchRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/sibling-sku-batch$/);
   const siblingBatchAConfirmRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/sibling-batch-a-confirm$/);
   const siblingBatchC1Route = pathname.match(/^\/api\/candidates\/([^/]+)\/sibling-batch-c1-confirm$/);
+  const siblingBatchC1PreviewRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/sibling-batch-c1-preview$/);
   const siblingBatchC2Route = pathname.match(/^\/api\/candidates\/([^/]+)\/sibling-batch-c2-confirm$/);
-  if (req.method === 'POST' && siblingBatchC1Route) {
+  if (req.method === 'POST' && (siblingBatchC1Route || siblingBatchC1PreviewRoute)) {
     const origin = String(req.headers.origin || '');
     if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, '整批颜色事实确认拒绝其他网页来源');
     const actor = runtimeIdentityProvider.resolveActor({ request: req });
@@ -8503,16 +8504,27 @@ async function handleApi(req, res, pathname) {
       throw httpError(403, '请先登录主人身份后确认整批颜色事实');
     }
     const input = await readJsonRequestBody(req, { maxBytes: 65536, requireJsonContentType: true });
-    if (input?.parentCandidateId !== decodeURIComponent(siblingBatchC1Route[1])) {
+    if (input?.parentCandidateId !== decodeURIComponent((siblingBatchC1Route || siblingBatchC1PreviewRoute)[1])) {
       throw httpError(400, '整批颜色事实商品身份不一致');
     }
     try {
+      if (siblingBatchC1PreviewRoute) {
+        return json(res, 200, previewSiblingBatchC1Preparation({ document: await readData(),
+          actor, input, serverClock: now }));
+      }
       return json(res, 200, await commitSiblingBatchC1Preparation({ repository: businessStateRepository,
         runtimeMode: runtimeConfiguration.deploymentMode, actor, input, serverClock: now }));
     } catch (error) {
       const code = String(error.code || error.message).split(':', 1)[0];
-      if (/^(?:SIBLING_BATCH_C1|C1_SIBLING_SHARED|C1_COLOR_DICTIONARY|C1_SKU_RIGHTS|C1_G1|C2_C1)/.test(code)) {
-        return json(res, 409, { code, message: '整批 C1 未保存；请核对官方颜色、逐行事实、权利和共用草稿。',
+      if (/^(?:SIBLING_BATCH_C1|C1_SIBLING_SHARED|C1_SIBLING_NEUTRAL|C1_CONTENT_REVIEW|C1_COLOR_DICTIONARY|C1_SKU_RIGHTS|C1_G1|C2_C1)/.test(code)) {
+        const specific = {
+          SIBLING_BATCH_C1_SUPPLIER_COLOR_REQUIRED: '供应原色缺失；请先修订该规格的 A 阶段供应事实，再在本页重新预览。',
+          SIBLING_BATCH_C1_OFFICIAL_COLOR_REQUIRED: '10096 官方颜色尚未逐行选择；请在本页补齐并重新预览。',
+          SIBLING_BATCH_C1_COLOR_NAME_REQUIRED: '10097 准确颜色名称尚未逐行填写；请在本页补齐并重新预览。',
+          SIBLING_BATCH_C1_COLOR_FACT_MISSING: '供应原色事实未确认或与当前规格不一致；请先修订该规格的 A 阶段供应事实。',
+          SIBLING_BATCH_C1_PREVIEW_CHANGED: '批量预览已过期，当前事实或内容已变化；请在本页重新预览。'
+        };
+        return json(res, 409, { code, message: specific[code] ?? '整批 C1 未保存；请核对官方颜色、逐行事实、权利和共用草稿。',
           externalRequests: 0, paidCalls: 0, platformWrites: 0 });
       }
       throw error;

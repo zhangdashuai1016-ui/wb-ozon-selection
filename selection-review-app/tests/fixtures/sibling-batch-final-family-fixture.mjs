@@ -2,7 +2,7 @@ import { createMemoryBusinessStateRepository } from '../../lib/business-state-re
 import { createActorContext } from '../../lib/runtime-identity.mjs';
 import { createC1ColorDictionaryReadUseCase } from '../../lib/c1-color-dictionary-read-use-case.mjs';
 import { siblingColorState } from './sibling-color-state.mjs';
-import { commitSiblingBatchC1Preparation } from '../../lib/sibling-batch-c1-preparation.mjs';
+import { commitSiblingBatchC1Preparation, previewSiblingBatchC1Preparation } from '../../lib/sibling-batch-c1-preparation.mjs';
 import { createFormalC1DraftFixture } from './formal-c1-flow-fixture.mjs';
 import { mergeC1AiDraftReceipt } from '../../lib/c1-ai-draft-contract.mjs';
 import { c1AiSoftwareJobFixture } from './c1-ai-software-job-fixture.mjs';
@@ -96,6 +96,8 @@ async function fixture(extraBroadValues = []) {
       reviewedAt: at, expiresAt: '2099-01-01T00:00:00.000Z' },
     members: [{ candidateId: child.id, candidateRevision: read.candidate.dataRevision,
       colorMappings: { '10096': 'synthetic-broad-color', '10097': 'synthetic-exact-color' } }] };
+  input.previewFingerprint = previewSiblingBatchC1Preparation({ document: await repository.readSnapshot(),
+    actor, input, serverClock: () => at }).previewFingerprint;
   return { repository, actor, input, childId: child.id };
 }
 
@@ -138,7 +140,10 @@ export async function threeColorFixture(colorCount = 3) {
   const members = saved.candidates.slice(1).map((child, index) => ({ candidateId: child.id,
     candidateRevision: child.dataRevision, colorMappings: { '10096': index === 0 ? 'synthetic-broad-color' : additions[index - 1].broad,
       '10097': index === 0 ? 'synthetic-exact-color' : additions[index - 1].color } }));
-  return { ...base, input: { ...base.input, members }, ids: saved.candidates.slice(1).map(child => child.id) };
+  const input = { ...base.input, members };
+  input.previewFingerprint = previewSiblingBatchC1Preparation({ document: saved, actor: base.actor,
+    input, serverClock: () => at }).previewFingerprint;
+  return { ...base, input, ids: saved.candidates.slice(1).map(child => child.id) };
 }
 
 export async function threeColorC2Fixture(colorCount = 3) {

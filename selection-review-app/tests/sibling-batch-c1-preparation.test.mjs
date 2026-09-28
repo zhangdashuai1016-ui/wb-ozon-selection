@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryBusinessStateRepository } from '../lib/business-state-repository.mjs';
-import { commitSiblingBatchC1Preparation } from '../lib/sibling-batch-c1-preparation.mjs';
+import { commitSiblingBatchC1Preparation, previewSiblingBatchC1Preparation } from '../lib/sibling-batch-c1-preparation.mjs';
 import { commitSiblingBatchC2Final } from '../lib/sibling-batch-c2-final.mjs';
 import { productionOwnerDecisionFixture } from './fixtures/production-owner-decision-fixture.mjs';
 import { commitBatchOwnerProductionAuthorization } from '../lib/d-batch-production-authorization.mjs';
@@ -10,6 +10,7 @@ import { prepareProductionCommercialDraft } from '../lib/production-commercial-d
 import { buildProductionOwnerPreparationView } from '../lib/production-owner-preparation.mjs';
 import { attachProductionProfitEvidence } from './fixtures/production-profit-evidence-fixture.mjs';
 import { at, oneColorFixture, threeColorFixture, threeColorC2Fixture } from './fixtures/sibling-batch-final-family-fixture.mjs';
+import { loadPublishedSchemaValidator } from './helpers/published-schema-validator.mjs';
 
 test('three selected colors share one saved dictionary and one formal parent draft but each receives its own C1 and C2', async () => {
   const { repository, actor, input, ids } = await threeColorFixture();
@@ -26,6 +27,14 @@ test('three selected colors share one saved dictionary and one formal parent dra
     assert.equal(sku.c1ProductPlan.draftOnlySeo.formalProviderResultAccepted, false);
   }
   assert.equal(new Set(ids.map(id => saved.candidates.find(item => item.id === id).lifecycleV11.skuPackage.c1ProductPlan.c1PlanId)).size, 3);
+  const validator = await loadPublishedSchemaValidator();
+  const validate = validator.getSchema('c1-product-plan-v1.1');
+  for (const id of ids) {
+    const plan = saved.candidates.find(item => item.id === id).lifecycleV11.skuPackage.c1ProductPlan;
+    assert.equal(validate(plan), true, JSON.stringify(validate.errors));
+    assert.equal(plan.draftOnlySeo.siblingFormalReuseRecord.schemaVersion, 'c1-sibling-neutral-reuse-v2');
+    assert.equal(Object.hasOwn(plan.draftOnlySeo.siblingFormalReuseRecord, 'sourcePlan'), false);
+  }
   const replay = await commitSiblingBatchC1Preparation({ repository, runtimeMode: 'local_development',
     actor, input, serverClock: () => at });
   assert.equal(replay.status, 'idempotent_replay');
@@ -141,6 +150,11 @@ test('a selected 32-variant family prepares exactly 31 C1/C2 cards and one 31-me
   const saved = await repository.readSnapshot();
   assert.equal(saved.candidates.slice(1).filter(child =>
     child.lifecycleV11.skuPackage.productionConfirmationCard?.status === 'awaiting_owner_business_confirmation').length, 31);
+  assert.equal(saved.candidates.slice(1).every(child => {
+    const reuse = child.lifecycleV11.skuPackage.c1ProductPlan.draftOnlySeo.siblingFormalReuseRecord;
+    return reuse.schemaVersion === 'c1-sibling-neutral-reuse-v2' && !Object.hasOwn(reuse, 'sourcePlan') &&
+      JSON.stringify(reuse).length < 4000;
+  }), true);
   assert.deepEqual(saved.candidates[0], before.candidates[0]);
   const batch = await authorizePreparedColors(repository, actor, false);
   assert.equal(batch.members.length, 31);
@@ -197,4 +211,37 @@ test('stale revision or unsupported official color saves no partial C1 state', a
       actor, input, serverClock: () => at }));
     assert.deepEqual(await repository.readSnapshot(), before);
   }
+});
+
+test('old preview, missing source color fact, or changed shared facts cannot commit a sibling batch', async () => {
+  for (const change of [
+    document => { document.candidates[0].dataRevision += 1; },
+    document => { document.candidates[0].lifecycleV11.skuPackage.c1ProductPlan.productAttributes.supplierAttributes
+      .find(item => item.fieldKey === '颜色').fact.verificationStatus = 'unknown'; },
+    document => { document.candidates[1].lifecycleV11.skuPackage.c1ProductPlan.inputSnapshots.platformSchemaRules.attributes[0].label = 'changed'; }
+  ]) {
+    const { repository, actor, input } = await oneColorFixture();
+    const preview = previewSiblingBatchC1Preparation({ document: await repository.readSnapshot(),
+      actor, input, serverClock: () => at });
+    assert.equal(preview.previewFingerprint, input.previewFingerprint);
+    await repository.transact(document => { change(document); return { changed: true, document, result: null }; });
+    const before = await repository.readSnapshot();
+    await assert.rejects(() => commitSiblingBatchC1Preparation({ repository, runtimeMode: 'local_development',
+      actor, input, serverClock: () => at }));
+    assert.deepEqual(await repository.readSnapshot(), before);
+  }
+});
+
+test('a source job without a completed applied result cannot supply batch copy', async () => {
+  const { repository, actor, input } = await oneColorFixture();
+  await repository.transact(document => {
+    document.runtime.softwareJobs[0].resultEnvelope.applicationDisposition = 'not_applied';
+    return { changed: true, document, result: null };
+  });
+  const before = await repository.readSnapshot();
+  assert.throws(() => previewSiblingBatchC1Preparation({ document: before, actor, input,
+    serverClock: () => at }), /C1_CONTENT_REVIEW_APPLIED_RECEIPT_REQUIRED/);
+  await assert.rejects(() => commitSiblingBatchC1Preparation({ repository, runtimeMode: 'local_development',
+    actor, input, serverClock: () => at }), /C1_CONTENT_REVIEW_APPLIED_RECEIPT_REQUIRED/);
+  assert.deepEqual(await repository.readSnapshot(), before);
 });

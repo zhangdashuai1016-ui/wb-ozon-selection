@@ -3,6 +3,7 @@ import { mergeC1AiDraftReceipt } from './c1-ai-draft-contract.mjs';
 import { assertC1EditorialPlan } from './c1-editorial-review-contract.mjs';
 import { assertValidC1ProductPlan, collectC1UnknownManifest } from './c1-product-plan.mjs';
 import { fingerprintCanonicalRecord } from './production-contract-primitives.mjs';
+import { assertC1SiblingNeutralReuse, C1_SIBLING_NEUTRAL_REUSE_VERSION } from './c1-sibling-neutral-copy.mjs';
 
 export const C1_SIBLING_FORMAL_REUSE_VERSION = 'c1-sibling-formal-reuse-v1';
 export const C1_SIBLING_FORMAL_REFERENCE_VERSION = 'c1-sibling-formal-reference-v1';
@@ -70,6 +71,9 @@ function assertSource(record) {
 
 export function assertC1SiblingFormalReuse({ plan, resultSkuRevision }) {
   const record = plan?.draftOnlySeo?.siblingFormalReuseRecord;
+  if (record?.schemaVersion === C1_SIBLING_NEUTRAL_REUSE_VERSION) {
+    return assertC1SiblingNeutralReuse({ plan, resultSkuRevision });
+  }
   assertSource(record);
   if (plan.c1PlanId !== record.targetPlanId || resultSkuRevision !== record.resultSkuRevision ||
       !isDeepStrictEqual(plan.identity, record.targetPlanIdentity) ||
@@ -96,7 +100,7 @@ export function assertC1SiblingFormalReuse({ plan, resultSkuRevision }) {
 }
 
 export function createC1SiblingFormalReference({ record, identity, resultSkuRevision }) {
-  assertSource(record);
+  if (record?.schemaVersion !== C1_SIBLING_NEUTRAL_REUSE_VERSION) assertSource(record);
   if (!isDeepStrictEqual(record.targetIdentity, identity) || record.resultSkuRevision !== resultSkuRevision) fail('C1_SIBLING_SHARED_REFERENCE_CONFLICT');
   return { schemaVersion: C1_SIBLING_FORMAL_REFERENCE_VERSION, sourceCandidateId: record.sourceCandidateId,
     targetIdentity: structuredClone(identity), resultSkuRevision, recordFingerprint: fingerprintCanonicalRecord(record) };

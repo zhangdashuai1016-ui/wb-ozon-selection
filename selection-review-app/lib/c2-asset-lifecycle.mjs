@@ -208,7 +208,8 @@ function pricingDraftMatchesSnapshot(draft, sourcePlan, identity, resultSkuRevis
 function canonicalDraftMatchesSnapshot(draft, sourcePlan, identity, resultSkuRevision, targetProfitModelVersion) {
   if (draft?.sourceType === 'sibling_shared_formal_provider') {
     const sourceDraft = sourcePlan?.draftOnlySeo;
-    if (sourceDraft?.siblingFormalReuseRecord?.schemaVersion !== 'c1-sibling-formal-reuse-v1') return false;
+    if (!['c1-sibling-formal-reuse-v1', 'c1-sibling-neutral-reuse-v2'].includes(
+      sourceDraft?.siblingFormalReuseRecord?.schemaVersion)) return false;
     const record = sourceDraft.siblingFormalReuseRecord;
     return sameJson(draft, { ...sourceDraft, siblingFormalReuseRecord:
       createC1SiblingFormalReference({ record, identity, resultSkuRevision }) });
@@ -401,7 +402,8 @@ export function normalizeC1CanonicalHandoffContract(skuPackage) {
     schemaSnapshotRef: plan.schemaSnapshotRef,
     // Previously completed full v2 handoffs retain their exact historical shape.
     // New handoffs share the complete source kept in finalCardInputSnapshot.c1Snapshot.
-    draftOnlySeo: draft?.siblingFormalReuseRecord?.schemaVersion === 'c1-sibling-formal-reuse-v1'
+    draftOnlySeo: ['c1-sibling-formal-reuse-v1', 'c1-sibling-neutral-reuse-v2'].includes(
+      draft?.siblingFormalReuseRecord?.schemaVersion)
       ? { ...structuredClone(draft), siblingFormalReuseRecord: createC1SiblingFormalReference({
         record: draft.siblingFormalReuseRecord, identity: g1.identity, resultSkuRevision: expectedC1Revision }) }
       : draft?.pricingReuseRecord?.schemaVersion === "c1-pricing-result-reuse-v1" &&

@@ -1791,6 +1791,7 @@ function SavedC2Assets({ skuPackage }) {
 export default function ProductPage({
   candidate, view = null, titleZh = null, extensionStatus = null,
   onSaveDraft, onChooseSkus, onCreateSiblingSku = null, onConfirmSiblingBatchA = null, onConfirmSiblingBatchC1 = null,
+  onPreviewSiblingBatchC1 = null,
   onReadSiblingBatchColorDictionary = null,
   onAuthorizeSiblingProductionBatch = null, onUploadSiblingC2Asset = null, onLinkSiblingC2Asset = null,
   onConfirmSiblingBatchC2 = null,
@@ -2047,6 +2048,7 @@ export default function ProductPage({
           onRefreshExecution={onRefreshSiblingBatchExecution}
           onResumeStock={onResumeSiblingBatchStock}
           onConfirmC1={onConfirmSiblingBatchC1} onReadColorDictionary={onReadSiblingBatchColorDictionary}
+          onPreviewC1={onPreviewSiblingBatchC1}
           onUploadAsset={onUploadSiblingC2Asset} onLinkAsset={onLinkSiblingC2Asset}
           onConfirmC2={onConfirmSiblingBatchC2} /> : null}
 

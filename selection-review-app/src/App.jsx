@@ -576,6 +576,10 @@ export default function App() {
     return result;
   }
 
+  async function previewSiblingBatchC1(payload) {
+    return api.previewSiblingBatchC1(payload.parentCandidateId, payload);
+  }
+
   async function authorizeSiblingProductionBatch(payload) {
     const result = await api.authorizeProductionBatch(payload);
     batchReadEpoch.current += 1;
@@ -1424,6 +1428,7 @@ export default function App() {
           onCreateSiblingSku={createSiblingSkuBatch}
           onConfirmSiblingBatchA={confirmSiblingBatchA}
           onConfirmSiblingBatchC1={confirmSiblingBatchC1}
+          onPreviewSiblingBatchC1={previewSiblingBatchC1}
           onReadSiblingBatchColorDictionary={readSiblingBatchColorDictionary}
           onAuthorizeSiblingProductionBatch={authorizeSiblingProductionBatch}
           onSaveSiblingBatchStockDrafts={saveSiblingBatchStockDrafts}

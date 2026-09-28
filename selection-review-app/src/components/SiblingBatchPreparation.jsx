@@ -35,7 +35,7 @@ function initialInputs(parent, review, merchantSkus) {
   })) };
 }
 
-export default function SiblingBatchPreparation({ parent, siblings, onConfirmA, onConfirmC1, onReadColorDictionary,
+export default function SiblingBatchPreparation({ parent, siblings, onConfirmA, onConfirmC1, onPreviewC1, onReadColorDictionary,
   onAuthorize, onSaveStockDrafts, executionView, executionError, executionLoading = false,
   onRefreshExecution, onResumeStock,
   onUploadAsset, onLinkAsset, onConfirmC2 }) {
@@ -56,6 +56,7 @@ export default function SiblingBatchPreparation({ parent, siblings, onConfirmA, 
   const [c1Confirmed, setC1Confirmed] = useState(false);
   const [rightsExpiresAt, setRightsExpiresAt] = useState('');
   const [colorMappings, setColorMappings] = useState({});
+  const [c1Preview, setC1Preview] = useState(null);
   const [error, setError] = useState('');
   if (!review?.rows.length) return null;
   const allCreated = review.rows.every(row => row.candidateId !== null);
@@ -83,6 +84,8 @@ export default function SiblingBatchPreparation({ parent, siblings, onConfirmA, 
   const dictionarySource = c2Rows.map(({ child }) => child).find(child =>
     child?.lifecycleV11?.c1ColorDictionaryReadsV1?.['10096']?.status === 'succeeded') ?? null;
   const officialColors = dictionarySource?.lifecycleV11?.c1ColorDictionaryReadsV1?.['10096']?.evidence?.values ?? [];
+  const c1InputKey = JSON.stringify({ parentRevision: parent.dataRevision, dictionarySourceId: dictionarySource?.id,
+    members: c2Rows.map(({ child }) => [child?.id, child?.dataRevision]), colorMappings, rightsExpiresAt });
   const allAtC2 = c2Rows.length > 0 && c2Rows.every(({ child }) =>
     child?.lifecycleV11?.skuPackage?.businessPhase === 'C2' &&
     child.lifecycleV11.skuPackage.c2FinalAssets?.status === 'awaiting_final_uploads');
@@ -157,10 +160,10 @@ export default function SiblingBatchPreparation({ parent, siblings, onConfirmA, 
     catch (cause) { setError(errorMessage(cause)); }
     finally { setSaving(false); }
   }
-  async function submitC1(event) {
-    event.preventDefault(); setError(''); setSaving(true);
+  async function previewC1() {
+    setError(''); setSaving(true);
     try {
-      if (!allAtC1 || !dictionarySource || !c1Confirmed || !rightsExpiresAt) {
+      if (!allAtC1 || !dictionarySource || !rightsExpiresAt) {
         throw new Error('本批官方颜色字典、素材权利或逐行颜色确认尚未完成');
       }
       const expiresAt = new Date(rightsExpiresAt).toISOString();
@@ -168,13 +171,31 @@ export default function SiblingBatchPreparation({ parent, siblings, onConfirmA, 
         candidateRevision: child.dataRevision, colorMappings: {
           '10096': colorMappings[row.sourceSkuId]?.['10096'] ?? '',
           '10097': (colorMappings[row.sourceSkuId]?.['10097'] ?? '').trim() } }));
-      if (members.some(member => !officialColors.some(item => item.value === member.colorMappings['10096']) ||
-        !member.colorMappings['10097'])) throw new Error('请逐行选择官方颜色，并填写准确颜色名称');
-      await onConfirmC1({ parentCandidateId: parent.id, parentRevision: parent.dataRevision,
-        dictionarySourceCandidateId: dictionarySource.id, confirmed: true,
+      const missingSupplier = c2Rows.find(({ child }) => !child?.sourceCapture?.skuChoices?.[0]?.attributes?.颜色);
+      if (missingSupplier) throw new Error(`${missingSupplier.row.sourceSkuId} 缺少已确认供应原色；先修订 A 阶段供应事实，再在本页重预览`);
+      const missingOfficial = members.find(member => !officialColors.some(item => item.value === member.colorMappings['10096']));
+      if (missingOfficial) throw new Error(`${missingOfficial.candidateId} 缺少 10096 官方颜色；请在本页逐行选择`);
+      const missingName = members.find(member => !member.colorMappings['10097']);
+      if (missingName) throw new Error(`${missingName.candidateId} 缺少 10097 准确颜色名称；请在本页填写`);
+      const input = { parentCandidateId: parent.id, parentRevision: parent.dataRevision,
+        dictionarySourceCandidateId: dictionarySource.id,
         rightsDeclaration: { brand: { status: 'unbranded', name: null },
           rights: { status: 'verified', basis: 'no_third_party_rights_identified' },
-          reviewedAt: new Date().toISOString(), expiresAt }, members });
+          reviewedAt: new Date().toISOString(), expiresAt }, members };
+      const result = await onPreviewC1(input);
+      setC1Preview({ input, result, key: c1InputKey });
+      setC1Confirmed(false);
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setSaving(false); }
+  }
+  async function submitC1(event) {
+    event.preventDefault(); setError(''); setSaving(true);
+    try {
+      if (!c1Confirmed || !c1Preview || c1Preview.key !== c1InputKey) {
+        throw new Error('本批预览已变化，请重新预览并核对');
+      }
+      await onConfirmC1({ ...c1Preview.input, confirmed: true,
+        previewFingerprint: c1Preview.result.previewFingerprint });
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setSaving(false); }
   }
@@ -282,14 +303,42 @@ export default function SiblingBatchPreparation({ parent, siblings, onConfirmA, 
             <td><input aria-label={`${row.color} 准确颜色名称`} value={mapping['10097'] ?? ''}
               onChange={event => setColorMappings(current => ({ ...current,
                 [row.sourceSkuId]: { ...current[row.sourceSkuId], '10097': event.target.value } }))} /></td>
-            <td>{child?.lifecycleV11?.skuPackage?.c1ProductPlan?.status === 'inputs_ready'
-              ? '待核对本色映射与共用文案事实' : 'C1 输入未就绪'}</td></tr>;
+            <td>{!child?.sourceCapture?.skuChoices?.[0]?.attributes?.颜色
+              ? '供应原色缺失；须先修订 A 阶段供应事实'
+              : child?.lifecycleV11?.skuPackage?.c1ProductPlan?.status !== 'inputs_ready'
+                ? 'C1 输入未就绪'
+                : !dictionarySource ? '10096 官方候选尚未读取'
+                  : !mapping['10096'] ? '10096 官方颜色未选'
+                    : !mapping['10097']?.trim() ? '10097 准确颜色名称未填'
+                      : '可预览本色属性和共用文案'}</td></tr>;
         })}</tbody></table>
       <label>权利核对有效至<input aria-label="权利核对有效至" required type="datetime-local" value={rightsExpiresAt}
         onChange={event => setRightsExpiresAt(event.target.value)} /></label>
-      <label><input type="checkbox" checked={c1Confirmed} onChange={event => setC1Confirmed(event.target.checked)} />
-        我已核对本批为无第三方品牌权利冲突，逐行官方颜色与准确颜色名称相符，且共用文字仅适用于相同已证实事实。</label>
-      <button className="button secondary" type="submit" disabled={saving || !c1Confirmed || !dictionarySource}>
+      <button className="button secondary" type="button" disabled={saving || !dictionarySource || !onPreviewC1}
+        onClick={previewC1}>预览整批俄语文案与逐规格差异</button>
+      {c1Preview?.key === c1InputKey ? <section aria-label="整批 C1 文案预览">
+        <p>共用文案沿用首件已确认的共同事实与文字，仅移除首件颜色片段及其关键词和事实引用；颜色仍逐规格保存为属性。预览不调用模型或外部平台。</p>
+        {c1Preview.result.members.map(member => <article key={member.candidateId}>
+          <h5>{member.color} · {member.sourceSkuId}</h5>
+          <p>俄语标题：{member.content.seoTitleDraft.text}</p>
+          <p>中文标题复核：{member.content.seoTitleDraft.reviewZh ?? '来源未提供中文复核文字'}</p>
+          <p>俄语描述：{member.content.descriptionDraft.text}</p>
+          <p>中文描述复核：{member.content.descriptionDraft.reviewZh ?? '来源未提供中文复核文字'}</p>
+          <p>俄语要点：{member.content.bulletPointsDraft.map(piece => piece.text).join('；')}</p>
+          <p>中文要点复核：{member.content.bulletPointsDraft.map(piece => piece.reviewZh ?? '来源未提供中文复核文字').join('；')}</p>
+          <p>搜索词：{member.content.searchKeywordsDraft.keywords.map(piece => piece.query).join('；')}</p>
+          <p>中文搜索词复核：{member.content.searchKeywordsDraft.keywords.map(piece => piece.reviewZh ?? '来源未提供中文复核文字').join('；')}</p>
+          <p>共用俄语属性：{member.content.russianAttributes.map(item => `${item.valueRu}（${item.reviewZh}）`).join('；') || '无'}</p>
+          <p>中文差异说明：{member.differences.title ? '标题移除了首件颜色文字；' : '标题沿用首件已确认事实；'}
+            {member.differences.description ? '描述移除了首件颜色文字；' : '描述沿用首件已确认事实；'}
+            移除颜色专属关键词 {member.differences.removedKeywords.length} 个；本色官方颜色与准确名称单独保留。</p>
+          <p>来源：{member.sourceCandidateId} 修订 {member.sourceCandidateRevision}；本规格修订 {member.candidateRevision}；采用事实：{member.adoptedFactPaths.join('、')}</p>
+        </article>)}
+      </section> : null}
+      <label><input type="checkbox" checked={c1Confirmed} disabled={c1Preview?.key !== c1InputKey}
+        onChange={event => setC1Confirmed(event.target.checked)} />
+        我已核对本批为无第三方品牌权利冲突，逐行官方颜色与准确颜色名称相符，并核对预览中的俄语文案与中文差异说明。</label>
+      <button className="button secondary" type="submit" disabled={saving || !c1Confirmed || c1Preview?.key !== c1InputKey}>
         一次确认本批 C1 差异并进入素材准备</button>
     </form> : null}
     {allCreated && !allAtA && !executionView ? <form onSubmit={submitFinal}>

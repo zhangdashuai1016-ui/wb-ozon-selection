@@ -7,7 +7,7 @@ import { C1_OZON_ATTRIBUTE_MAPPING_VERSION } from './c1-ozon-attribute-mapping-u
 import { resolveSavedC1ColorDictionaryValue } from './c1-color-dictionary-read-use-case.mjs';
 import { assertSiblingSkuColorProjection } from './sibling-sku-card-guard.mjs';
 import { readCurrentAppliedC1Draft } from './c1-content-review-use-case.mjs';
-import { projectC1SiblingFormalDraft } from './c1-sibling-formal-draft-reuse.mjs';
+import { projectC1SiblingNeutralDraft } from './c1-sibling-neutral-copy.mjs';
 import { createC2SoftwareContainer } from './c2-software-orchestrator.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { fingerprintCanonicalRecord } from './production-contract-primitives.mjs';
@@ -19,8 +19,12 @@ function mapColors(candidate, dictionarySource, evidencePacks, ownerId, at, valu
   const sku = structuredClone(candidate.lifecycleV11.skuPackage);
   const plan = sku.c1ProductPlan;
   const schema = plan.inputSnapshots.platformSchemaRules;
-  if (sku.businessPhase !== 'C1' || plan.status !== 'inputs_ready' || !Array.isArray(schema.attributes) ||
-      !values || !text(values['10096']) || !text(values['10097'])) fail('SIBLING_BATCH_C1_MAPPING_INPUT_INVALID');
+  if (sku.businessPhase !== 'C1' || plan.status !== 'inputs_ready' || !Array.isArray(schema.attributes)) {
+    fail('SIBLING_BATCH_C1_MAPPING_INPUT_INVALID');
+  }
+  if (!text(candidate.sourceCapture?.skuChoices?.[0]?.attributes?.颜色)) fail('SIBLING_BATCH_C1_SUPPLIER_COLOR_REQUIRED');
+  if (!values || !text(values['10096'])) fail('SIBLING_BATCH_C1_OFFICIAL_COLOR_REQUIRED');
+  if (!text(values['10097'])) fail('SIBLING_BATCH_C1_COLOR_NAME_REQUIRED');
   const rights = resolveC1SkuRightsReviewForFacts({ skuPackage: sku, observedAt: at });
   if (rights.status !== 'verified') fail('SIBLING_BATCH_C1_RIGHTS_NOT_VERIFIED');
   const inMemory = verifyC1ProductFacts({ skuPackage: sku, skuRightsReview: rights.review, verifiedAt: at }).skuPackage;
@@ -51,20 +55,19 @@ function mapColors(candidate, dictionarySource, evidencePacks, ownerId, at, valu
   return verified;
 }
 
-/** One owner declaration and saved official color evidence, with shared SEO only on identical facts. */
-export async function commitSiblingBatchC1Preparation({ repository, runtimeMode, actor, input, serverClock }) {
-  assertBusinessStateRepositoryBoundary(repository);
-  if (runtimeMode === 'central_test' || runtimeMode === 'central_production') assertCentralPersistenceBoundary(repository);
+function validateInput(actor, input, serverClock, requireConfirmation) {
   authorizeOperation({ actor, requiredRoles: ['owner'] });
   if (actor.actorType !== 'human' || actor.source !== 'authenticated_identity_provider' ||
       typeof serverClock !== 'function' || !input || !text(input.parentCandidateId) ||
-      !Number.isSafeInteger(input.parentRevision) || input.confirmed !== true ||
+      !Number.isSafeInteger(input.parentRevision) || (requireConfirmation && input.confirmed !== true) ||
       !text(input.dictionarySourceCandidateId) ||
       !input.rightsDeclaration || !Array.isArray(input.members) || input.members.length === 0 ||
       input.members.length > 100 || new Set(input.members.map(item => item.candidateId)).size !== input.members.length) {
     fail('SIBLING_BATCH_C1_INPUT_INVALID');
   }
-  return repository.transact(document => {
+}
+
+function prepareBatch(document, actor, input, serverClock) {
     const parents = document.candidates.filter(item => item.id === input.parentCandidateId);
     if (parents.length !== 1 || parents[0].dataRevision !== input.parentRevision) fail('SIBLING_BATCH_C1_PARENT_CHANGED');
     const parent = parents[0];
@@ -75,15 +78,6 @@ export async function commitSiblingBatchC1Preparation({ repository, runtimeMode,
         !input.members.every(member => selected.includes(document.candidates.find(item => item.id === member.candidateId)?.siblingSourceV1?.supplierSkuId))) {
       fail('SIBLING_BATCH_C1_SCOPE_MISMATCH');
     }
-    const inputFingerprint = fingerprintCanonicalRecord({ input, confirmedBy: actor.userId });
-    const replay = input.members.map(member => document.candidates.find(item => item.id === member.candidateId));
-    if (replay.every(child => child?.lifecycleV11?.siblingBatchC1ReceiptV1?.inputFingerprint === inputFingerprint &&
-        child.lifecycleV11.siblingBatchC1ReceiptV1.resultRevision === child.dataRevision &&
-        child.lifecycleV11.siblingBatchC1ReceiptV1.parentCandidateId === parent.id)) {
-      return { changed: false, document, result: { status: 'idempotent_replay', members: replay.map(child => ({
-        candidateId: child.id, resultRevision: child.dataRevision })), externalRequests: 0, paidCalls: 0, platformWrites: 0 } };
-    }
-    if (replay.some(child => child?.lifecycleV11?.siblingBatchC1ReceiptV1)) fail('SIBLING_BATCH_C1_REPLAY_CONFLICT');
     const source = sourcePlan?.draftOnlySeo?.sourceType === 'owner_confirmed_editorial'
       ? { request: null, receipt: null, settledExecution: null }
       : readCurrentAppliedC1Draft(parent, document.runtime?.softwareJobs ?? []);
@@ -115,14 +109,60 @@ export async function commitSiblingBatchC1Preparation({ repository, runtimeMode,
         declaredByUserId: actor.userId, declaredAt: at,
         ownerDeclaration: { ...(member.rightsDeclaration ?? input.rightsDeclaration), reviewedAt: at } });
       const facts = mapColors(current, dictionarySource, document.evidencePacks ?? [], actor.userId, at, member.colorMappings);
-      const drafted = projectC1SiblingFormalDraft({ sourcePlan, sourceIdentity: parent.lifecycleV11.skuPackage.g1Identity,
+      const drafted = projectC1SiblingNeutralDraft({ sourcePlan, sourceIdentity: parent.lifecycleV11.skuPackage.g1Identity,
         request: source.request, receipt: source.receipt, settledExecution: source.settledExecution,
         targetSkuPackage: facts, sourceCandidateRevision: parent.dataRevision,
-        targetCandidateRevision: child.dataRevision, observedAt: at }).skuPackage;
-      const c2 = createC2SoftwareContainer({ skuPackage: drafted, expectedDataRevision: drafted.dataRevision,
+        targetCandidateRevision: child.dataRevision, observedAt: at });
+      const c2 = createC2SoftwareContainer({ skuPackage: drafted.skuPackage, expectedDataRevision: drafted.skuPackage.dataRevision,
         assetRegions: { collected: [], aiDrafts: [], finalUploads: [] }, createdAt: at }).skuPackage;
-      return { child, skuPackage: c2 };
+      return { child, skuPackage: c2, content: drafted.content, differences: drafted.differences,
+        reuseRecord: drafted.reuseRecord };
     });
+    const binding = { parentCandidateId: parent.id, parentRevision: parent.dataRevision,
+      dictionarySourceCandidateId: dictionarySource.id, confirmedBy: actor.userId,
+      rightsDeclaration: input.rightsDeclaration,
+      members: input.members.map(member => ({ candidateId: member.candidateId,
+        candidateRevision: member.candidateRevision, colorMappings: member.colorMappings,
+        rightsDeclaration: member.rightsDeclaration ?? null })),
+      projected: prepared.map(({ child, content, reuseRecord }) => ({ candidateId: child.id,
+        contentFingerprint: reuseRecord.contentFingerprint, targetCandidateRevision: child.dataRevision,
+        sourcePlanFingerprint: reuseRecord.sourcePlanFingerprint })) };
+    return { parent, prepared, at, previewFingerprint: fingerprintCanonicalRecord(binding) };
+}
+
+/** Pure preparation used by both the read-only preview and the write transaction. */
+export function previewSiblingBatchC1Preparation({ document, actor, input, serverClock }) {
+  validateInput(actor, input, serverClock, false);
+  const { parent, prepared, previewFingerprint } = prepareBatch(document, actor, input, serverClock);
+  return { parentCandidateId: parent.id, parentRevision: parent.dataRevision, previewFingerprint,
+    members: prepared.map(({ child, content, differences, reuseRecord }) => ({ candidateId: child.id,
+      candidateRevision: child.dataRevision, sourceSkuId: child.siblingSourceV1.supplierSkuId,
+      color: child.sourceCapture.skuChoices[0].attributes.颜色,
+      content: { seoTitleDraft: content.seoTitleDraft, descriptionDraft: content.descriptionDraft,
+        bulletPointsDraft: content.bulletPointsDraft, searchKeywordsDraft: content.searchKeywordsDraft,
+        russianAttributes: content.seoEvidenceLayer.russianAttributes ?? [] }, differences,
+      sourceCandidateId: reuseRecord.sourceCandidateId, sourceCandidateRevision: reuseRecord.sourceCandidateRevision,
+      adoptedFactPaths: reuseRecord.adoptedFactPaths })), externalRequests: 0, paidCalls: 0, platformWrites: 0 };
+}
+
+/** One owner declaration, one preview binding, and saved official color evidence. */
+export async function commitSiblingBatchC1Preparation({ repository, runtimeMode, actor, input, serverClock }) {
+  assertBusinessStateRepositoryBoundary(repository);
+  if (runtimeMode === 'central_test' || runtimeMode === 'central_production') assertCentralPersistenceBoundary(repository);
+  validateInput(actor, input, serverClock, true);
+  if (!/^[a-f0-9]{64}$/.test(input.previewFingerprint ?? '')) fail('SIBLING_BATCH_C1_PREVIEW_REQUIRED');
+  return repository.transact(document => {
+    const inputFingerprint = fingerprintCanonicalRecord({ input, confirmedBy: actor.userId });
+    const replay = input.members.map(member => document.candidates.find(item => item.id === member.candidateId));
+    if (replay.every(child => child?.lifecycleV11?.siblingBatchC1ReceiptV1?.inputFingerprint === inputFingerprint &&
+        child.lifecycleV11.siblingBatchC1ReceiptV1.resultRevision === child.dataRevision &&
+        child.lifecycleV11.siblingBatchC1ReceiptV1.parentCandidateId === input.parentCandidateId)) {
+      return { changed: false, document, result: { status: 'idempotent_replay', members: replay.map(child => ({
+        candidateId: child.id, resultRevision: child.dataRevision })), externalRequests: 0, paidCalls: 0, platformWrites: 0 } };
+    }
+    if (replay.some(child => child?.lifecycleV11?.siblingBatchC1ReceiptV1)) fail('SIBLING_BATCH_C1_REPLAY_CONFLICT');
+    const { parent, prepared, at, previewFingerprint } = prepareBatch(document, actor, input, serverClock);
+    if (previewFingerprint !== input.previewFingerprint) fail('SIBLING_BATCH_C1_PREVIEW_CHANGED');
     for (const { child, skuPackage } of prepared) {
       child.lifecycleV11 = { ...child.lifecycleV11, skuPackage: structuredClone(skuPackage),
         siblingBatchC1ReceiptV1: { schemaVersion: 'sibling-batch-c1-receipt-v1',
