@@ -398,41 +398,40 @@ test('an expired worker heartbeat cannot renew itself through a batch checkpoint
   assert.equal((await runtime.observe({ ...input, chunkIndex: 0 })).status, 'partial_failure');
 });
 
-test('31 authorized members send four persisted tasks within the synthetic limit', async () => {
-  const { repository, runtime, members, capability, calls } = await fixture({ count: 31 });
-  const input = { batchId: 'd-batch:synthetic', members, adapterCapabilities: capability,
-    workerId: 'worker:batch-synthetic' };
-  const outcome = await runtime.run(input);
-  assert.equal(outcome.status, 'waiting_platform');
-  assert.deepEqual(calls.filter(call => call.write).map(call => call.body.items.length), [10, 10, 10, 1]);
-  const saved = await repository.readSnapshot();
-  assert.equal(saved.runtime.dBatchImportJobs[0].chunks.every(chunk => chunk.status === 'waiting_platform'), true);
-  assert.equal(new Set(saved.runtime.dBatchImportJobs[0].chunks.map(chunk => chunk.taskId)).size, 4);
-  assert.equal(calls.some(call => call.body.items?.some(item => item.offer_id === 'BATCH-FIRST')), false);
-  assert.equal((await runtime.run(input)).status, 'idempotent_replay');
-  assert.equal(calls.filter(call => call.write).length, 4);
-});
-
-test('a previously successful first SKU stays excluded when the other 31 import as one batch', async () => {
-  const { completedCandidate } = await deSoftwareJobScopeFixture();
+test('a selected 32-SKU family imports 31 once after its first SKU already succeeded', async t => {
+  const { completedCandidate } = await deSoftwareJobScopeFixture({ merchantSku: 'BATCH-FIRST' });
   const firstRecord = completedCandidate.lifecycleV11.skuPackage.productionRecord;
-  assert.equal(validateProductionRecord(firstRecord).valid, true);
-  const firstOfferId = firstRecord.merchantSku;
   const { repository, runtime, restartRuntime, members, capability, calls } = await fixture({ count: 31 });
   await repository.transact(document => {
     document.candidates.unshift(structuredClone(completedCandidate));
-    document.runtime.dProductionBatches[0].excludedOfferIds = [firstOfferId];
     return { changed: true, document, result: null };
   });
   const input = { batchId: 'd-batch:synthetic', members, adapterCapabilities: capability,
     workerId: 'worker:batch-synthetic' };
-  assert.equal((await runtime.run(input)).status, 'waiting_platform');
-  const writes = calls.filter(call => call.write);
-  assert.deepEqual(writes.map(call => call.body.items.length), [10, 10, 10, 1]);
-  assert.equal(writes.flatMap(call => call.body.items).some(item => item.offer_id === firstOfferId), false);
+  const outcome = await runtime.run(input);
+  const replay = await runtime.run(input);
+  const restartedReplay = await restartRuntime().run(input);
   const saved = await repository.readSnapshot();
-  assert.deepEqual(saved.candidates.find(candidate => candidate.id === completedCandidate.id), completedCandidate);
-  assert.deepEqual(saved.runtime.dProductionBatches[0].excludedOfferIds, [firstOfferId]);
-  assert.equal((await restartRuntime().run(input)).status, 'idempotent_replay');
-  assert.equal(calls.filter(call => call.write).length, 4);
+  const writes = structuredClone(calls.filter(call => call.write));
+  const excludedCandidate = structuredClone(saved.candidates.find(candidate => candidate.id === completedCandidate.id));
+  const batch = structuredClone(saved.runtime.dProductionBatches[0]);
+  const job = structuredClone(saved.runtime.dBatchImportJobs[0]);
+  await t.test('31 authorized members send four persisted tasks within the synthetic limit', () => {
+    assert.equal(outcome.status, 'waiting_platform');
+    assert.deepEqual(writes.map(call => call.body.items.length), [10, 10, 10, 1]);
+    assert.equal(job.chunks.every(chunk => chunk.status === 'waiting_platform'), true);
+    assert.equal(new Set(job.chunks.map(chunk => chunk.taskId)).size, 4);
+    assert.equal(writes.some(call => call.body.items?.some(item => item.offer_id === 'BATCH-FIRST')), false);
+    assert.equal(replay.status, 'idempotent_replay');
+    assert.equal(writes.length, 4);
+  });
+  await t.test('a previously successful first SKU stays excluded when the other 31 import as one batch', () => {
+    assert.equal(validateProductionRecord(firstRecord).valid, true);
+    assert.equal(firstRecord.merchantSku, 'BATCH-FIRST');
+    assert.equal(writes.flatMap(call => call.body.items).some(item => item.offer_id === firstRecord.merchantSku), false);
+    assert.deepEqual(excludedCandidate, completedCandidate);
+    assert.deepEqual(batch.excludedOfferIds, [firstRecord.merchantSku]);
+    assert.equal(restartedReplay.status, 'idempotent_replay');
+    assert.equal(writes.length, 4);
+  });
 });

@@ -8,6 +8,7 @@ import { commitBatchOwnerProductionAuthorization } from '../lib/d-batch-producti
 import { siblingBatchAuthorizationInput } from '../src/siblingBatchAuthorizationInput.js';
 import { prepareProductionCommercialDraft } from '../lib/production-commercial-draft.mjs';
 import { buildProductionOwnerPreparationView } from '../lib/production-owner-preparation.mjs';
+import { attachProductionProfitEvidence } from './fixtures/production-profit-evidence-fixture.mjs';
 import { at, oneColorFixture, threeColorFixture, threeColorC2Fixture } from './fixtures/sibling-batch-final-family-fixture.mjs';
 
 test('three selected colors share one saved dictionary and one formal parent draft but each receives its own C1 and C2', async () => {
@@ -62,31 +63,34 @@ test('one C2 confirmation creates three independent final cards from the three-c
 
 async function authorizePreparedColors(repository, actor, checkStale) {
   const saved = await repository.readSnapshot();
+  const firstFixture = productionOwnerDecisionFixture(createMemoryBusinessStateRepository,
+    { sourceCandidate: saved.candidates[1], sourceAt: at });
+  const configuration = firstFixture.configuration;
   const decisions = saved.candidates.slice(1).map((child, index) => {
-    const fixture = productionOwnerDecisionFixture(createMemoryBusinessStateRepository,
-      { sourceCandidate: child, sourceAt: at });
-    const candidate = prepareProductionCommercialDraft({ candidate: fixture.candidate,
+    const sourceCandidate = index === 0 ? firstFixture.candidate : structuredClone(child);
+    const evidence = index === 0 ? firstFixture : attachProductionProfitEvidence(sourceCandidate);
+    const candidate = prepareProductionCommercialDraft({ candidate: sourceCandidate,
       merchantSku: `SYNTHETIC-COLOR-${index}`, stock: 50 + index,
       savedByUserId: 'synthetic-owner', savedAt: at, merchantSkuClaims: [] }).candidate;
     const preparation = buildProductionOwnerPreparationView({ candidate,
-      configuration: fixture.configuration, evidencePacks: fixture.evidencePacks,
-      currentCommissionCatalogs: fixture.currentCommissionCatalogs, observedAt: at });
+      configuration, evidencePacks: evidence.evidencePacks,
+      currentCommissionCatalogs: evidence.currentCommissionCatalogs, observedAt: at });
     assert.equal(preparation.ready, true);
-    return { candidateId: child.id, candidate, preparation, fixture };
+    return { candidateId: child.id, candidate, preparation };
   });
   await repository.transact(document => {
     for (const { candidateId, candidate } of decisions) {
       const index = document.candidates.findIndex(item => item.id === candidateId);
       document.candidates[index] = structuredClone(candidate);
     }
-    document.evidencePacks = structuredClone(decisions[0].fixture.evidencePacks);
-    document.currentCommissionCatalogs = structuredClone(decisions[0].fixture.currentCommissionCatalogs);
+    document.evidencePacks = structuredClone(firstFixture.evidencePacks);
+    document.currentCommissionCatalogs = structuredClone(firstFixture.currentCommissionCatalogs);
     return { changed: true, document, result: null };
   });
   const parent=(await repository.readSnapshot()).candidates[0];
   const pageDecision = siblingBatchAuthorizationInput(parent,
     decisions.map(({ candidate, preparation }) => ({ ...candidate, productionOwnerPreparation: preparation })),
-    decisions[0].fixture.args.input.bindingId, { inventoryAction: 'create_only' });
+    firstFixture.args.input.bindingId, { inventoryAction: 'create_only' });
   assert.equal(pageDecision.ready, true, pageDecision.reason);
   const authorizationInput = pageDecision.input;
   assert.deepEqual(authorizationInput.members.map(member => member.candidateId),
@@ -97,7 +101,7 @@ async function authorizePreparedColors(repository, actor, checkStale) {
     stale.members[stale.members.length - 1].ownerInput.dataRevision += 1;
     await assert.rejects(() => commitBatchOwnerProductionAuthorization({ repository,
       runtimeMode: 'local_development', actor, input: stale,
-      configuration: decisions[0].fixture.configuration, serverClock: () => at }));
+      configuration, serverClock: () => at }));
     for(const change of [
       input=>{input.members.pop();input.postImportScope.eReadbackOfferIds.pop();},
       input=>{input.members[0].candidateId='candidate:unselected';},
@@ -109,16 +113,16 @@ async function authorizePreparedColors(repository, actor, checkStale) {
       const altered=structuredClone(authorizationInput);change(altered);
       await assert.rejects(()=>commitBatchOwnerProductionAuthorization({repository,
         runtimeMode:'local_development',actor,input:altered,
-        configuration:decisions[0].fixture.configuration,serverClock:()=>at}));
+        configuration,serverClock:()=>at}));
     }
     assert.deepEqual(await repository.readSnapshot(), beforeAuthorization);
   }
   const batch = await commitBatchOwnerProductionAuthorization({ repository, runtimeMode: 'local_development',
-    actor, input: authorizationInput, configuration: decisions[0].fixture.configuration,
+    actor, input: authorizationInput, configuration,
     serverClock: () => at });
   const authorized = await repository.readSnapshot();
   assert.deepEqual(await commitBatchOwnerProductionAuthorization({repository,runtimeMode:'local_development',
-    actor,input:authorizationInput,configuration:decisions[0].fixture.configuration,
+    actor,input:authorizationInput,configuration,
     serverClock:()=>at}),batch);
   assert.deepEqual(await repository.readSnapshot(),authorized);
   assert.deepEqual(authorized.candidates[0], saved.candidates[0]);

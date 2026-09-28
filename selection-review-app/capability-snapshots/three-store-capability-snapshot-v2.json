@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-28T01:52:54.935Z",
+  "frozenAt": "2026-09-28T02:53:07.700Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 849,
-      "sha256": "ca5be288540f22e81f0135ce9778f9133ee018502be15d04c9bd54868ffb0f21",
+      "sha256": "d41b088b9362b17fcd801f6953478e798d52aeeb26932ab3627aaf5fc518eb0c",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -2344,7 +2344,7 @@
       },
       {
         "path": "tests/d-batch-import-runtime.test.mjs",
-        "sha256": "2d1a9a9de1beb0bb4b8d60937047110a0b36f69101c858b4bc02608e38f202ce"
+        "sha256": "5893425bcd14b0731e2863b037635571a3451e3f095961fed562bb7342be2f18"
       },
       {
         "path": "tests/d-batch-import-software-service.test.mjs",
@@ -2632,7 +2632,7 @@
       },
       {
         "path": "tests/fixtures/d-e-software-job-scope-fixture.mjs",
-        "sha256": "97570ace972ad2fa08bb82a9e16b55622c36cbe0152a35bc7a4bb4621cd275e4"
+        "sha256": "d77357b7478763daf2d4290270388fc5423169a07a468a38b1b91680fa74737b"
       },
       {
         "path": "tests/fixtures/d-platform-observation-runtime-fixture.mjs",
@@ -3288,7 +3288,7 @@
       },
       {
         "path": "tests/sibling-batch-c1-preparation.test.mjs",
-        "sha256": "0376b2fb363cfd609cd7af83bc0f0c262aa6c506a1a0341c94256b0d10b29538"
+        "sha256": "a644b011c6de7e8f29da40602136b46058a17a8a1ef034bb42f9b7c83baa9254"
       },
       {
         "path": "tests/sibling-batch-c2-final.test.mjs",
