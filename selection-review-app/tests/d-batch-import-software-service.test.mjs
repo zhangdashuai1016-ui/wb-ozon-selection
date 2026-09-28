@@ -195,6 +195,19 @@ test('restarted software pump recovers only a saved task and never resends its i
   assert.deepEqual(f.calls.map(call => call.write), [true, false]);
   assert.equal((await f.repository.readSnapshot()).runtime.dBatchImportJobs[0].chunks[0].observationReads, 1);
 });
+test('historical v2 import job remains observable after a cold service restart',async()=>{
+  const f=await fixture();
+  await f.service.runAuthorizedBatch({batchId:f.batch.batchId});
+  await f.repository.transact(document=>{
+    document.runtime.dBatchImportJobs[0].schemaVersion='d-batch-import-job-v2';
+    return {changed:true,document,result:null};
+  });
+  const observed=await f.restartService().runDueBatchObservations();
+  assert.equal(observed.status,'imported_awaiting_inventory');
+  assert.equal((await f.repository.readSnapshot()).runtime.dBatchImportJobs[0].schemaVersion,
+    'd-batch-import-job-v2');
+  assert.deepEqual(f.calls.map(call=>call.write),[true,false]);
+});
 test('create-only imported offer performs no stock precheck or stock write',async()=>{
   const f=await fixture();
   await seedV2ObservedImport(f,'create_only');

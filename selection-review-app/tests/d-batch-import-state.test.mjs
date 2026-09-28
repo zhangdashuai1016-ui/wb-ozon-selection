@@ -61,6 +61,60 @@ test('missing receipt, wrong offer, wrong task and expired lease never reopen a 
     createdAt: at, leaseExpiresAt: lease, observationPolicy }), /MEMBER_SCOPE_MISMATCH/);
 });
 
+test('proven prewrite stop is terminal, idempotent and distinct from historical intent',()=>{
+  const admitted=createDBatchImportJob({batch,chunks,...scope,createdAt:at,leaseExpiresAt:lease,
+    observationPolicy});
+  const intent=apply(admitted,{kind:'batch_import_intent',chunkIndex:0,offerIds:chunks[0].offerIds});
+  assert.equal(intent.status,'unknown_outcome');
+  const event={kind:'batch_import_prewrite_blocked',chunkIndex:0,offerIds:chunks[0].offerIds,
+    requestTransmission:'not_attempted',reasonCode:'OZON_BATCH_LIMIT_EVIDENCE_REQUIRED'};
+  assert.throws(()=>apply(intent,{...event,requestTransmission:'attempted'}),/PREWRITE_PROOF_INVALID/);
+  assert.throws(()=>apply(intent,{...event,reasonCode:'secret: raw message'}),/PREWRITE_PROOF_INVALID/);
+  const blocked=apply(intent,event);
+  assert.equal(blocked.status,'prewrite_blocked');
+  assert.equal(blocked.chunks[0].taskId,null);
+  assert.equal(blocked.chunks[0].requestTransmission,'not_attempted');
+  assert.equal(apply(blocked,event),blocked);
+  assert.throws(()=>apply(blocked,{...event,reasonCode:'D_BATCH_IMPORT_SEND_GUARD_BLOCKED'}),
+    /PREWRITE_PROOF_INVALID/);
+  assert.throws(()=>apply(blocked,{kind:'batch_import_intent',chunkIndex:0,
+    offerIds:chunks[0].offerIds}),/REPLAY_BLOCKED/);
+  assert.throws(()=>apply(blocked,{kind:'batch_import_task_received',chunkIndex:0,
+    offerIds:chunks[0].offerIds,taskId:'501'}),/TASK_RECEIPT_INVALID/);
+});
+
+test('historical v2 intent remains readable and cannot acquire a v3 prewrite verdict',()=>{
+  const current=createDBatchImportJob({batch,chunks,...scope,createdAt:at,leaseExpiresAt:lease,
+    observationPolicy});
+  const historical={...structuredClone(current),schemaVersion:'d-batch-import-job-v2'};
+  const intent=apply(historical,{kind:'batch_import_intent',chunkIndex:0,offerIds:chunks[0].offerIds});
+  assert.equal(intent.schemaVersion,'d-batch-import-job-v2');
+  assert.equal(intent.status,'unknown_outcome');
+  assert.throws(()=>apply(intent,{kind:'batch_import_prewrite_blocked',chunkIndex:0,
+    offerIds:chunks[0].offerIds,requestTransmission:'not_attempted',
+    reasonCode:'OZON_BATCH_LIMIT_EVIDENCE_REQUIRED'}),/PREWRITE_PROOF_INVALID/);
+  const received=apply(intent,{kind:'batch_import_task_received',chunkIndex:0,
+    offerIds:chunks[0].offerIds,taskId:'501'});
+  assert.equal(received.status,'waiting_platform');
+  assert.equal(received.schemaVersion,'d-batch-import-job-v2');
+});
+
+test('a sent task stays observable when a later chunk is proven unsent',()=>{
+  let job=createDBatchImportJob({batch,chunks,...scope,createdAt:at,leaseExpiresAt:lease,
+    observationPolicy});
+  job=apply(job,{kind:'batch_import_intent',chunkIndex:0,offerIds:chunks[0].offerIds});
+  job=apply(job,{kind:'batch_import_task_received',chunkIndex:0,offerIds:chunks[0].offerIds,taskId:'501'});
+  job=apply(job,{kind:'batch_import_intent',chunkIndex:1,offerIds:chunks[1].offerIds});
+  job=apply(job,{kind:'batch_import_prewrite_blocked',chunkIndex:1,offerIds:chunks[1].offerIds,
+    requestTransmission:'not_attempted',reasonCode:'OZON_BATCH_LIMIT_EVIDENCE_REQUIRED'});
+  assert.equal(job.status,'waiting_platform');
+  assert.deepEqual(job.chunks.map(chunk=>chunk.status),['waiting_platform','prewrite_blocked','not_sent','not_sent']);
+  job=observe(job,{kind:'batch_import_observed',chunkIndex:0,offerIds:chunks[0].offerIds,
+    taskId:'501',results:chunks[0].offerIds.map(offerId=>({offerId,classification:'imported',
+      importObservation:{taskId:'501',merchantSku:offerId,productId:'910001'}}))});
+  assert.equal(job.status,'partial_failure');
+});
+
 test('mixed failed and pending offers remain observable until the pending offer settles', () => {
   const two = { ...batch, members: batch.members.slice(0, 2) };
   const offerIds = two.members.map(member => member.offerId);

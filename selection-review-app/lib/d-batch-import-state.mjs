@@ -5,12 +5,15 @@ import { fingerprintCanonicalRecord } from './production-contract-primitives.mjs
 import { isCompleteStoreRef } from './store-binding.mjs';
 import { validateProductionReadbackExpectation } from './e-stage-readback.mjs';
 
-export const D_BATCH_IMPORT_JOB_VERSION = 'd-batch-import-job-v2';
+export const D_BATCH_IMPORT_JOB_VERSION = 'd-batch-import-job-v3';
+const historicalJobVersion = 'd-batch-import-job-v2';
 const validRef = value => typeof value === 'string' && value.trim().length > 0;
 const validTime = value => validRef(value) && !Number.isNaN(Date.parse(value));
 const clone = value => structuredClone(value);
 const chunkStatuses = new Set(['not_sent', 'intent', 'waiting_platform', 'observed_pending',
-  'observed_imported', 'platform_failed', 'platform_skipped', 'unknown_outcome', 'observation_stopped']);
+  'observed_imported', 'platform_failed', 'platform_skipped', 'unknown_outcome', 'observation_stopped',
+  'prewrite_blocked']);
+const safeReasonCode = value => typeof value === 'string' && /^[A-Z][A-Z0-9_]{2,119}$/.test(value);
 
 export const D_BATCH_FROZEN_IMPORT_VERSION = 'd-batch-frozen-import-v1';
 
@@ -56,7 +59,8 @@ export function assertDBatchFrozenImport(frozen, offerIds) {
 
 function assertJob(job) {
   assertDPlatformObservationPolicy(job?.observationPolicy);
-  if (job?.schemaVersion !== D_BATCH_IMPORT_JOB_VERSION || !validRef(job.jobId) || !validRef(job.batchId) ||
+  if (![historicalJobVersion,D_BATCH_IMPORT_JOB_VERSION].includes(job?.schemaVersion) ||
+      !validRef(job.jobId) || !validRef(job.batchId) ||
       !Number.isSafeInteger(job.revision) || job.revision < 1 || !validRef(job.workerId) || !validRef(job.workerVersion) ||
       !validRef(job.leaseId) || !validTime(job.leaseExpiresAt) || !Array.isArray(job.chunks) ||
       job.chunks.length === 0 || job.chunks.some((chunk, index) => chunk.index !== index ||
@@ -75,6 +79,9 @@ function assertJob(job) {
             !isDeepStrictEqual(chunk.results.map(result => result.offerId), chunk.offerIds))) ||
         (chunk.status === 'unknown_outcome' && chunk.taskId !== null &&
           (!/^[1-9][0-9]*$/.test(chunk.taskId) || !Number.isSafeInteger(Number(chunk.taskId)))) ||
+        (chunk.status === 'prewrite_blocked' && (job.schemaVersion !== D_BATCH_IMPORT_JOB_VERSION ||
+          chunk.taskId !== null || chunk.results !== null ||
+          !safeReasonCode(chunk.prewriteReasonCode) || chunk.requestTransmission !== 'not_attempted')) ||
         (chunk.status === 'observation_stopped' &&
           (chunk.taskId === null || !['query_limit','policy_expired'].includes(chunk.stopReason)))) ||
       new Set(job.chunks.flatMap(chunk => chunk.offerIds)).size !== job.chunks.flatMap(chunk => chunk.offerIds).length ||
@@ -91,6 +98,8 @@ function assertJob(job) {
 function statusFor(chunks) {
   if (chunks.some(chunk => ['unknown_outcome','intent','observation_stopped'].includes(chunk.status))) return 'unknown_outcome';
   if (chunks.some(chunk => chunk.status === 'waiting_platform' || chunk.status === 'observed_pending')) return 'waiting_platform';
+  if (chunks.some(chunk => chunk.status === 'prewrite_blocked')) return chunks.some(chunk =>
+    !['not_sent','prewrite_blocked'].includes(chunk.status)) ? 'partial_failure' : 'prewrite_blocked';
   if (chunks.some(chunk => chunk.status === 'platform_failed' || chunk.status === 'platform_skipped')) return 'partial_failure';
   if (chunks.every(chunk => chunk.status === 'observed_imported')) return 'imported_awaiting_inventory';
   return 'claimed';
@@ -123,7 +132,7 @@ export function createDBatchImportJob({ batch, chunks, workerId, workerVersion, 
   return Object.freeze(assertJob(job));
 }
 
-/** Apply one durable checkpoint. An intent without a task receipt can only be reconciled, never sent again. */
+/** An unclassified intent cannot be resent; only the live pre-send proof can settle it as not sent. */
 export function applyDBatchImportEvent({ job, event, workerId, leaseId, observedAt }) {
   assertJob(job);
   if (!validTime(observedAt) || workerId !== job.workerId || leaseId !== job.leaseId ||
@@ -133,6 +142,8 @@ export function applyDBatchImportEvent({ job, event, workerId, leaseId, observed
   }
   const next = clone(job), chunk = next.chunks[event.chunkIndex];
   if (!isDeepStrictEqual(event.offerIds, chunk.offerIds)) throw new Error('D_BATCH_IMPORT_OFFER_SCOPE_MISMATCH');
+  if (event.kind === 'batch_import_prewrite_blocked' && chunk.status === 'prewrite_blocked' &&
+      chunk.prewriteReasonCode === event.reasonCode && event.requestTransmission === 'not_attempted') return job;
   if (event.kind === 'batch_import_intent') {
     if (chunk.status !== 'not_sent' || next.chunks.slice(0, chunk.index).some(prior =>
       !['waiting_platform', 'observed_imported', 'platform_failed', 'platform_skipped'].includes(prior.status))) {
@@ -148,6 +159,13 @@ export function applyDBatchImportEvent({ job, event, workerId, leaseId, observed
     if (chunk.status !== 'intent' || !validRef(event.reason)) throw new Error('D_BATCH_IMPORT_UNKNOWN_INVALID');
     chunk.status = 'unknown_outcome';
     chunk.unknownReason = event.reason;
+  } else if (event.kind === 'batch_import_prewrite_blocked') {
+    if (job.schemaVersion !== D_BATCH_IMPORT_JOB_VERSION || chunk.status !== 'intent' ||
+        event.requestTransmission !== 'not_attempted' ||
+        !safeReasonCode(event.reasonCode)) throw new Error('D_BATCH_IMPORT_PREWRITE_PROOF_INVALID');
+    chunk.status = 'prewrite_blocked';
+    chunk.prewriteReasonCode = event.reasonCode;
+    chunk.requestTransmission = 'not_attempted';
   } else if (event.kind === 'batch_observation_started') {
     if (!['waiting_platform', 'observed_pending', 'unknown_outcome'].includes(chunk.status) ||
         chunk.taskId === null || event.taskId !== chunk.taskId || chunk.observationInFlight ||

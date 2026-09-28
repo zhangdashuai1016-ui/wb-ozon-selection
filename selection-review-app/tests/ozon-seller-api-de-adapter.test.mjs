@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { preparedFixture, capabilities as formalCapabilities } from "./helpers/d-software-fixture.mjs";
+import { OzonDEHttpTransportError } from '../lib/ozon-de-http-configuration.mjs';
 import { finalAssets as syntheticFinalAssets } from './helpers/c2-software-fixture.mjs';
 import { assertOzonInventoryPrerequisitePolicy, isCurrentInventoryPrerequisitePolicy,
   OZON_STOCK_QUANT_SIZE_REMOVAL_REF } from "../lib/ozon-inventory-prerequisite-policy.mjs";
@@ -153,11 +154,30 @@ test('batch adapter sends one multi-item task and classifies each offer without 
   expiringCapability.productImport.validUntil = '2026-08-22T07:25:30.000Z';
   const expiringAdapter = createStoreIsolatedOzonSellerApiDEAdapter({ adapterCapabilities: expiringCapability,
     requestJson: async request => { expiringCalls.push(request); return { result: { task_id: 502 } }; } });
-  await assert.rejects(expiringAdapter.executeBatchImport({ ...scope, members: expiringMembers },
+  const rejected = await expiringAdapter.executeBatchImport({ ...scope, members: expiringMembers },
     { persistCheckpoint: async event => {
       if (event.kind === 'batch_import_intent') currentTime = expiringCapability.productImport.validUntil;
-    } }), /OZON_BATCH_LIMIT_EVIDENCE_REQUIRED/);
+    } });
+  assert.deepEqual(rejected, {status:'rejected_before_write',writeOccurred:false,
+    requestTransmission:'not_attempted',reasonCode:'OZON_BATCH_LIMIT_EVIDENCE_REQUIRED',retryAllowed:false});
   assert.equal(expiringCalls.length, 0);
+  for (const [failure, expectedStatus] of [
+    [new OzonDEHttpTransportError('OZON_DE_CREDENTIAL_READ_FAILED'), 'rejected_before_write'],
+    [new OzonDEHttpTransportError('OZON_DE_HTTP_CONNECTION_FAILED',
+      {externalRequestState:'unknown_outcome',requestTransmission:'attempted'}), 'unknown_outcome'],
+    [Object.assign(new Error('untrusted transport'),{code:'OZON_DE_CREDENTIAL_READ_FAILED',
+      externalRequestState:'not_sent',requestTransmission:'not_attempted'}), 'unknown_outcome']
+  ]) {
+    const transport = createStoreIsolatedOzonSellerApiDEAdapter({adapterCapabilities:capability,
+      requestJson:async()=>{throw failure;}});
+    const events=[];
+    const outcome=await transport.executeBatchImport(scope,{persistCheckpoint:async event=>events.push(event)});
+    assert.equal(outcome.status,expectedStatus);
+    assert.deepEqual(events.map(event=>event.kind),['batch_import_intent']);
+    if(expectedStatus==='rejected_before_write')
+      assert.deepEqual([outcome.writeOccurred,outcome.requestTransmission,outcome.reasonCode],
+        [false,'not_attempted','OZON_DE_CREDENTIAL_READ_FAILED']);
+  }
 });
 
 function executableRequest({ store, warehouseId, offerId } = {}) {

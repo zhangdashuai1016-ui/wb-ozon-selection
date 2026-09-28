@@ -177,10 +177,20 @@ export function createPersistedDBatchImportRuntime({ repository, runtimeMode = '
       if (event.kind === 'batch_import_intent') assertCurrentMembers(document, batch, members);
       const checkpointAt=now();
       const next = applyDBatchImportEvent({ job, event, workerId, leaseId, observedAt: checkpointAt });
+      if (next === job) return { changed: false, result: clone(job) };
       jobs[jobs.indexOf(job)] = next;
       if (event.kind === 'batch_import_intent') batch.externalRequestState = 'intent_persisted';
       if (event.kind === 'batch_import_task_received') batch.externalRequestState = 'task_received';
       if (event.kind === 'batch_import_unknown') batch.externalRequestState = 'unknown_outcome';
+      if (event.kind === 'batch_import_prewrite_blocked') {
+        batch.externalRequestState = next.chunks.some(chunk => chunk.status === 'unknown_outcome' || chunk.status === 'intent')
+          ? 'unknown_outcome' : next.chunks.some(chunk => chunk.taskId !== null) ? 'task_received' : 'not_sent';
+        for (const offerId of event.offerIds) {
+          const member = batch.members.find(value => value.offerId === offerId);
+          if (!member) throw new Error('D_BATCH_IMPORT_PREWRITE_OFFER_MISSING');
+          member.status = 'prewrite_blocked';
+        }
+      }
       if (event.kind === 'batch_import_observed') {
         const stockJobs=document.runtime.dBatchStockJobs ?? [];
         if(!Array.isArray(stockJobs))throw new Error('D_BATCH_STOCK_STORE_INVALID');
@@ -213,7 +223,7 @@ export function createPersistedDBatchImportRuntime({ repository, runtimeMode = '
     const admission = await admit({ batchId, members, adapterCapabilities, workerId });
     const { job } = admission;
     if (!admission.admitted && (job.workerId !== workerId || Date.parse(now()) >= Date.parse(job.leaseExpiresAt) ||
-        job.chunks.some(chunk => chunk.status === 'intent' || chunk.status === 'unknown_outcome') ||
+        job.chunks.some(chunk => ['intent','unknown_outcome','prewrite_blocked'].includes(chunk.status)) ||
         job.chunks.every(chunk => chunk.status !== 'not_sent'))) {
       return { status: 'idempotent_replay', executionStatus: job.status, job };
     }
@@ -256,6 +266,13 @@ export function createPersistedDBatchImportRuntime({ repository, runtimeMode = '
               throw new Error('D_BATCH_IMPORT_SEND_GUARD_BLOCKED');
             }
           } });
+        if (result.status === 'rejected_before_write' && result.writeOccurred === false &&
+            result.requestTransmission === 'not_attempted') {
+          await persistCheckpoint({ kind: 'batch_import_prewrite_blocked', batchId, chunkIndex: chunk.index,
+            offerIds: chunk.offerIds, requestTransmission: result.requestTransmission,
+            reasonCode: result.reasonCode });
+          break;
+        }
         if (result.status !== 'waiting_platform') {
           await persistCheckpoint({ kind: 'batch_import_unknown', batchId, chunkIndex: chunk.index,
             offerIds: chunk.offerIds, reason: result.reason ?? result.status });
@@ -267,6 +284,10 @@ export function createPersistedDBatchImportRuntime({ repository, runtimeMode = '
           if (!intentCommitted) return { status: 'idempotent_replay', executionStatus: current.status, job: current };
           return { status: 'unknown_outcome', job: current, causeCode: error.code ?? error.message };
         }
+        if (!intentCommitted && ['waiting_platform','observed_pending','observed_imported',
+          'platform_failed','platform_skipped','unknown_outcome','observation_stopped',
+          'prewrite_blocked'].includes(current?.chunks[chunk.index].status))
+          return { status: 'idempotent_replay', executionStatus: current.status, job: current };
         throw error;
       }
     }

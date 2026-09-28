@@ -189,7 +189,8 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
     activeObservation = (async () => {
       const document = await repository.readSnapshot(), observedAt = serverClock();
       for (const job of document.runtime?.dBatchImportJobs ?? []) {
-        if (job.schemaVersion !== 'd-batch-import-job-v2') throw new Error('D_BATCH_SERVICE_JOB_VERSION_INVALID');
+        if (!['d-batch-import-job-v2','d-batch-import-job-v3'].includes(job.schemaVersion))
+          throw new Error('D_BATCH_SERVICE_JOB_VERSION_INVALID');
         for (const chunk of job.chunks) {
           if (chunk.taskId === null ||
               !['waiting_platform','observed_pending','unknown_outcome'].includes(chunk.status)) continue;
@@ -670,7 +671,7 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
       const jobs = snapshot.runtime?.dBatchImportJobs?.filter(job => job.batchId === batchId) ?? [];
       if (jobs.length > 1) throw new Error('D_BATCH_SERVICE_JOB_NOT_UNIQUE');
       if (jobs.length === 1 && (jobs[0].chunks.every(chunk => chunk.status !== 'not_sent') ||
-          jobs[0].chunks.some(chunk => ['intent', 'unknown_outcome'].includes(chunk.status)))) {
+          jobs[0].chunks.some(chunk => ['intent', 'unknown_outcome', 'prewrite_blocked'].includes(chunk.status)))) {
         return { status: 'idempotent_replay', executionStatus: jobs[0].status, job: clone(jobs[0]) };
       }
       if(batch.schemaVersion==='d-batch-production-authorization-v2'&&

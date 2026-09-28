@@ -5,6 +5,7 @@ import { finalAssets as syntheticFinalAssets } from './helpers/c2-software-fixtu
 import { createMemoryBusinessStateRepository, initialBusinessStateDocument } from '../lib/business-state-repository.mjs';
 import { createLocalDevelopmentWorkerRegistry } from '../lib/worker-registry.mjs';
 import { createStoreIsolatedOzonSellerApiDEAdapter } from '../lib/ozon-seller-api-de-adapter.mjs';
+import { OzonDEHttpTransportError } from '../lib/ozon-de-http-configuration.mjs';
 import { createPersistedDBatchImportRuntime } from '../lib/d-batch-import-runtime.mjs';
 import { fingerprintCanonicalRecord } from '../lib/production-contract-primitives.mjs';
 import { projectDBatchExecutionView } from '../lib/d-batch-execution-view.mjs';
@@ -16,7 +17,9 @@ const observationPolicy = { schemaVersion: 'd-platform-observation-policy-v1',
 const binding = { warehouseRef: 'warehouse:synthetic:dandanshu', credentialAlias: 'credential-alias:synthetic:dandanshu' };
 
 async function fixture({ failReceipt = false, createAdapterFailures = 0, observationItems = null, count = 2,
-  inventoryAction = null, maxItemsPerRequest = null, failImportCall = null } = {}) {
+  inventoryAction = null, maxItemsPerRequest = null, failImportCall = null,
+  expireLimitAfterIntentChunk = null, failPrewriteCheckpoint = false,
+  importFailure = null } = {}) {
   let currentTime = at;
   const colors = count === 2 ? ['white', 'black'] : ['black', 'navy', 'khaki'];
   const sources = [];
@@ -31,7 +34,8 @@ async function fixture({ failReceipt = false, createAdapterFailures = 0, observa
       supplierSkuId: `SHELF-${name}`, merchantSku: `BATCH-${name}`, assets, ...binding }));
   }
   const members = sources.map((source, index) => ({ request: source.prepared.executableRequest,
-    executionContext: source.executionContext, platformWritePreflight: source.preflight,
+    executionContext: { ...source.executionContext, serverClock: () => currentTime },
+    platformWritePreflight: source.preflight,
     colorKey: colors[index % colors.length],
     modelKey: 'same-product', sourceTechnicalStatus: 'not_started', observationPolicy }));
   const capability = formalCapabilities('dandanshu', members.flatMap(member => member.request.finalUploads), members[0].request);
@@ -44,6 +48,8 @@ async function fixture({ failReceipt = false, createAdapterFailures = 0, observa
   capability.productImport.limitEvidenceRef = 'synthetic:batch-limit';
   capability.productImport.limitObservedAt = '2026-08-22T07:00:00.000Z';
   capability.productImport.validUntil = '2026-09-01T00:00:00.000Z';
+  if (expireLimitAfterIntentChunk !== null)
+    capability.productImport.validUntil = '2026-08-22T07:25:01.000Z';
   const document = initialBusinessStateDocument({ now: at });
   document.candidates = sources.map((source, index) => ({ id: source.fixture.candidateId,
     dataRevision: source.fixture.candidateRevision, targetPlatform: 'ozon', targetStore: 'dandanshu',
@@ -64,11 +70,17 @@ async function fixture({ failReceipt = false, createAdapterFailures = 0, observa
       status: 'authorized', taskId: null, productId: null })) }];
   const baseRepository = createMemoryBusinessStateRepository(document);
   let rejectReceipt = failReceipt;
-  const repository = failReceipt ? { ...baseRepository, transact: mutator => baseRepository.transact(async saved => {
+  let rejectPrewrite = failPrewriteCheckpoint;
+  const repository = failReceipt || failPrewriteCheckpoint ? { ...baseRepository, transact: mutator => baseRepository.transact(async saved => {
     const outcome = await mutator(saved);
     if (rejectReceipt && saved.runtime.dBatchImportJobs?.some(job => job.chunks.some(chunk => chunk.status === 'waiting_platform'))) {
       rejectReceipt = false;
       throw new Error('synthetic receipt persistence failure');
+    }
+    if (rejectPrewrite && saved.runtime.dBatchImportJobs?.some(job =>
+      job.chunks.some(chunk => chunk.status === 'prewrite_blocked'))) {
+      rejectPrewrite = false;
+      throw new Error('synthetic prewrite checkpoint failure');
     }
     return outcome;
   }) } : baseRepository;
@@ -78,7 +90,7 @@ async function fixture({ failReceipt = false, createAdapterFailures = 0, observa
   const calls = [];
   let remainingAdapterFailures = createAdapterFailures;
   let readCount = 0;
-  const runtime = createPersistedDBatchImportRuntime({ repository, workerRegistry, serverClock: () => currentTime,
+  const runtimeOptions = { repository, workerRegistry, serverClock: () => currentTime,
     leaseDurationMs: 60_000,
     verifyCurrentBatchEvidence: async () => {
       const saved = await repository.readSnapshot();
@@ -86,12 +98,12 @@ async function fixture({ failReceipt = false, createAdapterFailures = 0, observa
     },
     createAdapter: async () => {
       if (remainingAdapterFailures > 0) { remainingAdapterFailures--; throw new Error('synthetic adapter startup failure'); }
-      return createStoreIsolatedOzonSellerApiDEAdapter({ adapterCapabilities: capability,
+      const adapter = createStoreIsolatedOzonSellerApiDEAdapter({ adapterCapabilities: capability,
       requestJson: async request => {
         calls.push(request);
         if (request.write) {
           const sendCount=calls.filter(call=>call.write).length;
-          if(sendCount===failImportCall)throw new Error('synthetic import response lost');
+          if(sendCount===failImportCall)throw importFailure ?? new Error('synthetic import response lost');
           return { result: { task_id: 500 + sendCount } };
         }
         const items = observationItems?.[readCount++] ?? [
@@ -100,8 +112,17 @@ async function fixture({ failReceipt = false, createAdapterFailures = 0, observa
         ];
         return { result: { items } };
       } });
-    } });
+      return expireLimitAfterIntentChunk === null ? adapter : { ...adapter,
+        executeBatchImport: (input,options) => adapter.executeBatchImport(input,{...options,
+          persistCheckpoint: async event => {
+            await options.persistCheckpoint(event);
+            if(event.kind==='batch_import_intent' && event.chunkIndex===expireLimitAfterIntentChunk)
+              currentTime=capability.productImport.validUntil;
+          }}) };
+    } };
+  const runtime = createPersistedDBatchImportRuntime(runtimeOptions);
   return { repository, runtime, members, capability, calls, workerRegistry,
+    restartRuntime:()=>createPersistedDBatchImportRuntime(runtimeOptions),
     setTime: value => { currentTime = value; } };
 }
 
@@ -170,6 +191,98 @@ test('a sent unknown chunk never replays or sends a later untouched chunk',async
   assert.equal((await runtime.run(input)).status,'idempotent_replay');
   assert.equal(calls.filter(call=>call.write).length,2);
   assert.equal(calls.some(call=>call.body.items?.some(item=>item.offer_id==='BATCH-04')),false);
+});
+
+test('expired limit after durable intent is proven unsent, displayed per offer and never replayed',async()=>{
+  const f=await fixture({expireLimitAfterIntentChunk:0});
+  const input={batchId:'d-batch:synthetic',members:f.members,adapterCapabilities:f.capability,
+    workerId:'worker:batch-synthetic'};
+  const stopped=await f.runtime.run(input);
+  assert.equal(stopped.status,'prewrite_blocked');
+  const saved=await f.repository.readSnapshot(),chunk=saved.runtime.dBatchImportJobs[0].chunks[0];
+  assert.equal(saved.runtime.dBatchImportJobs[0].schemaVersion,'d-batch-import-job-v3');
+  assert.equal(chunk.status,'prewrite_blocked');
+  assert.equal(chunk.taskId,null);
+  assert.equal(chunk.prewriteReasonCode,'OZON_BATCH_LIMIT_EVIDENCE_REQUIRED');
+  assert.equal(saved.runtime.dProductionBatches[0].externalRequestState,'not_sent');
+  assert.deepEqual(saved.runtime.dProductionBatches[0].members.map(member=>member.status),
+    ['prewrite_blocked','prewrite_blocked']);
+  assert.deepEqual(projectDBatchExecutionView(saved,input.batchId).members.map(member=>
+    [member.importStatus,member.importGapCode]),[
+      ['prewrite_blocked','OZON_BATCH_LIMIT_EVIDENCE_REQUIRED'],
+      ['prewrite_blocked','OZON_BATCH_LIMIT_EVIDENCE_REQUIRED']]);
+  assert.equal(f.calls.length,0);
+  const restarted=f.restartRuntime();
+  const replay=await Promise.all([restarted.run(input),restarted.run(input)]);
+  assert.deepEqual(replay.map(value=>value.status),['idempotent_replay','idempotent_replay']);
+  assert.equal(f.calls.length,0);
+});
+
+test('concurrent duplicate starts commit one proven-unsent verdict and no import request',async()=>{
+  const f=await fixture({expireLimitAfterIntentChunk:0});
+  const input={batchId:'d-batch:synthetic',members:f.members,adapterCapabilities:f.capability,
+    workerId:'worker:batch-synthetic'};
+  const outcomes=await Promise.all([f.runtime.run(input),f.runtime.run(input)]);
+  assert.equal(outcomes.some(result=>result.status==='prewrite_blocked'),true);
+  assert.equal(outcomes.every(result=>['prewrite_blocked','idempotent_replay'].includes(result.status)),true);
+  const saved=await f.repository.readSnapshot();
+  assert.equal(saved.runtime.dBatchImportJobs.length,1);
+  assert.equal(saved.runtime.dBatchImportJobs[0].chunks[0].status,'prewrite_blocked');
+  assert.equal(f.calls.length,0);
+});
+
+test('concurrent normal starts still send only one import task',async()=>{
+  const f=await fixture();
+  const input={batchId:'d-batch:synthetic',members:f.members,adapterCapabilities:f.capability,
+    workerId:'worker:batch-synthetic'};
+  const outcomes=await Promise.all([f.runtime.run(input),f.runtime.run(input)]);
+  assert.equal(outcomes.some(result=>result.status==='waiting_platform'),true);
+  assert.equal(outcomes.every(result=>['waiting_platform','idempotent_replay'].includes(result.status)),true);
+  assert.equal(f.calls.filter(call=>call.write).length,1);
+  assert.equal((await f.repository.readSnapshot()).runtime.dBatchImportJobs[0].chunks[0].status,
+    'waiting_platform');
+});
+
+test('a failed prewrite checkpoint retains the unknown intent and forbids replay',async()=>{
+  const f=await fixture({expireLimitAfterIntentChunk:0,failPrewriteCheckpoint:true});
+  const input={batchId:'d-batch:synthetic',members:f.members,adapterCapabilities:f.capability,
+    workerId:'worker:batch-synthetic'};
+  assert.equal((await f.runtime.run(input)).status,'unknown_outcome');
+  const saved=await f.repository.readSnapshot();
+  assert.equal(saved.runtime.dBatchImportJobs[0].chunks[0].status,'intent');
+  assert.equal(saved.runtime.dProductionBatches[0].externalRequestState,'intent_persisted');
+  assert.equal((await f.restartRuntime().run(input)).status,'idempotent_replay');
+  assert.equal(f.calls.length,0);
+});
+
+test('a sent first chunk remains observable after the next chunk is proven unsent',async()=>{
+  const f=await fixture({count:3,maxItemsPerRequest:1,expireLimitAfterIntentChunk:1,
+    observationItems:[[{offer_id:'BATCH-02',product_id:910002,status:'imported',errors:[]}]]});
+  const input={batchId:'d-batch:synthetic',members:f.members,adapterCapabilities:f.capability,
+    workerId:'worker:batch-synthetic'};
+  assert.equal((await f.runtime.run(input)).status,'waiting_platform');
+  const saved=await f.repository.readSnapshot();
+  assert.deepEqual(saved.runtime.dBatchImportJobs[0].chunks.map(chunk=>chunk.status),
+    ['waiting_platform','prewrite_blocked','not_sent']);
+  assert.equal(saved.runtime.dProductionBatches[0].externalRequestState,'task_received');
+  assert.deepEqual(f.calls.map(call=>call.write),[true]);
+  assert.equal((await f.restartRuntime().run(input)).status,'idempotent_replay');
+  assert.equal((await f.restartRuntime().observe({...input,chunkIndex:0})).status,'partial_failure');
+  assert.deepEqual(f.calls.map(call=>call.write),[true,false]);
+  assert.equal(f.calls.some(call=>call.body.items?.some(item=>item.offer_id==='BATCH-04')),false);
+});
+
+test('typed transport with attempted transmission remains unknown after one write',async()=>{
+  const f=await fixture({failImportCall:1,importFailure:new OzonDEHttpTransportError(
+    'OZON_DE_HTTP_CONNECTION_FAILED',{externalRequestState:'unknown_outcome',
+      requestTransmission:'attempted'})});
+  const input={batchId:'d-batch:synthetic',members:f.members,adapterCapabilities:f.capability,
+    workerId:'worker:batch-synthetic'};
+  assert.equal((await f.runtime.run(input)).status,'unknown_outcome');
+  assert.equal((await f.repository.readSnapshot()).runtime.dBatchImportJobs[0].chunks[0].status,
+    'unknown_outcome');
+  assert.equal((await f.restartRuntime().run(input)).status,'idempotent_replay');
+  assert.equal(f.calls.filter(call=>call.write).length,1);
 });
 
 test('adapter startup failure can resume only a never-sent chunk', async () => {

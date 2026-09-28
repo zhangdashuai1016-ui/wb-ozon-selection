@@ -287,6 +287,17 @@ function knownPrewriteRejection(message) {
   });
 }
 
+function batchPrewriteCode(error) {
+  if (error?.constructor !== Error) return null;
+  const code = error.message.split(':', 1)[0];
+  return /^(?:OZON_BATCH|D_BATCH_IMPORT)_[A-Z0-9_]{1,100}$/.test(code) ? code : null;
+}
+
+function batchPrewriteRejection(reasonCode) {
+  return freeze({ status: 'rejected_before_write', writeOccurred: false,
+    requestTransmission: 'not_attempted', reasonCode, retryAllowed: false });
+}
+
 function validateExecutionRequest(request, capabilities) {
   if (request?.executionProtocolVersion !== "ozon-single-sku-d-e-v3") return "D_EXECUTION_PROTOCOL_RECONFIRMATION_REQUIRED";
   if (request?.sourceAuthorizationVersion !== "production-authorization-v1.2") return "PRODUCTION_AUTHORIZATION_RECONFIRMATION_REQUIRED";
@@ -615,8 +626,16 @@ export function createStoreIsolatedOzonSellerApiDEAdapter({ requestJson, adapter
       if (!batchRequest) throw new Error('OZON_BATCH_CHUNK_NOT_FOUND');
       await persistCheckpoint({ kind: 'batch_import_intent', batchId, chunkIndex,
         offerIds: batchRequest.offerIds, limitEvidenceRef: batchRequest.limitEvidenceRef });
-      const currentRequests = project(members[0].executionContext.serverClock());
-      if (!isDeepStrictEqual(currentRequests[chunkIndex], batchRequest)) throw new Error('OZON_BATCH_SCOPE_CHANGED_AFTER_INTENT');
+      let currentRequests;
+      try { currentRequests = project(members[0].executionContext.serverClock()); }
+      catch (error) {
+        rethrowProgrammingError(error);
+        const code = batchPrewriteCode(error);
+        if (code !== null) return batchPrewriteRejection(code);
+        throw error;
+      }
+      if (!isDeepStrictEqual(currentRequests[chunkIndex], batchRequest))
+        return batchPrewriteRejection('OZON_BATCH_SCOPE_CHANGED_AFTER_INTENT');
       let response, runningGuard = false;
       try {
         response = await call({ endpoint: OZON_PRODUCT_IMPORT_ENDPOINT, body: batchRequest.body,
@@ -629,10 +648,15 @@ export function createStoreIsolatedOzonSellerApiDEAdapter({ requestJson, adapter
           runningGuard = false;
         } });
       } catch (error) {
-        if (runningGuard) throw error;
+        if (runningGuard) {
+          rethrowProgrammingError(error);
+          const code = batchPrewriteCode(error);
+          if (code !== null) return batchPrewriteRejection(code);
+          throw error;
+        }
         rethrowProgrammingError(error);
         const prewriteCode = transportPrewriteCode(error);
-        if (prewriteCode !== null) return knownPrewriteRejection(prewriteCode);
+        if (prewriteCode !== null) return batchPrewriteRejection(prewriteCode);
         return unknownOutcome('product_batch_import_transport', 'request_failed',
           { batchId, chunkIndex, offerIds: batchRequest.offerIds });
       }

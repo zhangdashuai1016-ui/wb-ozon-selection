@@ -160,3 +160,18 @@ test('execution view keeps per-member unknown and string E gaps visible and offe
   assert.match(html, /恢复明确未发送的库存续作/);
   assert.doesNotMatch(html, /一次确认整批最终内容/);
 });
+
+test('a proven unsent batch import names the exact offer and bounded stop reason',async()=>{
+  const {parent,child}=readyAuthorizationFamily();
+  const executionView={batchId:'d-batch:synthetic',externalRequestState:'not_sent',
+    excludedOfferIds:['MERCHANT-PREVIOUS'],members:[{candidateId:child.id,
+      offerId:'MERCHANT-CHILD',importStatus:'prewrite_blocked',
+      importGapCode:'OZON_BATCH_LIMIT_EVIDENCE_REQUIRED',inventoryStatus:'not_started',
+      eStatus:'not_started',eGaps:[],listedVerified:false}]};
+  const html=await renderFinalBatch({parent,siblings:[child],executionView,
+    onRefreshExecution:()=>{}});
+  assert.match(html,/MERCHANT-CHILD/);
+  assert.match(html,/已确认未发送，写入前停止/);
+  assert.match(html,/OZON_BATCH_LIMIT_EVIDENCE_REQUIRED/);
+  assert.doesNotMatch(html,/恢复明确未发送的库存续作/);
+});

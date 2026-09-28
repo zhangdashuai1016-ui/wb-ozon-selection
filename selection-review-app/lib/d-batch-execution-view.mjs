@@ -32,7 +32,7 @@ export function projectDBatchExecutionView(document,batchId){
       chunkIndex:chunk?.index??null,taskId:chunk?.taskId??null,
       productId:result?.importObservation?.productId??null,
       importStatus:result?.classification??chunk?.status??'not_started',
-      importGapCode:result?.gapCode??null,
+      importGapCode:result?.gapCode??chunk?.prewriteReasonCode??null,
       inventoryAction:batch.postImportScope?.inventoryAction??null,
       inventoryStatus:stock?.status??'not_started',
       inventoryReason:stock?.ownerReason??stock?.unknownReason??stock?.failureReason??null,

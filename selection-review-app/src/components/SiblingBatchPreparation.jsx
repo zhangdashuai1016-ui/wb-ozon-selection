@@ -10,7 +10,7 @@ const executionStatusNames = Object.freeze({ not_started: '未开始', not_sent:
   awaiting_prerequisites: '等待库存前置核验', prerequisites_in_flight: '正在核验库存前置条件',
   ready_to_write: '已核验，库存尚未发送', stock_intent: '库存请求结果待观察',
   stock_accepted: '库存请求已受理', inventory_deferred: '按授权暂不写库存',
-  needs_owner: '需要主人处理', precheck_failed: '前置核验失败', prewrite_blocked: '写入前已停止',
+  needs_owner: '需要主人处理', precheck_failed: '前置核验失败', prewrite_blocked: '已确认未发送，写入前停止',
   succeeded: '已完成', verified: '已独立核验' });
 const executionStatusLabel = status => executionStatusNames[status] ?? `未识别状态（${status}）`;
 
