@@ -1824,6 +1824,7 @@ export const CAPABILITY_ARTIFACT_ASSIGNMENTS = Object.freeze([
       "lib/c1-color-dictionary-read-use-case.mjs",
       "lib/c1-sibling-color-revision-use-case.mjs",
       "lib/c1-sibling-formal-draft-reuse.mjs",
+      "lib/c1-sibling-neutral-copy.mjs",
       "lib/sibling-batch-c1-preparation.mjs",
       "lib/c1-frozen-schema-refresh.mjs",
       "lib/c1-frozen-supply-attribute-backfill-use-case.mjs",
@@ -1870,7 +1871,9 @@ export const CAPABILITY_ARTIFACT_ASSIGNMENTS = Object.freeze([
       "tests/sibling-c1-color-api.test.mjs",
       "tests/sibling-c1-color-transition.test.mjs",
       "tests/c1-sibling-formal-draft-reuse.test.mjs",
+      "tests/c1-sibling-neutral-copy.test.mjs",
       "tests/sibling-batch-c1-preparation.test.mjs",
+      "tests/sibling-batch-c1-preview-api.test.mjs",
       "lib/listing-preparation-review-boundary.mjs",
       "lib/c1-draft-software-use-case.mjs",
       "lib/c1-draft-software-runtime.mjs",
@@ -2197,6 +2200,10 @@ export const CAPABILITY_ARTIFACT_ASSIGNMENTS = Object.freeze([
       "tests/fixtures/prepare-sibling-batch-browser.mjs",
       "tests/fixtures/sibling-batch-browser.html",
       "tests/fixtures/sibling-batch-browser.jsx",
+      "tests/fixtures/sibling-batch-c1-browser.html",
+      "tests/fixtures/sibling-batch-c1-browser.jsx",
+      "tests/fixtures/sibling-batch-c1-vite.config.mjs",
+      "tests/fixtures/start-sibling-batch-c1-browser.mjs",
       "tests/fixtures/sibling-batch-final-family-fixture.mjs",
       "tests/fixtures/sibling-batch-final-fixture.mjs",
       "tests/fixtures/store-binding-fixture.mjs",
@@ -2242,6 +2249,7 @@ export const CAPABILITY_ARTIFACT_ASSIGNMENTS = Object.freeze([
       "src/components/C2FinalAssetsPanel.jsx",
       "src/components/FinalProductPlanCard.jsx",
       "src/components/SiblingBatchPreparation.jsx",
+      "src/siblingBatchFormDefaults.js",
       "src/siblingBatchReview.js",
       "tests/c2-competitor-reference.test.mjs",
       "tests/c2-editorial-source.test.mjs",
@@ -2252,7 +2260,8 @@ export const CAPABILITY_ARTIFACT_ASSIGNMENTS = Object.freeze([
       "tests/production-commercial-draft.test.mjs",
       "tests/sibling-batch-c2-final.test.mjs",
       "tests/sibling-batch-commercial-api.test.mjs",
-      "tests/sibling-batch-review.test.mjs"
+      "tests/sibling-batch-review.test.mjs",
+      "tests/sibling-batch-form-defaults.test.mjs"
     ]
   ),
   artifactAssignment(

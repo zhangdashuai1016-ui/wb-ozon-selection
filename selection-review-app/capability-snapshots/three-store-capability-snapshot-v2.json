@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-28T02:53:07.700Z",
+  "frozenAt": "2026-09-29T08:09:50.287Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 849,
-      "sha256": "d41b088b9362b17fcd801f6953478e798d52aeeb26932ab3627aaf5fc518eb0c",
+      "artifactCount": 858,
+      "sha256": "b76cf4ca632c40b6b34ec157d0870680d451fad27314abdb7c4e99e56bccad5b",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -352,7 +352,11 @@
       },
       {
         "path": "lib/c1-sibling-formal-draft-reuse.mjs",
-        "sha256": "ad8e91787fe58f32edcb9a93b1c0176b59c43dfd438148a24dcaac36204911dd"
+        "sha256": "b558db8788e0405c1d56c3568c3be937c9c1d6e168fcb3308a3ced8fa2dfb5f2"
+      },
+      {
+        "path": "lib/c1-sibling-neutral-copy.mjs",
+        "sha256": "9b087d03313d5f4282e02337c51a006265c78ec81c234fc85797ef9770c23d11"
       },
       {
         "path": "lib/c1-sku-rights-review-submission.mjs",
@@ -380,7 +384,7 @@
       },
       {
         "path": "lib/c2-asset-lifecycle.mjs",
-        "sha256": "807e4041a58c038638d34ebb12641c70e3c59c1f91a012097c9f093ca7b8dbc4"
+        "sha256": "86454fe5f21928f6eb8b3feeeeb1600bde38dbf3fce8b7d8b5b072e4af614911"
       },
       {
         "path": "lib/c2-local-asset-store.mjs",
@@ -416,7 +420,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "f94c8a32620c76085f18c4ba2078ce326210ec2c692f630ebd078b13fb58c5c8"
+        "sha256": "cef51807c2de098e81aca88a58c1a41a467028b6a9626b33e8e4f2ed3fd131dc"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -1040,7 +1044,7 @@
       },
       {
         "path": "lib/sibling-batch-c1-preparation.mjs",
-        "sha256": "06cbe8b1496f7b10d4b9ebf39433ad1b12505348f0962ca723f3b8559faa4a5b"
+        "sha256": "db5ac9c1fa4f53750f2e2c4860efe414e49943e275e1c8b67df83843382222bf"
       },
       {
         "path": "lib/sibling-batch-c2-final.mjs",
@@ -1244,7 +1248,7 @@
       },
       {
         "path": "schema/c1-sibling-formal-reuse-v1.schema.json",
-        "sha256": "fa341677bdc30930eb5e324a51270a1a7c57032494b36fea58d976def5035ebd"
+        "sha256": "8d63c45522c64c1aa0c857ca7a10cf83648adca997dca7561ffd61795bb58463"
       },
       {
         "path": "schema/c1-sku-rights-review-record-v1.schema.json",
@@ -1420,7 +1424,7 @@
       },
       {
         "path": "scripts/ci-test-suites.mjs",
-        "sha256": "04eb64b1c8d485e2b261373e3fd479bb6b203b95bf373f8f81570fd0dea0e68d"
+        "sha256": "8925205a6654db4b3ae62c3903263d1cf0868349a1371bd3d6937c00bb4d293f"
       },
       {
         "path": "scripts/deploy-local-runtime.sh",
@@ -1476,11 +1480,11 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "172efb1a3137b9811bc9ca66b7b5ba2b5b1d453c036896f07d1547d50fcb69f2"
+        "sha256": "1702a212a307103a999c1d6ec705b8f1ba9a1e53c11da98bec86a293b8a38043"
       },
       {
         "path": "src/App.jsx",
-        "sha256": "94166d7c3cbff7b2d7167b750022bca2d6d300f9b0c066b1bbd106ead0fa0319"
+        "sha256": "5f65841931b99018967156d7505b9b66bfa3a996c338a3810c9304687c817451"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1492,7 +1496,7 @@
       },
       {
         "path": "src/api.js",
-        "sha256": "305c4314cdce3aa1577c67085b6008443135d8a92a1db3afaa9ba228eb719ecd"
+        "sha256": "96577f52ae783fe4f2f538e684583d1098c410d03f13fb44bf3172ad96a28298"
       },
       {
         "path": "src/bExactCommissionInput.js",
@@ -1656,7 +1660,7 @@
       },
       {
         "path": "src/components/ProductPage.jsx",
-        "sha256": "2a8d9cd09192e7547cc03eafefa5d41308602bcb9e94f467f8d1460b021e3db3"
+        "sha256": "ce4c74238ac4ecbeca39e7c1afc22a6c51771a5fd93a75367be9b35b5c8fa4a5"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1676,7 +1680,7 @@
       },
       {
         "path": "src/components/SiblingBatchPreparation.jsx",
-        "sha256": "8fbcbd07db2abb6834b0bb209d936855a595c26c0fb5f22bde3fdc6f2842fcb9"
+        "sha256": "59ba204840d2a26fea512cfbca01102c2d68eac22decbb8c7238d2cfac51c5b0"
       },
       {
         "path": "src/components/StatusBadge.jsx",
@@ -1763,12 +1767,16 @@
         "sha256": "fe5f242e91499db3196b7d8cc204c1e9faa0587fb1ec2cdfa7c704ffffa103b4"
       },
       {
+        "path": "src/siblingBatchFormDefaults.js",
+        "sha256": "08dcee210841cadc53f2e22ec96d9886e9653f418743e0b2c14c308ea1ab08a0"
+      },
+      {
         "path": "src/siblingBatchReview.js",
         "sha256": "b5205a6693357f5ef717849dd2373d82ce442fa2b538ccc8f026657c3bd03fed"
       },
       {
         "path": "src/styles.css",
-        "sha256": "5fff685f99ab9a2b1438d4ef6ac7f3cfa6f19743f868632af672cee1340aa0ce"
+        "sha256": "1e7d410fb046b69bb7d29f6d2ca3eae71afce41d56b32d2afa6c2991f71f851e"
       },
       {
         "path": "src/wbPresentation.js",
@@ -2211,6 +2219,10 @@
         "sha256": "60a1fd7e56b6f40a8c67e0ddec829deb9953bf7b789a23876cd8e95b2d9762f5"
       },
       {
+        "path": "tests/c1-sibling-neutral-copy.test.mjs",
+        "sha256": "63a58ff75b32e074eda792cb11f040515de08390e4b69858cf6daa7526020c04"
+      },
+      {
         "path": "tests/c1-sku-rights-review-submission.test.mjs",
         "sha256": "4598de16649e27baf220732a750e6ad26b7a9af140ca0697d1b96e7775f0704c"
       },
@@ -2304,7 +2316,7 @@
       },
       {
         "path": "tests/ci-api-boundary.test.mjs",
-        "sha256": "61e6699e3c8f66cc6484b043d2431894e9b360ce21ddb0345a393704ec4c58c2"
+        "sha256": "93e213df2b0c8d63b83ad15b9298804ec739284bc5cbb8adf3db99bbb0913ab9"
       },
       {
         "path": "tests/ci-test-policy.test.mjs",
@@ -2704,11 +2716,23 @@
       },
       {
         "path": "tests/fixtures/sibling-batch-browser.jsx",
-        "sha256": "36295675dfc9b94eabd860e37d67651948764c9a74444516dcaa551fa8123878"
+        "sha256": "126cd4a9f5a8449ebd7f72a97851a2b0b7faea3a4011999c48cedb1fcc28cf3d"
+      },
+      {
+        "path": "tests/fixtures/sibling-batch-c1-browser.html",
+        "sha256": "d3f8d3d37642a28230cfd004223f735d21f315827533bd68597d920f01bd5971"
+      },
+      {
+        "path": "tests/fixtures/sibling-batch-c1-browser.jsx",
+        "sha256": "e5e5d5ff4b562df557079ecfa75b21b6862a376c3aa5d5aaadf5472080439017"
+      },
+      {
+        "path": "tests/fixtures/sibling-batch-c1-vite.config.mjs",
+        "sha256": "4c212708ab66e8daa5e0c9f3c07c7ba5b07345cc0ba7bb1e33803c15518178d4"
       },
       {
         "path": "tests/fixtures/sibling-batch-final-family-fixture.mjs",
-        "sha256": "8ee0db600a817d43b5e20f284f29cc8ba5b4c7a2d119bb740fabdc0c3b101376"
+        "sha256": "c382bb21dad7f00dcb1c8c2573fb2120afe4a51fa972e418588330979664a315"
       },
       {
         "path": "tests/fixtures/sibling-batch-final-fixture.mjs",
@@ -2717,6 +2741,10 @@
       {
         "path": "tests/fixtures/sibling-color-state.mjs",
         "sha256": "7adaee6c118680d3aefce1cce3b5cc6d432f46b2318c8ccc2718c6051ec36909"
+      },
+      {
+        "path": "tests/fixtures/start-sibling-batch-c1-browser.mjs",
+        "sha256": "7bd1da05198711669b7dc07f6012b6d4e3dd1cacd5b7468261abbd035ffd97b6"
       },
       {
         "path": "tests/fixtures/start-sibling-color-preview.mjs",
@@ -2760,7 +2788,7 @@
       },
       {
         "path": "tests/helpers/d-e-saved-api-fixture.mjs",
-        "sha256": "5b37e8d505b59b785f550a1adc83fabc75f7930ed532ed867daaf80d9fb2ca87"
+        "sha256": "f8469a577ff264a3ad841a316c086c35e4f5b149c7cf9cdb91d9e24bb490e79d"
       },
       {
         "path": "tests/helpers/d-software-fixture.mjs",
@@ -3124,7 +3152,7 @@
       },
       {
         "path": "tests/product-page-ui.test.mjs",
-        "sha256": "ac36e657cbaa388c686a7f2df0e0f2ccb9eda9e1efd0ac0629d0dd53a2a05fcd"
+        "sha256": "6c9f7bdbae465da04035daff9fb710955f8b3af5a163eef292a9ea100ec6d1db"
       },
       {
         "path": "tests/production-authorization-rollback-acceptance.test.mjs",
@@ -3288,7 +3316,11 @@
       },
       {
         "path": "tests/sibling-batch-c1-preparation.test.mjs",
-        "sha256": "a644b011c6de7e8f29da40602136b46058a17a8a1ef034bb42f9b7c83baa9254"
+        "sha256": "f7e3fcf9b654978cf7c022ee93fd851d11dbdfa022ff0f2129f929f3ecafffdf"
+      },
+      {
+        "path": "tests/sibling-batch-c1-preview-api.test.mjs",
+        "sha256": "678a9ff6d0b0980d3246e2c3bb2f26f8ef04fac3d7b757e0102c554f8fe4c24b"
       },
       {
         "path": "tests/sibling-batch-c2-final.test.mjs",
@@ -3297,6 +3329,10 @@
       {
         "path": "tests/sibling-batch-commercial-api.test.mjs",
         "sha256": "21ba04fc2af921b9fd62ea26909fa3518ef553241e022ea78a626cc70432142e"
+      },
+      {
+        "path": "tests/sibling-batch-form-defaults.test.mjs",
+        "sha256": "277451677c03bfdbedc10cec1acc9f52672bd20386f6a2c5ef37253ca644c736"
       },
       {
         "path": "tests/sibling-batch-review.test.mjs",
@@ -5792,6 +5828,7 @@
         "lib/c1-color-dictionary-read-use-case.mjs",
         "lib/c1-sibling-color-revision-use-case.mjs",
         "lib/c1-sibling-formal-draft-reuse.mjs",
+        "lib/c1-sibling-neutral-copy.mjs",
         "lib/sibling-batch-c1-preparation.mjs",
         "lib/c1-frozen-schema-refresh.mjs",
         "lib/c1-frozen-supply-attribute-backfill-use-case.mjs",
@@ -5838,7 +5875,9 @@
         "tests/sibling-c1-color-api.test.mjs",
         "tests/sibling-c1-color-transition.test.mjs",
         "tests/c1-sibling-formal-draft-reuse.test.mjs",
+        "tests/c1-sibling-neutral-copy.test.mjs",
         "tests/sibling-batch-c1-preparation.test.mjs",
+        "tests/sibling-batch-c1-preview-api.test.mjs",
         "lib/listing-preparation-review-boundary.mjs",
         "lib/c1-draft-software-use-case.mjs",
         "lib/c1-draft-software-runtime.mjs",
@@ -6194,6 +6233,10 @@
         "tests/fixtures/prepare-sibling-batch-browser.mjs",
         "tests/fixtures/sibling-batch-browser.html",
         "tests/fixtures/sibling-batch-browser.jsx",
+        "tests/fixtures/sibling-batch-c1-browser.html",
+        "tests/fixtures/sibling-batch-c1-browser.jsx",
+        "tests/fixtures/sibling-batch-c1-vite.config.mjs",
+        "tests/fixtures/start-sibling-batch-c1-browser.mjs",
         "tests/fixtures/sibling-batch-final-family-fixture.mjs",
         "tests/fixtures/sibling-batch-final-fixture.mjs",
         "tests/fixtures/store-binding-fixture.mjs",
@@ -6247,6 +6290,7 @@
         "src/components/C2FinalAssetsPanel.jsx",
         "src/components/FinalProductPlanCard.jsx",
         "src/components/SiblingBatchPreparation.jsx",
+        "src/siblingBatchFormDefaults.js",
         "src/siblingBatchReview.js",
         "tests/c2-competitor-reference.test.mjs",
         "tests/c2-editorial-source.test.mjs",
@@ -6257,7 +6301,8 @@
         "tests/production-commercial-draft.test.mjs",
         "tests/sibling-batch-c2-final.test.mjs",
         "tests/sibling-batch-commercial-api.test.mjs",
-        "tests/sibling-batch-review.test.mjs"
+        "tests/sibling-batch-review.test.mjs",
+        "tests/sibling-batch-form-defaults.test.mjs"
       ]
     },
     {
