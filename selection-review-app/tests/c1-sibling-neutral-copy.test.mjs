@@ -87,3 +87,14 @@ test('unverified color aliases in either language require an explicit source rev
     assert.throws(() => buildC1SiblingNeutralContent(source), /C1_SIBLING_NEUTRAL_COLOR_ALIAS_REQUIRES_REVISION/);
   }
 });
+
+test('a known color followed by an unverified alias in the same field cannot be projected', () => {
+  for (const change of [
+    plan => { plan.seoTitleDraft.text = 'Одежда для животных: мини-жилет для кошек, хаки Khaki'; },
+    plan => { plan.seoTitleDraft.reviewZh = '宠物服装：适用于猫的卡其色 卡其迷你背心。'; }
+  ]) {
+    const source = structuredClone(vestPlan);
+    change(source);
+    assert.throws(() => buildC1SiblingNeutralContent(source), /C1_SIBLING_NEUTRAL_COLOR_ALIAS_REQUIRES_REVISION/);
+  }
+});

@@ -66,10 +66,33 @@ export function buildC1SiblingNeutralContent(sourcePlan) {
   if (!neutralKeywords.length) fail('C1_SIBLING_NEUTRAL_KEYWORD_MISSING');
   const hasKnownColor = value => typeof value === 'string' && tokens.some(token =>
     value.toLocaleLowerCase().includes(token.toLocaleLowerCase()));
+  const scriptOf = word => [
+    ['Latin', /^\p{Script=Latin}+$/u], ['Cyrillic', /^\p{Script=Cyrillic}+$/u],
+    ['Han', /^\p{Script=Han}+$/u]
+  ].find(([, pattern]) => pattern.test(word))?.[0] ?? null;
+  const ambiguousNeighbor = (word, token, spacedAfter) => {
+    const loweredWord = word.toLocaleLowerCase(), loweredToken = token.toLocaleLowerCase();
+    const letters = [...loweredToken];
+    const abbreviated = letters.some((_, length) => length >= 2 && length < letters.length &&
+      loweredWord.startsWith(letters.slice(0, length).join('')));
+    const wordScript = scriptOf(word), tokenScript = scriptOf(token);
+    const differentScript = wordScript !== null && tokenScript !== null && wordScript !== tokenScript;
+    return abbreviated || differentScript || (spacedAfter && [...word].length > 2);
+  };
+  const hasAmbiguousColorNeighbor = value => typeof value === 'string' && tokens.some(token => {
+    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return [...value.matchAll(new RegExp(escaped, 'giu'))].some(match => {
+      const before = value.slice(0, match.index).match(/([\p{L}]+)\s*$/u);
+      const after = value.slice(match.index + match[0].length).match(/^(\s*)([\p{L}]+)/u);
+      return (before && ambiguousNeighbor(before[1], token, false)) ||
+        (after && ambiguousNeighbor(after[2], token, after[1].length > 0));
+    });
+  });
   for (const piece of allPieces(sourcePlan)) {
     if (!piece.factRefs.some(ref => paths.includes(ref))) continue;
     if (!hasKnownColor(piece.text ?? piece.query) ||
-        (typeof piece.reviewZh === 'string' && !hasKnownColor(piece.reviewZh))) {
+        (typeof piece.reviewZh === 'string' && !hasKnownColor(piece.reviewZh)) ||
+        hasAmbiguousColorNeighbor(piece.text ?? piece.query) || hasAmbiguousColorNeighbor(piece.reviewZh)) {
       fail('C1_SIBLING_NEUTRAL_COLOR_ALIAS_REQUIRES_REVISION');
     }
   }
