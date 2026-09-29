@@ -88,13 +88,27 @@ test('unverified color aliases in either language require an explicit source rev
   }
 });
 
-test('a known color followed by an unverified alias in the same field cannot be projected', () => {
+test('a known color mixed with an unverified alias in the same field cannot be projected', () => {
   for (const change of [
     plan => { plan.seoTitleDraft.text = 'Одежда для животных: мини-жилет для кошек, хаки Khaki'; },
-    plan => { plan.seoTitleDraft.reviewZh = '宠物服装：适用于猫的卡其色 卡其迷你背心。'; }
+    plan => { plan.seoTitleDraft.reviewZh = '宠物服装：适用于猫的卡其色 卡其迷你背心。'; },
+    plan => { plan.seoTitleDraft.text = 'Одежда для животных: хаки, мини-жилет для кошек Khaki'; },
+    plan => { plan.seoTitleDraft.reviewZh = '宠物服装：卡其色迷你背心，适用于猫。卡其'; },
+    plan => { plan.seoTitleDraft.text = 'Одежда для животных: мини-жилет для кошек, песочный хаки'; },
+    plan => { plan.seoTitleDraft.reviewZh = '宠物服装：适用于猫的棕黄 卡其色迷你背心。'; }
   ]) {
     const source = structuredClone(vestPlan);
     change(source);
     assert.throws(() => buildC1SiblingNeutralContent(source), /C1_SIBLING_NEUTRAL_COLOR_ALIAS_REQUIRES_REVISION/);
   }
+});
+
+test('reviewed color slots allow normal words after the exact color without interpreting them as aliases', () => {
+  const source = structuredClone(vestPlan);
+  source.descriptionDraft.text = 'Мини-жилет из ткани оксфорд цвета хаки подходит для кошек. Его также можно надеть на винную бутылку. Модель подходит для любого сезона.';
+  source.seoTitleDraft.reviewZh = '宠物服装：适用于猫的卡其色 迷你背心。';
+  const content = buildC1SiblingNeutralContent(source);
+  assert.equal(content.descriptionDraft.text,
+    'Мини-жилет из ткани оксфорд подходит для кошек. Его также можно надеть на винную бутылку. Модель подходит для любого сезона.');
+  assert.equal(content.seoTitleDraft.reviewZh, '宠物服装：适用于猫的迷你背心。');
 });

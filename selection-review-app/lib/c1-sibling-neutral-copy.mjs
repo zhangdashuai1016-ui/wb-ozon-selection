@@ -48,6 +48,43 @@ function colorPaths(sourcePlan) {
   return paths;
 }
 
+// Only the reviewed vest wording has a provable single color slot; other colored drafts need source revision.
+function reviewedVestColorCopy(sourcePlan, paths) {
+  const colorValue = path => {
+    const value = factAt(sourcePlan, path).value;
+    return typeof value === 'string' ? value : value?.value;
+  };
+  const supplierPath = paths.find(path => path.startsWith('productAttributes.supplierAttributes.'));
+  const officialPaths = paths.filter(path => path.startsWith('productAttributes.ozonAttributes.'));
+  if (!supplierPath || !officialPaths.length) fail('C1_SIBLING_NEUTRAL_COLOR_ALIAS_REQUIRES_REVISION');
+  const zhColor = colorValue(supplierPath), ruColor = colorValue(officialPaths[0]);
+  if (typeof zhColor !== 'string' || typeof ruColor !== 'string' ||
+      officialPaths.some(path => colorValue(path)?.toLocaleLowerCase() !== ruColor.toLocaleLowerCase())) {
+    fail('C1_SIBLING_NEUTRAL_COLOR_ALIAS_REQUIRES_REVISION');
+  }
+  const title = sourcePlan.seoTitleDraft, description = sourcePlan.descriptionDraft;
+  const reviewedRussianDescriptions = [
+    `Мини-жилет цвета ${ruColor} из ткани оксфорд подходит для кошек. Его также можно надеть на винную бутылку. Модель подходит для любого сезона.`,
+    `Мини-жилет из ткани оксфорд цвета ${ruColor} подходит для кошек. Его также можно надеть на винную бутылку. Модель подходит для любого сезона.`
+  ];
+  if (!title.factRefs.some(path => paths.includes(path)) ||
+      !description.factRefs.some(path => paths.includes(path)) ||
+      title.text !== `Одежда для животных: мини-жилет для кошек, ${ruColor}` ||
+      ![`宠物服装：适用于猫的${zhColor}迷你背心。`, `宠物服装：适用于猫的${zhColor} 迷你背心。`].includes(title.reviewZh) ||
+      !reviewedRussianDescriptions.includes(description.text) ||
+      description.reviewZh !== `${zhColor}牛津布迷你背心适用于猫，也可以套在酒瓶上，四季适用。` ||
+      sourcePlan.bulletPointsDraft.some(piece => piece.factRefs.some(path => paths.includes(path))) ||
+      sourcePlan.searchKeywordsDraft.keywords.some(piece => piece.factRefs.some(path => paths.includes(path)) &&
+        (piece.query !== ruColor || piece.reviewZh !== `${zhColor}。`)) ||
+      sourcePlan.seoEvidenceLayer.russianAttributes?.some(item => paths.includes(item.factPath) &&
+        (item.valueRu !== ruColor || item.reviewZh !== `${zhColor}。`))) {
+    fail('C1_SIBLING_NEUTRAL_COLOR_ALIAS_REQUIRES_REVISION');
+  }
+  return { title: { text: 'Одежда для животных: мини-жилет для кошек', reviewZh: '宠物服装：适用于猫的迷你背心。' },
+    description: { text: 'Мини-жилет из ткани оксфорд подходит для кошек. Его также можно надеть на винную бутылку. Модель подходит для любого сезона.',
+      reviewZh: '牛津布迷你背心适用于猫，也可以套在酒瓶上，四季适用。' } };
+}
+
 export function buildC1SiblingNeutralContent(sourcePlan) {
   const paths = colorPaths(sourcePlan);
   const tokens = [...new Set(paths.flatMap(path => {
@@ -62,55 +99,19 @@ export function buildC1SiblingNeutralContent(sourcePlan) {
     (piece.keywordEvidenceRefs ?? piece.evidenceRefs ?? []).some(ref => colorKeywordRefs.has(ref)) ||
     tokens.some(token => [piece.text, piece.query, piece.reviewZh].some(value =>
       typeof value === 'string' && value.toLocaleLowerCase().includes(token.toLocaleLowerCase())));
+  const colorUsed = allPieces(sourcePlan).some(colored) ||
+    sourcePlan.seoEvidenceLayer.russianAttributes?.some(item => paths.includes(item.factPath));
+  const reviewed = colorUsed ? reviewedVestColorCopy(sourcePlan, paths) : null;
   const neutralKeywords = sourcePlan.searchKeywordsDraft.keywords.filter(item => !colored(item));
   if (!neutralKeywords.length) fail('C1_SIBLING_NEUTRAL_KEYWORD_MISSING');
-  const hasKnownColor = value => typeof value === 'string' && tokens.some(token =>
-    value.toLocaleLowerCase().includes(token.toLocaleLowerCase()));
-  const scriptOf = word => [
-    ['Latin', /^\p{Script=Latin}+$/u], ['Cyrillic', /^\p{Script=Cyrillic}+$/u],
-    ['Han', /^\p{Script=Han}+$/u]
-  ].find(([, pattern]) => pattern.test(word))?.[0] ?? null;
-  const ambiguousNeighbor = (word, token, spacedAfter) => {
-    const loweredWord = word.toLocaleLowerCase(), loweredToken = token.toLocaleLowerCase();
-    const letters = [...loweredToken];
-    const abbreviated = letters.some((_, length) => length >= 2 && length < letters.length &&
-      loweredWord.startsWith(letters.slice(0, length).join('')));
-    const wordScript = scriptOf(word), tokenScript = scriptOf(token);
-    const differentScript = wordScript !== null && tokenScript !== null && wordScript !== tokenScript;
-    return abbreviated || differentScript || (spacedAfter && [...word].length > 2);
-  };
-  const hasAmbiguousColorNeighbor = value => typeof value === 'string' && tokens.some(token => {
-    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return [...value.matchAll(new RegExp(escaped, 'giu'))].some(match => {
-      const before = value.slice(0, match.index).match(/([\p{L}]+)\s*$/u);
-      const after = value.slice(match.index + match[0].length).match(/^(\s*)([\p{L}]+)/u);
-      return (before && ambiguousNeighbor(before[1], token, false)) ||
-        (after && ambiguousNeighbor(after[2], token, after[1].length > 0));
-    });
-  });
-  for (const piece of allPieces(sourcePlan)) {
-    if (!piece.factRefs.some(ref => paths.includes(ref))) continue;
-    if (!hasKnownColor(piece.text ?? piece.query) ||
-        (typeof piece.reviewZh === 'string' && !hasKnownColor(piece.reviewZh)) ||
-        hasAmbiguousColorNeighbor(piece.text ?? piece.query) || hasAmbiguousColorNeighbor(piece.reviewZh)) {
-      fail('C1_SIBLING_NEUTRAL_COLOR_ALIAS_REQUIRES_REVISION');
+  const neutralizePiece = (piece, approvedText) => {
+    if (!approvedText) {
+      if (colored(piece)) fail('C1_SIBLING_NEUTRAL_COLOR_ALIAS_REQUIRES_REVISION');
+      return structuredClone(piece);
     }
-  }
-  const removeTokens = value => {
-    if (typeof value !== 'string') return value;
-    let result = value;
-    for (const token of tokens) {
-      const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const expression = new RegExp(`(?:\\s+цвета\\s+|,\\s*|\\s*)${escaped}`, 'giu');
-      result = result.replace(expression, '');
-    }
-    return result.replace(/\s+([,.!?。])/g, '$1').replace(/\s{2,}/g, ' ').trim();
-  };
-  const neutralizePiece = piece => {
-    if (!colored(piece)) return structuredClone(piece);
     const result = structuredClone(piece);
-    result.text = removeTokens(result.text);
-    if (typeof result.reviewZh === 'string') result.reviewZh = removeTokens(result.reviewZh);
+    result.text = approvedText.text;
+    result.reviewZh = approvedText.reviewZh;
     result.factRefs = result.factRefs.filter(path => !paths.includes(path));
     result.assertions = result.assertions.filter(item => !paths.includes(item.factPath));
     result.keywordEvidenceRefs = result.keywordEvidenceRefs.filter(ref => !colorKeywordRefs.has(ref));
@@ -122,8 +123,8 @@ export function buildC1SiblingNeutralContent(sourcePlan) {
       result.factRefs.some(path => paths.includes(path))) fail('C1_SIBLING_NEUTRAL_COLOR_REMAINS');
     return result;
   };
-  const title = neutralizePiece(sourcePlan.seoTitleDraft);
-  const description = neutralizePiece(sourcePlan.descriptionDraft);
+  const title = neutralizePiece(sourcePlan.seoTitleDraft, reviewed?.title);
+  const description = neutralizePiece(sourcePlan.descriptionDraft, reviewed?.description);
   const bullets = sourcePlan.bulletPointsDraft.map(neutralizePiece);
   const keywords = { ...structuredClone(sourcePlan.searchKeywordsDraft), keywords: structuredClone(neutralKeywords) };
   const refs = [...new Set([title, description, ...bullets].flatMap(piece => piece.keywordEvidenceRefs)
