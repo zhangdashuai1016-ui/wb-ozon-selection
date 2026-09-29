@@ -51,22 +51,46 @@ async function waitForBrowser() {
   }
   throw new Error('SIBLING_BATCH_BROWSER_START_TIMEOUT');
 }
+async function stopVite(parentSignal = null) {
+  const wasRunning = vite.exitCode === null && vite.signalCode === null;
+  try { await stopApiProcess(vite); }
+  catch (error) {
+    // Vite converts our planned SIGTERM into exit code 143 instead of reporting a signal.
+    if (wasRunning && vite.exitCode === 143 && vite.signalCode === null &&
+        error.message === 'API_PROCESS_EXIT_FAILED: code=143, signal=null') return;
+    // An interactive Ctrl-C reaches the parent and Vite in the same terminal group.
+    if (parentSignal === 'SIGINT' && vite.exitCode === null && vite.signalCode === 'SIGINT' &&
+        error.message === 'API_PROCESS_EXIT_FAILED: code=null, signal=SIGINT') return;
+    throw error;
+  }
+}
+async function closeFixture(parentSignal = null) {
+  const errors = [];
+  try { await stopVite(parentSignal); }
+  catch (error) { errors.push(error); }
+  for (const cleanup of cleanups.reverse()) {
+    try { await cleanup(); }
+    catch (error) { errors.push(error); }
+  }
+  if (errors.length) throw new AggregateError(errors, 'SIBLING_BATCH_BROWSER_CLEANUP_FAILED');
+}
 try { await waitForBrowser(); }
 catch (error) {
-  await stopApiProcess(vite);
-  for (const cleanup of cleanups.reverse()) await cleanup();
+  try { await closeFixture(); }
+  catch (cleanupError) {
+    throw new AggregateError([error, cleanupError], 'SIBLING_BATCH_BROWSER_START_AND_CLEANUP_FAILED');
+  }
   throw error;
 }
 process.stdout.write(`Synthetic C1 browser: ${browserOrigin}/tests/fixtures/sibling-batch-c1-browser.html\n`);
 process.stdout.write('Synthetic owner password: synthetic password for bounded saved DE HTTP tests\n');
 process.stdout.write('Press Ctrl-C to stop and remove the temporary synthetic state.\n');
 let stopping = false;
-async function stop() {
+async function stop(parentSignal) {
   if (stopping) return;
   stopping = true;
-  await stopApiProcess(vite);
-  for (const cleanup of cleanups.reverse()) await cleanup();
+  await closeFixture(parentSignal);
   process.exitCode = 0;
 }
-process.once('SIGINT', stop);
-process.once('SIGTERM', stop);
+process.once('SIGINT', () => stop('SIGINT'));
+process.once('SIGTERM', () => stop('SIGTERM'));
