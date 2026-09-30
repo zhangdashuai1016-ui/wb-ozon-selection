@@ -13,9 +13,11 @@ function family() {
     supplierDraftV1: { offerId }, lifecycleV11: { productionCommercialDraftV1: { merchantSku: firstMerchantSku },
       skuPackage: { skuPackageId: 'sku:synthetic-first', supplierSkuId: firstSkuId,
         productionConfirmationCard: { ownerDecision: { merchantSku: firstMerchantSku } },
-        productionAuthorization: { schemaVersion: 'production-entity-reference-v1', entityId: 'auth:synthetic',
-          scope: { candidateId: 'candidate:synthetic-parent', skuPackageId: 'sku:synthetic-first',
-            platform: 'ozon', storeRef, supplierSkuId: firstSkuId } },
+        productionAuthorization: { schemaVersion: 'production-authorization-v1.2', authorizationId: 'auth:synthetic',
+          status: 'confirmed', identity: { candidateId: 'candidate:synthetic-parent', skuPackageId: 'sku:synthetic-first',
+            platform: 'ozon', storeRef, supplierSkuId: firstSkuId, merchantSku: firstMerchantSku },
+          lockedScope: { candidateId: 'candidate:synthetic-parent', skuPackageId: 'sku:synthetic-first',
+            platform: 'ozon', storeRef, supplierSkuId: firstSkuId, merchantSku: firstMerchantSku } },
         dHandoff: { candidateId: 'candidate:synthetic-parent', skuPackageId: 'sku:synthetic-first',
           productionAuthorizationId: 'auth:synthetic',
           identity: { platform: 'ozon', storeRef, supplierSkuId: firstSkuId, merchantSku: firstMerchantSku } } } } };
@@ -31,6 +33,13 @@ test('three selected specifications get distinct stable suggestions without chan
   assert.equal(new Set(Object.values(first)).size, 3);
   assert.equal(Object.values(first).includes(firstMerchantSku), false);
   assert.deepEqual(parent, before);
+});
+
+test('legacy full authorization remains a valid frozen naming anchor', () => {
+  const parent = family();
+  parent.lifecycleV11.skuPackage.productionAuthorization.schemaVersion = 'production-authorization-v1.1';
+  assert.deepEqual(siblingMerchantSkuSuggestions(parent, ids.map(sourceSkuId => ({ sourceSkuId }))),
+    Object.fromEntries(ids.map(id => [id, `OZ-1688-${offerId}-${id}`])));
 });
 
 test('missing frozen anchor and mismatched offer or first SKU block suggestions', () => {
@@ -52,20 +61,42 @@ test('missing frozen anchor and mismatched offer or first SKU block suggestions'
     platformStoreId: 'different-seller' };
   assert.throws(() => siblingMerchantSkuSuggestions(changedStore, rows), /来源身份/);
   const changedAuthorization = family();
-  changedAuthorization.lifecycleV11.skuPackage.productionAuthorization.scope.storeRef = {
+  changedAuthorization.lifecycleV11.skuPackage.productionAuthorization.lockedScope.storeRef = {
     ...changedAuthorization.storeRef, platformStoreId: 'different-seller' };
   assert.throws(() => siblingMerchantSkuSuggestions(changedAuthorization, rows), /来源身份/);
   const changedAuthorizationId = family();
-  changedAuthorizationId.lifecycleV11.skuPackage.productionAuthorization.entityId = 'auth:other';
+  changedAuthorizationId.lifecycleV11.skuPackage.productionAuthorization.authorizationId = 'auth:other';
   assert.throws(() => siblingMerchantSkuSuggestions(changedAuthorizationId, rows), /来源身份/);
   const changedAuthorizationScope = family();
-  changedAuthorizationScope.lifecycleV11.skuPackage.productionAuthorization.scope.supplierSkuId = 'different';
+  changedAuthorizationScope.lifecycleV11.skuPackage.productionAuthorization.lockedScope.supplierSkuId = 'different';
   assert.throws(() => siblingMerchantSkuSuggestions(changedAuthorizationScope, rows), /来源身份/);
   for (const field of ['candidateId', 'skuPackageId', 'platform']) {
     const changed = family();
-    changed.lifecycleV11.skuPackage.productionAuthorization.scope[field] = 'different';
+    changed.lifecycleV11.skuPackage.productionAuthorization.lockedScope[field] = 'different';
     assert.throws(() => siblingMerchantSkuSuggestions(changed, rows), /来源身份/, field);
   }
+  const changedLockedSku = family();
+  changedLockedSku.lifecycleV11.skuPackage.productionAuthorization.lockedScope.merchantSku = 'different';
+  assert.throws(() => siblingMerchantSkuSuggestions(changedLockedSku, rows), /来源身份/);
+  const changedIdentitySku = family();
+  changedIdentitySku.lifecycleV11.skuPackage.productionAuthorization.identity.merchantSku = 'different';
+  assert.throws(() => siblingMerchantSkuSuggestions(changedIdentitySku, rows), /来源身份/);
+  for (const field of ['candidateId', 'skuPackageId', 'supplierSkuId', 'platform']) {
+    const changed = family();
+    changed.lifecycleV11.skuPackage.productionAuthorization.identity[field] = 'different';
+    assert.throws(() => siblingMerchantSkuSuggestions(changed, rows), /来源身份/, field);
+  }
+  const changedIdentityStore = family();
+  changedIdentityStore.lifecycleV11.skuPackage.productionAuthorization.identity.storeRef = {
+    ...changedIdentityStore.storeRef, platformStoreId: 'different-seller' };
+  assert.throws(() => siblingMerchantSkuSuggestions(changedIdentityStore, rows), /来源身份/);
+  const unconfirmed = family();
+  unconfirmed.lifecycleV11.skuPackage.productionAuthorization.status = 'pending';
+  assert.throws(() => siblingMerchantSkuSuggestions(unconfirmed, rows), /来源身份/);
+  const rawReference = family();
+  rawReference.lifecycleV11.skuPackage.productionAuthorization = { schemaVersion: 'production-entity-reference-v1',
+    entityId: 'auth:synthetic', scope: structuredClone(rawReference.lifecycleV11.skuPackage.productionAuthorization.lockedScope) };
+  assert.throws(() => siblingMerchantSkuSuggestions(rawReference, rows), /来源身份/);
   assert.throws(() => siblingMerchantSkuSuggestions(family(), [{ sourceSkuId: firstSkuId }]), /本批供应 SKU/);
   assert.throws(() => siblingMerchantSkuSuggestions(family(), [{ sourceSkuId: ids[0] }, { sourceSkuId: ids[0] }]), /重复/);
 });

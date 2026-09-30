@@ -6,7 +6,8 @@ export function siblingMerchantSkuSuggestions(parent, rows) {
   const firstSkuId = parent.lifecycleV11?.skuPackage?.supplierSkuId;
   const sku = parent.lifecycleV11?.skuPackage;
   const authorization = sku?.productionAuthorization;
-  const authorizationScope = authorization?.scope;
+  // The repository restores stored entity references before /api/state reaches this page.
+  const authorizationScope = authorization?.lockedScope;
   const decisionSku = sku?.productionConfirmationCard?.ownerDecision?.merchantSku;
   const handoff = sku?.dHandoff;
   const handoffSku = handoff?.identity?.merchantSku;
@@ -15,14 +16,24 @@ export function siblingMerchantSkuSuggestions(parent, rows) {
   const store = parent.storeRef;
   const frozenStore = handoff?.identity?.storeRef;
   if (!numericSourceId(firstSkuId) || !numericSourceId(offerId) ||
-      !skuText(authorization?.entityId) || authorization.entityId !== handoff?.productionAuthorizationId ||
+      !['production-authorization-v1.1', 'production-authorization-v1.2'].includes(authorization?.schemaVersion) ||
+      authorization.status !== 'confirmed' ||
+      !skuText(authorization.authorizationId) || authorization.authorizationId !== handoff?.productionAuthorizationId ||
       authorizationScope?.candidateId !== parent.id ||
       authorizationScope?.skuPackageId !== sku.skuPackageId ||
       authorizationScope?.supplierSkuId !== firstSkuId ||
       authorizationScope?.platform !== parent.targetPlatform ||
       authorizationScope?.storeRef?.stableStoreId !== store?.stableStoreId ||
       authorizationScope?.storeRef?.platformStoreId !== store?.platformStoreId ||
+      authorization.identity?.candidateId !== parent.id ||
+      authorization.identity?.skuPackageId !== sku.skuPackageId ||
+      authorization.identity?.supplierSkuId !== firstSkuId ||
+      authorization.identity?.platform !== parent.targetPlatform ||
+      authorization.identity?.storeRef?.stableStoreId !== store?.stableStoreId ||
+      authorization.identity?.storeRef?.platformStoreId !== store?.platformStoreId ||
       !skuText(decisionSku) || !skuText(handoffSku) ||
+      authorizationScope?.merchantSku !== decisionSku ||
+      authorization?.identity?.merchantSku !== handoffSku ||
       handoff?.candidateId !== parent.id || handoff?.skuPackageId !== sku.skuPackageId ||
       handoff.identity.supplierSkuId !== firstSkuId ||
       parent.targetPlatform !== 'ozon' || handoff.identity.platform !== parent.targetPlatform ||
