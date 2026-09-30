@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-09-29T08:09:50.287Z",
+  "frozenAt": "2026-09-30T03:36:39.190Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 858,
-      "sha256": "b76cf4ca632c40b6b34ec157d0870680d451fad27314abdb7c4e99e56bccad5b",
+      "sha256": "926eead0a0d34bcc77d7ce6d0a7975139eb58d732c38177cd7252937666c3fc0",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -1768,7 +1768,7 @@
       },
       {
         "path": "src/siblingBatchFormDefaults.js",
-        "sha256": "08dcee210841cadc53f2e22ec96d9886e9653f418743e0b2c14c308ea1ab08a0"
+        "sha256": "e86e148ede0c9b009bab2429cb6fc33f7bbb7f23a16a9a8df58801507ad5d15a"
       },
       {
         "path": "src/siblingBatchReview.js",
@@ -2716,7 +2716,7 @@
       },
       {
         "path": "tests/fixtures/sibling-batch-browser.jsx",
-        "sha256": "126cd4a9f5a8449ebd7f72a97851a2b0b7faea3a4011999c48cedb1fcc28cf3d"
+        "sha256": "8cf61e5f4ec1cb2664b669ff7c84333c4888913e353b25bd465585dbd91dcefb"
       },
       {
         "path": "tests/fixtures/sibling-batch-c1-browser.html",
@@ -3332,7 +3332,7 @@
       },
       {
         "path": "tests/sibling-batch-form-defaults.test.mjs",
-        "sha256": "277451677c03bfdbedc10cec1acc9f52672bd20386f6a2c5ef37253ca644c736"
+        "sha256": "4ef644be382d63b15f06fe33e3f88989cd432a160ac9d2c915d756d43a882af8"
       },
       {
         "path": "tests/sibling-batch-review.test.mjs",
