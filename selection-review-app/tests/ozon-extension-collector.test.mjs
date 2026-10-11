@@ -43,7 +43,7 @@ function priceElement(tagName, ...children) {
   return element;
 }
 
-function installPage({ href = "https://www.ozon.ru/product/test-product-4403916892/", widgets = {} } = {}) {
+function installPage({ href = "https://www.ozon.ru/product/test-product-9999000002/", widgets = {} } = {}) {
   const previous = { window: globalThis.window, document: globalThis.document, fetch: globalThis.fetch };
   globalThis.window = { location: { href } };
   globalThis.document = {
@@ -65,7 +65,7 @@ function installPage({ href = "https://www.ozon.ru/product/test-product-44039168
   };
 }
 
-function realLikeWidgets({ includePrice = true } = {}) {
+function syntheticWidgets({ includePrice = true } = {}) {
   const attributeRows = [
     node("", { children: [node("Тип"), node("Музыкальная шкатулка")] }),
     node("", { children: [node("Материал"), node("Пластик")] }),
@@ -91,11 +91,11 @@ function realLikeWidgets({ includePrice = true } = {}) {
 }
 
 test("Ozon collector reads already-loaded widgets without network requests or defaults", async () => {
-  const restore = installPage({ widgets: realLikeWidgets() });
+  const restore = installPage({ widgets: syntheticWidgets() });
   try {
-    const result = await collectOzonPage("4403916892");
+    const result = await collectOzonPage("9999000002");
     assert.equal(result.status, "captured");
-    assert.equal(result.evidence.productId, "4403916892");
+    assert.equal(result.evidence.productId, "9999000002");
     assert.equal(result.evidence.currentPrice, 1462, "普通买家价格不能被银行卡专享价替代");
     assert.equal(result.evidence.currency, "RUB");
     assert.equal(result.evidence.attributes["Тип"], "Музыкальная шкатулка");
@@ -107,7 +107,7 @@ test("Ozon collector reads already-loaded widgets without network requests or de
     ]);
     assert.equal(result.evidence.source, "ozon_loaded_page_widgets");
 
-    const snapshot = sanitizeOzonCaptureEvidence(result.evidence, "4403916892", {
+    const snapshot = sanitizeOzonCaptureEvidence(result.evidence, "9999000002", {
       captureId: "OSC-test",
       snapshotId: "sales-snapshot:ozon:test"
     });
@@ -120,9 +120,9 @@ test("Ozon collector reads already-loaded widgets without network requests or de
 });
 
 test("Ozon collector rejects another product before reading widgets", async () => {
-  const restore = installPage({ widgets: realLikeWidgets() });
+  const restore = installPage({ widgets: syntheticWidgets() });
   try {
-    const result = await collectOzonPage("9999999999");
+    const result = await collectOzonPage("9999000003");
     assert.equal(result.status, "failed");
     assert.equal(result.failureCode, "wrong_product");
   } finally {
@@ -131,9 +131,9 @@ test("Ozon collector rejects another product before reading widgets", async () =
 });
 
 test("Ozon collector stops when loaded price widget has no ordinary buyer price", async () => {
-  const restore = installPage({ widgets: realLikeWidgets({ includePrice: false }) });
+  const restore = installPage({ widgets: syntheticWidgets({ includePrice: false }) });
   try {
-    const result = await collectOzonPage("4403916892");
+    const result = await collectOzonPage("9999000002");
     assert.equal(result.status, "failed");
     assert.equal(result.failureCode, "precise_price_missing");
   } finally {
@@ -141,7 +141,7 @@ test("Ozon collector stops when loaded price widget has no ordinary buyer price"
   }
 });
 
-function realPage({ lineThroughTexts = OZON_PRICE_PAGE_LINE_THROUGH_TEXTS,
+function syntheticPricePage({ lineThroughTexts = OZON_PRICE_PAGE_LINE_THROUGH_TEXTS,
   pseudoStruckTexts = OZON_PRICE_PAGE_PSEUDO_STRUCK_TEXTS } = {}) {
   return installOzonHtmlPage({
     href: OZON_PRICE_PAGE_URL,
@@ -151,24 +151,24 @@ function realPage({ lineThroughTexts = OZON_PRICE_PAGE_LINE_THROUGH_TEXTS,
   });
 }
 
-test("Ozon collector reads the ordinary bank price out of a real three-price card", async () => {
-  const restore = realPage();
+test("Ozon collector reads the ordinary bank price out of a synthetic three-price card", async () => {
+  const restore = syntheticPricePage();
   try {
     const result = await collectOzonPage(OZON_PRICE_PAGE_PRODUCT_ID);
     assert.equal(result.status, "captured", result.message);
-    assert.equal(result.evidence.currentPrice, 1445, "多价并存时取С другими банками的普通银行卡价");
+    assert.equal(result.evidence.currentPrice, 2112, "多价并存时取С другими банками的普通银行卡价");
     assert.equal(result.evidence.currency, "RUB");
-    assert.equal(result.evidence.title, "Водонепроницаемый дождевик для собак, светоотражающий -8XL");
-    assert.equal(result.evidence.categoryPath, "Товары для животных > Для собак > Одежда");
-    assert.equal(result.evidence.attributes["Ozon bank price"], "1332 RUB", "联名卡价只作为附加属性留档");
-    assert.equal(result.evidence.attributes["Размер одежды/аксессуара для животных"], "8XL");
+    assert.equal(result.evidence.title, "Синтетический товар для проверки цены SYNTHETIC-XL");
+    assert.equal(result.evidence.categoryPath, "Синтетическая категория A > Синтетическая категория B > Синтетическая категория C");
+    assert.equal(result.evidence.attributes["Ozon bank price"], "1777 RUB", "联名卡价只作为附加属性留档");
+    assert.equal(result.evidence.attributes["Размер одежды/аксессуара для животных"], "SYNTHETIC-XL");
 
     // 服务端脱敏不需要改：同一形状的证据照旧收得下。
     const snapshot = sanitizeOzonCaptureEvidence(result.evidence, OZON_PRICE_PAGE_PRODUCT_ID, {
-      captureId: "OSC-real-price",
-      snapshotId: "sales-snapshot:ozon:real-price"
+      captureId: "OSC-synthetic-price",
+      snapshotId: "sales-snapshot:ozon:synthetic-price"
     });
-    assert.equal(snapshot.currentPrice, 1445);
+    assert.equal(snapshot.currentPrice, 2112);
     assert.equal(snapshot.currency, "RUB");
     assert.equal(snapshot.collectorMode, "real_page_read_only");
   } finally {
@@ -177,28 +177,28 @@ test("Ozon collector reads the ordinary bank price out of a real three-price car
 });
 
 test("Ozon collector never sells from the co-branded, crossed-out or points price", async () => {
-  const restore = realPage();
+  const restore = syntheticPricePage();
   try {
     const result = await collectOzonPage(OZON_PRICE_PAGE_PRODUCT_ID);
     assert.equal(result.status, "captured", result.message);
-    assert.notEqual(result.evidence.currentPrice, 1332, "1 332 ₽ 是С банками联名卡价");
-    assert.notEqual(result.evidence.currentPrice, 5172, "5 172 ₽ 是划线原价");
-    assert.notEqual(result.evidence.currentPrice, 1, "webPricePerStars的Купить за 1 ₽是积分促销，不在价格组件里");
-    assert.equal(JSON.stringify(result.evidence).includes("5172"), false, "划线原价不进入任何证据字段");
+    assert.notEqual(result.evidence.currentPrice, 1777, "1 777 ₽ 是С банками联名卡价");
+    assert.notEqual(result.evidence.currentPrice, 5634, "5 634 ₽ 是划线原价");
+    assert.notEqual(result.evidence.currentPrice, 3, "webPricePerStars的Купить за 3 ₽是积分促销，不在价格组件里");
+    assert.equal(JSON.stringify(result.evidence).includes("5634"), false, "划线原价不进入任何证据字段");
   } finally {
     restore();
   }
 });
 
 test("Ozon collector stops instead of guessing when the crossed-out price cannot be told apart", async () => {
-  // 同一份真实页面，只是这次读不出删除线：三个数并存又分不出哪个是当前价。
-  const restore = realPage({ lineThroughTexts: [], pseudoStruckTexts: [] });
+  // 同一份合成页面，这次没有删除线证据：三个数并存又分不出哪个是当前价。
+  const restore = syntheticPricePage({ lineThroughTexts: [], pseudoStruckTexts: [] });
   try {
     const result = await collectOzonPage(OZON_PRICE_PAGE_PRODUCT_ID);
     assert.equal(result.status, "failed");
     assert.equal(result.failureCode, "precise_price_missing");
     assert.match(result.message, /没有唯一的普通买家当前价格/);
-    for (const amount of ["1 445 ₽", "5 172 ₽", "1 332 ₽"]) {
+    for (const amount of ["2 112 ₽", "5 634 ₽", "1 777 ₽"]) {
       assert.equal(result.message.includes(amount), true, `失败说明要写清看到了${amount}`);
     }
     assert.equal(result.evidence, undefined, "分不出来就不能凑一个最小或最大值");
@@ -209,10 +209,10 @@ test("Ozon collector stops instead of guessing when the crossed-out price cannot
 
 test("Ozon collector keeps using a single unlabelled current price", async () => {
   const restore = installPage({
-    widgets: { ...realLikeWidgets(), webPrice: priceElement("DIV", priceElement("SPAN", "1 299 ₽")) }
+    widgets: { ...syntheticWidgets(), webPrice: priceElement("DIV", priceElement("SPAN", "1 299 ₽")) }
   });
   try {
-    const result = await collectOzonPage("4403916892");
+    const result = await collectOzonPage("9999000002");
     assert.equal(result.status, "captured", result.message);
     assert.equal(result.evidence.currentPrice, 1299);
     assert.equal(result.evidence.attributes["Ozon bank price"], undefined);
@@ -224,12 +224,12 @@ test("Ozon collector keeps using a single unlabelled current price", async () =>
 test("Ozon collector stops when several unlabelled prices sit side by side", async () => {
   const restore = installPage({
     widgets: {
-      ...realLikeWidgets(),
+      ...syntheticWidgets(),
       webPrice: priceElement("DIV", priceElement("SPAN", "1 299 ₽"), priceElement("SPAN", "1 490 ₽"))
     }
   });
   try {
-    const result = await collectOzonPage("4403916892");
+    const result = await collectOzonPage("9999000002");
     assert.equal(result.status, "failed");
     assert.equal(result.failureCode, "precise_price_missing");
     assert.match(result.message, /没有唯一的普通买家当前价格/);
@@ -241,14 +241,14 @@ test("Ozon collector stops when several unlabelled prices sit side by side", asy
 test("Ozon collector stops when unknown wording sits next to the only current price", async () => {
   const restore = installPage({
     widgets: {
-      ...realLikeWidgets(),
+      ...syntheticWidgets(),
       webPrice: priceElement("DIV",
-        priceElement("DIV", priceElement("SPAN", "1 332 ₽"), " с картой Ozon"),
-        priceElement("DIV", priceElement("SPAN", "1 445 ₽"), " со скидкой по промокоду"))
+        priceElement("DIV", priceElement("SPAN", "1 777 ₽"), " с картой Ozon"),
+        priceElement("DIV", priceElement("SPAN", "2 112 ₽"), " со скидкой по промокоду"))
     }
   });
   try {
-    const result = await collectOzonPage("4403916892");
+    const result = await collectOzonPage("9999000002");
     assert.equal(result.status, "failed");
     assert.equal(result.failureCode, "precise_price_missing");
   } finally {

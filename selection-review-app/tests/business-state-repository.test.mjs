@@ -1,7 +1,7 @@
 import { productionAuthorizationInputFixture } from "./helpers/c2-software-fixture.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -18,6 +18,134 @@ import { createActorContext } from "../lib/runtime-identity.mjs";
 import { commitSingleOwnerProductionAuthorization } from "../lib/production-authorization.mjs";
 
 const AUTH_TIME = "2026-08-22T07:00:00.000Z";
+
+async function countSourceParses(source, run) {
+  const parse = JSON.parse;
+  let count = 0;
+  JSON.parse = function (text, ...args) {
+    if (text === source) count += 1;
+    return parse.call(this, text, ...args);
+  };
+  try { await run(() => count); }
+  finally { JSON.parse = parse; }
+}
+
+test("JSON snapshot reuse still reads the file and never shares mutable DTOs", async () => {
+  const source = JSON.stringify({ candidates: [{ id: "cache-test", nested: { value: 1 } }],
+    runtime: { idempotencyRecords: [{ result: { nested: { value: 2 } } }] } });
+  let reads = 0;
+  const repository = createJsonBusinessStateRepository({ filePath: "synthetic-state.json",
+    fileSystem: { async readFile() { reads += 1; return source; } } });
+  await countSourceParses(source, async parsed => {
+    const first = await repository.readSnapshot();
+    first.candidates[0].nested.value = 99;
+    first.runtime.idempotencyRecords[0].result.nested.value = 99;
+    const second = await repository.readSnapshot();
+    assert.equal(second.candidates[0].nested.value, 1);
+    assert.equal(second.runtime.idempotencyRecords[0].result.nested.value, 2);
+    second.candidates[0].nested.value = 88;
+    assert.equal((await repository.readSnapshot()).candidates[0].nested.value, 1);
+    assert.equal(reads, 3);
+    assert.equal(parsed(), 1);
+  });
+});
+
+test("warm JSON snapshots observe atomic replacement and reject damaged or missing sources", async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "snapshot-cache-source-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const filePath = path.join(directory, "state.json");
+  const source = JSON.stringify({ candidates: [{ id: "fresh-file", dataRevision: 1 }] });
+  await writeFile(filePath, source);
+  const repository = createJsonBusinessStateRepository({ filePath });
+  await repository.readSnapshot();
+  await repository.readSnapshot();
+  const replacement = `${filePath}.replacement`;
+  await writeFile(replacement, source.replace('"dataRevision":1', '"dataRevision":2'));
+  await rename(replacement, filePath);
+  assert.equal((await repository.readSnapshot()).candidates[0].dataRevision, 2);
+  await writeFile(filePath, "{");
+  await assert.rejects(repository.readSnapshot(), SyntaxError);
+  await writeFile(filePath, JSON.stringify({ candidates: [], productionEntityRecords: [{}] }));
+  await assert.rejects(repository.readSnapshot(), /PRODUCTION_ENTITY_SHAPE_INVALID/);
+  await rm(filePath);
+  await assert.rejects(repository.readSnapshot(), error => error.code === "ENOENT");
+  await writeFile(filePath, source);
+  assert.equal((await repository.readSnapshot()).candidates[0].dataRevision, 1);
+});
+
+test("snapshot reuse cannot publish no-op mutations, failed writes or failed transactions", async () => {
+  let source = JSON.stringify({ candidates: [{ id: "transaction-cache", dataRevision: 1 }] });
+  let rejectWrite = true;
+  const repository = createJsonBusinessStateRepository({ filePath: "synthetic-state.json",
+    fileSystem: { async readFile() { return source; } },
+    atomicWriter: async (_file, document) => {
+      if (rejectWrite) throw new Error("SYNTHETIC_ATOMIC_WRITE_FAILED");
+      source = JSON.stringify(document);
+    } });
+  await repository.readSnapshot();
+  await repository.transact(document => {
+    document.candidates[0].dataRevision = 2;
+    return { changed: false, result: "not_saved" };
+  });
+  assert.equal((await repository.readSnapshot()).candidates[0].dataRevision, 1);
+  await assert.rejects(repository.transact(() => { throw new Error("SYNTHETIC_MUTATOR_FAILED"); }), /SYNTHETIC_MUTATOR_FAILED/);
+  await assert.rejects(repository.transact(document => {
+    document.candidates[0].dataRevision = 2;
+    return { changed: true, document, result: "save" };
+  }), /SYNTHETIC_ATOMIC_WRITE_FAILED/);
+  assert.equal((await repository.readSnapshot()).candidates[0].dataRevision, 1);
+  rejectWrite = false;
+  await repository.transact(document => {
+    document.candidates[0].dataRevision = 2;
+    return { changed: true, document, result: "saved" };
+  });
+  assert.equal((await repository.readSnapshot()).candidates[0].dataRevision, 2);
+});
+
+test("a delayed read across a write keeps snapshots isolated and observes the next file read", async () => {
+  let source = JSON.stringify({ candidates: [{ id: "delayed-cache", dataRevision: 1 }] });
+  let release, reads = 0;
+  const gate = new Promise(resolve => { release = resolve; });
+  const repository = createJsonBusinessStateRepository({ filePath: "synthetic-state.json",
+    fileSystem: { async readFile() {
+      const captured = source;
+      if (++reads === 1) await gate;
+      return captured;
+    } }, atomicWriter: async (_file, document) => { source = JSON.stringify(document); } });
+  const delayed = repository.readSnapshot();
+  await repository.transact(document => {
+    document.candidates[0].dataRevision = 2;
+    return { changed: true, document, result: "saved" };
+  });
+  release();
+  const old = await delayed;
+  assert.equal(old.candidates[0].dataRevision, 1);
+  old.candidates[0].dataRevision = 99;
+  assert.equal((await repository.readSnapshot()).candidates[0].dataRevision, 2);
+  assert.equal(reads, 3);
+});
+
+test("oversized snapshot input remains readable without being retained for reuse", async () => {
+  const source = JSON.stringify({ candidates: [], evidence: "x".repeat(32 * 1024 * 1024) });
+  const repository = createJsonBusinessStateRepository({ filePath: "synthetic-state.json",
+    fileSystem: { async readFile() { return source; } } });
+  await countSourceParses(source, async parsed => {
+    assert.equal((await repository.readSnapshot()).evidence.length, 32 * 1024 * 1024);
+    assert.equal((await repository.readSnapshot()).evidence.length, 32 * 1024 * 1024);
+    assert.equal(parsed(), 2);
+  });
+});
+
+test("missing initial documents and read failures cannot return a cached successful snapshot", async () => {
+  let initialRevision = 0, failure = "ENOENT";
+  const repository = createJsonBusinessStateRepository({ filePath: "synthetic-state.json", initializeIfMissing: true,
+    initialDocument: () => ({ candidates: [{ id: "initial-cache", dataRevision: ++initialRevision }] }),
+    fileSystem: { async readFile() { throw Object.assign(new Error("SYNTHETIC_READ_FAILED"), { code: failure }); } } });
+  assert.equal((await repository.readSnapshot()).candidates[0].dataRevision, 1);
+  assert.equal((await repository.readSnapshot()).candidates[0].dataRevision, 2);
+  failure = "EIO";
+  await assert.rejects(repository.readSnapshot(), error => error.code === "EIO");
+});
 
 function authorizationFixture() {
   const source = productionAuthorizationInputFixture();

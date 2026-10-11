@@ -1,3 +1,4 @@
+import { allocatedTestPorts } from './helpers/api-process-lifecycle.mjs';
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
@@ -6,7 +7,7 @@ import path from "node:path";
 import { createFormalC1DraftFixture } from "./fixtures/formal-c1-flow-fixture.mjs";
 import { productionOwnerDecisionHttpFixture, startSavedDEApi } from "./helpers/d-e-saved-api-fixture.mjs";
 
-const port = Number(process.env.SELECTION_REVIEW_TEST_PORT);
+const { api: port } = allocatedTestPorts();
 
 function localPreparationCandidate() {
   const candidate = structuredClone(createFormalC1DraftFixture({ at: "2026-08-25T08:00:00.000Z" }).candidate);

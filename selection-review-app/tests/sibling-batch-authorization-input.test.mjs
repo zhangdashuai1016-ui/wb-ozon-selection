@@ -127,8 +127,9 @@ test('the final one-page review displays every row and lets the owner set shared
   assert.match(html, /CNY/);
   assert.match(html, /批量库存/);
   assert.match(html, /黑色[^<]*库存调整/);
-  assert.match(html, /仅创建商品/);
-  assert.match(html, /写入已授权库存/);
+  assert.doesNotMatch(html, /仅创建商品|导入后库存动作/);
+  assert.match(html, /确认上架（含创建和库存）/);
+  assert.match(html, /写入每款下表确认的库存/);
   assert.match(html, /全成员.*E.*回读/);
 });
 
@@ -143,7 +144,7 @@ test('the final one-page review shows a blocked row’s precise gap beside that 
   assert.match(html, /黑色/);
   assert.match(html, /MERCHANT-CHILD/);
   assert.match(html, /合成黑色行的仓库核验已过期/);
-  assert.match(html, /<button[^>]*disabled[^>]*>一次确认整批最终内容<\/button>/);
+  assert.match(html, /<button[^>]*disabled[^>]*>确认上架（含创建和库存）<\/button>/);
 });
 
 test('execution view keeps per-member unknown and string E gaps visible and offers only unsent stock continuation', async () => {
@@ -158,7 +159,7 @@ test('execution view keeps per-member unknown and string E gaps visible and offe
   assert.match(html, /MERCHANT-PREVIOUS/);
   assert.match(html, /synthetic_e_gap/);
   assert.match(html, /恢复明确未发送的库存续作/);
-  assert.doesNotMatch(html, /一次确认整批最终内容/);
+  assert.doesNotMatch(html, /确认上架（含创建和库存）/);
 });
 
 test('a proven unsent batch import names the exact offer and bounded stop reason',async()=>{

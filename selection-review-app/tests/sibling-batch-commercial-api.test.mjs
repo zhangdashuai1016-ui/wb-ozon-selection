@@ -7,11 +7,10 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { initialBusinessStateDocument } from '../lib/business-state-repository.mjs';
 import { readyAuthorizationFamily, secondReadyMember } from './fixtures/sibling-batch-final-fixture.mjs';
-import { stopApiProcess } from './helpers/api-process-lifecycle.mjs';
+import { stopApiProcess, allocatedTestPorts } from './helpers/api-process-lifecycle.mjs';
 
 const appDir = fileURLToPath(new URL('..', import.meta.url));
-const port = Number(process.env.SELECTION_REVIEW_TEST_PORT || 28000 + process.pid % 10000);
-if (!Number.isSafeInteger(port) || [4317, 4318, 4173].includes(port)) throw new Error('TEST_REQUIRES_ISOLATED_PORT');
+const port = allocatedTestPorts().api;
 const base = `http://127.0.0.1:${port}`;
 
 test('owner batch stock API rejects stale or conflicting members without partial writes', async t => {
@@ -28,6 +27,10 @@ test('owner batch stock API rejects stale or conflicting members without partial
   await writeFile(dataFile, JSON.stringify(document));
   const binding = { targetStore: child.targetStore, platform: child.targetPlatform, storeRef: child.storeRef };
   const stderr = [];
+  const started = performance.now();
+  const startup = { port, startedAt: new Date().toISOString(), listenAfterMs: null, connectionRefusals: 0,
+    healthAttempts: 0, lastHealthStatus: null, stdoutBytes: 0 };
+  let output = '';
   const server = spawn(process.execPath, [path.join(appDir, 'server.mjs'), '--api-only'], { cwd: appDir,
     env: { ...process.env, SELECTION_REVIEW_API_PORT: String(port), SELECTION_REVIEW_DATA_FILE: dataFile,
       SELECTION_REVIEW_PUBLIC_ORIGIN: base, SELECTION_REVIEW_ALLOWED_ORIGINS: base,
@@ -35,16 +38,31 @@ test('owner batch stock API rejects stale or conflicting members without partial
       SELECTION_REVIEW_OWNER_IDENTITY_FILE: path.join(privateDirectory, 'owner.json'),
       SELECTION_REVIEW_STORE_BINDINGS_JSON: JSON.stringify([binding]),
       SELECTION_REVIEW_AUTO_DELIVER: 'off', SELECTION_REVIEW_CODEX_DISPATCH: 'off' },
-    stdio: ['ignore', 'ignore', 'pipe'] });
+    stdio: ['ignore', 'pipe', 'pipe'] });
+  server.stdout.on('data', chunk => {
+    startup.stdoutBytes += chunk.length;
+    output = (output + String(chunk)).slice(-4096);
+    if (output.includes(base) && startup.listenAfterMs === null) startup.listenAfterMs = Math.round(performance.now() - started);
+  });
   server.stderr.on('data', chunk => stderr.push(String(chunk)));
-  t.after(() => stopApiProcess(server));
+  t.after(async () => {
+    await stopApiProcess(server);
+    console.log('API_CLEANUP ' + JSON.stringify({ pid: server.pid, exitCode: server.exitCode, signalCode: server.signalCode }));
+  });
   let healthy = false;
   for (let attempt = 0; attempt < 80; attempt++) {
     if (server.exitCode !== null) throw new Error(`API_START_FAILED:${stderr.join('').slice(-1000)}`);
-    try { if ((await fetch(`${base}/api/health`)).ok) { healthy = true; break; } }
-    catch (error) { if (error.cause?.code !== 'ECONNREFUSED') throw error; }
+    startup.healthAttempts += 1;
+    try {
+      const response = await fetch(`${base}/api/health`);
+      startup.lastHealthStatus = response.status;
+      await response.arrayBuffer();
+      if (response.ok) { healthy = true; break; }
+    }
+    catch (error) { if (error.cause?.code !== 'ECONNREFUSED') throw error; startup.connectionRefusals += 1; }
     await new Promise(resolve => setTimeout(resolve, 25));
   }
+  console.log('API_STARTUP ' + JSON.stringify({ ...startup, pid: server.pid, healthy, observedAfterMs: Math.round(performance.now() - started) }));
   assert.equal(healthy, true, stderr.join(''));
   let cookie = '';
   async function post(body, origin = base) {

@@ -1,3 +1,4 @@
+import { createPreparationSaveState } from '../../src/siblingPreparationState.js';
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { api } from '../../src/api.js';
@@ -7,6 +8,7 @@ import '../../src/styles.css';
 const password = 'synthetic password for bounded saved DE HTTP tests';
 
 function BrowserFixture() {
+  const [preparationSaveState]=useState(createPreparationSaveState);
   const [state, setState] = useState(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -34,7 +36,7 @@ function BrowserFixture() {
     <button type="button" disabled={saving} onClick={login}>登录合成主人身份</button>
     <button type="button" disabled={saving} onClick={() => refresh().catch(cause => setError(cause.message))}>刷新保存状态</button>
     {parent ? <p id="saved-c1-count">已保存 C2 规格：{siblings.filter(child => child.lifecycleV11?.skuPackage?.businessPhase === 'C2').length}</p> : null}
-    {parent ? <SiblingBatchPreparation parent={parent} siblings={siblings}
+    {parent ? <SiblingBatchPreparation preparationSaveState={preparationSaveState} parent={parent} siblings={siblings}
       onPreviewC1={payload => api.previewSiblingBatchC1(parent.id, payload)}
       onConfirmC1={async payload => { const result = await api.confirmSiblingBatchC1(parent.id, payload); await refresh(); return result; }} /> : null}
     {error ? <p role="alert">{error}</p> : null}

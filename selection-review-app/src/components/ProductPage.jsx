@@ -1789,6 +1789,7 @@ function SavedC2Assets({ skuPackage }) {
 }
 
 export default function ProductPage({
+  preparationSaveState,
   candidate, view = null, titleZh = null, extensionStatus = null,
   onSaveDraft, onChooseSkus, onCreateSiblingSku = null, onConfirmSiblingBatchA = null, onConfirmSiblingBatchC1 = null,
   onPreviewSiblingBatchC1 = null,
@@ -2042,6 +2043,7 @@ export default function ProductPage({
     {candidate.sourceCapture?.mode === 'a_supplier_capture' && siblingCandidates.length > 0 &&
       typeof onConfirmSiblingBatchA === 'function' && typeof onAuthorizeSiblingProductionBatch === 'function'
       ? <SiblingBatchPreparation key={`${candidate.id}:batch`} parent={candidate} siblings={siblingCandidates}
+          preparationSaveState={preparationSaveState}
           onConfirmA={onConfirmSiblingBatchA} onAuthorize={onAuthorizeSiblingProductionBatch}
           onSaveStockDrafts={onSaveSiblingBatchStockDrafts} executionView={siblingBatchExecutionView}
           executionError={siblingBatchExecutionError} executionLoading={siblingBatchExecutionLoading}

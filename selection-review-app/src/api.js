@@ -42,6 +42,15 @@ async function uploadFile(path, file) {
 }
 
 export const api = {
+  getC2UploadDraft: id => request(`/api/candidates/${encodeURIComponent(id)}/lifecycle/c2/upload-draft`),
+  getSiblingPreparation: id => request(`/api/sibling-batches/${encodeURIComponent(id)}/preparation`),
+  saveSiblingPreparation: (id,payload) => request(`/api/sibling-batches/${encodeURIComponent(id)}/preparation-draft`, {method:'POST',body:JSON.stringify(payload)}),
+  getSiblingCatalogFile: async (id,assetId) => {
+    const response=await fetch(`/api/sibling-batches/${encodeURIComponent(id)}/preparation-assets/${encodeURIComponent(assetId)}`);
+    if(!response.ok)throw new Error('本批原始素材读取失败，已停止暂存');
+    return response.blob();
+  },
+
   reviseC1FinalPlan: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/revise-final-plan`, {
     method: "POST", body: JSON.stringify(payload)
   }),

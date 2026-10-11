@@ -1,3 +1,4 @@
+// All long supplier, merchant, task and candidate identities in this test are synthetic.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
@@ -9,7 +10,7 @@ import { createProductionCommercialDraftUseCase } from '../lib/production-commer
 import { prepareProductionCommercialDraft, readProductionCommercialDraft } from '../lib/production-commercial-draft.mjs';
 import { buildOzonFinalProductPreview } from '../lib/ozon-final-product-preview.mjs';
 import { commitSingleOwnerProductionAuthorization } from '../lib/production-authorization.mjs';
-const MERCHANT_SKU = 'OZ-1688-1038877014153-6222816678021';
+const MERCHANT_SKU = 'OZ-1688-9999999000001-9999999000002';
 function setup() {
   const f = productionOwnerDecisionFixture();
   const input = { candidateId: f.candidate.id, skuPackageId: f.candidate.lifecycleV11.skuPackage.skuPackageId,

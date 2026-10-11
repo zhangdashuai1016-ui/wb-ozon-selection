@@ -1,3 +1,4 @@
+import { allocatedTestPorts } from './helpers/api-process-lifecycle.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
@@ -8,14 +9,6 @@ import { pathToFileURL } from 'node:url';
 import { productionOwnerDecisionHttpFixture, startSavedDEApi } from './helpers/d-e-saved-api-fixture.mjs';
 import { createSavedConditionalBFixture, savedGuooRouteComparison } from './fixtures/real-a-b-flow-fixture.mjs';
 
-async function freePort() {
-  const server = http.createServer();
-  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
-  const port = server.address().port;
-  await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
-  assert.ok(![4317, 4318, 4173].includes(port));
-  return port;
-}
 
 async function startFixture(t, { rejected = false, mutate = null, evidenceServiceOrigin = null } = {}) {
   const fixture = await createSavedConditionalBFixture({ rejected });
@@ -34,12 +27,11 @@ const counts={credentials:0,network:0};function deny(kind){counts[kind]++;writeF
 cp.execFile=()=>deny('credentials');syncBuiltinESMExports();
 const allowed=${JSON.stringify(evidenceServiceOrigin)};const realFetch=globalThis.fetch;
 globalThis.fetch=async(url,init)=>allowed!==null&&String(url).startsWith(allowed)?realFetch(url,init):deny('network');`);
-  const port = await freePort(); let dependencyPort = await freePort();
-  while (dependencyPort === port) dependencyPort = await freePort();
+  const { api: port, gateway: dependencyPort } = allocatedTestPorts();
   const environment = { SELECTION_REVIEW_TEST_GATEWAY_PORT: String(dependencyPort),
     SELECTION_REVIEW_C1_DRAFT_SERVICE_BINDINGS_JSON: '[]', SELECTION_REVIEW_C1_KEYWORD_SERVICE_BINDINGS_JSON: '[]',
     ...(evidenceServiceOrigin === null ? {} : { SELECTION_REVIEW_OZON_EVIDENCE_SERVICE_URL: evidenceServiceOrigin }),
-    NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` };
+    NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(preload).href}` };
   const previous = Object.fromEntries(Object.keys(environment).map(key => [key, process.env[key]]));
   let api;
   try { Object.assign(process.env, environment); api = await startSavedDEApi(t, { directory, port, document, binding: owner.binding }); }
@@ -269,7 +261,7 @@ async function startEvidenceServiceStub(t) {
       response.end(JSON.stringify({ ok: true, evidence }));
     });
   });
-  const port = await freePort();
+  const port = allocatedTestPorts().second;
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
   t.after(async () => {
     server.closeAllConnections();

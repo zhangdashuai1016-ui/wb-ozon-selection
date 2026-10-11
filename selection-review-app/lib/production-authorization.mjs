@@ -488,6 +488,7 @@ export async function commitSingleOwnerProductionAuthorization({ repository, run
     softwareJobEffect: { schemaVersion: "business-mutation-domain-handoff-effect-v1", kind: "software_job", operation: "enqueue", jobType: "d_production_execution" },
     includeMerchantSkuClaims: true,
     mutate: ({ candidate, observedAt, evidencePacks, currentCommissionCatalogs, merchantSkuClaims }) => {
+      if(candidate.siblingPreparationDraftRefV1) throw new Error('PRODUCTION_AUTHORIZATION_BATCH_CONFIRMATION_REQUIRED');
       if (merchantSkuClaims.some(claim => claim.merchantSku === input.merchantSku)) {
         throw new Error('PRODUCTION_AUTHORIZATION_OFFER_RESERVED');
       }

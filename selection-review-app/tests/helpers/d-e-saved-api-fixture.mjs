@@ -4,7 +4,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { stopApiProcess } from "./api-process-lifecycle.mjs";
+import { stopApiProcess, allocatedTestPorts } from "./api-process-lifecycle.mjs";
 import { createJsonBusinessStateRepository } from "../../lib/business-state-repository.mjs";
 import { productionOwnerDecisionFixture } from "../fixtures/production-owner-decision-fixture.mjs";
 
@@ -32,9 +32,10 @@ export async function productionOwnerDecisionHttpFixture() {
 
 /** Real server subprocess with password identity and a loopback dependency tripwire. No transport is injected into production. */
 export async function startSavedDEApi(t, { directory, port, document, binding, productionBindings=[binding], services = [], accountReadServices = [], discoveryBindings=[], credentialBindings = [], ossConfiguration = null, dictionaryResponder = null, browserOrigin = null,
-  identityProvider = "local_owner_password" }) {
-  const dependencyPort = Number(process.env.SELECTION_REVIEW_TEST_GATEWAY_PORT);
-  if (![port, dependencyPort].every(value => Number.isSafeInteger(value) && value > 0 && ![4317, 4318, 4173].includes(value)) || port === dependencyPort) {
+  identityProvider = "local_owner_password", catalogDirectory = null }) {
+  const allocated = allocatedTestPorts();
+  const dependencyPort = allocated.gateway;
+  if (port !== allocated.api && port !== allocated.second) {
     throw new Error("TEST_REQUIRES_ISOLATED_PORT");
   }
   const base = `http://127.0.0.1:${port}`, businessDirectory = path.join(directory, "business"), privateDirectory = path.join(directory, "private");
@@ -75,7 +76,7 @@ export async function startSavedDEApi(t, { directory, port, document, binding, p
       await rm(directory, { recursive: true, force: true });
     }
   });
-  const env = { ...process.env, SELECTION_REVIEW_API_PORT: String(port), SELECTION_REVIEW_DATA_FILE: dataFile,
+  const env = { ...process.env, ...(catalogDirectory?{SELECTION_REVIEW_BATCH_CATALOG_DIRECTORY:catalogDirectory}:{}), SELECTION_REVIEW_API_PORT: String(port), SELECTION_REVIEW_DATA_FILE: dataFile,
     SELECTION_REVIEW_PUBLIC_ORIGIN:base,SELECTION_REVIEW_ALLOWED_ORIGINS:browserOrigin ? `${base},${browserOrigin}` : base,
     SELECTION_REVIEW_IDENTITY_PROVIDER: identityProvider, SELECTION_REVIEW_OWNER_IDENTITY_FILE: path.join(privateDirectory, "owner.json"),
     SELECTION_REVIEW_STORE_BINDINGS_JSON: JSON.stringify([{ targetStore: binding.storeRef.stableStoreId, platform: binding.platform, storeRef: binding.storeRef }]),

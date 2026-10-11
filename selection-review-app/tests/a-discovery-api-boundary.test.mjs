@@ -1,16 +1,11 @@
+import { allocatedTestPorts } from './helpers/api-process-lifecycle.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import http from 'node:http';
 import {pathToFileURL} from 'node:url';
 import {productionOwnerDecisionHttpFixture,startSavedDEApi} from './helpers/d-e-saved-api-fixture.mjs';
-async function freePort(){
-  const server=http.createServer();await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
-  const port=server.address().port;await new Promise((resolve,reject)=>server.close(error=>error?reject(error):resolve()));
-  assert.ok(![4317,4318,4173].includes(port));return port;
-}
 
 test('real default-off discovery API enforces owner, source and closed input without credential or external access',async t=>{
   const root=await mkdtemp(path.join(tmpdir(),'a-discovery-http-probe-')),directory=await mkdtemp(path.join(tmpdir(),'a-discovery-http-state-'));
@@ -19,8 +14,8 @@ test('real default-off discovery API enforces owner, source and closed input wit
   await writeFile(preload,`import cp from 'node:child_process';import {syncBuiltinESMExports} from 'node:module';import {writeFileSync} from 'node:fs';const counts={credentials:0,network:0};function deny(kind){counts[kind]++;writeFileSync(${JSON.stringify(probe)},JSON.stringify(counts));throw new Error('UNEXPECTED_TEST_EXTERNAL_ACTION');}cp.execFile=()=>deny('credentials');syncBuiltinESMExports();globalThis.fetch=async()=>deny('network');`);
   const fixture=await productionOwnerDecisionHttpFixture(),document={...fixture.document,candidates:[]};
   delete document.runtime;
-  const port=await freePort();let dependencyPort=await freePort();while(port===dependencyPort)dependencyPort=await freePort();
-  const env={SELECTION_REVIEW_TEST_GATEWAY_PORT:String(dependencyPort),NODE_OPTIONS:`--import=${pathToFileURL(preload).href}`,
+  const { api: port, gateway: dependencyPort } = allocatedTestPorts();
+  const env={SELECTION_REVIEW_TEST_GATEWAY_PORT:String(dependencyPort),NODE_OPTIONS:`${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(preload).href}`,
     SELECTION_REVIEW_A_DISCOVERY_CONNECTOR_BINDINGS_JSON:'[]',SELECTION_REVIEW_A_DISCOVERY_SERVICE_BINDINGS_JSON:'[]',
     SELECTION_REVIEW_A_DISCOVERY_CREDENTIAL_BINDINGS_JSON:'[]',SELECTION_REVIEW_A_DISCOVERY_PLANS_JSON:'[]'};
   const previous=Object.fromEntries(Object.keys(env).map(key=>[key,process.env[key]]));let api;
@@ -84,8 +79,8 @@ syncBuiltinESMExports();globalThis.fetch=async()=>{counts.network++;save();throw
     budget:{unit:'linkfox_credits',maxRequests:1,maxCredits:12},exclusions:['明确品牌/IP风险']};
   const fixture=await productionOwnerDecisionHttpFixture(),document={...fixture.document,candidates:[]};
   delete document.runtime;
-  const port=await freePort();let dependencyPort=await freePort();while(port===dependencyPort)dependencyPort=await freePort();
-  const env={SELECTION_REVIEW_TEST_GATEWAY_PORT:String(dependencyPort),NODE_OPTIONS:`--import=${pathToFileURL(preload).href}`,
+  const { api: port, gateway: dependencyPort } = allocatedTestPorts();
+  const env={SELECTION_REVIEW_TEST_GATEWAY_PORT:String(dependencyPort),NODE_OPTIONS:`${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(preload).href}`,
     SELECTION_REVIEW_A_DISCOVERY_CONNECTOR_BINDINGS_JSON:JSON.stringify([connector]),
     SELECTION_REVIEW_A_DISCOVERY_SERVICE_BINDINGS_JSON:JSON.stringify([{schemaVersion:'a-discovery-service-binding-v1',serviceId:'service:synthetic-start',
       configurationVersion:'version:1',connectorBindingId:connector.bindingId,connectorConfigurationVersion:connector.configurationVersion,

@@ -1,3 +1,4 @@
+import { allocatedTestPorts } from './helpers/api-process-lifecycle.mjs';
 import test from "node:test";
 import assert from "node:assert/strict";
 // The shared isolated fixture starts the real server.mjs with a temporary owner and business store.
@@ -7,7 +8,7 @@ import path from "node:path";
 import { productionOwnerDecisionHttpFixture, startSavedDEApi, confirmCurrentProduction } from "./helpers/d-e-saved-api-fixture.mjs";
 import { loadPublishedSchemaValidator } from "./helpers/published-schema-validator.mjs";
 
-const port = Number(process.env.SELECTION_REVIEW_TEST_PORT);
+const { api: port } = allocatedTestPorts();
 const published = await loadPublishedSchemaValidator();
 const validateSku = published.getSchema("product-lifecycle-v1.1"), validateJob = published.getSchema("software-job-v1.schema.json");
 

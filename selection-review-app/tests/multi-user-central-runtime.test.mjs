@@ -104,7 +104,7 @@ test("生产状态只能通过中央Repository边界，页面/插件/Worker/Code
 });
 
 test("本机依赖门禁拒绝领域代码写死地址、个人目录和固定Worker，仅允许明确本地适配器", () => {
-  const source = "fetch('http://127.0.0.1:4317'); const root='/Users/shuaizhang/data'; const worker='fixed-worker';";
+  const source = "fetch('http://127.0.0.1:4317'); const root='/Users/fixture-user/data'; const worker='fixed-worker';";
   assert.deepEqual(findLocalMachineDependencies(source).map((item) => item.rule), [
     "loopback_address", "personal_home_path", "fixed_worker_identity"
   ]);
@@ -155,7 +155,7 @@ test("生产源码新增本机假设必须进入明确审计文件，不能静�
     ["extension/1688-capture/bridge.js", ["worker_adapter", { loopback_address: 1 }]],
     ["extension/1688-capture/capture-request.js", ["worker_adapter", { loopback_address: 1 }]],
     ["lib/c1-seo-draft.mjs", ["local_adapter", { personal_home_path: 2 }]],
-    ["lib/codex-dispatcher.mjs", ["local_adapter", { loopback_address: 1, personal_home_path: 4 }]],
+    ["lib/codex-dispatcher.mjs", ["local_adapter", { loopback_address: 1, dynamic_home_dependency: 1 }]],
     ["lib/http-api-boundary.mjs", ["local_adapter", { loopback_address: 1 }]],
     ["lib/lifecycle-b-real-evidence-readers.mjs", ["local_adapter", { loopback_address: 2 }]],
     ["lib/multi-user-central-runtime.mjs", ["local_adapter", { loopback_address: 3, fixed_worker_identity: 3 }]],

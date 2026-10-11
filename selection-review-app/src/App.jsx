@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
+import { createPreparationSaveState } from './siblingPreparationState.js';
 import { createLatestRead, createSelectionGuard, openSavedCandidate, runMutation, shouldContinuePolling, errorMessage, candidatePlatform } from "./formState.js";
 import { validateCandidateCommentReceipt } from "./commentInput.js";
 import { c2ReferenceFailureMessage } from "./c2UploadInput.js";
@@ -50,6 +51,7 @@ const MAINTENANCE_PAGES = [
 const VIEW_TITLES = { desk: "选品台", board: "进行中", inbox: "需要你处理", maint: "维护", product: "商品",
   map: "全店能力地图", phase2a: "第2A模拟验收", accounts: "账户准备", discovery: "软件找商品", review: "今日选品评审" };
 export default function App() {
+  const [preparationSaveState] = useState(createPreparationSaveState);
   const [state, setState] = useState({
     candidates: [],
     meta: null,
@@ -1418,6 +1420,7 @@ export default function App() {
         )
       ) : view === "product" ? (
         !accountOwner ? <div className="page-panel"><p role="status">请先登录主人身份后查看这件商品。</p></div> : <Suspense fallback={<p role="status">正在载入商品页面…</p>}><ProductPage
+          preparationSaveState={preparationSaveState}
           candidate={productCandidate}
           view={productDraftView}
           titleZh={productTitleZh}

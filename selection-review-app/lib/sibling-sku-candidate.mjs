@@ -2,7 +2,7 @@ import { createInitialCandidate } from './candidate-initialization.mjs';
 import { currentSalesSnapshot } from './discovery-market-snapshot.mjs';
 import { normalize1688CaptureSource } from './source-capture.mjs';
 import { inForceSkuUniformSupply } from './sku-choice-estimate.mjs';
-import { isCompleteStoreRef, sameStoreRef } from './store-binding.mjs';
+import { isCompleteStoreRef, sameStoreRef, STORE_PLATFORMS } from './store-binding.mjs';
 import { parentCardBinding } from './sibling-sku-card-guard.mjs';
 import { siblingSkuCandidateName, SiblingSkuCandidateError } from './sibling-sku-name.mjs';
 import { validateSalesSnapshot } from './sales-snapshot.mjs';
@@ -91,6 +91,7 @@ export function createSiblingSkuCandidate({ document, parentCandidateId, input, 
     source: 'user', id, timestamp, storeBindings
   });
   if (!sameStoreRef(child.storeRef, parent.storeRef)) fail('SIBLING_STORE_CHANGED', '店铺映射已变化，请先核对当前店铺');
+  child.targetPlatform = STORE_PLATFORMS[parent.targetStore];
   child.siblingSourceV1 = {
     schemaVersion: 'sibling-sku-source-v1', parentCandidateId: parent.id, parentRevision: parent.dataRevision,
     supplierSkuId: input.supplierSkuId, captureId: capture.captureId, salesSnapshotId: sales.snapshotId,

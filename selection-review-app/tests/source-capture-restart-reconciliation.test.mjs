@@ -5,11 +5,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
+import { stopApiProcess, allocatedTestPorts } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const firstPort = Number(process.env.SELECTION_REVIEW_TEST_PORT || 51000 + (process.pid % 7000));
-const secondPort = Number(process.env.SELECTION_REVIEW_TEST_SECOND_PORT || firstPort + 1);
+const { api: firstPort, second: secondPort } = allocatedTestPorts();
 
 function baseCandidate(id) {
   return {

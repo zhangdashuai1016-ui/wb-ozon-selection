@@ -8,6 +8,7 @@ import { sameStoreRef } from './store-binding.mjs';
 import { createSoftwareExecutionRuntime, startSoftwareStep, completeExecutionStep } from './software-execution-state.mjs';
 import { isCommercialMerchantSku, prepareProductionCommercialDraft } from './production-commercial-draft.mjs';
 import { merchantSkuClaimsForStore } from './business-mutation-transaction.mjs';
+import { siblingPlatform, siblingSupplyPreparation } from './sibling-supply-preparation.mjs';
 
 const CENTRAL_MODES = new Set(['central_test', 'central_production']);
 const text = value => typeof value === 'string' && value.trim() !== '';
@@ -31,8 +32,9 @@ function assertInput(input) {
       new Set(input.members.map(member => member.sourceSkuId)).size !== input.members.length ||
       new Set(input.members.map(member => member.merchantSku)).size !== input.members.length) fail('SIBLING_BATCH_A_INPUT_INVALID');
   const common = input.shared;
-  if (Object.keys(common).sort().join() !==
+  if (Object.keys(common).filter(k => k !== 'reusePriorSupply').sort().join() !==
       'confirmExactSkuSupply,confirmSalesReview,dimensionsCm,minimumOrderQuantity,otherPurchaseCosts,packagingCostRmb,quantityOneEvidenceSourceNote,route,salesReview,targetSalePriceRub,unitDomesticFreight' ||
+      (Object.hasOwn(common, 'reusePriorSupply') && typeof common.reusePriorSupply !== 'boolean') ||
       !positive(common.targetSalePriceRub) || !nonNegative(common.unitDomesticFreight) ||
       !nonNegative(common.otherPurchaseCosts) || !nonNegative(common.packagingCostRmb) ||
       common.minimumOrderQuantity !== 1 ||
@@ -93,11 +95,18 @@ export async function commitSiblingBatchABAndC1({ repository, runtimeMode, actor
           child.siblingSourceV1?.supplierSkuId !== member.sourceSkuId || child.lifecycleV11?.skuPackage ||
           child.sourceCapture?.captureId !== parent.sourceCapture?.captureId ||
           child.sourceCapture?.offerId !== parent.sourceCapture?.offerId ||
-          !sameStoreRef(child.storeRef, parent.storeRef) || child.targetPlatform !== parent.targetPlatform) {
+          !sameStoreRef(child.storeRef, parent.storeRef)) {
         fail('SIBLING_BATCH_A_MEMBER_CONFLICT');
       }
-      const submission = submissionFor(child, member, input.shared);
-      const withCost = { ...child, packagingCostRmb: input.shared.packagingCostRmb };
+      let platform;
+      try { platform = siblingPlatform(parent, child); }
+      catch (error) { if(error.message!=='SIBLING_PLATFORM_IDENTITY_CONFLICT')throw error;fail('SIBLING_BATCH_A_MEMBER_CONFLICT'); }
+      const reuse = input.shared.reusePriorSupply ? siblingSupplyPreparation(parent, [child]) : null;
+      if (reuse && (reuse.gaps.length || reuse.rows[0].unitProductPrice !== member.unitProductPrice)) fail('SIBLING_BATCH_A_QUANTITY_ONE_EVIDENCE_MISSING');
+      const common = reuse ? { ...input.shared, quantityOneEvidenceSourceNote: reuse.rows[0].quantityOneEvidenceSourceNote } : input.shared;
+      const projected = { ...child, targetPlatform: platform };
+      const submission = submissionFor(projected, member, common);
+      const withCost = { ...projected, packagingCostRmb: input.shared.packagingCostRmb };
       const contextual = applyLifecycleBEvidenceContext(withCost, { submission, guooFilePath,
         route: input.shared.route }).candidate;
       const profitRule = resolveLifecycleBProfitRule(contextual, document.rules);
@@ -108,9 +117,10 @@ export async function commitSiblingBatchABAndC1({ repository, runtimeMode, actor
       if (result.profitModel.result !== 'passed' || result.c1Handoff === null) fail('SIBLING_BATCH_A_B_NOT_PASSED');
       assertCurrentBCommissionEvidence({ bundle: result.systemEvidenceBundle,
         evidencePacks: document.evidencePacks ?? [], currentCommissionCatalogs: document.currentCommissionCatalogs ?? [], asOf: at });
-      return { child, result, context: contextual.lifecycleEvidenceContextV11 };
+      return { child, result, platform, reuse, context: contextual.lifecycleEvidenceContextV11 };
     });
-    for (const { child, result, context } of prepared) {
+    for (const { child, result, context, platform, reuse } of prepared) {
+      child.targetPlatform = platform;
       child.packagingCostRmb = input.shared.packagingCostRmb;
       child.lifecycleEvidenceContextV11 = structuredClone(context);
       child.lifecycleV11 = { schemaVersion: 'product-lifecycle-v1.1', status: 'b_passed_auto_c1',
@@ -121,6 +131,9 @@ export async function commitSiblingBatchABAndC1({ repository, runtimeMode, actor
         bSystemEvidenceBundle: structuredClone(result.systemEvidenceBundle),
         skuPackage: structuredClone(result.skuPackage), c1Handoffs: [structuredClone(result.c1Handoff)],
         externalAccesses: [], platformWrites: 0 };
+      if (reuse) child.lifecycleV11.aSiblingSupplyReuseV1 = { ...reuse,
+        confirmedAt: at, confirmedBy: actor.userId, otherPurchaseCosts: input.shared.otherPurchaseCosts,
+        costDecision: reuse.otherPurchaseCosts === input.shared.otherPurchaseCosts ? 'reuse_confirmed_cost_no_additions' : 'owner_explicit_cost_revision' };
       child.workflowStatus = 'listing_preparation';
       child.listingPreparation = { status: 'c1_inputs_ready', reason: '本规格 A 与正式 B 已在整批事务中通过；C1 输入已建立。',
         decisionItems: [], writeOccurred: false, platformWrites: 0 };

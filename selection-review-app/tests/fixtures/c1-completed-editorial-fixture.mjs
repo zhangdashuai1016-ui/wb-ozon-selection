@@ -120,4 +120,3 @@ export async function finalImageRevisionFixture({withReferenceSources=false,refe
   const f=await createC1CompletedEditorialFixture({at:original.at,sourceCandidate:revision.candidate,historyRecord:revision.historyRecord});
   return {f,original:candidate};
 }
-

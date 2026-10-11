@@ -1,4 +1,6 @@
 export const API_PROCESS_TESTS = Object.freeze([
+  "runtime-health-api.test.mjs",
+  "sibling-preparation-api.test.mjs",
   "c1-completed-editorial-api.test.mjs",
   "c1-editorial-review-api.test.mjs",
   "c1-draft-result-read-api.test.mjs",
@@ -66,6 +68,7 @@ export const SOURCE_CONTRACT_TESTS = Object.freeze([
 ]);
 
 export const SUBPROCESS_TESTS = Object.freeze([
+  "runtime-preflight-api.test.mjs",
   "aliyun-oss-runtime-deployment-boundary.test.mjs",
   "c2-software-orchestrator.test.mjs",
   "launch-command-script.test.mjs"
@@ -74,5 +77,5 @@ export const SUBPROCESS_TESTS = Object.freeze([
 export const ISOLATED_TESTS = Object.freeze([...API_PROCESS_TESTS, ...SOURCE_CONTRACT_TESTS, ...SUBPROCESS_TESTS]);
 
 export const BUILT_RUNTIME_TESTS = Object.freeze([
-  "runtime-package-api.test.mjs", "aliyun-oss-runtime-deployment-boundary.test.mjs"
+  "runtime-package-api.test.mjs", "runtime-preflight-api.test.mjs", "aliyun-oss-runtime-deployment-boundary.test.mjs"
 ]);

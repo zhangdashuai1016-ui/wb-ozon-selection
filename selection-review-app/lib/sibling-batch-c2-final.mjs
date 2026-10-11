@@ -1,3 +1,4 @@
+import {assertSiblingPreparationImageSelection} from './sibling-preparation-consistency.mjs';
 import { assertBusinessStateRepositoryBoundary, assertCentralPersistenceBoundary } from './business-state-repository.mjs';
 import { authorizeOperation } from './runtime-identity.mjs';
 import { assertCurrentC2UploadDraft } from './c2-upload-draft.mjs';
@@ -77,6 +78,8 @@ export async function commitSiblingBatchC2Final({ repository, runtimeMode, actor
             asset.sha256 !== draft.uploads.find(item => item.assetId === asset.assetId)?.sha256)) {
         fail('SIBLING_BATCH_C2_ASSET_CHANGED');
       }
+      const preparationDraft=(document.runtime?.siblingPreparationDrafts??[]).filter(r=>r.parentCandidateId===parent.id).at(-1);
+      assertSiblingPreparationImageSelection({parent,candidate:child,draft:preparationDraft,assets});
       const sku = child.lifecycleV11.skuPackage;
       const manifest = prepareC2FinalUploadManifest({ skuPackage: sku, expectedDataRevision: sku.dataRevision,
         finalUploadAssets: assets, preparedAt: at });

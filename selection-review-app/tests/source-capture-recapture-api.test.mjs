@@ -1,20 +1,12 @@
+import { allocatedTestPorts } from './helpers/api-process-lifecycle.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import http from 'node:http';
 import { productionOwnerDecisionHttpFixture, startSavedDEApi } from './helpers/d-e-saved-api-fixture.mjs';
 import { createMusicBoxCandidate } from './helpers/legacy-candidate-fixture.mjs';
 
-async function freePort() {
-  const probe = http.createServer();
-  await new Promise((resolve, reject) => { probe.once('error', reject); probe.listen(0, '127.0.0.1', resolve); });
-  const port = probe.address().port;
-  await new Promise((resolve, reject) => probe.close(error => error ? reject(error) : resolve()));
-  assert.ok(![4317, 4318, 4173].includes(port));
-  return port;
-}
 
 // A still-current synthetic official rate, declared by this test only. No tariff table exists in this isolated run.
 const FX_PACK = { id: 'evidence:synthetic-fx-recapture', kind: 'exchange_rate', status: 'active',
@@ -79,10 +71,8 @@ async function startRecaptureApi(t, candidates) {
   const document = { ...fixture.document, candidates: candidates(fixture), evidencePacks: [structuredClone(FX_PACK)],
     runtime: { softwareJobs: [], softwareJobAuthorizationRecords: [], softwareJobCredentialBindings: [], operationAudit: [], idempotencyRecords: [] } };
   const directory = await mkdtemp(path.join(tmpdir(), 'source-capture-recapture-api-'));
-  const port = await freePort();
-  let dependencyPort = await freePort();
-  while (port === dependencyPort) dependencyPort = await freePort();
-  const closedPort = await freePort();
+  const { api: port, gateway: dependencyPort } = allocatedTestPorts();
+  const closedPort = allocatedTestPorts().second;
   const env = { SELECTION_REVIEW_TEST_GATEWAY_PORT: String(dependencyPort),
     SELECTION_REVIEW_GUOO_TARIFF_FILE: path.join(directory, 'GUOO-2026.8.19-absent.xlsx'),
     SELECTION_REVIEW_CBR_FX_URL: `http://127.0.0.1:${closedPort}/scripts/XML_daily.asp`,

@@ -97,6 +97,19 @@ export function assertSiblingSkuColorProjection(candidate) {
     const emitted = optional.attributes.filter(field => field.id === Number(fieldKey));
     const required = schemaField?.required === true;
     const projectedValue = required ? requiredField[0]?.fact?.value : projection[0]?.fact?.value;
+    if (matching.length === 1 && Array.isArray(matching[0].value)) {
+      const mapping=matching[0], raw=mapping.dictionaryValues;
+      if (fieldKey !== '10096' || schema.length !== 1 || schemaField.dictionaryId <= 0 || schemaField.isCollection !== true ||
+          !Number.isSafeInteger(schemaField.maxValueCount) || !Array.isArray(raw) || raw.length < 1 || raw.length > schemaField.maxValueCount ||
+          projection.length !== 1 || projection[0].sourceFactPath !== sourcePath || projection[0].fact?.verificationStatus !== 'confirmed' ||
+          mapping.sourceFactPath !== sourcePath || mapping.sourceFactValue !== color || !text(mapping.confirmationRef ?? sku.ozonAttributeMappingsV1.confirmationRef) ||
+          !isDeepStrictEqual(raw.map(item=>item.value),mapping.value) || new Set(raw.map(item=>item.dictionaryValueId)).size !== raw.length ||
+          raw.some(item=>!text(item.value)||!Number.isSafeInteger(item.dictionaryValueId)||item.dictionaryValueId<=0) ||
+          !isDeepStrictEqual(projection[0].fact.value,raw) || !isDeepStrictEqual(projectedValue,raw) ||
+          (required ? requiredField.length !== 1 || requiredField[0].fact?.verificationStatus !== 'confirmed' || emitted.length !== 0 :
+            emitted.length !== 1 || !isDeepStrictEqual(emitted[0].values,raw.map(item=>({dictionary_value_id:item.dictionaryValueId,value:item.value}))))) throw new Error('SIBLING_COLOR_BINDING_INVALID');
+      continue;
+    }
     if (matching.length !== 1 || projection.length !== 1 || schema.length !== 1 ||
         (required ? requiredField.length !== 1 || emitted.length !== 0 : emitted.length !== 1) ||
         matching[0].sourceFactPath !== sourcePath || matching[0].sourceFactValue !== color ||
@@ -141,7 +154,7 @@ export function assertSiblingSkuFinalCard(candidate) {
   assertSiblingSkuColorProjection(candidate);
   const main = preparation?.finalUploads?.[0];
   if (main?.role !== 'main_image' || !/^[a-f0-9]{64}$/.test(String(main.sha256 ?? '')) ||
-      binding.parentImageSha256s.includes(main.sha256) ||
+      binding.parentImageSha256s[0] === main.sha256 ||
       preparation.finalUploads.slice(1).some(asset => asset.sha256 === main.sha256)) {
     throw new Error('SIBLING_MAIN_IMAGE_NOT_DISTINCT');
   }

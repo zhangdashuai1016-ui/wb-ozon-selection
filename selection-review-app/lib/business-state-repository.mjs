@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { persistJsonThroughRealTarget } from "./atomic-json-persistence.mjs";
 import { isDeepStrictEqual } from "node:util";
+import { serialize } from "node:v8";
 import { normalizeProductionEntities, createProductionEntityResolver, PRODUCTION_ENTITY_REFERENCE_VERSION } from "./production-entity-storage.mjs";
 import { assertSafeBusinessMutationCandidate, assertSafeRuntimeRecord, assertSafeStoredProductionEntityRecord, assertRuntimeProductionEntityReferenceContext } from "./runtime-identity.mjs";
 
@@ -16,6 +17,8 @@ function validDocument(value) {
 }
 
 const PRODUCTION_RECORDS_FIELD = "productionEntityRecords";
+const SNAPSHOT_CACHE_MAX_SOURCE_BYTES = 32 * 1024 * 1024;
+const SNAPSHOT_CACHE_MAX_PAYLOAD_BYTES = 64 * 1024 * 1024;
 
 function hasFinalCardSnapshot(value) {
   return value?.schemaVersion === "c2-final-card-input-snapshot-v1" || value?.schemaVersion === PRODUCTION_ENTITY_REFERENCE_VERSION;
@@ -179,7 +182,7 @@ export function initialBusinessStateDocument({ now = new Date().toISOString(), t
   };
 }
 
-function createRepository({ adapter, concurrencyScope, read, replace }) {
+function createRepository({ adapter, concurrencyScope, read, replace, snapshotReader = null }) {
   let queue = Promise.resolve();
   const repository = {
     boundaryType: "business_state_repository",
@@ -188,6 +191,7 @@ function createRepository({ adapter, concurrencyScope, read, replace }) {
     concurrencyScope,
     multiUserReady: concurrencyScope === "database_transaction",
     async readSnapshot() {
+      if (snapshotReader) return snapshotReader();
       const document = await read();
       if (!validDocument(document)) throw new Error("BUSINESS_STATE_REPOSITORY_DOCUMENT_INVALID");
       return readProductionDocument(document);
@@ -221,25 +225,71 @@ export function createJsonBusinessStateRepository({
 } = {}) {
   if (!filePath || typeof filePath !== "string") throw new Error("BUSINESS_STATE_REPOSITORY_FILE_REQUIRED");
   let lastReadUsedInitialDocument = false;
+  let snapshotCache = null;
+  let cacheGeneration = 0;
+  function invalidateSnapshot() {
+    snapshotCache = null;
+    cacheGeneration += 1;
+  }
+  async function readSource() {
+    try {
+      const sourceText = await fileSystem.readFile(filePath, "utf8");
+      lastReadUsedInitialDocument = false;
+      return { sourceText };
+    } catch (error) {
+      invalidateSnapshot();
+      if (error?.code === "ENOENT" && initializeIfMissing) {
+        const document = typeof initialDocument === "function" ? initialDocument() : initialDocument;
+        if (!validDocument(document)) throw new Error("BUSINESS_STATE_REPOSITORY_INITIAL_DOCUMENT_INVALID");
+        lastReadUsedInitialDocument = true;
+        return { sourceText: null, document: clone(document) };
+      }
+      throw error;
+    }
+  }
+  function parseSource(source) {
+    try {
+      const document = source.sourceText === null ? source.document : JSON.parse(source.sourceText);
+      if (!validDocument(document)) throw new Error("BUSINESS_STATE_REPOSITORY_DOCUMENT_INVALID");
+      return document;
+    } catch (error) {
+      invalidateSnapshot();
+      throw error;
+    }
+  }
   return createRepository({
     adapter: "json",
     concurrencyScope: "single_process",
-    read: async () => {
+    read: async () => parseSource(await readSource()),
+    snapshotReader: async () => {
+      const generation = cacheGeneration;
       try {
-        const document = JSON.parse(await fileSystem.readFile(filePath, "utf8"));
-        lastReadUsedInitialDocument = false;
+        const source = await readSource();
+        if (source.sourceText !== null && snapshotCache?.sourceText === source.sourceText) {
+          return clone(snapshotCache.document);
+        }
+        snapshotCache = null;
+        const document = readProductionDocument(parseSource(source));
+        // One private, fully validated projection. Every call still reads the
+        // file, and transactions never use this cache. UTF-8 text equality is
+        // the same decoded input used by JSON.parse, not a file identity claim.
+        // This bounds retained payload, not RSS or transient serialization.
+        if (source.sourceText !== null && generation === cacheGeneration) {
+          const sourceBytes = Buffer.byteLength(source.sourceText, "utf8");
+          if (sourceBytes <= SNAPSHOT_CACHE_MAX_SOURCE_BYTES &&
+              sourceBytes + serialize(document).byteLength <= SNAPSHOT_CACHE_MAX_PAYLOAD_BYTES) {
+            snapshotCache = { sourceText: source.sourceText, document };
+            return clone(document);
+          }
+        }
         return document;
       } catch (error) {
-        if (error?.code === "ENOENT" && initializeIfMissing) {
-          const document = typeof initialDocument === "function" ? initialDocument() : initialDocument;
-          if (!validDocument(document)) throw new Error("BUSINESS_STATE_REPOSITORY_INITIAL_DOCUMENT_INVALID");
-          lastReadUsedInitialDocument = true;
-          return clone(document);
-        }
+        invalidateSnapshot();
         throw error;
       }
     },
     replace: async (document) => {
+      invalidateSnapshot();
       if (initializeIfMissing && lastReadUsedInitialDocument) {
         await fileSystem.mkdir(path.dirname(filePath), { recursive: true });
       }

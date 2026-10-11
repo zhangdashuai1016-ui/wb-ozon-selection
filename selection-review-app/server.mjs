@@ -1,3 +1,6 @@
+import { preparationFamily, saveSiblingPreparationDraft } from './lib/sibling-preparation-draft.mjs';
+import { siblingSupplyPreparation } from './lib/sibling-supply-preparation.mjs';
+import { createLocalSiblingCatalogReader } from './lib/sibling-preparation-catalog.mjs';
 import { createInitialCandidate, queuedProcessing } from "./lib/candidate-initialization.mjs";
 import { createSiblingSkuCandidate, createSiblingSkuCandidatesBatch, siblingSkuCandidateInput, SiblingSkuCandidateError } from './lib/sibling-sku-candidate.mjs';
 import { commitSiblingBatchABAndC1 } from './lib/sibling-batch-a-b-c1.mjs';
@@ -284,9 +287,12 @@ import { createDInitialImportRecoveryUseCase, DInitialImportRecoveryError } from
 import { createDUnknownOutcomeReobservationUseCase, DUnknownOutcomeReobservationError } from "./lib/d-unknown-outcome-reobservation-use-case.mjs";
 import { C1KeywordContinuationRevisionConflictError, createKeywordEvidenceRuntimeServices } from "./lib/keyword-evidence-runtime-services.mjs";
 
+import { createRuntimeHealth } from './lib/runtime-health.mjs';
+
 const appDir = path.dirname(fileURLToPath(import.meta.url));
 const runtimeConfiguration = createSelectionReviewRuntimeConfiguration({ env: process.env, appDir, argv: process.argv });
 const dataFile = runtimeConfiguration.dataFile;
+const runtimeHealth = createRuntimeHealth({ filePath: dataFile, storageAdapter: runtimeConfiguration.stateAdapter });
 const workflowMapFile = runtimeConfiguration.workflowMapFile;
 const imagesDir = path.join(appDir, "product-images");
 const c2FinalUploadsDir = runtimeConfiguration.c2FinalUploadsDir;
@@ -3681,17 +3687,30 @@ async function handleApi(req, res, pathname) {
     const claim = await claimCaptureJob(captureClaimRoute[1], input.version, String(req.headers.origin));
     return json(res, 200, { accepted: true, ...claim }, headers);
   }
-  if (req.method === "GET" && pathname === "/api/health") {
-    const data = await readData();
-    return json(res, 200, {
-      ok: true,
-      service: "selection-review-app",
-      version: 2,
-      dataVersion: data.meta.version,
-      extensionHeartbeat: extensionHeartbeatSnapshot(),
-      captureControl: captureControlSnapshot(),
-      checkedAt: now()
+  if (req.method === 'GET' && pathname === '/api/live') {
+    return json(res, runtimeHealth.live ? 200 : 503, {
+      ok: runtimeHealth.live, live: runtimeHealth.live, service: 'selection-review-app', version: 2, checkedAt: now()
     });
+  }
+  if (req.method === 'GET' && ['/api/health', '/api/ready'].includes(pathname)) {
+    const controller = new AbortController();
+    const disconnected = () => controller.abort();
+    res.once('close', disconnected);
+    try {
+      const readiness = await runtimeHealth.ready({ signal: controller.signal });
+      return json(res, 200, {
+        ok: true, ready: true, service: 'selection-review-app', version: 2,
+        dataVersion: readiness.dataVersion,
+        extensionHeartbeat: extensionHeartbeatSnapshot(), captureControl: captureControlSnapshot(),
+        readiness: { fresh: readiness.fresh, durationMs: readiness.durationMs }, checkedAt: now()
+      });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      return json(res, 503, {
+        ok: false, ready: false, service: 'selection-review-app', version: 2, dataVersion: null,
+        code: `RUNTIME_READINESS_${String(error.code || 'worker_failed').toUpperCase()}`, checkedAt: now()
+      });
+    } finally { res.off('close', disconnected); }
   }
 
   if (req.method === "GET" && pathname === "/api/simulations/phase-2a") {
@@ -7276,6 +7295,43 @@ async function handleApi(req, res, pathname) {
       currentCommissionCatalogs: data.currentCommissionCatalogs, observedAt: now()
     }));
   }
+  const preparationRoute=pathname.match(/^\/api\/sibling-batches\/([^/]+)\/(preparation|preparation-draft|preparation-assets\/([^/]+))$/);
+  if(preparationRoute && ['GET','POST'].includes(req.method)) {
+    const actor=runtimeIdentityProvider.resolveActor({request:req});
+    if(actor.source!=='authenticated_identity_provider' || actor.actorType!=='human' || !actor.roles.includes('owner'))throw httpError(403,'请先登录主人身份读取或保存整批草稿');
+    const origin=String(req.headers.origin||'');
+    if(origin && !allowedReviewOrigins.has(origin))throw httpError(403,'整批草稿拒绝其他网页来源');
+    const parentId=decodeURIComponent(preparationRoute[1]);
+    const reader=createLocalSiblingCatalogReader({directory:process.env.SELECTION_REVIEW_BATCH_CATALOG_DIRECTORY || fileURLToPath(new URL('./lib/batch-catalogs/s1-v4-2/',import.meta.url))});
+    const catalog=await reader.readCatalog();
+    const document=req.method==='GET'?await readData():null;
+    if(req.method==='GET' && preparationRoute[2]==='preparation') {
+      const parent=document.candidates.find(c=>c.id===parentId);
+      if(parent?.sourceCapture?.offerId!==catalog.offerId)return json(res,200,{configured:false});
+    }
+    try {
+      if(req.method==='GET') preparationFamily(document,parentId,catalog);
+      if(req.method==='GET' && preparationRoute[2]==='preparation') {
+        const draft=(document.runtime.siblingPreparationDrafts??[]).filter(r=>r.parentCandidateId===parentId).at(-1)??null;
+        const family = preparationFamily(document,parentId,catalog);
+        return json(res,200,{configured:true,catalog,draft,supplyPreparation:siblingSupplyPreparation(family.parent,family.members),externalRequests:0,platformWrites:0});
+      }
+      if(req.method==='GET' && preparationRoute[3]) {
+        const result=await reader.readAsset(catalog,decodeURIComponent(preparationRoute[3]));
+        res.writeHead(200,{'Content-Type':result.contentType,'Content-Length':result.body.length,'Cache-Control':'no-store'});res.end(result.body);return;
+      }
+      if(req.method==='POST' && preparationRoute[2]==='preparation-draft') {
+        const input=await readJsonRequestBody(req,{maxBytes:65536,requireJsonContentType:true});
+        if(input?.parentCandidateId!==parentId)throw new Error('SIBLING_PREPARATION_INPUT_INVALID');
+        return json(res,200,await saveSiblingPreparationDraft({repository:businessStateRepository,runtimeMode:runtimeConfiguration.deploymentMode,actor,input,catalog,serverClock:now}));
+      }
+      throw httpError(405,'该草稿动作不支持此请求方式');
+    }catch(error){
+      const code=String(error.code||error.message).split(':',1)[0];
+      if(/^(SIBLING_PREPARATION_|SIBLING_CATALOG_)/.test(code))return json(res,/CHANGED|CONFLICT|FROZEN/.test(code)?409:422,{code,message:code==='SIBLING_PREPARATION_MEMBERS_CHANGED'?'本批规格的平台、店铺、采集或成员身份不一致；不能读取或确认。当前输入保留，不退回重复供货表单。':'本批草稿、来源或版本不匹配；未推进阶段、未写店铺。请核对当前保存版本。',externalRequests:0,platformWrites:0});
+      throw error;
+    }
+  }
   if (req.method === 'POST' && pathname === '/api/sibling-batches/commercial-drafts') {
     const origin = String(req.headers.origin || '');
     if (origin && !allowedReviewOrigins.has(origin)) throw httpError(403, '批量经营草稿拒绝其他网页来源');
@@ -7392,12 +7448,12 @@ async function handleApi(req, res, pathname) {
           { code: error.code, message: error.message, externalRequests: 0, platformWrites: 0 });
       }
       const code = String(error.code || error.message).split(':', 1)[0];
-      if (/^(?:D_BATCH|PRODUCTION_OWNER|PRODUCTION_AUTHORIZATION|BUSINESS_MUTATION|RUNTIME_OPERATION)_[A-Z_]+$/.test(code)) {
+      if (/^(?:D_BATCH|SIBLING_PREPARATION|PRODUCTION_OWNER|PRODUCTION_AUTHORIZATION|BUSINESS_MUTATION|RUNTIME_OPERATION)_[A-Z_]+$/.test(code)) {
         const status = code === 'D_BATCH_AUTHORIZATION_INPUT_INVALID' ? 400 :
           /FORBIDDEN|AUTHENTICATED|AUTHORIZER/.test(code) ? 403 :
           /NOT_FOUND/.test(code) ? 404 : /CONFLICT|DRIFT|GATE_REJECTED|ALREADY_STARTED|RESERVED/.test(code) ? 409 : 422;
         return json(res, status,
-          { code, message: '批次授权未保存；请刷新规格清单并核对每项资料与历史任务。', externalRequests: 0, platformWrites: 0 });
+          { code, gaps:error.gaps??[], message: '批次授权未保存；请刷新规格清单并核对每项资料与历史任务。', externalRequests: 0, platformWrites: 0 });
       }
       throw error;
     }
@@ -8518,6 +8574,8 @@ async function handleApi(req, res, pathname) {
       const code = String(error.code || error.message).split(':', 1)[0];
       if (/^(?:SIBLING_BATCH_C1|C1_SIBLING_SHARED|C1_SIBLING_NEUTRAL|C1_CONTENT_REVIEW|C1_COLOR_DICTIONARY|C1_SKU_RIGHTS|C1_G1|C2_C1)/.test(code)) {
         const specific = {
+          SIBLING_BATCH_C1_COLOR_COLLECTION_SCHEMA_REQUIRED: '当前冻结类目Schema缺少基础色多选能力或有效上限；先取得并修订正式Schema证据，不能使用历史字典查询代替。',
+          SIBLING_BATCH_C1_COPY_REVIEW_REQUIRED: '编辑文案尚未通过正式语义复核；采用已核验预览文案，或先完成现有C1编辑复核。',
           SIBLING_BATCH_C1_SUPPLIER_COLOR_REQUIRED: '供应原色缺失；请先修订该规格的 A 阶段供应事实，再在本页重新预览。',
           SIBLING_BATCH_C1_OFFICIAL_COLOR_REQUIRED: '10096 官方颜色尚未逐行选择；请在本页补齐并重新预览。',
           SIBLING_BATCH_C1_COLOR_NAME_REQUIRED: '10097 准确颜色名称尚未逐行填写；请在本页补齐并重新预览。',
@@ -8588,7 +8646,7 @@ async function handleApi(req, res, pathname) {
       const code = String(error.code || error.message).split(':', 1)[0];
       if (/^(?:SIBLING_BATCH_A|REAL_A|B_EVIDENCE|B_COMMISSION|B_COST_POLICY|C1_PRODUCT_PLAN|SUPPLIER_OPTION)_[A-Z_]+$/.test(code)) {
         return json(res, /INPUT_INVALID/.test(code) ? 400 : 409,
-          { code, message: '整批 A/B/C1 未保存；请核对当前规格清单与完整证据。', externalRequests: 0, platformWrites: 0 });
+          { code, message: code==='SIBLING_BATCH_A_QUANTITY_ONE_EVIDENCE_MISSING'?'当前采集的一件起订报价或本规格同价依据不足，不能沿用其他颜色的确认；整批未推进，当前输入保留。':'整批 A/B/C1 未保存；请核对当前规格清单与完整证据。', externalRequests: 0, platformWrites: 0 });
       }
       throw error;
     }
@@ -9340,12 +9398,13 @@ server.listen(port, host, () => {
   if (runtimeConfiguration.keywordEvidenceServiceBindings.length > 0) keywordEvidenceRuntimeServices.start();
   if (runtimeConfiguration.aDiscoveryServiceBindings.length > 0) aDiscoveryRuntime.start();
   if (runtimeConfiguration.aProductDetailServiceBindings.length > 0) aProductDetailRuntime.start();
+  runtimeHealth.markListening();
   console.log(`全店经营工作台${apiOnly ? " API" : ""}：http://${host}:${port}`);
 });
 
 function closeServer() {
   codexDispatcher?.close();
-  Promise.allSettled([deRuntimeServices.stop(), keywordEvidenceRuntimeServices.stop(), aDiscoveryRuntime.stop(), aProductDetailRuntime.stop(), c1ImageTextUseCase.stop()]).then(results => {
+  Promise.allSettled([runtimeHealth.close(), deRuntimeServices.stop(), keywordEvidenceRuntimeServices.stop(), aDiscoveryRuntime.stop(), aProductDetailRuntime.stop(), c1ImageTextUseCase.stop()]).then(results => {
     const failed = results.some(result => result.status === "rejected");
     if (failed) console.error("SOFTWARE_RUNTIME_SHUTDOWN_FAILED: 作业停止结果需要核对。");
     server.close(() => process.exit(failed ? 1 : 0));

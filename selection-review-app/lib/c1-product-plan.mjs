@@ -632,7 +632,7 @@ function ozonAttributeFacts(skuPackage, plan, schemaRoot, supplyRoot, schema) {
     const sourceCurrent = isObject(current) && current.verificationStatus === "confirmed" &&
       JSON.stringify(current.value) === JSON.stringify(declared);
     const known = schemaCurrent && sourceCurrent && attributeById.has(String(mapping.attributeId));
-    const refs = [mapping.dictionaryEvidenceRef, factPath(schemaRoot, `attributes/${mapping.attributeId}`),
+    const refs = [...(mapping.dictionaryEvidenceRefs ?? []), mapping.dictionaryEvidenceRef, factPath(schemaRoot, `attributes/${mapping.attributeId}`),
       factPath(supplyRoot, "supplierSku/attributes"), mapping.confirmationRef ?? record.confirmationRef];
     return {
       fieldKey: String(mapping.attributeId),
@@ -645,7 +645,7 @@ function ozonAttributeFacts(skuPackage, plan, schemaRoot, supplyRoot, schema) {
       // 主人签的品牌声明本来就是这个形状（Бренд = {value:"Нет бренда", …}），这里对齐它。
       // 无字典的自由文本属性保持纯字符串。
       fact: known
-        ? sourcedFact(mapping.dictionaryValueId === null || mapping.dictionaryValueId === undefined
+        ? sourcedFact(Array.isArray(mapping.dictionaryValues) ? mapping.dictionaryValues : mapping.dictionaryValueId === null || mapping.dictionaryValueId === undefined
           ? mapping.value
           : { value: mapping.value, dictionaryValueId: mapping.dictionaryValueId }, refs)
         : sourcedFact(null, refs, schemaCurrent

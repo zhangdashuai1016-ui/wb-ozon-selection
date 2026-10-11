@@ -16,6 +16,7 @@ async function pageModule() {
     const output = await build({ configFile: false, logLevel: 'warn', plugins: [react(), { name: 'product-page-ui-test',
       resolveId: id => id === entry ? entry : null,
       load: id => id === entry ? `import React from 'react';import {renderToStaticMarkup} from 'react-dom/server';
+      import {createPreparationSaveState} from ${JSON.stringify(fileURLToPath(new URL('../src/siblingPreparationState.js',import.meta.url)))};
       import Page, {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload,
         captureRecaptureReady, captureRecaptureConfirmLine, captureRecapturePayload, CAPTURE_RECAPTURE_REASONS,
         currentProductStep, skuChoiceReady, skuChoiceSaved, showsSkuChoice, skuChoiceHeadline, skuChoiceSwing,
@@ -38,7 +39,7 @@ async function pageModule() {
         ozonCategoryStepGaps, ozonPageReadOutcomeLine, productStepPassed, extraHandlingFeesFormState,
         extraHandlingFeesPayload, extraHandlingFeesFormErrors, extraHandlingFeesFormTotal, extraHandlingFeesStepGaps,
         extraHandlingFeeBreakLine, extraHandlingFeeAppliedLine};
-      export const render=props=>renderToStaticMarkup(<Page {...props}/>);
+      export const render=props=>renderToStaticMarkup(<Page preparationSaveState={createPreparationSaveState()} {...props}/>);
       export const renderCommissionEstimate=props=>renderToStaticMarkup(<CommissionEstimateBlock {...props}/>);` : null }],
       ssr: { noExternal: true }, build: { ssr: true, write: false, rollupOptions: { input: entry, output: { format: 'es' } } } });
     const chunk = output.output.find(value => value.type === 'chunk' && value.isEntry);
@@ -121,7 +122,7 @@ test('one family page keeps created specifications visible with precise missing 
   assert.match(html, /整批尚有缺项，不能提交生产授权/u);
 });
 
-test('one family page exposes common inputs, row price and stock overrides, and a gated final batch decision', async () => {
+test('one family page waits for the batch workspace instead of showing misleading duplicate supply inputs', async () => {
   const parent = candidate({ sourceCapture: { mode: 'a_supplier_capture', status: 'captured_waiting_owner_selection',
     selectedSkuIds: ['6222816678021', '6222816678023'], skuChoices: [
       { sourceSkuId: '6222816678021', attributes: { 颜色: '卡其色' } },
@@ -134,20 +135,15 @@ test('one family page exposes common inputs, row price and stock overrides, and 
   const html = await render(props({ candidate: parent, onCreateSiblingSku: forbidden,
     onConfirmSiblingBatchA: forbidden, onAuthorizeSiblingProductionBatch: forbidden,
     siblingSkuIds: ['6222816678023'], siblingCandidates: [child] }));
-  assert.match(html, /整批共用资料与逐行差异/u);
-  assert.match(html, /黑cp 单价/u);
-  assert.match(html, /黑cp 本规格目标成交价/u);
-  assert.match(html, /本规格目标成交价留空时沿用上方共用目标成交价/u);
-  assert.match(html, /库存初始填写 100/u);
-  assert.match(html, /首件冻结货号或来源身份不完整/u);
-  assert.match(html, /disabled=""[^>]*>整批确认供货并分别计算正式利润/u);
-  assert.match(html, /黑cp 库存/u);
-  assert.match(html, /我已逐行核对所选规格为精确同款/u);
-  assert.match(html, /整批确认供货并分别计算正式利润/u);
-  assert.doesNotMatch(html, /一次确认整批最终内容/u);
+  assert.match(html, /当前正式流程与缺项/u);
+  assert.match(html, /正在读取整批资料；读取完成前不能确认供货/u);
+  assert.doesNotMatch(html, /各规格一件起订及单价的核对来源|其他采购费用 ¥/u);
+  assert.doesNotMatch(html, /黑cp 单价|黑cp 本规格目标成交价|我已逐行核对所选规格为精确同款/u);
+  assert.doesNotMatch(html, /整批确认供货并分别计算正式利润/u);
+  assert.doesNotMatch(html, /确认上架（含创建和库存）/u);
 });
 
-test('one family page offers distinct main images and one shared gallery input at C2', async () => {
+test('C2 keeps the final decision disabled until the workspace is read and never falls back to legacy uploads while loading', async () => {
   const parent = candidate({ sourceCapture: { mode: 'a_supplier_capture', status: 'captured_waiting_owner_selection',
     selectedSkuIds: ['first-unknown', 'black'], skuChoices: [
       { sourceSkuId: 'first-unknown', attributes: { 颜色: '卡其色' } },
@@ -159,10 +155,10 @@ test('one family page offers distinct main images and one shared gallery input a
   const html = await render(props({ candidate: parent, siblingCandidates: [child],
     onConfirmSiblingBatchA: forbidden, onAuthorizeSiblingProductionBatch: forbidden,
     onUploadSiblingC2Asset: forbidden, onLinkSiblingC2Asset: forbidden, onConfirmSiblingBatchC2: forbidden }));
-  assert.match(html, /黑色 主图文件/u);
-  assert.match(html, /共用图库文件/u);
-  assert.match(html, /一次确认整批最终素材并生成各自方案卡/u);
-  assert.match(html, /一次确认整批最终内容/u);
+  assert.match(html, /正在读取整批资料/u);
+  assert.doesNotMatch(html, /黑色 主图文件|共用图库文件|一次确认整批最终素材并生成各自方案卡/u);
+  assert.match(html, /disabled=""[^>]*>确认上架（含创建和库存）/u);
+  assert.doesNotMatch(html, /导入后库存动作|仅创建商品/u);
 });
 
 test('sibling product page shows frozen revision recovery and editable 10096/10097 mapping entry', async () => {

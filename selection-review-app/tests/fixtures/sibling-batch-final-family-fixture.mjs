@@ -14,10 +14,11 @@ import { finalAssets } from '../helpers/c2-software-fixture.mjs';
 
 export const at = '2026-08-12T13:00:00.000Z';
 
-async function fixture(extraBroadValues = []) {
+async function fixture(extraBroadValues = [], collectionSpec = null) {
   const state = siblingColorState();
   const child = state.candidates[1];
   delete child.lifecycleV11.skuPackage.c1RightsReviewRecord;
+  if(collectionSpec) Object.assign(child.lifecycleV11.skuPackage.c1ProductPlan.inputSnapshots.platformSchemaRules.attributes.find(a=>a.fieldKey==='10096'),collectionSpec);
   const formal = createFormalC1DraftFixture({ at, candidateId: 'candidate:synthetic-parent',
     supplierSkuId: 'synthetic-first', variantKey: '颜色:黑cp',
     skuAttributes: { 颜色: '黑cp', model_name: 'synthetic-model' },

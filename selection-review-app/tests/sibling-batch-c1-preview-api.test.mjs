@@ -1,3 +1,4 @@
+import { allocatedTestPorts } from './helpers/api-process-lifecycle.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp } from 'node:fs/promises';
@@ -6,7 +7,7 @@ import path from 'node:path';
 import { threeColorFixture } from './fixtures/sibling-batch-final-family-fixture.mjs';
 import { startSavedDEApi } from './helpers/d-e-saved-api-fixture.mjs';
 
-const port = Number(process.env.SELECTION_REVIEW_TEST_PORT);
+const { api: port } = allocatedTestPorts();
 
 test('three-color C1 preview is read-only and one bound owner confirmation reaches C2', async t => {
   const fixture = await threeColorFixture();

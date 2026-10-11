@@ -175,7 +175,7 @@ test("builds one Ozon import item from the frozen production payload", () => {
   assert.deepEqual(item.images, ["https://assets.example/detail.jpg"]);
   assert.equal(item.attributes.find((entry) => entry.id === 4191).values[0].value.includes("Ручной завод"), true);
   assert.equal(item.attributes.find((entry) => entry.id === 85).values[0].dictionary_value_id, 1001);
-  // 对齐本店唯一一次被接受的导入（雨衣 2026-09-16，task_id 5639765026）：vat 发 "0"，
+  // 商品导入请求明确设置 vat 为零。
   // 不发 old_price，也不发与 description_category_id 重复的 new_description_category_id。
   assert.equal(item.vat, "0");
   assert.equal(Object.hasOwn(item, "old_price"), false);

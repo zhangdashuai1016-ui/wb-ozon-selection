@@ -1,3 +1,4 @@
+// All long supplier, merchant, task and candidate identities in this test are synthetic.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createInitialCandidate } from '../lib/candidate-initialization.mjs';
@@ -15,20 +16,20 @@ import { PRODUCTION_ENTITY_REFERENCE_VERSION, PRODUCTION_ENTITY_RECORD_VERSION }
 import { addEvidenceContext, currentOtherCosts, evidencePacks } from './fixtures/real-a-b-flow-fixture.mjs';
 import { runRealAConfirmationToBAndC1 } from '../lib/real-a-b-c1-flow.mjs';
 
-const KHaki = '6222816678021';
-const BLACK_CP = '6222816678023';
+const KHaki = '9999999000001';
+const BLACK_CP = '9999999000002';
 const timestamp = '2026-09-24T12:00:00.000Z';
 const bindings = [{ targetStore: 'dandanshu', storeRef: SYNTHETIC_STORE_REF }];
 
 function fixture() {
   const parent = createInitialCandidate({
-    input: { targetStore: 'dandanshu', productName: '小猫战术背心', sourceUrl: 'https://detail.1688.com/offer/1038877014153.html' },
+    input: { targetStore: 'dandanshu', productName: '小猫战术背心', sourceUrl: 'https://detail.1688.com/offer/9999999000003.html' },
     source: 'user', id: 'candidate:vest-parent', timestamp, storeBindings: bindings
   });
   parent.dataRevision = 12;
   parent.sourceCapture = {
     captureId: 'source-capture:vest-fixture', mode: 'a_supplier_capture', status: 'captured_waiting_owner_selection',
-    sourceUrl: parent.sourceUrl, offerId: '1038877014153', title: '小猫战术背心', observedAt: timestamp,
+    sourceUrl: parent.sourceUrl, offerId: '9999999000003', title: '小猫战术背心', observedAt: timestamp,
     collectionMethod: 'synthetic_fixture', titleSource: 'page', offerIdSource: 'url', priceRanges: [], pageFields: {},
     supplierAttributes: { 材质: '牛津布' }, selectedSkuIds: [BLACK_CP, KHaki],
     skuChoices: [
@@ -39,12 +40,12 @@ function fixture() {
   parent.salesSnapshotsV11 = [collectMockOzonSalesSnapshot({
     sourceMode: 'mock_ozon_fixture', snapshotId: 'sales:vest-fixture', marketScope: 'unknown', sellerType: 'unknown',
     sellerIdentityEvidence: { status: 'unverified', signals: [], evidenceRef: 'sales-identity:vest-fixture' },
-    productUrl: 'https://www.ozon.ru/product/1234567890/', title: '战术背心', imageRefs: [], currentPrice: 900,
+    productUrl: 'https://www.ozon.ru/product/9999000004/', title: '战术背心', imageRefs: [], currentPrice: 900,
     currency: 'RUB', categoryPath: '宠物用品', attributes: {}, collectedAt: timestamp, evidenceRef: 'sales:vest-fixture'
   })];
   parent.supplierDraftV1 = {
     schemaVersion: 'supplier-draft-v1', declaredBy: 'owner', declaredAt: timestamp,
-    sourceUrl: parent.sourceUrl, sourceUrlType: 'detail', offerId: '1038877014153',
+    sourceUrl: parent.sourceUrl, sourceUrlType: 'detail', offerId: '9999999000003',
     goodsPriceRmb: 18, domesticShippingRmb: 0, allInPurchaseRmb: 18, packedWeightKg: 0.2,
     dimensionsCm: { length: 20, width: 15, height: 4 }, targetSalePriceRub: 900, note: null,
     provenance: 'owner_declared'
@@ -56,10 +57,10 @@ function fixture() {
   };
   parent.lifecycleV11 = { skuPackage: {
     supplierSkuId: KHaki, selectedSupplySnapshot: { ownerSupplyConfirmation: { status: 'confirmed' } },
-    dSoftwareExecution: { checkpoints: [{ kind: 'import_task_received', taskId: '5693032397' }],
+    dSoftwareExecution: { checkpoints: [{ kind: 'import_task_received', taskId: '9999000005' }],
       attempt: { request: { productImport: { body: { items: [{
-        description_category_id: 17028665, type_id: 92935,
-        attributes: [{ id: 9048, values: [{ value: 'AL655668666570' }] },
+        description_category_id: 99000006, type_id: 92935,
+        attributes: [{ id: 9048, values: [{ value: 'AL999999000007' }] },
           { id: 85, values: [{ value: 'Нет бренда' }] }]
       }] } } } } },
     productionAuthorization: { schemaVersion: PRODUCTION_ENTITY_REFERENCE_VERSION, entityId: 'parent-only',
@@ -81,18 +82,18 @@ const input = { dataRevision: 12, supplierSkuId: BLACK_CP };
 
 test('one selected-variant list prepares three A records and excludes the first and unselected color', () => {
   const document = fixture(), parent = document.candidates[0];
-  for (const [sourceSkuId, color] of [['6222816678020', 'CP'], ['6222816678019', '黑色']]) {
+  for (const [sourceSkuId, color] of [['9999999000008', 'CP'], ['9999999000009', '黑色']]) {
     parent.sourceCapture.selectedSkuIds.push(sourceSkuId);
     parent.sourceCapture.skuChoices.push({ sourceSkuId, variantName: color, attributes: { 颜色: color }, priceCny: null, weight: null });
     parent.skuUniformSupplyV1.sourceSkuIds.push(sourceSkuId);
   }
-  parent.sourceCapture.skuChoices.push({ sourceSkuId: '6222816678022', variantName: '军绿', attributes: { 颜色: '军绿' } });
+  parent.sourceCapture.skuChoices.push({ sourceSkuId: '9999999000010', variantName: '军绿', attributes: { 颜色: '军绿' } });
   const before = structuredClone(parent);
   let next = 0;
   const run = supplierSkuIds => createSiblingSkuCandidatesBatch({ document, parentCandidateId: parent.id,
     input: { dataRevision: 12, supplierSkuIds }, nextId: () => `candidate:batch-${++next}`,
     timestamp, storeBindings: bindings });
-  const selected = [BLACK_CP, '6222816678020', '6222816678019'];
+  const selected = [BLACK_CP, '9999999000008', '9999999000009'];
   const result = run(selected);
   assert.equal(result.createdCount, 3);
   assert.deepEqual(result.candidates.map(candidate => candidate.siblingSourceV1.supplierSkuId), selected);
@@ -100,7 +101,7 @@ test('one selected-variant list prepares three A records and excludes the first 
   assert.equal(run(selected).createdCount, 0);
   const saved = structuredClone(document);
   assert.throws(() => run([BLACK_CP, KHaki]), error => error.code === 'SIBLING_PARENT_SKU_REJECTED');
-  assert.throws(() => run(['6222816678022']), error => error.code === 'SIBLING_CAPTURE_INVALID');
+  assert.throws(() => run(['9999999000010']), error => error.code === 'SIBLING_CAPTURE_INVALID');
   assert.deepEqual(document, saved);
 });
 const create = (document, override = input) => createSiblingSkuCandidate({ document,
@@ -116,7 +117,7 @@ test('blackcp starts its own A branch with one captured SKU and no inherited pro
   assert.equal(child.productName, `原商品同款：小猫战术背心 · 供应商原色 黑cp · SKU ${BLACK_CP}`);
   assert.equal(child.siblingSourceV1.supplierSkuId, BLACK_CP);
   assert.equal(child.siblingSourceV1.parentRevision, 12);
-  assert.equal(child.siblingSourceV1.parentCardBinding.model, 'AL655668666570');
+  assert.equal(child.siblingSourceV1.parentCardBinding.model, 'AL999999000007');
   assert.deepEqual(child.siblingSourceV1.parentCardBinding.parentImageSha256s,
     ['a'.repeat(64), 'b'.repeat(64)]);
   assert.equal(before.lifecycleV11.skuPackage.productionAuthorization.lockedScope, undefined);
@@ -141,12 +142,12 @@ test('final card gate requires same grouping keys and a new color main image', (
       { attributeId: '10097', sourceFactPath: 'productAttributes.supplierAttributes.0.fact',
         sourceFactValue: '黑cp', value: 'synthetic exact black cp', dictionaryValueId: null }] },
     c1ProductPlan: {
-      platformCategory: { descriptionCategoryId: { value: '17028665' }, typeId: { value: '92935' } },
+      platformCategory: { descriptionCategoryId: { value: '99000006' }, typeId: { value: '92935' } },
       inputSnapshots: { platformSchemaRules: { attributes: [
         { fieldKey: '10096', required: false, complexId: 0, dictionaryId: 1 },
         { fieldKey: '10097', required: false, complexId: 0, dictionaryId: 0 }] } },
       productAttributes: { requiredPlatformFields: [
-        { fieldKey: '9048', fact: { value: 'AL655668666570', verificationStatus: 'confirmed' } },
+        { fieldKey: '9048', fact: { value: 'AL999999000007', verificationStatus: 'confirmed' } },
         { fieldKey: '85', fact: { value: { value: 'Нет бренда' }, verificationStatus: 'confirmed' } }
       ], supplierAttributes: [{ fieldKey: '颜色', fact: { value: '黑cp', verificationStatus: 'confirmed' } }],
       ozonAttributes: [{ fieldKey: '10096', sourceFactPath: 'productAttributes.supplierAttributes.0.fact',
@@ -166,7 +167,7 @@ test('final card gate requires same grouping keys and a new color main image', (
   child.lifecycleV11.skuPackage.c2FinalAssets.productionAuthorizationPreparation.finalUploads[0].sha256 = 'c'.repeat(64);
   child.lifecycleV11.skuPackage.c1ProductPlan.productAttributes.requiredPlatformFields[0].fact.value = 'wrong-model';
   assert.throws(() => assertSiblingSkuFinalCard(child), /SIBLING_CARD_GROUPING_MISMATCH/);
-  child.lifecycleV11.skuPackage.c1ProductPlan.productAttributes.requiredPlatformFields[0].fact.value = 'AL655668666570';
+  child.lifecycleV11.skuPackage.c1ProductPlan.productAttributes.requiredPlatformFields[0].fact.value = 'AL999999000007';
   child.lifecycleV11.skuPackage.c1ProductPlan.productAttributes.ozonAttributes[0].fact.value.value = 'synthetic khaki';
   assert.throws(() => assertSiblingSkuFinalCard(child), /SIBLING_COLOR_BINDING_INVALID/);
   child.lifecycleV11.skuPackage.c1ProductPlan.productAttributes.ozonAttributes[0].fact.value.value = 'synthetic broad black';
@@ -242,11 +243,11 @@ test('newer provider snapshot preserves older real page category evidence for B'
   const document = fixture();
   const real = collectRealOzonSalesSnapshot({ sourceMode: 'real_ozon_page_observation', technicalStatus: 'completed',
     snapshotId: 'sales:real-category', marketScope: 'ozon_general_market', sellerIdentitySignals: [],
-    sellerIdentityEvidenceRef: 'synthetic:seller', productUrl: 'https://www.ozon.ru/product/1234567890/',
+    sellerIdentityEvidenceRef: 'synthetic:seller', productUrl: 'https://www.ozon.ru/product/9999000004/',
     title: '战术背心', imageRefs: [], currentPrice: 900, currency: 'RUB', categoryPath: '宠物用品 > 背心',
     attributes: {}, collectedAt: '2026-09-23T12:00:00.000Z', evidenceRef: 'synthetic:real-page' });
-  const provider = buildDiscoveryMarketSalesSnapshot({ product: { productId: '1234567890',
-    providerRecordRef: 'synthetic:provider-row', productUrl: 'https://www.ozon.ru/product/1234567890/',
+  const provider = buildDiscoveryMarketSalesSnapshot({ product: { productId: '9999000004',
+    providerRecordRef: 'synthetic:provider-row', productUrl: 'https://www.ozon.ru/product/9999000004/',
     title: '战术背心', imageUrl: null, price: 900, salesCount: 20, revenue: 18000,
     reviewCount: 2, reviewRating: 4.5, categoryPath: { cnTitlePath: '宠物用品 > 背心' } },
   receipt: { receiptId: 'synthetic:provider-receipt', completedAt: '2026-09-24T12:00:00.000Z' } });

@@ -28,7 +28,8 @@ export function derivePlatformWriteBindings(schema) {
     if (!Number.isInteger(complexId) || complexId < 0 || !Number.isInteger(dictionaryId) || dictionaryId < 0) return null;
     // 标题/描述/搜索词走 textAttribute，那条路要求 dictionaryId 必须是 0。
     if (textOnly && dictionaryId !== 0) return null;
-    return { fieldKey, attributeId: Number(attributeId), complexId, dictionaryId };
+    return { fieldKey, attributeId: Number(attributeId), complexId, dictionaryId,
+      ...(attribute.isCollection === true && Number.isSafeInteger(attribute.maxValueCount) ? {isCollection:true,maxValueCount:attribute.maxValueCount} : {}) };
   };
   const content = {};
   for (const [fieldKey, attributeId] of Object.entries(OZON_CONTENT_ATTRIBUTE_IDS)) {
@@ -46,4 +47,3 @@ export function derivePlatformWriteBindings(schema) {
   if (requiredAttributes.length === 0) return null;
   return { schemaRevision: schema.schemaRevision, evidenceRef: schema.evidenceId, content, requiredAttributes };
 }
-

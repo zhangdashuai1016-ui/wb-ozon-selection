@@ -81,7 +81,7 @@ export function applySavedDictionaryMappingToPreparedRevision({ candidate, input
     throw new C1OzonAttributeMappingError("C1_PREPARED_MAPPING_RECEIPT_REJECTED");
   }
   const fact = factAtPath(plan, mapping.sourceFactPath);
-  
+
   candidate.lifecycleV11.skuPackage = structuredClone(applyPreparedC1OzonAttributeMapping({ skuPackage: sku,
     mapping: { ...mapping, dictionaryValueId: receipt.exactMatch.id, sourceFactValue: fact?.value,
       dictionaryEvidenceRef: receipt.sourceRef }, confirmationRef, confirmedBy, mappedAt: observedAt }).skuPackage);

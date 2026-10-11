@@ -22,6 +22,7 @@ const [apiPort, gatewayPort, browserPort] = await Promise.all([freePort(), freeP
 if (new Set([apiPort, gatewayPort, browserPort]).size !== 3) throw new Error('SIBLING_BATCH_BROWSER_PORT_CONFLICT');
 process.env.SELECTION_REVIEW_TEST_GATEWAY_PORT = String(gatewayPort);
 process.env.SELECTION_REVIEW_TEST_PORT = String(apiPort);
+process.env.SELECTION_REVIEW_TEST_SECOND_PORT = String(browserPort);
 const browserOrigin = `http://127.0.0.1:${browserPort}`;
 const cleanups = [];
 const testContext = { after: callback => cleanups.push(callback) };

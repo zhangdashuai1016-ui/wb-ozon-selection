@@ -1,3 +1,4 @@
+import { assertSiblingPreparationMatchesFinal } from './sibling-preparation-consistency.mjs';
 import { assertBusinessStateRepositoryBoundary, assertCentralPersistenceBoundary } from './business-state-repository.mjs';
 import { authorizeOperation, assertSafeBusinessMutationCandidate, assertSafeRuntimeRecord,
   createOperationAuditEvent } from './runtime-identity.mjs';
@@ -68,7 +69,7 @@ export async function commitBatchOwnerProductionAuthorization({ repository, runt
     const firstOfferId=parent?.lifecycleV11?.skuPackage?.productionAuthorization?.lockedScope?.merchantSku;
     if(!parent||parent.dataRevision!==input.parentRevision||
         !Array.isArray(selected)||selected.length<2||new Set(selected).size!==selected.length||
-        !text(firstSkuId)||selected[0]!==firstSkuId||!text(firstOfferId)||
+        !text(firstSkuId)||!selected.includes(firstSkuId)||!text(firstOfferId)||
         input.excludedOfferIds.length!==1||input.excludedOfferIds[0]!==firstOfferId)
       throw new Error('D_BATCH_PARENT_SCOPE_CHANGED');
     const expectedSkuIds=selected.filter(skuId=>skuId!==firstSkuId);
@@ -86,6 +87,8 @@ export async function commitBatchOwnerProductionAuthorization({ repository, runt
           reservedCandidateIds.has(candidate.id))
         throw new Error('D_BATCH_SELECTED_MEMBERS_CHANGED');
     }
+    const preparationDraft=(document.runtime?.siblingPreparationDrafts??[]).filter(record=>record.parentCandidateId===parent.id).at(-1);
+    if (preparationDraft) assertSiblingPreparationMatchesFinal({parent,members:input.members.map(member=>byCandidateId.get(member.candidateId)),draft:preparationDraft,ownerInputs:input.members.map(member=>member.ownerInput)});
     const observedAt = serverClock();
     const evidencePacks = document.evidencePacks ?? [];
     const currentCommissionCatalogs = document.currentCommissionCatalogs ?? [];

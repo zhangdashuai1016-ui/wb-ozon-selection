@@ -1,3 +1,4 @@
+import { createPreparationSaveState } from '../../src/siblingPreparationState.js';
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import SiblingBatchPreparation from '../../src/components/SiblingBatchPreparation.jsx';
@@ -33,16 +34,18 @@ const aSiblings = colors.map(([sourceSkuId, color]) => ({ id: `candidate:synthet
   realAConfirmationCard: { salesReview: { snapshotId: 'sales:synthetic', title: `合成背心 ${color}` } } }));
 
 function AFormFixture() {
+  const [preparationSaveState]=useState(createPreparationSaveState);
   const [payload, setPayload] = useState(null);
   return <main className="page-panel" style={{ maxWidth: 1320, margin: '24px auto', padding: 16 }}>
     <h1>合成三色批次 A 表单</h1>
-    <SiblingBatchPreparation parent={aParent} siblings={aSiblings} onConfirmA={value => {
+    <SiblingBatchPreparation preparationSaveState={preparationSaveState} parent={aParent} siblings={aSiblings} onConfirmA={value => {
       setPayload(value); return Promise.resolve({ saved: false }); }} />
     {payload ? <pre id="a-payload">{JSON.stringify(payload, null, 2)}</pre> : null}
   </main>;
 }
 
 function BrowserFixture() {
+  const [preparationSaveState]=useState(createPreparationSaveState);
   const [siblings, setSiblings] = useState(fixture.siblings);
   const [executionView, setExecutionView] = useState(null);
   const [authorizationInput, setAuthorizationInput] = useState(null);
@@ -77,7 +80,7 @@ function BrowserFixture() {
   }
   return <main><h1>合成三色批次最终确认</h1>
     <p id="stock-save-count">库存草稿保存次数：{stockSaveCount}</p>
-    <SiblingBatchPreparation parent={parent} siblings={siblings} onAuthorize={authorize}
+    <SiblingBatchPreparation preparationSaveState={preparationSaveState} parent={parent} siblings={siblings} onAuthorize={authorize}
       onSaveStockDrafts={saveStockDrafts} executionView={executionView}
       onRefreshExecution={() => Promise.resolve(executionView)} onResumeStock={() => Promise.resolve(executionView)} />
     {authorizationInput ? <pre id="authorized-payload">{JSON.stringify(authorizationInput)}</pre> : null}

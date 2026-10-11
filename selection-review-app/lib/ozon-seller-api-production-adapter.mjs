@@ -75,6 +75,11 @@ function boundFactAttribute(field, binding) {
     throw new Error(`OZON_ADAPTER_REQUIRED_ATTRIBUTE_UNKNOWN: ${field?.fieldKey || "unknown"}`);
   }
   const raw = fact.value;
+  if (Array.isArray(raw)) {
+    if (binding.dictionaryId <= 0 || binding.isCollection !== true || !Number.isSafeInteger(binding.maxValueCount) || raw.length < 1 || raw.length > binding.maxValueCount ||
+        raw.some(item=>!isObject(item) || !Number.isSafeInteger(item.dictionaryValueId) || item.dictionaryValueId <= 0 || !nonEmpty(item.value)) || new Set(raw.map(item=>item.dictionaryValueId)).size !== raw.length) throw new Error('OZON_ADAPTER_COLLECTION_VALUE_INVALID');
+    return {id:binding.attributeId,complex_id:binding.complexId,values:raw.map(item=>({dictionary_value_id:item.dictionaryValueId,value:item.value}))};
+  }
   if (binding.dictionaryId === 0) {
     const text = isObject(raw) ? raw.value : raw;
     if (!nonEmpty(String(text ?? ""))) throw new Error(`OZON_ADAPTER_REQUIRED_ATTRIBUTE_VALUE_INVALID: ${field.fieldKey}`);
@@ -196,9 +201,8 @@ export function buildOzonSellerImportRequest(payload) {
   const byId = new Map([...required, ...optional, ...generated].map((item) => [item.id, item]));
   const urls = payload.finalUploads.map((asset) => asset.assetRef);
   assertAuthorizedMediaIsWhatWeSend(payload.authorizedMedia, urls[0], urls.slice(1));
-  // 字段集对齐本店唯一一次被 Ozon 接受的导入（雨衣 YYC002B111-CAMO-XL，2026-09-16，task_id 5639765026）：
-  // vat 发 "0" 而不是 "0.00"，不发 old_price（空字符串填价格字段），也不发与 description_category_id 重复的
-  // new_description_category_id。官方结构合同对这三者只给类型、不给枚举或必填，没有任何依据支持原来的写法。
+  // Keep the validated import shape: VAT uses "0", the optional old_price is omitted,
+  // and new_description_category_id does not duplicate description_category_id.
   const item = {
     attributes: [...byId.values()],
     barcode: "",

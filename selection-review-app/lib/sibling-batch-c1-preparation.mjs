@@ -1,3 +1,4 @@
+import { c1CopyFields } from './sibling-preparation-consistency.mjs';
 import { assertBusinessStateRepositoryBoundary, assertCentralPersistenceBoundary } from './business-state-repository.mjs';
 import { authorizeOperation, assertSafeBusinessMutationCandidate } from './runtime-identity.mjs';
 import { sameStoreRef } from './store-binding.mjs';
@@ -23,7 +24,7 @@ function mapColors(candidate, dictionarySource, evidencePacks, ownerId, at, valu
     fail('SIBLING_BATCH_C1_MAPPING_INPUT_INVALID');
   }
   if (!text(candidate.sourceCapture?.skuChoices?.[0]?.attributes?.颜色)) fail('SIBLING_BATCH_C1_SUPPLIER_COLOR_REQUIRED');
-  if (!values || !text(values['10096'])) fail('SIBLING_BATCH_C1_OFFICIAL_COLOR_REQUIRED');
+  if (!values || !(text(values['10096']) || Array.isArray(values['10096']) && values['10096'].length > 0 && values['10096'].every(text))) fail('SIBLING_BATCH_C1_OFFICIAL_COLOR_REQUIRED');
   if (!text(values['10097'])) fail('SIBLING_BATCH_C1_COLOR_NAME_REQUIRED');
   const rights = resolveC1SkuRightsReviewForFacts({ skuPackage: sku, observedAt: at });
   if (rights.status !== 'verified') fail('SIBLING_BATCH_C1_RIGHTS_NOT_VERIFIED');
@@ -40,6 +41,14 @@ function mapColors(candidate, dictionarySource, evidencePacks, ownerId, at, valu
     const value = values[attributeId];
     if (attribute.dictionaryId > 0 && (!isDeepStrictEqual(schema, dictionarySource.lifecycleV11?.skuPackage?.c1ProductPlan?.inputSnapshots?.platformSchemaRules) ||
         !sameStoreRef(candidate.storeRef, dictionarySource.storeRef))) fail('SIBLING_BATCH_C1_DICTIONARY_SCOPE_DIFFERENCE');
+    if (Array.isArray(value)) {
+      if (attributeId !== '10096' || attribute.dictionaryId <= 0 || attribute.isCollection !== true ||
+          !Number.isSafeInteger(attribute.maxValueCount) || value.length > attribute.maxValueCount || new Set(value).size !== value.length) fail('SIBLING_BATCH_C1_COLOR_COLLECTION_SCHEMA_REQUIRED');
+      const resolvedValues = value.map(item => resolveSavedC1ColorDictionaryValue({ candidate: dictionarySource, evidencePacks, attributeId, value: item, observedAt: at }));
+      return { attributeId, attributeLabel: attribute.label ?? null, dictionaryId: attribute.dictionaryId, value, dictionaryValueId: null,
+        dictionaryValues: resolvedValues.map((item,i) => ({ value: value[i], dictionaryValueId: item.dictionaryValueId })),
+        dictionaryEvidenceRef: resolvedValues[0].sourceRef, dictionaryEvidenceRefs: resolvedValues.map(item => item.sourceRef), sourceFactPath, sourceFactValue: facts[0].item.fact.value };
+    }
     const resolved = attribute.dictionaryId > 0
       ? resolveSavedC1ColorDictionaryValue({ candidate: dictionarySource, evidencePacks, attributeId, value, observedAt: at })
       : { dictionaryValueId: null, sourceRef: `${schema.evidenceId}#/attributes/${attributeId}` };
@@ -130,7 +139,7 @@ function prepareBatch(document, actor, input, serverClock) {
         targetCandidateRevision: child.dataRevision, observedAt: at });
       const c2 = createC2SoftwareContainer({ skuPackage: drafted.skuPackage, expectedDataRevision: drafted.skuPackage.dataRevision,
         assetRegions: { collected: [], aiDrafts: [], finalUploads: [] }, createdAt: at }).skuPackage;
-      return { child, skuPackage: c2, content: drafted.content, differences: drafted.differences,
+      return { child, skuPackage: c2, content: drafted.content, copyReviewRequired: member.copyDraft != null && !isDeepStrictEqual(member.copyDraft,c1CopyFields(drafted.content)), differences: drafted.differences,
         reuseRecord: drafted.reuseRecord };
     });
     const binding = { parentCandidateId: parent.id, parentRevision: parent.dataRevision,
@@ -138,7 +147,7 @@ function prepareBatch(document, actor, input, serverClock) {
       rightsDeclaration: input.rightsDeclaration,
       members: input.members.map(member => ({ candidateId: member.candidateId,
         candidateRevision: member.candidateRevision, colorMappings: member.colorMappings,
-        rightsDeclaration: member.rightsDeclaration ?? null })),
+        rightsDeclaration: member.rightsDeclaration ?? null, copyDraft: member.copyDraft ?? null })),
       projected: prepared.map(({ child, content, reuseRecord }) => ({ candidateId: child.id,
         contentFingerprint: reuseRecord.contentFingerprint, targetCandidateRevision: child.dataRevision,
         sourcePlanFingerprint: reuseRecord.sourcePlanFingerprint })) };
@@ -150,9 +159,9 @@ export function previewSiblingBatchC1Preparation({ document, actor, input, serve
   validateInput(actor, input, serverClock, false);
   const { parent, prepared, previewFingerprint } = prepareBatch(document, actor, input, serverClock);
   return { parentCandidateId: parent.id, parentRevision: parent.dataRevision, previewFingerprint,
-    members: prepared.map(({ child, content, differences, reuseRecord }) => ({ candidateId: child.id,
+    members: prepared.map(({ child, content, differences, reuseRecord, copyReviewRequired }) => ({ candidateId: child.id,
       candidateRevision: child.dataRevision, sourceSkuId: child.siblingSourceV1.supplierSkuId,
-      color: child.sourceCapture.skuChoices[0].attributes.颜色,
+      color: child.sourceCapture.skuChoices[0].attributes.颜色, copyReviewRequired,
       content: { seoTitleDraft: content.seoTitleDraft, descriptionDraft: content.descriptionDraft,
         bulletPointsDraft: content.bulletPointsDraft, searchKeywordsDraft: content.searchKeywordsDraft,
         russianAttributes: content.seoEvidenceLayer.russianAttributes ?? [] }, differences,
@@ -183,6 +192,7 @@ export async function commitSiblingBatchC1Preparation({ repository, runtimeMode,
     }
     if (replay.some(child => child?.lifecycleV11?.siblingBatchC1ReceiptV1)) fail('SIBLING_BATCH_C1_REPLAY_CONFLICT');
     const { parent, prepared, at, previewFingerprint } = prepareBatch(document, actor, input, serverClock);
+    if (prepared.some(item=>item.copyReviewRequired)) fail('SIBLING_BATCH_C1_COPY_REVIEW_REQUIRED');
     if (previewFingerprint !== input.previewFingerprint) fail('SIBLING_BATCH_C1_PREVIEW_CHANGED');
     for (const { child, skuPackage } of prepared) {
       child.lifecycleV11 = { ...child.lifecycleV11, skuPackage: structuredClone(skuPackage),

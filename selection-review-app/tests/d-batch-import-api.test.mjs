@@ -1,3 +1,4 @@
+import { allocatedTestPorts } from './helpers/api-process-lifecycle.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp } from 'node:fs/promises';
@@ -9,7 +10,7 @@ import { commitSiblingBatchC2Final } from '../lib/sibling-batch-c2-final.mjs';
 import { productionOwnerDecisionFixture } from './fixtures/production-owner-decision-fixture.mjs';
 import { createMemoryBusinessStateRepository } from '../lib/business-state-repository.mjs';
 
-const port = Number(process.env.SELECTION_REVIEW_TEST_PORT);
+const { api: port } = allocatedTestPorts();
 
 test('one authenticated batch confirmation persists authorization and reports unavailable D without an external request', async t => {
   const fixture = await productionOwnerDecisionHttpFixture();

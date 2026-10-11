@@ -14,18 +14,10 @@ import { DEFAULT_GUOO_TARIFF_PATH } from "../lib/guoo-tariff-reader.mjs";
 import { DEFAULT_RULES } from "../lib/workflow.mjs";
 import { createMusicBoxCandidate } from "./helpers/legacy-candidate-fixture.mjs";
 import { buildOwnerCargoFactsRecord } from "../lib/cargo-facts-declaration.mjs";
-import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
+import { stopApiProcess, allocatedTestPorts } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-async function freePort() {
-  const server = http.createServer();
-  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
-  const port = server.address().port;
-  await new Promise(resolve => server.close(resolve));
-  assert.ok(![4317, 4318, 4173].includes(port));
-  return port;
-}
-const port = await freePort();
+const { api: port, gateway: evidencePort } = allocatedTestPorts();
 const evidenceServer = http.createServer(async (request, response) => {
   const chunks = []; for await (const chunk of request) chunks.push(chunk);
   const { kind, ...scope } = JSON.parse(Buffer.concat(chunks).toString());
@@ -42,7 +34,7 @@ const evidenceServer = http.createServer(async (request, response) => {
   response.end(JSON.stringify({ ok: true, evidence }));
 });
 const evidenceCalls = [];
-await new Promise((resolve, reject) => { evidenceServer.once("error", reject); evidenceServer.listen(0, "127.0.0.1", resolve); });
+await new Promise((resolve, reject) => { evidenceServer.once("error", reject); evidenceServer.listen(evidencePort, "127.0.0.1", resolve); });
 const evidenceUrl = `http://127.0.0.1:${evidenceServer.address().port}`;
 test.after(async () => { evidenceServer.closeAllConnections(); await new Promise(resolve => evidenceServer.close(resolve)); });
 const probeDirectory = await mkdtemp(path.join(tmpdir(), "a-b-api-network-guard-"));
@@ -79,7 +71,7 @@ test.after(async () => {
   try { await assert.rejects(readFile(forbiddenFile), { code: "ENOENT" }); }
   finally { await rm(probeDirectory, { recursive: true, force: true }); }
 });
-const isolatedEnv = { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}`, SELECTION_REVIEW_RUNTIME_MODE: "local_development", SELECTION_REVIEW_IDENTITY_PROVIDER: "development_default",
+const isolatedEnv = { NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(preload).href}`, SELECTION_REVIEW_RUNTIME_MODE: "local_development", SELECTION_REVIEW_IDENTITY_PROVIDER: "development_default",
   SELECTION_REVIEW_OZON_EVIDENCE_SERVICE_URL: evidenceUrl, SELECTION_REVIEW_GUOO_TARIFF_FILE: guooFile,
   SELECTION_REVIEW_C1_DRAFT_SERVICE_BINDINGS_JSON: "[]", SELECTION_REVIEW_C1_KEYWORD_SERVICE_BINDINGS_JSON: "[]",
   SELECTION_REVIEW_DE_SERVICE_BINDINGS_JSON: "[]", SELECTION_REVIEW_OZON_DE_CREDENTIAL_BINDINGS_JSON: "[]",

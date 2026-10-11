@@ -1,3 +1,4 @@
+import { allocatedTestPorts } from './helpers/api-process-lifecycle.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp } from 'node:fs/promises';
@@ -6,7 +7,7 @@ import path from 'node:path';
 import { siblingColorState } from './fixtures/sibling-color-state.mjs';
 import { startSavedDEApi } from './helpers/d-e-saved-api-fixture.mjs';
 
-const port = Number(process.env.SELECTION_REVIEW_TEST_PORT);
+const { api: port } = allocatedTestPorts();
 
 test('unsettled color reads cannot be cleared through the frozen sibling revision API', async t => {
   for (const status of ['request_sent', 'unknown_outcome']) {

@@ -1,3 +1,4 @@
+// All long supplier, merchant, task and candidate identities in this test are synthetic.
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -17,7 +18,7 @@ import {
   validateSupplierCaptureRequest
 } from "../extension/1688-capture/capture-request.js";
 
-const PRODUCT_ID = "3605840795";
+const PRODUCT_ID = "9999000001";
 const CANONICAL = `https://www.ozon.ru/product/${PRODUCT_ID}/`;
 
 function snapshot(extra = {}) {
@@ -46,9 +47,9 @@ function snapshot(extra = {}) {
 
 function session(extra = {}) {
   return {
-    captureId: "OPR-4f2a1b0c-0000-4000-8000-000000000001",
+    captureId: "OPR-00000000-0000-4000-8000-000000000001",
     token: "one-time-token",
-    candidateId: "candidate:f2e447df-0d83-467b-b6b7-f60aa9ddf1b5",
+    candidateId: "candidate:00000000-0000-4000-8000-000000000002",
     requestRevision: 11,
     dataRevision: 12,
     expectedProductId: PRODUCT_ID,
@@ -77,7 +78,7 @@ test("服务端的 Ozon 地址规范化与插件那一份逐条一致", () => {
     [`https://user:pass@www.ozon.ru/product/${PRODUCT_ID}/`, PRODUCT_ID],
     [`https://www.ozon.ru/product/${PRODUCT_ID}/reviews`, PRODUCT_ID],
     [`https://www.ozon.ru/category/${PRODUCT_ID}/`, PRODUCT_ID],
-    [CANONICAL, "4403916892"],
+    [CANONICAL, "9999000002"],
     [CANONICAL, "12345"],
     [CANONICAL, ""],
     ["not a url", PRODUCT_ID],
@@ -121,7 +122,7 @@ test("要读哪个页面只从候选已保存的地址里取，判不出来就�
   // 读错商品比读不到更糟：读回来的快照会被当成这件商品的真实证据存档。
   const conflicted = ozonCapturePageTarget({
     id: "candidate:x",
-    productUrl: "https://www.ozon.ru/product/4403916892/",
+    productUrl: "https://www.ozon.ru/product/9999000002/",
     salesSnapshotsV11: [newest]
   });
   assert.equal(conflicted.ok, false);
@@ -143,7 +144,7 @@ test("插件领取时拿到的作业形状通过 validateOzonCaptureRequest，�
   assert.equal(validateOzonCaptureRequest({ payload, manifestVersion: "1.2.6" }).code, "extension_version_mismatch");
   assert.equal(validateOzonCaptureRequest({ payload: { ...payload, mode: "a_supplier_capture" }, manifestVersion: "1.2.7" }).code, "capture_mode_invalid");
   assert.equal(validateOzonCaptureRequest({ payload: { ...payload, attempt: 2 }, manifestVersion: "1.2.7" }).code, "attempt_invalid");
-  assert.equal(validateOzonCaptureRequest({ payload: { ...payload, productUrl: "https://ozon.ru/product/3605840795/" }, manifestVersion: "1.2.7" }).code, "source_url_invalid");
+  assert.equal(validateOzonCaptureRequest({ payload: { ...payload, productUrl: "https://ozon.ru/product/9999000001/" }, manifestVersion: "1.2.7" }).code, "source_url_invalid");
 
   // 两种作业不会互相认领：1688 的那一份在插件眼里根本不是 Ozon 作业，反过来也一样。
   const supplier = { captureId: "SCJ-1", jobId: "SCJ-1", candidateId: payload.candidateId, dataRevision: 12,
@@ -157,7 +158,7 @@ test("插件领取时拿到的作业形状通过 validateOzonCaptureRequest，�
 test("页面拿到的回执不含一次性令牌", () => {
   const publicJob = ozonCapturePageJobPublic(session({ claimedAt: Date.parse("2026-09-14T00:00:30.000Z") }));
   assert.equal(Object.hasOwn(publicJob, "token"), false);
-  assert.equal(publicJob.jobId, "OPR-4f2a1b0c-0000-4000-8000-000000000001");
+  assert.equal(publicJob.jobId, "OPR-00000000-0000-4000-8000-000000000001");
   assert.equal(publicJob.expectedProductId, PRODUCT_ID);
   assert.equal(publicJob.productUrl, CANONICAL);
   assert.equal(publicJob.createdAt, "2026-09-14T00:00:00.000Z");
@@ -179,7 +180,7 @@ test("租约结局各有一句实话，不会被说成采集器出了系统错�
 
 // 一个候选身上要挂好几个可比商品：最终定价要「多个有效样本比较」，关键词本地素材要 3–5 个已审查竞品，
 // 两处读的都是 candidate.salesSnapshotsV11。2026-09-17 之前没有入口能往里加第二个商品。
-const OTHER_ID = "4914586953";
+const OTHER_ID = "9999000003";
 const OTHER_URL = `https://www.ozon.ru/product/${OTHER_ID}/`;
 
 test("主人指名要读哪个页面时就读那一个，不再从已存地址反推", () => {
