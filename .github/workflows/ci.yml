@@ -126,7 +126,7 @@ jobs:
           docker run --rm --init --network none --user node \
             --cap-drop ALL --security-opt no-new-privileges \
             --read-only --pids-limit 128 --memory 2g --cpus 2 \
-            --tmpfs /tmp:rw,exec,nosuid,nodev,size=256m \
+            --tmpfs /tmp:rw,exec,nosuid,nodev,size=512m \
             --tmpfs /home/node:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=16m \
             --mount "type=bind,source=$GITHUB_WORKSPACE/selection-review-app,target=/workspace/selection-review-app,readonly" \
             --workdir /workspace/selection-review-app \
