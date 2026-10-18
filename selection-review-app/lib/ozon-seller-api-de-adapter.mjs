@@ -11,6 +11,9 @@ import { blockingImportErrors } from "./ozon-import-error-level.mjs";
 import { assertDExecutableRequest } from './d-executable-request-contract.mjs';
 import { projectProductionPlanImportPayload } from './production-plan.mjs';
 import { buildOzonSellerBatchImportRequests } from './ozon-seller-api-production-adapter.mjs';
+import { assertInSaleListPageQuery, assertInSaleListRequestBody, normalizeInSaleListPage,
+  OZON_IN_SALE_LIST_ENDPOINT, OZON_IN_SALE_LIST_PROTOCOL_VERSION,
+  OZON_IN_SALE_LIST_OFFICIAL_EVIDENCE_REF } from './ozon-in-sale-list-observation.mjs';
 
 export const OZON_SELLER_API_DE_ADAPTER_VERSION = "ozon-seller-api-de-adapter-v3";
 export const OZON_PRODUCT_IMPORT_ENDPOINT = "/v3/product/import";
@@ -298,6 +301,13 @@ function batchPrewriteRejection(reasonCode) {
     requestTransmission: 'not_attempted', reasonCode, retryAllowed: false });
 }
 
+function beforeSendFailure(cause) {
+  const failure = new OzonDEHttpTransportError('OZON_DE_HTTP_BEFORE_SEND_REJECTED', {
+    layer: 'request', externalRequestState: 'not_sent', requestTransmission: 'not_attempted' });
+  failure.cause = cause;
+  return failure;
+}
+
 function validateExecutionRequest(request, capabilities) {
   if (request?.executionProtocolVersion !== "ozon-single-sku-d-e-v3") return "D_EXECUTION_PROTOCOL_RECONFIRMATION_REQUIRED";
   if (request?.sourceAuthorizationVersion !== "production-authorization-v1.2") return "PRODUCTION_AUTHORIZATION_RECONFIRMATION_REQUIRED";
@@ -428,7 +438,8 @@ function closed(value, fields) {
 
 
 function inventoryBlocked(code) {
-  return freeze({ status: "blocked", code, inventoryWriteState: "not_sent", retryAllowed: false });
+  return freeze({ status: "blocked", code, inventoryWriteState: "not_sent", writeOccurred: false,
+    requestTransmission: 'not_attempted', retryAllowed: false });
 }
 
 function observationScope(query) {
@@ -521,7 +532,8 @@ export function projectPreparedBatchImportRequests({ members, excludedOfferIds, 
     productImportCapability: adapterCapabilities.productImport, checkedAt });
 }
 
-export function createStoreIsolatedOzonSellerApiDEAdapter({ requestJson, adapterCapabilities, executionContext = null }) {
+export function createStoreIsolatedOzonSellerApiDEAdapter({ requestJson, adapterCapabilities, executionContext = null,
+  serverClock = () => new Date().toISOString() }) {
   if (typeof requestJson !== "function") throw new Error("OZON_DE_ADAPTER_TRANSPORT_REQUIRED: 缺少受控requestJson");
   if (!isObject(adapterCapabilities) || adapterCapabilities.status !== "ready" || adapterCapabilities.platform !== "ozon" ||
       adapterCapabilities.adapterVersion !== OZON_SELLER_API_DE_ADAPTER_VERSION || adapterCapabilities.protocolVersion !== "ozon-single-sku-d-e-v3" ||
@@ -629,10 +641,9 @@ export function createStoreIsolatedOzonSellerApiDEAdapter({ requestJson, adapter
       let currentRequests;
       try { currentRequests = project(members[0].executionContext.serverClock()); }
       catch (error) {
-        rethrowProgrammingError(error);
         const code = batchPrewriteCode(error);
         if (code !== null) return batchPrewriteRejection(code);
-        throw error;
+        throw beforeSendFailure(error);
       }
       if (!isDeepStrictEqual(currentRequests[chunkIndex], batchRequest))
         return batchPrewriteRejection('OZON_BATCH_SCOPE_CHANGED_AFTER_INTENT');
@@ -649,10 +660,9 @@ export function createStoreIsolatedOzonSellerApiDEAdapter({ requestJson, adapter
         } });
       } catch (error) {
         if (runningGuard) {
-          rethrowProgrammingError(error);
           const code = batchPrewriteCode(error);
           if (code !== null) return batchPrewriteRejection(code);
-          throw error;
+          throw beforeSendFailure(error);
         }
         rethrowProgrammingError(error);
         const prewriteCode = transportPrewriteCode(error);
@@ -798,7 +808,7 @@ export function createStoreIsolatedOzonSellerApiDEAdapter({ requestJson, adapter
           runningGuard = false;
         } });
       } catch (error) {
-        if (runningGuard) throw error;
+        if (runningGuard) throw beforeSendFailure(error);
         rethrowProgrammingError(error);
         const code = transportPrewriteCode(error);
         if (code !== null) return inventoryBlocked(code);
@@ -820,6 +830,32 @@ export function createStoreIsolatedOzonSellerApiDEAdapter({ requestJson, adapter
       }
       return freeze({ status: "accepted", taskId: scope.taskId, productId: scope.productId, offerId: scope.merchantSku,
         requestReceiptRef: scope.requestReceiptRef, inventoryReceiptRef: inventoryObservation.inventoryReceiptRef, retryAllowed: false });
+    },
+
+    /** Exactly one approved page. The service owns durable intents, budgets and continuation. */
+    async readInSaleListPage(query, { signal, beforeRequestSend } = {}) {
+      assertObservationOptions(signal, beforeRequestSend);
+      assertInSaleListPageQuery(query);
+      query=freeze(structuredClone(query));
+      const scope=query.scope,protocol=capabilities.inSaleListObservation;
+      if (typeof beforeRequestSend !== 'function' || typeof serverClock !== 'function' ||
+          !closed(protocol,['status','protocolVersion','evidenceRef','endpoint','officialEvidenceRef']) ||
+          protocol.status !== 'verified' || protocol.protocolVersion !== OZON_IN_SALE_LIST_PROTOCOL_VERSION ||
+          protocol.endpoint !== OZON_IN_SALE_LIST_ENDPOINT || protocol.officialEvidenceRef !== OZON_IN_SALE_LIST_OFFICIAL_EVIDENCE_REF ||
+          protocol.evidenceRef !== scope.accountEvidenceRef || !sameStoreRef(scope.storeRef,capabilities.storeRef) ||
+          scope.warehouseRef !== capabilities.warehouseRef || scope.warehouseId !== capabilities.warehouseId ||
+          scope.credentialAlias !== capabilities.credentialAlias) {
+        throw new Error('OZON_IN_SALE_LIST_CAPABILITY_NOT_AUTHORIZED');
+      }
+      const requestedAt=serverClock();
+      if (typeof requestedAt !== 'string' || !Number.isFinite(Date.parse(requestedAt)) ||
+          Date.parse(requestedAt) >= Date.parse(query.deadlineAt)) throw new Error('OZON_IN_SALE_LIST_DEADLINE_EXPIRED');
+      const body=assertInSaleListRequestBody({filter:{visibility:'IN_SALE'},last_id:query.lastId,limit:query.limit});
+      signal?.throwIfAborted();
+      const response=await call({endpoint:OZON_IN_SALE_LIST_ENDPOINT,body,write:false,executionKey:query.requestId},
+        {signal,beforeRequestSend});
+      signal?.throwIfAborted();
+      return normalizeInSaleListPage({query,response,observedAt:serverClock()});
     },
 
     async readbackSellerApi(query, { signal } = {}) {

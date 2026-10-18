@@ -39,7 +39,19 @@ async function startServer(t, dataFile, uploadDirectory, ownerIdentityFile = nul
 
 test("C2 upload and saved order survive restart, then local confirmation produces no platform writes", async t => {
   const directory = await mkdtemp(path.join(tmpdir(), "c2-upload-api-"));
-  const dataFile = path.join(directory, "state.json");
+  await mkdir(path.join(directory, "business"));
+  await mkdir(path.join(directory, "private"), { mode: 0o700 });
+  const dataFile = path.join(directory, "business", "state.json");
+  const ownerIdentityFile = path.join(directory, "private", "owner.json");
+  let cookie;
+  async function authenticate(action) {
+    const response = await fetch(`${base}/api/owner-access/${action}`, { method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ password: "synthetic C2 upload owner password" }) });
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.match(response.headers.get("set-cookie"), /HttpOnly/);
+    cookie = response.headers.get("set-cookie").split(";")[0];
+  }
   const formal = createFormalC1C2Fixture({ candidateId: "synthetic-c2-upload", supplierSkuId: "SYNTHETIC-C2",
     variantKey: "规格:合成验收款", candidateRevision: 12, at: "2026-09-07T08:00:00.000Z" });
   const candidate = { ...formal.candidate,
@@ -47,11 +59,12 @@ test("C2 upload and saved order survive restart, then local confirmation produce
     processing: { state: "idle" }, lifecycleV11: { ...formal.candidate.lifecycleV11, status: "awaiting_final_assets" } };
   const original = { meta: { version: 2, automationStarted: false }, rules: {}, candidates: [candidate], dispatches: [], evidencePacks: [] };
   await writeFile(dataFile, JSON.stringify(original));
-  const first = await startServer(t, dataFile, path.join(directory, "uploads"));
+  const first = await startServer(t, dataFile, path.join(directory, "uploads"), ownerIdentityFile);
+  await authenticate("setup");
   const route = `/api/candidates/${encodeURIComponent(candidate.id)}/lifecycle/c2`;
   async function upload(draftRevision, fileName, bytes) {
     const response = await fetch(`${base}${route}/final-assets/upload?dataRevision=12&draftRevision=${draftRevision}&fileName=${fileName}`, {
-      method: "POST", headers: { ...headers, "Content-Type": "image/png" }, body: bytes
+      method: "POST", headers: { ...headers, "Content-Type": "image/png", Cookie: cookie }, body: bytes
     });
     const body = await response.json();
     assert.equal(response.status, 201, JSON.stringify(body));
@@ -65,27 +78,34 @@ test("C2 upload and saved order survive restart, then local confirmation produce
   assert.equal(uploaded.draft.revision, 2);
   await stopApiProcess(first.child);
   const restartBefore = await readFile(dataFile, "utf8");
-  const second = await startServer(t, dataFile, path.join(directory, "uploads"));
+  const second = await startServer(t, dataFile, path.join(directory, "uploads"), ownerIdentityFile);
+  const unauthorizedPreview = await fetch(`${base}${route}/local-assets/${encodeURIComponent(uploaded.asset.assetId)}`);
+  assert.equal(unauthorizedPreview.status, 401);
+  assert.equal((await unauthorizedPreview.json()).code, "OWNER_LOGIN_REQUIRED");
+  await authenticate("login");
   assert.equal(await readFile(dataFile, "utf8"), restartBefore);
   const state = await (await fetch(`${base}/api/state`)).json();
   assert.equal(state.candidates[0].lifecycleV11.c2UploadDraft.uploads[0].assetId, uploaded.asset.assetId);
-  const preview = await fetch(`${base}${route}/local-assets/${encodeURIComponent(uploaded.asset.assetId)}`);
+  const preview = await fetch(`${base}${route}/local-assets/${encodeURIComponent(uploaded.asset.assetId)}`, { headers: { Cookie: cookie } });
   assert.equal(preview.status, 200);
+  assert.equal(preview.headers.get("content-type"), "image/png");
+  assert.equal(preview.headers.get("cache-control"), "no-store");
+  assert.equal(preview.headers.get("x-content-type-options"), "nosniff");
   assert.deepEqual(Buffer.from(await preview.arrayBuffer()), PNG);
   const detail = await upload(2, "detail.png", DETAIL_PNG);
   const selection = [
     { assetId: uploaded.asset.assetId, order: 1 },
     { assetId: detail.asset.assetId, order: 2 }
   ];
-  const save = await fetch(`${base}${route}/upload-draft`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" },
+  const save = await fetch(`${base}${route}/upload-draft`, { method: "POST", headers: { ...headers, "Content-Type": "application/json", Cookie: cookie },
     body: JSON.stringify({ dataRevision: 12, draftRevision: 4, selection }) });
   const saved = await save.json();
   assert.equal(save.status, 200, JSON.stringify(saved));
   assert.deepEqual(saved.draft.selection, selection);
-  const stale = await fetch(`${base}${route}/upload-draft`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" },
+  const stale = await fetch(`${base}${route}/upload-draft`, { method: "POST", headers: { ...headers, "Content-Type": "application/json", Cookie: cookie },
     body: JSON.stringify({ dataRevision: 12, draftRevision: 4, selection: [] }) });
   assert.equal(stale.status, 409);
-  const confirm = await fetch(`${base}${route}/final-assets`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" },
+  const confirm = await fetch(`${base}${route}/final-assets`, { method: "POST", headers: { ...headers, "Content-Type": "application/json", Cookie: cookie },
     body: JSON.stringify({ dataRevision: 12, draftRevision: 5, confirmed: true, finalUploadAssets: selection,
       approvedAssetIds: selection.map(asset => asset.assetId), approvedMainImageAssetId: uploaded.asset.assetId, approvedVideoDisposition: "excludes_video" }) });
   const result = await confirm.json();
@@ -114,7 +134,11 @@ test("C2 upload and saved order survive restart, then local confirmation produce
   assert.deepEqual(projected.candidates[0].lifecycleV11.skuPackage.productionConfirmationCard, final.productionConfirmationCard);
   await stopApiProcess(second.child);
   const beforeConfirmedRestart = await readFile(dataFile, "utf8");
-  const third = await startServer(t, dataFile, path.join(directory, "uploads"));
+  const third = await startServer(t, dataFile, path.join(directory, "uploads"), ownerIdentityFile);
+  await authenticate("login");
+  const finalPreview = await fetch(`${base}${route}/local-assets/${encodeURIComponent(uploaded.asset.assetId)}`, { headers: { Cookie: cookie } });
+  assert.equal(finalPreview.status, 200);
+  assert.deepEqual(Buffer.from(await finalPreview.arrayBuffer()), PNG);
   const restartedState = await fetch(`${base}/api/state`);
   assert.equal(restartedState.status, 200, await restartedState.clone().text());
   const restarted = await restartedState.json();

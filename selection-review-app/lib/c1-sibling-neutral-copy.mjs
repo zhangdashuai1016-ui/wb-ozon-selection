@@ -125,7 +125,7 @@ export function buildC1SiblingNeutralContent(sourcePlan) {
   };
   const title = neutralizePiece(sourcePlan.seoTitleDraft, reviewed?.title);
   const description = neutralizePiece(sourcePlan.descriptionDraft, reviewed?.description);
-  const bullets = sourcePlan.bulletPointsDraft.map(neutralizePiece);
+  const bullets = sourcePlan.bulletPointsDraft.map(piece => neutralizePiece(piece));
   const keywords = { ...structuredClone(sourcePlan.searchKeywordsDraft), keywords: structuredClone(neutralKeywords) };
   const refs = [...new Set([title, description, ...bullets].flatMap(piece => piece.keywordEvidenceRefs)
     .concat(neutralKeywords.flatMap(item => item.evidenceRefs)))];

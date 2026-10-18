@@ -51,6 +51,23 @@ test('one final decision locks the existing post-import contract and ordered E o
     { inventoryAction: '' }).ready, false);
 });
 
+test('explicit current E choice locks the one-batch limit use and shared bounded list permission',()=>{
+  const {source,parent,child}=readyAuthorizationFamily(),before=structuredClone({parent,child});
+  const input=siblingBatchAuthorizationInput(parent,[child],source.args.input.bindingId,
+    {inventoryAction:'write_authorized_stock',eVerificationMode:'owner_media_review_in_sale'});
+  assert.equal(input.ready,true);
+  assert.deepEqual(input.input.importLimitUse,{schemaVersion:'ozon-product-import-batch-limit-use-input-v1',
+    evidenceRef:'official:ozon-product-import-batch-limit:20261018',decision:'use_for_this_batch_once'});
+  assert.deepEqual(input.input.postImportScope,{schemaVersion:'d-batch-post-import-scope-v2',
+    inventoryAction:'write_authorized_stock',eReadbackOfferIds:['MERCHANT-CHILD'],
+    inSaleList:{schemaVersion:'ozon-in-sale-list-authorization-v1',decision:'read_store_in_sale_list_for_batch',
+      officialEvidenceRef:'official:ozon-in-sale-list:20261018',
+      policy:{pageSize:1000,maxPages:3,requestTimeoutMs:30000,durationMs:90000}}});
+  assert.equal(siblingBatchAuthorizationInput(parent,[child],source.args.input.bindingId,
+    {inventoryAction:'write_authorized_stock',eVerificationMode:'unrecognized'}).ready,false);
+  assert.deepEqual({parent,child},before);
+});
+
 test('final decision rejects a warehouse that is empty, expired or absent from a selected member', () => {
   const { source, parent, child } = readyAuthorizationFamily();
   const bindingId = source.args.input.bindingId;

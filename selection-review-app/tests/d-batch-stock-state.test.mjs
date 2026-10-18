@@ -34,6 +34,20 @@ test('explicit create-only batch member never enters an inventory write state',(
  assert.throws(()=>advance(job,{kind:'stock_intent'}),/INTENT_REPLAY_BLOCKED/);
 });
 
+test('new batch scope preserves the same stock action and rejects an old scope relabelled as current',()=>{
+ const source=input('write_authorized_stock');
+ source.batch.schemaVersion='d-batch-production-authorization-v3';
+ assert.throws(()=>createDBatchStockJob(source),/POST_IMPORT_SCOPE_INVALID/);
+ source.batch.postImportScope={...source.batch.postImportScope,schemaVersion:'d-batch-post-import-scope-v2',inSaleList:{
+   schemaVersion:'ozon-in-sale-list-authorization-v1',decision:'read_store_in_sale_list_for_batch',
+   officialEvidenceRef:'official:ozon-in-sale-list:20261018',
+   policy:{pageSize:1000,maxPages:3,requestTimeoutMs:30000,durationMs:90000}}};
+ const job=createDBatchStockJob(source);
+ assert.equal(job.status,'awaiting_prerequisites');
+ assert.equal(job.inventoryAction,'write_authorized_stock');
+ assert.equal(job.authorizationId,member.authorizationId);
+});
+
 test('one exact prerequisite read and durable stock intent allow one accepted receipt',()=>{
  const admitted=createDBatchStockJob(input('write_authorized_stock'));
  const reading=advance(admitted,{kind:'prerequisites_started'});
@@ -68,4 +82,39 @@ test('nonzero or unknown stock requires an owner; sent stock intent cannot repla
  assert.throws(()=>applyDBatchStockEvent({job:reclaimed,event:{kind:'stock_intent',offerId:member.offerId,
   taskId:'501',productId:'910001'},workerId:'worker:batch',leaseId:'lease:two',
   observedAt:'2026-08-22T07:31:00.000Z'}),/INTENT_REPLAY_BLOCKED/);
+});
+
+test('a prewrite stop requires explicit no-transmission proof and never permits replay',()=>{
+ const reading=advance(createDBatchStockJob(input('write_authorized_stock')),{kind:'prerequisites_started'});
+ const ready=advance(reading,prerequisites(0));
+ const intent=advance(ready,{kind:'stock_intent'});
+ for(const job of [ready,intent]){
+  assert.throws(()=>advance(job,{kind:'stock_prewrite_blocked',reason:'permission_denied'}),
+    /PREWRITE_BLOCK_INVALID/);
+  const stopped=advance(job,{kind:'stock_prewrite_blocked',reason:'permission_denied',
+    requestTransmission:'not_attempted'});
+  assert.equal(stopped.status,'prewrite_blocked');
+  assert.throws(()=>advance(stopped,{kind:'stock_intent'}),/INTENT_REPLAY_BLOCKED/);
+ }
+});
+
+test('the same holder can preserve a late stock result but an old lease cannot overwrite a new holder',()=>{
+ const reading=advance(createDBatchStockJob(input('write_authorized_stock')),{kind:'prerequisites_started'});
+ const ready=advance(reading,prerequisites(0));
+ const intent=advance(ready,{kind:'stock_intent'});
+ const lateAt='2026-08-22T07:31:00.000Z';
+ const receipt=advance(intent,{kind:'stock_receipt',accepted:true,
+  inventoryReceiptRef:'receipt:late-accepted'},lateAt);
+ assert.equal(receipt.status,'stock_accepted');
+ const unknown=advance(intent,{kind:'stock_unknown',reason:'interrupted_after_intent'},lateAt);
+ assert.equal(unknown.status,'unknown_outcome');
+ const failedRead=advance(reading,{kind:'prerequisites_failed',reason:'interrupted_read'},lateAt);
+ assert.equal(failedRead.status,'precheck_failed');
+ assert.throws(()=>advance(ready,{kind:'stock_intent'},lateAt),/LEASE_OR_SCOPE_INVALID/);
+ const reclaimed=reclaimDBatchStockJob({job:intent,workerId:'worker:batch',workerVersion:'v1',
+  leaseId:'lease:two',leaseExpiresAt:'2026-08-22T07:35:00.000Z',observedAt:lateAt});
+ assert.throws(()=>advance(reclaimed,{kind:'stock_receipt',accepted:true,
+  inventoryReceiptRef:'receipt:old-holder'},lateAt),/LEASE_OR_SCOPE_INVALID/);
+ assert.throws(()=>advance(intent,{kind:'stock_unknown',reason:'time_reversed'},
+  '2026-08-22T07:24:00.000Z'),/LEASE_OR_SCOPE_INVALID/);
 });

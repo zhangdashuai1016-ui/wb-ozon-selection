@@ -273,11 +273,14 @@ import {
 import { createAliyunOssRuntimeProvider } from "./lib/aliyun-oss-runtime-provider.mjs";
 import { createOzonDEHttpTransport } from "./lib/ozon-de-http-transport.mjs";
 import { createOzonDEPreflightProvider } from "./lib/ozon-de-preflight-provider.mjs";
+import { readDBatchAssetTransportProof } from "./lib/d-batch-asset-transport.mjs";
 import { createRepositoryBackedOzonDEPreflightEvidenceReader } from "./lib/ozon-de-preflight-evidence-reader.mjs";
 import { createOzonAccountReadBindingResolver } from "./lib/ozon-account-read-preparation.mjs";
 import { createOzonAccountReadEvidenceSource } from "./lib/ozon-account-read-evidence.mjs";
 import { loadOzonDEProtocolCatalog } from "./lib/ozon-de-protocol-catalog.mjs";
-import { loadOzonProductImportBatchLimitEvidence } from "./lib/ozon-product-import-batch-limit.mjs";
+import { loadOzonProductImportBatchLimitEvidence,loadOzonProductImportBatchLimitFact } from "./lib/ozon-product-import-batch-limit.mjs";
+import {confirmDBatchEMediaReview,DBatchEMediaReviewError} from './lib/d-batch-e-media-review.mjs';
+import {reconcileDBatchEVerifications} from './lib/d-batch-e-verification.mjs';
 import { createOzonAccountReadServices } from "./lib/ozon-account-read-services.mjs";
 import { createConfiguredOzonAccountDiscoveryRuntime } from './lib/ozon-account-discovery-runtime.mjs';
 import { OzonAccountReadError } from "./lib/ozon-account-read-contract.mjs";
@@ -564,13 +567,21 @@ const ozonAccountEvidenceSource = createOzonAccountReadEvidenceSource({ reposito
   loadCurrentReadBinding: createOzonAccountReadBindingResolver(runtimeConfiguration),
   protocolCatalog: await loadOzonDEProtocolCatalog() });
 let batchLimitEvidencePromise = null;
-const loadBatchLimitEvidence = () => {
+let batchLimitFactPromise = null;
+const loadBatchLimitEvidence = ({batch}) => {
+  if(batch.schemaVersion==='d-batch-production-authorization-v3'){
+    batchLimitFactPromise??=loadOzonProductImportBatchLimitFact();
+    return batchLimitFactPromise;
+  }
   batchLimitEvidencePromise ??= loadOzonProductImportBatchLimitEvidence();
   return batchLimitEvidencePromise;
 };
 const ozonDEPreflightProvider = createOzonDEPreflightProvider({ serverClock: now,
   verifySourceSnapshot: ozonAccountEvidenceSource.verifySnapshot,
+  verifyInSaleListPermission: ozonAccountEvidenceSource.verifyInSaleListPermission,
   loadBatchLimitEvidence,
+  loadBatchAssetProof: async ({candidate,batch}) => readDBatchAssetTransportProof({
+    document:await businessStateRepository.readSnapshot(),batchId:batch.batchId,candidateId:candidate.id}),
   readEvidence: createRepositoryBackedOzonDEPreflightEvidenceReader({ repository: businessStateRepository,
     verifySourceReceipt: ozonAccountEvidenceSource.verifySourceReceipt }) });
 // 查询策略解析器只构造一次，D 运行时与账户读取服务（按钮）共用，避免两处读法不一致。
@@ -585,6 +596,7 @@ const deRuntimeServices = createDEProductionRuntimeServices({
   loadAdapterCapabilities: ozonDEPreflightProvider.loadAdapterCapabilities,
   loadBatchMemberEvidence: ozonDEPreflightProvider.loadBatchMemberEvidence,
   loadBatchEReadEvidence: ozonDEPreflightProvider.loadBatchEReadEvidence,
+  loadBatchInSaleListEvidence: ozonDEPreflightProvider.loadBatchInSaleListEvidence,
   preflightRequestMode: "persisted_evidence_only",
   upload: ossRuntimeProvider.upload, resolveLocalAsset: ossRuntimeProvider.resolveLocalAsset,
   loadCurrentProductionBinding: currentProductionBinding,
@@ -6908,6 +6920,9 @@ async function handleApi(req, res, pathname) {
   const c2LinkedAssetRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c2\/final-assets\/link$/);
   const c2LocalAssetPreviewRoute = pathname.match(/^\/api\/candidates\/([^/]+)\/lifecycle\/c2\/local-assets\/([^/]+)$/);
   if (req.method === "GET" && c2LocalAssetPreviewRoute) {
+    const actor=runtimeIdentityProvider.resolveActor({request:req});
+    if(actor.source!=='authenticated_identity_provider'||actor.actorType!=='human'||!actor.roles.includes('owner'))
+      return json(res,403,{code:'C2_PREVIEW_OWNER_REQUIRED',message:'只有主人可以查看正式素材。'});
     const data = await readData();
     const current = data.candidates.find(item => item.id === c2LocalAssetPreviewRoute[1]);
     const asset = current?.lifecycleV11?.c2UploadDraft?.uploads.find(item => item.assetId === c2LocalAssetPreviewRoute[2] && item.status === "ready");
@@ -7397,6 +7412,31 @@ async function handleApi(req, res, pathname) {
     catch(error){if(error.message==='D_BATCH_VIEW_BATCH_NOT_FOUND')throw httpError(404,'生产批次不存在');
       throw error;}
   }
+  const batchMediaRoute=pathname.match(/^\/api\/d-batches\/([^/]+)\/media-review$/);
+  if(req.method==='POST'&&batchMediaRoute){
+    const origin=String(req.headers.origin||'');
+    if(origin&&!allowedReviewOrigins.has(origin))throw httpError(403,'核图确认拒绝其他网页来源');
+    const actor=runtimeIdentityProvider.resolveActor({request:req});
+    if(actor.source!=='authenticated_identity_provider'||actor.actorType!=='human'||!actor.roles.includes('owner'))
+      throw httpError(403,'请先登录主人身份核对图片');
+    let batchId;
+    try{batchId=decodeURIComponent(batchMediaRoute[1]);}
+    catch{throw httpError(400,'生产批次身份无效');}
+    if(!/^d-batch:[A-Za-z0-9:_-]{1,180}$/.test(batchId))throw httpError(400,'生产批次身份无效');
+    const input=await readJsonRequestBody(req,{maxBytes:1048576,requireJsonContentType:true});
+    if(input?.scope?.batchId!==batchId)throw httpError(400,'核图批次身份不一致');
+    try{
+      const result=await confirmDBatchEMediaReview({repository:businessStateRepository,
+        runtimeMode:runtimeConfiguration.deploymentMode,serverClock:now,actor,input});
+      await reconcileDBatchEVerifications({repository:businessStateRepository,serverClock:now,
+        snapshot:await readData(),target:{batchId,candidateId:input.scope.candidateId}});
+      return json(res,200,{...result,executionView:projectDBatchExecutionView(await readData(),batchId)});
+    }catch(error){
+      if(error instanceof DBatchEMediaReviewError)return json(res,409,{code:error.code,
+        message:'图片核对来源已变化或确认内容不完整；请刷新本批结果后重新查看。',externalRequests:0,platformWrites:0});
+      throw error;
+    }
+  }
   const batchResumeRoute=pathname.match(/^\/api\/d-batches\/([^/]+)\/resume$/);
   if(req.method==='POST'&&batchResumeRoute){
     const origin=String(req.headers.origin||'');
@@ -7459,22 +7499,31 @@ async function handleApi(req, res, pathname) {
     }
     let execution;
     try {
-      execution = await deRuntimeServices.continueAuthorizedBatchImport({ batchId: batch.batchId });
+      execution = await ozonAccountReadServices.continueAuthorizedBatch({ batchId: batch.batchId });
     } catch (error) {
       const code = String(error.code || error.message).split(':', 1)[0];
-      if (!/^(?:D_BATCH_SERVICE_|DE_RUNTIME_UNAVAILABLE_BATCH_IMPORT)/.test(code)) throw error;
+      if (['OZON_ACCOUNT_READ_BATCH_SERVICE_NOT_CONFIGURED','OZON_ACCOUNT_READ_BATCH_ACCOUNT_ROUTING_UNAVAILABLE'].includes(code)) {
+        const saved = await readData();
+        return json(res,200,{batch,executionView:projectDBatchExecutionView(saved,batch.batchId),
+          executionStatus:'prewrite_blocked',reasonCode:code,externalRequests:0,platformWrites:0});
+      }
+      if (!/^(?:D_BATCH_SERVICE_|DE_RUNTIME_UNAVAILABLE_BATCH_IMPORT)/.test(code) &&
+          !['OZON_DE_PREFLIGHT_EVIDENCE_BATCH_LIMIT_SOURCE_REQUIRED',
+            'OZON_DE_PREFLIGHT_EVIDENCE_BATCH_LIMIT_NOT_CURRENT'].includes(code)) throw error;
       const saved = await readData();
       const job = saved.runtime?.dBatchImportJobs?.find(value => value.batchId === batch.batchId);
       if (job?.chunks.some(chunk => chunk.status !== 'not_sent')) throw error;
       const current = saved.runtime?.dProductionBatches?.find(value => value.batchId === batch.batchId);
+      const executionView = projectDBatchExecutionView(saved,batch.batchId);
       return json(res, 200, { batch: current ?? batch,
-        executionView:projectDBatchExecutionView(saved,batch.batchId),executionStatus: 'prewrite_blocked',
-        reasonCode: code, externalRequests: 0, platformWrites: 0 });
+        executionView,executionStatus: 'prewrite_blocked',reasonCode: code,
+        externalRequests:executionView.assetRequestTransmission === 'not_attempted' ? 0 : 'unknown',platformWrites: 0 });
     }
     const saved = await readData();
     return json(res, 200, { batch: saved.runtime?.dProductionBatches?.find(value => value.batchId === batch.batchId) ?? batch,
       executionView:projectDBatchExecutionView(saved,batch.batchId),
-      executionStatus: execution.status, job: execution.job });
+      executionStatus: execution.status, job: execution.job,
+      executionPreparation:execution.job ? null : execution });
   }
   if (req.method === "POST" && (realProductionOwnerDecisionRoute || realProductionAuthorizationRoute)) {
     const input = await requestBody(req);

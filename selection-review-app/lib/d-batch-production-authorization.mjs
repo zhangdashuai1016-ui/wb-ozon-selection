@@ -1,4 +1,5 @@
 import { assertSiblingPreparationMatchesFinal } from './sibling-preparation-consistency.mjs';
+import { isDeepStrictEqual } from 'node:util';
 import { assertBusinessStateRepositoryBoundary, assertCentralPersistenceBoundary } from './business-state-repository.mjs';
 import { authorizeOperation, assertSafeBusinessMutationCandidate, assertSafeRuntimeRecord,
   createOperationAuditEvent } from './runtime-identity.mjs';
@@ -7,14 +8,20 @@ import { resolveProductionOwnerPreparation } from './production-owner-preparatio
 import { createProductionAuthorization } from './production-authorization.mjs';
 import { sameStoreRef } from './store-binding.mjs';
 import { merchantSkuClaimsForStore } from './business-mutation-transaction.mjs';
+import { D_BATCH_PRODUCTION_AUTHORIZATION_VERSION, D_BATCH_LEGACY_AUTHORIZATION_VERSION,
+  assertDBatchPostImportScope } from './d-batch-production-contract.mjs';
+import { assertOzonProductImportBatchLimitUseInput,
+  createOzonProductImportBatchLimitUse, assertOzonProductImportBatchLimitUse } from './ozon-product-import-batch-limit.mjs';
 
-export const D_BATCH_PRODUCTION_AUTHORIZATION_VERSION = 'd-batch-production-authorization-v2';
-export const D_BATCH_POST_IMPORT_SCOPE_VERSION = 'd-batch-post-import-scope-v1';
+export { D_BATCH_PRODUCTION_AUTHORIZATION_VERSION, D_BATCH_POST_IMPORT_SCOPE_VERSION } from './d-batch-production-contract.mjs';
 const CENTRAL_MODES = new Set(['central_test', 'central_production']);
 const text = value => typeof value === 'string' && value.trim().length > 0;
 
 function assertBatchInput(input) {
-  if (!input || Object.keys(input).sort().join() !== 'confirmAll,excludedOfferIds,members,parentCandidateId,parentRevision,postImportScope' ||
+  const current = input !== null && typeof input === 'object' && Object.hasOwn(input, 'importLimitUse');
+  const fields = ['confirmAll', 'excludedOfferIds', 'members', 'parentCandidateId', 'parentRevision', 'postImportScope',
+    ...(current ? ['importLimitUse'] : [])];
+  if (!input || Object.keys(input).sort().join() !== fields.sort().join() ||
       input.confirmAll !== true || !text(input.parentCandidateId) ||
       !Number.isSafeInteger(input.parentRevision) || input.parentRevision < 1 ||
       !Array.isArray(input.members) || input.members.length === 0 || !Array.isArray(input.excludedOfferIds) ||
@@ -24,16 +31,11 @@ function assertBatchInput(input) {
       new Set(input.members.map(member => member.candidateId)).size !== input.members.length) {
     throw new Error('D_BATCH_AUTHORIZATION_INPUT_INVALID');
   }
-  const scope = input.postImportScope;
-  if (!scope || Object.keys(scope).sort().join() !== 'eReadbackOfferIds,inventoryAction,schemaVersion' ||
-      scope.schemaVersion !== D_BATCH_POST_IMPORT_SCOPE_VERSION ||
-      !['create_only','write_authorized_stock'].includes(scope.inventoryAction) ||
-      !Array.isArray(scope.eReadbackOfferIds) ||
-      scope.eReadbackOfferIds.length !== input.members.length ||
-      scope.eReadbackOfferIds.some((offerId, index) => offerId !== input.members[index].ownerInput.merchantSku)) {
-    throw new Error('D_BATCH_POST_IMPORT_SCOPE_INVALID');
-  }
+  const version = current ? D_BATCH_PRODUCTION_AUTHORIZATION_VERSION : D_BATCH_LEGACY_AUTHORIZATION_VERSION;
+  assertDBatchPostImportScope(input.postImportScope, input.members.map(member => member.ownerInput.merchantSku), version);
+  if (current) assertOzonProductImportBatchLimitUseInput(input.importLimitUse);
   assertNoProductionSecrets(input, 'dBatchAuthorizationInput');
+  return version;
 }
 
 /** One owner decision, one transaction, one independent authorization per member. */
@@ -44,7 +46,7 @@ export async function commitBatchOwnerProductionAuthorization({ repository, runt
   authorizeOperation({ actor, requiredRoles: ['owner'] });
   if (actor.actorType !== 'human' || actor.source !== 'authenticated_identity_provider' ||
       typeof serverClock !== 'function' || !configuration) throw new Error('D_BATCH_AUTHORIZATION_CONTEXT_INVALID');
-  assertBatchInput(input);
+  const batchVersion = assertBatchInput(input);
   const inputFingerprint = fingerprintCanonicalRecord({ actorId: actor.userId, input });
   const batchId = `d-batch:${inputFingerprint.slice(0, 32)}`;
   return repository.transact(document => {
@@ -53,6 +55,13 @@ export async function commitBatchOwnerProductionAuthorization({ repository, runt
     const prior = batches.find(batch => batch.batchId === batchId);
     if (prior) {
       if (prior.inputFingerprint !== inputFingerprint) throw new Error('D_BATCH_REPLAY_CONFLICT');
+      if (batchVersion === D_BATCH_PRODUCTION_AUTHORIZATION_VERSION) {
+        if (prior.schemaVersion !== batchVersion || !isDeepStrictEqual(prior.postImportScope, input.postImportScope) ||
+            prior.members.length !== input.members.length || prior.members.some((member, index) =>
+              member.candidateId !== input.members[index].candidateId || member.offerId !== input.members[index].ownerInput.merchantSku ||
+              member.sourceRevision !== input.members[index].ownerInput.dataRevision)) throw new Error('D_BATCH_REPLAY_CONFLICT');
+        assertOzonProductImportBatchLimitUse(prior.importLimitUse, { batch: prior });
+      }
       return { changed: false, result: structuredClone(prior) };
     }
     const byCandidateId=new Map();
@@ -137,11 +146,14 @@ export async function commitBatchOwnerProductionAuthorization({ repository, runt
       authorizationFingerprint: fingerprintCanonicalRecord(result.productionAuthorization),
       status: 'authorized', taskId: null, productId: null, eVerificationId: null
     }));
-    const batch = { schemaVersion: D_BATCH_PRODUCTION_AUTHORIZATION_VERSION, batchId,
+    const batch = { schemaVersion: batchVersion, batchId,
       inputFingerprint, ownerActorId: actor.userId, confirmedAt: observedAt,
       storeRef: structuredClone(first.candidate.storeRef), excludedOfferIds: [...input.excludedOfferIds],
       postImportScope: structuredClone(input.postImportScope),
       status: 'authorized', externalRequestState: 'not_sent', members };
+    if (batchVersion === D_BATCH_PRODUCTION_AUTHORIZATION_VERSION) {
+      batch.importLimitUse = createOzonProductImportBatchLimitUse({ batch, input: input.importLimitUse });
+    }
     assertSafeRuntimeRecord(batch, 'dBatchAuthorization');
     for (const { candidate, sku, result } of prepared) {
       candidate.lifecycleV11.skuPackage = structuredClone(result.skuPackage);

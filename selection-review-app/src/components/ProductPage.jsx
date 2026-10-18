@@ -1797,8 +1797,10 @@ export default function ProductPage({
   onAuthorizeSiblingProductionBatch = null, onUploadSiblingC2Asset = null, onLinkSiblingC2Asset = null,
   onConfirmSiblingBatchC2 = null,
   onSaveSiblingBatchStockDrafts = null, siblingBatchExecutionView = null, siblingBatchExecutionError = null,
+  siblingBatchExecutionPreparation = null,
   siblingBatchExecutionLoading = false,
-  onRefreshSiblingBatchExecution = null, onResumeSiblingBatchStock = null,
+  onRefreshSiblingBatchExecution = null, onResumeSiblingBatchStock = null,onConfirmSiblingBatchMedia = null,
+  onAuthorizeSiblingAccountRead = null, onContinueSiblingAccountRead = null,
   siblingSkuIds = [], siblingCandidates = [], onRequestCapture, onReviewCaptureAndRequest, onRecaptureSource,
   onConfirmProfitStep, onDeclareCargoFacts, onDeclareExtraHandlingFees, onDeclareUniformSupply, onReadOzonPage, onOpenLegacyCard,
   onBack, onEliminateCandidate,
@@ -2046,9 +2048,12 @@ export default function ProductPage({
           preparationSaveState={preparationSaveState}
           onConfirmA={onConfirmSiblingBatchA} onAuthorize={onAuthorizeSiblingProductionBatch}
           onSaveStockDrafts={onSaveSiblingBatchStockDrafts} executionView={siblingBatchExecutionView}
+          executionPreparation={siblingBatchExecutionPreparation}
           executionError={siblingBatchExecutionError} executionLoading={siblingBatchExecutionLoading}
           onRefreshExecution={onRefreshSiblingBatchExecution}
           onResumeStock={onResumeSiblingBatchStock}
+          onConfirmMedia={onConfirmSiblingBatchMedia}
+          onAuthorizeAccountRead={onAuthorizeSiblingAccountRead} onContinueAccountRead={onContinueSiblingAccountRead}
           onConfirmC1={onConfirmSiblingBatchC1} onReadColorDictionary={onReadSiblingBatchColorDictionary}
           onPreviewC1={onPreviewSiblingBatchC1}
           onUploadAsset={onUploadSiblingC2Asset} onLinkAsset={onLinkSiblingC2Asset}

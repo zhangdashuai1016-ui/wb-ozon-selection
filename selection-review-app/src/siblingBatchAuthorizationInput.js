@@ -35,9 +35,18 @@ export function siblingBatchAuthorizationInput(parent, candidates, bindingId, op
       bindingId: binding.bindingId, configurationVersion: binding.configurationVersion,
       merchantSku: commercial.merchantSku, confirmExactScope: true } });
   }
+  if (options.eVerificationMode !== undefined && options.eVerificationMode !== 'owner_media_review_in_sale') {
+    return {ready:false,reason:'E 核验范围无效，请刷新最终确认卡。',input:null};
+  }
+  const currentE=options.eVerificationMode==='owner_media_review_in_sale';
   return { ready: true, reason: '', input: { confirmAll: true,
     parentCandidateId: parent.id, parentRevision: parent.dataRevision,
     excludedOfferIds: [excluded], members,
-    postImportScope: { schemaVersion: 'd-batch-post-import-scope-v1', inventoryAction: options.inventoryAction,
-      eReadbackOfferIds: members.map(member => member.ownerInput.merchantSku) } } };
+    ...(currentE?{importLimitUse:{schemaVersion:'ozon-product-import-batch-limit-use-input-v1',
+      evidenceRef:'official:ozon-product-import-batch-limit:20261018',decision:'use_for_this_batch_once'}}:{}),
+    postImportScope: { schemaVersion: currentE?'d-batch-post-import-scope-v2':'d-batch-post-import-scope-v1', inventoryAction: options.inventoryAction,
+      eReadbackOfferIds: members.map(member => member.ownerInput.merchantSku),
+      ...(currentE?{inSaleList:{schemaVersion:'ozon-in-sale-list-authorization-v1',
+        decision:'read_store_in_sale_list_for_batch',officialEvidenceRef:'official:ozon-in-sale-list:20261018',
+        policy:{pageSize:1000,maxPages:3,requestTimeoutMs:30000,durationMs:90000}}}:{}) } } };
 }

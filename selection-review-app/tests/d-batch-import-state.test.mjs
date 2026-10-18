@@ -50,9 +50,21 @@ test('missing receipt, wrong offer, wrong task and expired lease never reopen a 
   assert.throws(() => apply(sent, { kind: 'batch_import_intent', chunkIndex: 0, offerIds: chunks[0].offerIds }), /REPLAY_BLOCKED/);
   assert.throws(() => apply(sent, { kind: 'batch_import_task_received', chunkIndex: 0,
     offerIds: ['wrong'], taskId: '501' }), /OFFER_SCOPE_MISMATCH/);
-  assert.throws(() => applyDBatchImportEvent({ job: sent, event: { kind: 'batch_import_task_received',
+  const lateReceipt = applyDBatchImportEvent({ job: sent, event: { kind: 'batch_import_task_received',
     chunkIndex: 0, offerIds: chunks[0].offerIds, taskId: '501' }, workerId: scope.workerId,
-  leaseId: scope.leaseId, observedAt: lease }), /LEASE_OR_SCOPE_INVALID/);
+  leaseId: scope.leaseId, observedAt: lease });
+  assert.equal(lateReceipt.chunks[0].taskId, '501');
+  assert.equal(lateReceipt.status, 'waiting_platform');
+  for (const event of [
+    { kind: 'batch_import_intent', chunkIndex: 1, offerIds: chunks[1].offerIds },
+    { kind: 'batch_observation_started', chunkIndex: 0, offerIds: chunks[0].offerIds, taskId: '501' }
+  ]) assert.throws(() => applyDBatchImportEvent({ job: lateReceipt, event,
+    workerId: scope.workerId, leaseId: scope.leaseId, observedAt: lease }), /LEASE_OR_SCOPE_INVALID/);
+  for (const patch of [{ workerId: 'worker:other' }, { leaseId: 'lease:other' }]) {
+    assert.throws(() => applyDBatchImportEvent({ job: sent, event: { kind: 'batch_import_task_received',
+      chunkIndex: 0, offerIds: chunks[0].offerIds, taskId: '501' }, ...scope,
+      observedAt: lease, ...patch }), /LEASE_OR_SCOPE_INVALID/);
+  }
   const received = apply(sent, { kind: 'batch_import_task_received', chunkIndex: 0,
     offerIds: chunks[0].offerIds, taskId: '501' });
   assert.throws(() => observe(received, { kind: 'batch_import_observed', chunkIndex: 0,
@@ -81,6 +93,28 @@ test('proven prewrite stop is terminal, idempotent and distinct from historical 
     offerIds:chunks[0].offerIds}),/REPLAY_BLOCKED/);
   assert.throws(()=>apply(blocked,{kind:'batch_import_task_received',chunkIndex:0,
     offerIds:chunks[0].offerIds,taskId:'501'}),/TASK_RECEIPT_INVALID/);
+});
+
+test('late import failure facts settle only the existing intent without reopening a request', () => {
+  const admitted = createDBatchImportJob({ batch, chunks, ...scope, createdAt: at,
+    leaseExpiresAt: lease, observationPolicy });
+  const intent = apply(admitted, { kind: 'batch_import_intent', chunkIndex: 0,
+    offerIds: chunks[0].offerIds });
+  for (const event of [
+    { kind: 'batch_import_unknown', reason: 'request_failed' },
+    { kind: 'batch_import_prewrite_blocked', requestTransmission: 'not_attempted',
+      reasonCode: 'D_BATCH_IMPORT_SEND_GUARD_BLOCKED' }
+  ]) {
+    const settled = applyDBatchImportEvent({ job: intent,
+      event: { ...event, chunkIndex: 0, offerIds: chunks[0].offerIds },
+      ...scope, observedAt: lease });
+    assert.equal(settled.chunks[0].status,
+      event.kind === 'batch_import_unknown' ? 'unknown_outcome' : 'prewrite_blocked');
+    assert.equal(settled.chunks[0].taskId, null);
+    assert.throws(() => applyDBatchImportEvent({ job: settled,
+      event: { kind: 'batch_import_intent', chunkIndex: 0, offerIds: chunks[0].offerIds },
+      ...scope, observedAt: lease }), /LEASE_OR_SCOPE_INVALID/);
+  }
 });
 
 test('historical v2 intent remains readable and cannot acquire a v3 prewrite verdict',()=>{
@@ -139,4 +173,38 @@ test('mixed failed and pending offers remain observable until the pending offer 
       importObservation: { ...pending.importObservation, productId: '9002' } }] });
   assert.equal(job.status, 'partial_failure');
   assert.deepEqual(job.chunks[0].results.map(result => result.classification), ['platform_failed', 'imported']);
+});
+
+test('observation preparation blocks persist without a read, including after the holder lease expires', () => {
+  const admitted = createDBatchImportJob({ batch, chunks, ...scope, createdAt: at,
+    leaseExpiresAt: lease, observationPolicy });
+  const intent = apply(admitted, { kind: 'batch_import_intent', chunkIndex: 0,
+    offerIds: chunks[0].offerIds });
+  const waiting = apply(intent, { kind: 'batch_import_task_received', chunkIndex: 0,
+    offerIds: chunks[0].offerIds, taskId: '501' });
+  for (const reason of ['evidence_not_ready', 'service_not_configured']) {
+    const event = { kind: 'batch_observation_blocked', chunkIndex: 0,
+      offerIds: chunks[0].offerIds, taskId: '501', reason };
+    const stopped = applyDBatchImportEvent({ job: waiting, event, ...scope, observedAt: lease });
+    assert.equal(stopped.chunks[0].status, 'observation_stopped');
+    assert.equal(stopped.chunks[0].stopReason, reason);
+    assert.equal(stopped.chunks[0].taskId, '501');
+    assert.equal(stopped.chunks[0].observationReads, 0);
+    assert.equal(stopped.chunks[0].observationInFlight, false);
+    assert.equal(stopped.chunks[0].results, null);
+    assert.equal(applyDBatchImportEvent({ job: stopped, event, ...scope, observedAt: lease }), stopped);
+    assert.throws(() => applyDBatchImportEvent({ job: stopped,
+      event: { kind: 'batch_observation_started', chunkIndex: 0, offerIds: chunks[0].offerIds,
+        taskId: '501' }, ...scope, observedAt: lease }), /LEASE_OR_SCOPE_INVALID/);
+  }
+  for (const patch of [{ reason: 'unclassified_failure' }, { taskId: '502' }]) {
+    assert.throws(() => apply(waiting, { kind: 'batch_observation_blocked', chunkIndex: 0,
+      offerIds: chunks[0].offerIds, taskId: '501', reason: 'evidence_not_ready', ...patch }),
+    /OBSERVATION_BLOCK_INVALID/);
+  }
+  const inFlight = apply(waiting, { kind: 'batch_observation_started', chunkIndex: 0,
+    offerIds: chunks[0].offerIds, taskId: '501' });
+  assert.throws(() => apply(inFlight, { kind: 'batch_observation_blocked', chunkIndex: 0,
+    offerIds: chunks[0].offerIds, taskId: '501', reason: 'evidence_not_ready' }),
+  /OBSERVATION_BLOCK_INVALID/);
 });

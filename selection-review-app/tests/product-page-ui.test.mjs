@@ -143,6 +143,40 @@ test('one family page waits for the batch workspace instead of showing misleadin
   assert.doesNotMatch(html, /确认上架（含创建和库存）/u);
 });
 
+test('batch page keeps each account read separate and does not label card and stock observations as listed', async () => {
+  const colors = ['黑cp','CP','黑色'];
+  const parent = candidate({sourceCapture:{mode:'a_supplier_capture',status:'captured_waiting_owner_selection',
+    selectedSkuIds:['khaki',...colors.map((_,index)=>`sku-${index}`)],
+    skuChoices:[{sourceSkuId:'khaki',attributes:{颜色:'卡其色'}},
+      ...colors.map((color,index)=>({sourceSkuId:`sku-${index}`,attributes:{颜色:color}}))]},
+    lifecycleV11:{skuPackage:{supplierSkuId:'khaki',technicalStatus:'unknown_outcome'}}});
+  const children = colors.map((color,index)=>({id:`candidate:account-${index}`,dataRevision:index+1,
+    siblingSourceV1:{parentCandidateId:parent.id,supplierSkuId:`sku-${index}`},
+    lifecycleV11:{skuPackage:{businessPhase:'C2'}},
+    ozonAccountReadPreparation:{candidateId:`candidate:account-${index}`,expectedRevision:index+1,
+      skuPackageId:`sku-package:${index}`,options:[],runtime:[],
+      message:`${color} 当前尚缺本规格账户读取许可`}}));
+  const html = await render(props({candidate:parent,siblingCandidates:children,
+    onConfirmSiblingBatchA:forbidden,onAuthorizeSiblingProductionBatch:forbidden,
+    onAuthorizeSiblingAccountRead:forbidden,onContinueSiblingAccountRead:forbidden,
+    siblingBatchExecutionView:{batchId:'d-batch:synthetic-account-ui',externalRequestState:'succeeded',
+      excludedOfferIds:['HISTORICAL-KHAKI'],members:children.map((child,index)=>({
+        candidateId:child.id,offerId:`SYNTHETIC-${index}`,importStatus:'imported',inventoryStatus:'stock_accepted',
+        assetStatus:['verified','unknown_outcome','failed'][index],
+        eStatus:index===0?'card_and_stock_observed':'observation_stopped',
+        eStopReason:index===1?'query_limit':index===2?'policy_expired':null,eGaps:[],listedVerified:false}))}}));
+  assert.equal((html.match(/aria-label="Ozon账户只读核验"/gu)??[]).length,3);
+  for(const color of colors)assert.match(html,new RegExp(`${color} 当前尚缺本规格账户读取许可`,'u'));
+  assert.match(html,/每款仅核验方法权限、公司币种和指定仓库，最多三次请求/u);
+  assert.match(html,/商品卡和库存已核对，在售状态仍待验证/u);
+  assert.match(html,/图片已传送并核验/u);
+  assert.match(html,/传送结果未知，待对账/u);
+  assert.match(html,/传送明确失败，已停止/u);
+  assert.match(html,/只读核验次数已用尽/u);
+  assert.match(html,/只读核验许可已到期/u);
+  assert.doesNotMatch(html,/E 已独立核验上架/u);
+});
+
 test('C2 keeps the final decision disabled until the workspace is read and never falls back to legacy uploads while loading', async () => {
   const parent = candidate({ sourceCapture: { mode: 'a_supplier_capture', status: 'captured_waiting_owner_selection',
     selectedSkuIds: ['first-unknown', 'black'], skuChoices: [

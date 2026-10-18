@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-10-09T05:57:21.043Z",
+  "frozenAt": "2026-10-18T14:04:36.975Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 882,
-      "sha256": "6b0a94bf5386b2a9c146d367ee7ed1792444c595b733fb0aa445057f6662b94d",
+      "artifactCount": 900,
+      "sha256": "94c7ac8828b40fa9aea4c56c5e5819e9dc24eef71797760dadfdef252ace94e1",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -140,7 +140,7 @@
       },
       {
         "path": "lib/aliyun-oss-d-asset-integration.mjs",
-        "sha256": "56e8f25b042ecbb2e2ab87d1efc05c01e014f611863621da1d2355b3671e4c07"
+        "sha256": "c2e28b31145f7da7d947f93323a45af9ee4d6f3a61cd9a8dea09d563a2da7b31"
       },
       {
         "path": "lib/aliyun-oss-runtime-configuration.mjs",
@@ -356,7 +356,7 @@
       },
       {
         "path": "lib/c1-sibling-neutral-copy.mjs",
-        "sha256": "9b087d03313d5f4282e02337c51a006265c78ec81c234fc85797ef9770c23d11"
+        "sha256": "da8801952cb5c5676788c15b7f7d1b97283e16ed16a8f606b18937f95be54635"
       },
       {
         "path": "lib/c1-sku-rights-review-submission.mjs",
@@ -420,7 +420,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "6be515a29a11954556621da2c74bcbda100f7b0f209b255306d8612815a99831"
+        "sha256": "17b0ab45f00a5d5514213ba580c26c4db462406d725da2595fca1729b1b32f1b"
       },
       {
         "path": "lib/capture-evidence-sanitization.mjs",
@@ -451,36 +451,56 @@
         "sha256": "a23536862a175e36e09fdc60e8fb3d6a93ac491e25b9c7c755f0a51b9a6705db"
       },
       {
+        "path": "lib/d-batch-asset-transport.mjs",
+        "sha256": "9c632a0ebb0f4b5a28d79194b4cfd588b9384a698093e8dd9571ae400ae8f06e"
+      },
+      {
+        "path": "lib/d-batch-e-media-review.mjs",
+        "sha256": "41337f3cd48a9af12778c68e7a91bfe6a34c79b0724694a74bb339caea3aa472"
+      },
+      {
+        "path": "lib/d-batch-e-verification.mjs",
+        "sha256": "f4f05fcabd97092f4e642811843e9926ea6cec92be14891de947472211e853f8"
+      },
+      {
         "path": "lib/d-batch-execution-view.mjs",
-        "sha256": "ba428e53e8ae723d079750c77087330c63c495548bb70b1f5ae4ee11949d0ec6"
+        "sha256": "3ed2f75fbab753c46e0f4cb8e66c4f16aa557b36dc7c97db505d11ed7629efa6"
       },
       {
         "path": "lib/d-batch-import-runtime.mjs",
-        "sha256": "64abcafa6f6eb8fe8c186461163c1f00428e74e47a860ad1cc57b27e744d3615"
+        "sha256": "b3e724fe12ffe790dadd779d093197d7f58702b0a6bb613d776b10bd07b52d81"
       },
       {
         "path": "lib/d-batch-import-software-service.mjs",
-        "sha256": "3cd3c0ff2dffac4da5facf9014d5464e3a46f5f4ae0b4a90e944646278eb0ae8"
+        "sha256": "961d82a73cf3a9c0327f0ea89e30f4fa468774de1e92453ed58fa8472a2774d7"
       },
       {
         "path": "lib/d-batch-import-state.mjs",
-        "sha256": "30ad003d6cce9d94abd41ad45eda7ce16415d61d040f67b73ef05eb6156d242e"
+        "sha256": "deab8bf934c97296b6bfe8852c3b0f0792d0ce21a4e6bf6e491346f942e02581"
+      },
+      {
+        "path": "lib/d-batch-in-sale-software-service.mjs",
+        "sha256": "172b441f452783ec8a53a001c0993940cae5a86359e799cb4b487d18a67853bb"
       },
       {
         "path": "lib/d-batch-offer-readback.mjs",
-        "sha256": "04725662cc48b819e0542c2673c7fe62fb869bf6a99979ada942b612648a2432"
+        "sha256": "816ae963e69e81cbe0cf8f2a94cf176732d916a12282c2850b5524644fff6113"
       },
       {
         "path": "lib/d-batch-production-authorization.mjs",
-        "sha256": "5176d251459dcb61c5707d92b7067931889b75f05005610e656683859c643708"
+        "sha256": "429f75f615060a4bf88b8e4e3be3235e0550f7e941b0425e70f58b4b9262d4b8"
+      },
+      {
+        "path": "lib/d-batch-production-contract.mjs",
+        "sha256": "1f069014336b1df727284412b15065e013f8e9f339172a90cb7a432f9456dabf"
       },
       {
         "path": "lib/d-batch-stock-state.mjs",
-        "sha256": "64fc4ac68d759c656d19883337d7f44ff134bdcfa87cf07bbddd2f101be06542"
+        "sha256": "4898aa48dca9b30ad243ae3af547c0de749d73a9aa7d6a20beb34d9de4fcd419"
       },
       {
         "path": "lib/d-e-runtime-services.mjs",
-        "sha256": "69d4b43648492702cf6b1ea198ec310181b893745ef29d7d2902c5ff28ec08d9"
+        "sha256": "bc43ac9d84fd1557b177ac457e6a64bbae39fe58b74136e32860d20c2df065b0"
       },
       {
         "path": "lib/d-e-runtime-view.mjs",
@@ -764,7 +784,7 @@
       },
       {
         "path": "lib/ozon-account-read-evidence.mjs",
-        "sha256": "edac8e4d5b467db21352a00f46d6ec91e190b5dc84403e0b7aa55b3dbee80931"
+        "sha256": "2904d20ca33c6e000d8c84c9b9bc976119ce87d33a55968fcf8e7fad3c16605c"
       },
       {
         "path": "lib/ozon-account-read-preparation.mjs",
@@ -776,7 +796,7 @@
       },
       {
         "path": "lib/ozon-account-read-services.mjs",
-        "sha256": "5dfc9fec9091ea3121a8b9f817c9dc3d90fdc5aef3853eede78cd5d11ca11123"
+        "sha256": "1931dfe64003eca4cd24063cdc31d3db1720ee0a72ee1e9f63b72d5080eafab7"
       },
       {
         "path": "lib/ozon-category-read-step.mjs",
@@ -792,7 +812,7 @@
       },
       {
         "path": "lib/ozon-de-http-transport.mjs",
-        "sha256": "dda208bd4094efce09d9061f9e1ed0f6635b66c78ba208f6bee283fd2fcdc11a"
+        "sha256": "abd16fe592bc76a337f5579490707cb4da2354d5f01673905f3dc00f80819906"
       },
       {
         "path": "lib/ozon-de-preflight-evidence-reader.mjs",
@@ -800,7 +820,7 @@
       },
       {
         "path": "lib/ozon-de-preflight-provider.mjs",
-        "sha256": "b00d696ebb2ebb1faffa529ec0598f92876d24797323576c89da47c36f11ca37"
+        "sha256": "e2a9c7ce2c8ba3838d0ccfa3b1218c61d3d59cd7f95d4ad1ea02de3e49f07a36"
       },
       {
         "path": "lib/ozon-de-protocol-catalog.mjs",
@@ -827,6 +847,10 @@
         "sha256": "a47cef91fc7ba9ebbf267735bb17382772fac58c3337108817ca458059b480b7"
       },
       {
+        "path": "lib/ozon-in-sale-list-observation.mjs",
+        "sha256": "57d371a0baba32be9b09d3ffde2d1334dcbee08ea24e569e5a5e0770f646e89e"
+      },
+      {
         "path": "lib/ozon-inventory-prerequisite-policy.mjs",
         "sha256": "99e0712334487cc0939b967b180df065ab6d43bd085fad663b1a435f67e42e53"
       },
@@ -836,7 +860,7 @@
       },
       {
         "path": "lib/ozon-product-import-batch-limit.mjs",
-        "sha256": "601d16a766aea12277770feb1efacaef82c8b46d370040ec23155fbb141d010c"
+        "sha256": "a6f15415cd13793f6e9f1d8d667f38e89231d97fa5db95d28a977354be5492d1"
       },
       {
         "path": "lib/ozon-production-strategy.mjs",
@@ -848,11 +872,11 @@
       },
       {
         "path": "lib/ozon-seller-api-de-adapter.mjs",
-        "sha256": "d148828dc9aed93f2afd4f7a7cc33dbdd11faf266b82e8f0051ee0afd737e570"
+        "sha256": "81dc53c89fbcabd7a224eba1103b45936f95ae129079eac77e932acc890fe144"
       },
       {
         "path": "lib/ozon-seller-api-production-adapter.mjs",
-        "sha256": "c9d0a2122219da113ce39c5d480085b257c7e32d134362a3b3643a21804e40d0"
+        "sha256": "a253a67f6a6376e6eef7d311d646e1806feabee617c3ed54d8ba4ef175eec13c"
       },
       {
         "path": "lib/ozon-submission-attributes.mjs",
@@ -1448,7 +1472,7 @@
       },
       {
         "path": "scripts/ci-test-suites.mjs",
-        "sha256": "ed4afc5b63f30418b4754a01a673dbc8635e8adf5cb9aec1d64daaff9ecc9bea"
+        "sha256": "db4095bc1b1962f76b783fe714a92bc8c6a0b5101fb3b8e14ff3492363c6a1c7"
       },
       {
         "path": "scripts/deploy-local-runtime.sh",
@@ -1508,11 +1532,11 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "cc22b10af91892ade87a8def0f3be5eb557c09bcdbb52410633f3cd5013cca7b"
+        "sha256": "0994c8b2f66e10ae9d08f5e6ad9d54b5be0b8a96511e13ff3102a096178553fb"
       },
       {
         "path": "src/App.jsx",
-        "sha256": "67c4fc62b3bc0de35da9ae7a9a5ae6c15ae1302462cfbd0a13b7f3d6aed8a050"
+        "sha256": "094bbec00e653eb8954ce436ba4e04f9ba81ddf6d4584c904778eac6e6cdb0ec"
       },
       {
         "path": "src/aConfirmationInput.js",
@@ -1524,7 +1548,7 @@
       },
       {
         "path": "src/api.js",
-        "sha256": "1274f5488b8d81d3b740c83ba00e6d18cca269a9485663f978addf7945cc4e8c"
+        "sha256": "ca85105a98c752bd15ac06e8d2cbec71a226fec6eeb51fcf4e7b71aa7ab72a4e"
       },
       {
         "path": "src/bExactCommissionInput.js",
@@ -1561,6 +1585,10 @@
       {
         "path": "src/components/AddCandidateModal.jsx",
         "sha256": "fe36fd2972b471e1f7284e2a02eed6a0ab2b0ab133ba6fd8d537b3c86b0290a4"
+      },
+      {
+        "path": "src/components/BatchMediaReview.jsx",
+        "sha256": "f520eda3b4cd81acbb8973367b0004f9631419be9f691ee0f894210b925da9e5"
       },
       {
         "path": "src/components/C1ContentReviewPanel.jsx",
@@ -1688,7 +1716,7 @@
       },
       {
         "path": "src/components/ProductPage.jsx",
-        "sha256": "251b967e94da436f3608658f5fa0503b98861c06252caafcfeb524e493556a5d"
+        "sha256": "c3ce78fceae5b2e757e8691c48fe295919cafd9fa4d9a573a0b19daf0fba97cd"
       },
       {
         "path": "src/components/ProductionOwnerDecisionForm.jsx",
@@ -1708,7 +1736,7 @@
       },
       {
         "path": "src/components/SiblingBatchPreparation.jsx",
-        "sha256": "2a852a07676fafed68c00447ca6f46883657b2db3e4c34caa6f68c9b5df4b8c9"
+        "sha256": "12a8f1039406bcb7ab44f99024cd572eee51c8391fd66d4f8d0977c13d686da1"
       },
       {
         "path": "src/components/SiblingPreparationWorkspace.css",
@@ -1800,7 +1828,7 @@
       },
       {
         "path": "src/siblingBatchAuthorizationInput.js",
-        "sha256": "fe5f242e91499db3196b7d8cc204c1e9faa0587fb1ec2cdfa7c704ffffa103b4"
+        "sha256": "41109b0ce82c08632c2cf53b738c972417439832d59a9af1fe7b7515158ce084"
       },
       {
         "path": "src/siblingBatchFormDefaults.js",
@@ -1928,7 +1956,7 @@
       },
       {
         "path": "tests/aliyun-oss-d-asset-integration.test.mjs",
-        "sha256": "42b261f3a49ff250cd78ac0c6ac207960de66ca4a501c47f87fc5281222d95f4"
+        "sha256": "7cf9d1cb532ae9e8a27d2da87bcd03c40e8bdf73af0e94fe689c7c01a7295f12"
       },
       {
         "path": "tests/aliyun-oss-runtime-deployment-boundary.test.mjs",
@@ -1961,6 +1989,10 @@
       {
         "path": "tests/b-fee-evidence-refresh.test.mjs",
         "sha256": "5edbf325a5cd9518f37ab226e3e066c4613d57695125007bec1c42ffbf435408"
+      },
+      {
+        "path": "tests/batch-media-review-ui.test.mjs",
+        "sha256": "4e4eafe6e436733a6eeab302f365c2310dab1f79d3e431d8ced56c8294ad3fe8"
       },
       {
         "path": "tests/business-candidate-capacity.test.mjs",
@@ -2260,7 +2292,7 @@
       },
       {
         "path": "tests/c1-sibling-neutral-copy.test.mjs",
-        "sha256": "63a58ff75b32e074eda792cb11f040515de08390e4b69858cf6daa7526020c04"
+        "sha256": "c17f8b8310c71a6a6ede2d726712c5292dc660cc97c732223b0b1b5c0480dc45"
       },
       {
         "path": "tests/c1-sku-rights-review-submission.test.mjs",
@@ -2312,7 +2344,7 @@
       },
       {
         "path": "tests/c2-upload-api.test.mjs",
-        "sha256": "88fd35c79cfee72548648768039d8e0322d14bc63b0916f3b449d1569b25ddbe"
+        "sha256": "072719c94ea1088b104ca99ab0c85ea506addce53001256c2032d09cc46bc000"
       },
       {
         "path": "tests/c2-upload-draft.test.mjs",
@@ -2391,28 +2423,56 @@
         "sha256": "72854720ea39988a36694d979337d02961e02f99643a86c8fc97193cc0ba8a33"
       },
       {
+        "path": "tests/d-batch-asset-transport.test.mjs",
+        "sha256": "e28019caedf9ef7373581d908d5afcefd21efc4662b8d7cc0f60e6b82df96b5b"
+      },
+      {
+        "path": "tests/d-batch-e-media-review.test.mjs",
+        "sha256": "dcbf9144edd7f7ca5d8220335c84c425bf923c6bff0447f67c48ea0bf86f47b2"
+      },
+      {
+        "path": "tests/d-batch-e-verification.test.mjs",
+        "sha256": "c6165ccb48bbda41cc53fbf97bd14dbc3206b0dad67ca140f0da9afb63ecce20"
+      },
+      {
         "path": "tests/d-batch-import-api.test.mjs",
-        "sha256": "48aed956041e2e7d6cab7b3fa95a5d13a3e9b100502683b6e21fd5f599b5c9f0"
+        "sha256": "43e6d6f1154c057bc63f975ac0da0334d91b0aa8ae758e72df913c92b440e255"
       },
       {
         "path": "tests/d-batch-import-runtime.test.mjs",
-        "sha256": "5893425bcd14b0731e2863b037635571a3451e3f095961fed562bb7342be2f18"
+        "sha256": "10c7ff9f8e580ae652a084c41e71cb2ddf95e9af3bd07f2040930409cfc15e46"
       },
       {
         "path": "tests/d-batch-import-software-service.test.mjs",
-        "sha256": "4c023822ee3fede6713e791803d082db1e1f75cb2f10f973b90a6365b14f9cf5"
+        "sha256": "01bbdba29a50e0a6eb8090bbd1ef4cbcd597fad22e73c763ddb1a9394f260b16"
       },
       {
         "path": "tests/d-batch-import-state.test.mjs",
-        "sha256": "e550d0841373daae8931b6d5370eef9920a41430500c3cb9938bc5fef557cff0"
+        "sha256": "387946e0ca1e376fb57a3ef8cff4a056599109b1317a0b4d554f6d275f1e097c"
+      },
+      {
+        "path": "tests/d-batch-in-sale-software-service.test.mjs",
+        "sha256": "365d82a05249e2dd19759e7d869ecb0ff0c1e76398ea9f1e3f86b0c42a9b2d51"
+      },
+      {
+        "path": "tests/d-batch-media-review-api.test.mjs",
+        "sha256": "700c1bc025331663c7b8045b2160ebc17e81a42a51910644bd12c278ce4f752b"
+      },
+      {
+        "path": "tests/d-batch-offer-readback.test.mjs",
+        "sha256": "6820770ff4e3aa1b9dfde4bcdde7fb3b48550e64bff090f79ec5010145d6374e"
       },
       {
         "path": "tests/d-batch-production-authorization.test.mjs",
-        "sha256": "754ad1f8464dd182a74b5711cb28b6a591dde5680014f23f1053f6ccae0eb041"
+        "sha256": "ef804b6acfe80fa601638b857d45be05c33fa29f358a6843232ec3c3969528dd"
+      },
+      {
+        "path": "tests/d-batch-production-contract.test.mjs",
+        "sha256": "b8eed48332df0191e9f91b2ffce54a46ca1a9b0d9349f071714dd3946ebe8286"
       },
       {
         "path": "tests/d-batch-stock-state.test.mjs",
-        "sha256": "3d5a0319bb778765799b9250e53fcd1d3c0dce124979891c08c2f8838928587b"
+        "sha256": "5a6fda4612c2877781bdc1dccfb30dc2663adf6ca27dbf768fdca0e68e652104"
       },
       {
         "path": "tests/d-e-restart-filter.test.mjs",
@@ -2851,6 +2911,14 @@
         "sha256": "a8cf62ae725b9ec28f2b604baeb846b1916382dd0cebc667c15160fce1747fe9"
       },
       {
+        "path": "tests/helpers/d-batch-e-fixture.mjs",
+        "sha256": "6f28269a6636b81f75e357a60796be0b91cb921ee3bc019c36c763f910e6d503"
+      },
+      {
+        "path": "tests/helpers/d-batch-media-review-fixture.mjs",
+        "sha256": "cf715110952883a733630b595c87d145caf749928f5b8516aa3a4c5ae28d0235"
+      },
+      {
         "path": "tests/helpers/d-e-saved-api-fixture.mjs",
         "sha256": "f6ad8fbdba0f9a58206534110c77ee0e5badc2c21367d8fb4a9c326ffbd01b44"
       },
@@ -3072,7 +3140,7 @@
       },
       {
         "path": "tests/ozon-account-read-integration.test.mjs",
-        "sha256": "2bf500bec108f17ac9d99d61492813a96ea5181338ad334b9524ed4e1d0357ae"
+        "sha256": "382ed2524c907eacccba16fa56ac15c449ad55698442aa022d88d8e564d2dde7"
       },
       {
         "path": "tests/ozon-account-read-runtime.test.mjs",
@@ -3092,11 +3160,11 @@
       },
       {
         "path": "tests/ozon-de-batch-preflight.test.mjs",
-        "sha256": "f01af8c837982b9128d56a016cf4e439b71ea70d7269c583528a12d125689a98"
+        "sha256": "b0733933c2e5d0b04d76bf7805d8bb2781fdd86e14931424b3e580ea99f23c9f"
       },
       {
         "path": "tests/ozon-de-http-transport.test.mjs",
-        "sha256": "9cc7172399b0b86c4cf795d5d284c0b506b96e4d19259ceafcb93e7b888f8d81"
+        "sha256": "4b448bf9cac852684d7f60bb34d15700a0253f090d59c80f4bd49a2c32485f3d"
       },
       {
         "path": "tests/ozon-de-preflight-evidence-reader.test.mjs",
@@ -3131,12 +3199,16 @@
         "sha256": "f66364870e02d69e45fd4105692b0d845c958235058fa0b6ba599e7f8a166018"
       },
       {
+        "path": "tests/ozon-in-sale-list-observation.test.mjs",
+        "sha256": "b76a5cee9322e1593bc78192f4dda82133258019023deaec947b4f515d45d2b0"
+      },
+      {
         "path": "tests/ozon-page-capture-job.test.mjs",
         "sha256": "83d560c73257e91210fe348a20de7521014adba505803df87b215134816107ab"
       },
       {
         "path": "tests/ozon-product-import-batch-limit.test.mjs",
-        "sha256": "ec233b6c63c509a4747b20e7cec908cb47e7b40e5fd450205286286db02fef3f"
+        "sha256": "524a89bff1f79383725a63bc54cabccfbe60d790d2a411da333d27acc8ebccdb"
       },
       {
         "path": "tests/ozon-production-strategy.test.mjs",
@@ -3148,11 +3220,11 @@
       },
       {
         "path": "tests/ozon-seller-api-de-adapter.test.mjs",
-        "sha256": "debcca0b2a67ea367a11e4ed1216695a6e3edfd5dd72f9769cdb8b273acbe5d9"
+        "sha256": "f6cb5718fb2dcef7da16dfee7f64e8451a1770c061b41e1823ec3841e02c5246"
       },
       {
         "path": "tests/ozon-seller-api-production-adapter.test.mjs",
-        "sha256": "ac9e9e690635c1665a30e6d6ea4c080f76f1ddf37844707f44de3c35f66504e3"
+        "sha256": "f5d291d95173c94ff73aa7df8225636b91c759fe8add349eaaae45622f23fdbb"
       },
       {
         "path": "tests/ozon-submission-attributes.test.mjs",
@@ -3220,7 +3292,7 @@
       },
       {
         "path": "tests/product-page-ui.test.mjs",
-        "sha256": "527f297eb7af9b569da5072791f0e6fcd6b52ad7456c0c089538c705a4e9300a"
+        "sha256": "91845189496268031f2c58eb7d5d0327e1491a5736837e9307c579c6c513d914"
       },
       {
         "path": "tests/production-authorization-rollback-acceptance.test.mjs",
@@ -3392,7 +3464,7 @@
       },
       {
         "path": "tests/sibling-batch-authorization-input.test.mjs",
-        "sha256": "881e8d4a5e8f661deb213d29aa31bbf5f44c423cc8423d318b98af61eff31ee6"
+        "sha256": "def1baaa38f7463030df226f9fe778a4d30bb37f9b826429b9271747464e86b3"
       },
       {
         "path": "tests/sibling-batch-c1-preparation.test.mjs",
@@ -6249,24 +6321,42 @@
         "lib/production-authorization-preparation.mjs",
         "lib/production-owner-preparation.mjs",
         "lib/d-batch-production-authorization.mjs",
+        "lib/d-batch-production-contract.mjs",
         "lib/d-batch-import-state.mjs",
         "lib/d-batch-stock-state.mjs",
         "lib/d-batch-import-runtime.mjs",
         "lib/d-batch-import-software-service.mjs",
+        "lib/d-batch-asset-transport.mjs",
         "lib/d-batch-execution-view.mjs",
         "lib/d-batch-offer-readback.mjs",
+        "lib/d-batch-in-sale-software-service.mjs",
+        "lib/d-batch-e-media-review.mjs",
+        "lib/d-batch-e-verification.mjs",
+        "lib/ozon-in-sale-list-observation.mjs",
         "lib/ozon-product-import-batch-limit.mjs",
         "src/siblingBatchAuthorizationInput.js",
+        "src/components/BatchMediaReview.jsx",
         "schema/production-authorization-v1.2.schema.json",
         "tests/production-owner-preparation.test.mjs",
         "tests/d-batch-production-authorization.test.mjs",
+        "tests/d-batch-production-contract.test.mjs",
         "tests/d-batch-import-state.test.mjs",
         "tests/d-batch-stock-state.test.mjs",
         "tests/d-batch-import-runtime.test.mjs",
         "tests/d-batch-import-software-service.test.mjs",
+        "tests/d-batch-asset-transport.test.mjs",
+        "tests/d-batch-offer-readback.test.mjs",
+        "tests/d-batch-in-sale-software-service.test.mjs",
+        "tests/d-batch-e-media-review.test.mjs",
+        "tests/d-batch-e-verification.test.mjs",
+        "tests/helpers/d-batch-e-fixture.mjs",
+        "tests/helpers/d-batch-media-review-fixture.mjs",
+        "tests/ozon-in-sale-list-observation.test.mjs",
         "tests/ozon-product-import-batch-limit.test.mjs",
         "tests/sibling-batch-authorization-input.test.mjs",
         "tests/d-batch-import-api.test.mjs",
+        "tests/d-batch-media-review-api.test.mjs",
+        "tests/batch-media-review-ui.test.mjs",
         "tests/ozon-de-batch-preflight.test.mjs",
         "lib/production-contract-primitives.mjs",
         "scripts/generate-c2-reference-schema.mjs",

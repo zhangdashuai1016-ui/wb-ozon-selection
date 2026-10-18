@@ -585,7 +585,7 @@ export default function App() {
   async function authorizeSiblingProductionBatch(payload) {
     const result = await api.authorizeProductionBatch(payload);
     batchReadEpoch.current += 1;
-    setBatchExecution({ parentId: selectedId, view: result.executionView });
+    setBatchExecution({ parentId: selectedId, view: result.executionView, preparation: result.executionPreparation });
     setBatchExecutionError(null);
     await load(true);
     setNotice({ type: 'success', message: `整批 ${result.batch.members.length} 个规格的生产授权已原子保存；请查看逐项导入、库存与 E 回读结果。` });
@@ -597,6 +597,32 @@ export default function App() {
     await load(true);
     setNotice({ type: 'success', message: `本批 ${result.members.length} 个规格的库存草稿已一起保存；请核对新版本再确认生产。` });
     return result;
+  }
+
+  async function runSiblingAccountRead(action, payload) {
+    const matches = state.candidates.filter(candidate => candidate.id === payload.candidateId &&
+      candidate.siblingSourceV1?.parentCandidateId === selectedId);
+    if (!selected || selected.id !== selectedId || matches.length !== 1 ||
+        matches[0].dataRevision !== payload.expectedRevision) {
+      throw new Error('本批规格或版本已变化，未提交旧的账户核验。');
+    }
+    const parentId = selectedId;
+    try {
+      const result = await action(payload);
+      await load(true);
+      if (batchExecution?.parentId === parentId && batchExecution.view?.batchId) {
+        const executionView = await api.getProductionBatch(batchExecution.view.batchId);
+        batchReadEpoch.current += 1;
+        setBatchExecution({parentId,view:executionView});
+        setBatchExecutionError(null);
+      }
+      setNotice({type:'success',message:'本色账户核验状态已保存；整批仍以全部成员的前检和生产授权为准。'});
+      return result;
+    } catch (error) {
+      await load(true);
+      setNotice({type:'error',message:errorMessage(error)});
+      throw error;
+    }
   }
 
   async function refreshSiblingBatchExecution(batchId) {
@@ -611,6 +637,13 @@ export default function App() {
     const result = await api.resumeProductionBatchStock(batchId);
     batchReadEpoch.current += 1;
     setBatchExecution({ parentId: selectedId, view: result.executionView });
+    setBatchExecutionError(null);
+    return result;
+  }
+  async function confirmSiblingBatchMedia(batchId,payload) {
+    const result=await api.confirmProductionBatchMedia(batchId,payload);
+    batchReadEpoch.current+=1;
+    setBatchExecution({parentId:selectedId,view:result.executionView});
     setBatchExecutionError(null);
     return result;
   }
@@ -1434,12 +1467,16 @@ export default function App() {
           onPreviewSiblingBatchC1={previewSiblingBatchC1}
           onReadSiblingBatchColorDictionary={readSiblingBatchColorDictionary}
           onAuthorizeSiblingProductionBatch={authorizeSiblingProductionBatch}
+          onConfirmSiblingBatchMedia={confirmSiblingBatchMedia}
           onSaveSiblingBatchStockDrafts={saveSiblingBatchStockDrafts}
           siblingBatchExecutionView={batchExecution?.parentId === productCandidate.id ? batchExecution.view : null}
+          siblingBatchExecutionPreparation={batchExecution?.parentId === productCandidate.id ? batchExecution.preparation : null}
           siblingBatchExecutionError={batchExecutionError}
           siblingBatchExecutionLoading={accountOwner && batchExecution?.parentId !== productCandidate.id && !batchExecutionError}
           onRefreshSiblingBatchExecution={refreshSiblingBatchExecution}
           onResumeSiblingBatchStock={resumeSiblingBatchStock}
+          onAuthorizeSiblingAccountRead={payload => runSiblingAccountRead(api.authorizeAccountRead,payload)}
+          onContinueSiblingAccountRead={payload => runSiblingAccountRead(api.continueAccountRead,payload)}
           onUploadSiblingC2Asset={uploadSiblingC2Asset}
           onLinkSiblingC2Asset={linkSiblingC2Asset}
           onConfirmSiblingBatchC2={confirmSiblingBatchC2}

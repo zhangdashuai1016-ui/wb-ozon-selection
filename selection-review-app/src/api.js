@@ -339,6 +339,9 @@ export const api = {
     method: 'POST', body: JSON.stringify(payload)
   }),
   getProductionBatch: batchId => request(`/api/d-batches/${encodeURIComponent(batchId)}`),
+  confirmProductionBatchMedia: (batchId,payload) => request(`/api/d-batches/${encodeURIComponent(batchId)}/media-review`, {
+    method:'POST',body:JSON.stringify(payload)
+  }),
   getSiblingBatchExecution: parentId => request(`/api/sibling-batches/${encodeURIComponent(parentId)}/execution`),
   resumeProductionBatchStock: batchId => request(`/api/d-batches/${encodeURIComponent(batchId)}/resume`, {
     method: 'POST', body: JSON.stringify({ confirmUnsentStockContinuation: true })

@@ -4,8 +4,11 @@ import { assertDPlatformObservationPolicy } from './d-platform-observation-polic
 import { fingerprintCanonicalRecord } from './production-contract-primitives.mjs';
 import { isCompleteStoreRef } from './store-binding.mjs';
 import { validateProductionReadbackExpectation } from './e-stage-readback.mjs';
+import { assertOzonProductImportBatchLimitUse } from './ozon-product-import-batch-limit.mjs';
 
 export const D_BATCH_IMPORT_JOB_VERSION = 'd-batch-import-job-v3';
+export const D_BATCH_SCOPED_IMPORT_JOB_VERSION = 'd-batch-import-job-v4';
+export const D_BATCH_OBSERVATION_BLOCK_REASONS = Object.freeze(['evidence_not_ready', 'service_not_configured']);
 const historicalJobVersion = 'd-batch-import-job-v2';
 const validRef = value => typeof value === 'string' && value.trim().length > 0;
 const validTime = value => validRef(value) && !Number.isNaN(Date.parse(value));
@@ -59,7 +62,7 @@ export function assertDBatchFrozenImport(frozen, offerIds) {
 
 function assertJob(job) {
   assertDPlatformObservationPolicy(job?.observationPolicy);
-  if (![historicalJobVersion,D_BATCH_IMPORT_JOB_VERSION].includes(job?.schemaVersion) ||
+  if (![historicalJobVersion,D_BATCH_IMPORT_JOB_VERSION,D_BATCH_SCOPED_IMPORT_JOB_VERSION].includes(job?.schemaVersion) ||
       !validRef(job.jobId) || !validRef(job.batchId) ||
       !Number.isSafeInteger(job.revision) || job.revision < 1 || !validRef(job.workerId) || !validRef(job.workerVersion) ||
       !validRef(job.leaseId) || !validTime(job.leaseExpiresAt) || !Array.isArray(job.chunks) ||
@@ -79,11 +82,12 @@ function assertJob(job) {
             !isDeepStrictEqual(chunk.results.map(result => result.offerId), chunk.offerIds))) ||
         (chunk.status === 'unknown_outcome' && chunk.taskId !== null &&
           (!/^[1-9][0-9]*$/.test(chunk.taskId) || !Number.isSafeInteger(Number(chunk.taskId)))) ||
-        (chunk.status === 'prewrite_blocked' && (job.schemaVersion !== D_BATCH_IMPORT_JOB_VERSION ||
+        (chunk.status === 'prewrite_blocked' && (job.schemaVersion === historicalJobVersion ||
           chunk.taskId !== null || chunk.results !== null ||
           !safeReasonCode(chunk.prewriteReasonCode) || chunk.requestTransmission !== 'not_attempted')) ||
         (chunk.status === 'observation_stopped' &&
-          (chunk.taskId === null || !['query_limit','policy_expired'].includes(chunk.stopReason)))) ||
+          (chunk.taskId === null || !['query_limit','policy_expired',
+            ...D_BATCH_OBSERVATION_BLOCK_REASONS].includes(chunk.stopReason)))) ||
       new Set(job.chunks.flatMap(chunk => chunk.offerIds)).size !== job.chunks.flatMap(chunk => chunk.offerIds).length ||
       job.status !== statusFor(job.chunks)) {
     throw new Error('D_BATCH_IMPORT_JOB_INVALID');
@@ -91,6 +95,22 @@ function assertJob(job) {
   for (const chunk of job.chunks) {
     if (chunk.frozenImport != null) assertDBatchFrozenImport(chunk.frozenImport, chunk.offerIds);
   }
+  if (job.schemaVersion === D_BATCH_SCOPED_IMPORT_JOB_VERSION) {
+    const use = assertOzonProductImportBatchLimitUse(job.importLimitUse, { checkedAt: job.createdAt });
+    if (use.batchId !== job.batchId || use.importJobId !== job.jobId ||
+        !isDeepStrictEqual(job.chunks.flatMap(chunk => chunk.offerIds), use.members.map(member => member.offerId)) ||
+        job.chunks.some(chunk => chunk.offerIds.length > 100 || chunk.limitEvidenceRef !== use.evidenceRef || !chunk.frozenImport)) {
+      throw new Error('D_BATCH_IMPORT_LIMIT_USE_SCOPE_INVALID');
+    }
+    const sources = job.chunks.flatMap(chunk => chunk.frozenImport.memberSources);
+    if (sources.some((source, index) => source.candidateId !== use.members[index].candidateId ||
+        source.skuPackageId !== use.members[index].skuPackageId ||
+        source.sourceAuthorizationId !== use.members[index].authorizationId ||
+        source.sourceAuthorizationFingerprint !== use.members[index].authorizationFingerprint ||
+        !isDeepStrictEqual(source.storeRef, use.storeRef))) {
+      throw new Error('D_BATCH_IMPORT_LIMIT_USE_SOURCE_INVALID');
+    }
+  } else if (Object.hasOwn(job, 'importLimitUse')) throw new Error('D_BATCH_IMPORT_LIMIT_USE_VERSION_INVALID');
   assertSafeRuntimeRecord(job, 'dBatchImportJob');
   return job;
 }
@@ -121,7 +141,11 @@ export function createDBatchImportJob({ batch, chunks, workerId, workerVersion, 
   if (!isDeepStrictEqual(actual, expected) || actual.some(offerId => batch.excludedOfferIds.includes(offerId))) {
     throw new Error('D_BATCH_IMPORT_MEMBER_SCOPE_MISMATCH');
   }
-  const job = { schemaVersion: D_BATCH_IMPORT_JOB_VERSION, jobId: `d-batch-import:${batch.batchId}`,
+  const scoped = batch.schemaVersion === 'd-batch-production-authorization-v3';
+  if (scoped) assertOzonProductImportBatchLimitUse(batch.importLimitUse, { batch, checkedAt: createdAt });
+  const job = { schemaVersion: scoped ? D_BATCH_SCOPED_IMPORT_JOB_VERSION : D_BATCH_IMPORT_JOB_VERSION,
+    jobId: `d-batch-import:${batch.batchId}`,
+    ...(scoped ? { importLimitUse: clone(batch.importLimitUse) } : {}),
     batchId: batch.batchId, revision: 1, workerId, workerVersion, leaseId, leaseExpiresAt, status: 'claimed',
     createdAt, updatedAt: createdAt, observationPolicy: clone(observationPolicy), chunks: chunks.map((chunk, index) => ({ index,
       offerIds: [...chunk.offerIds], limitEvidenceRef: chunk.limitEvidenceRef,
@@ -135,8 +159,11 @@ export function createDBatchImportJob({ batch, chunks, workerId, workerVersion, 
 /** An unclassified intent cannot be resent; only the live pre-send proof can settle it as not sent. */
 export function applyDBatchImportEvent({ job, event, workerId, leaseId, observedAt }) {
   assertJob(job);
+  // Recording the terminal facts of this holder's saved import intent cannot authorize another request.
+  const settlesExistingAction = ['batch_import_task_received', 'batch_import_unknown',
+    'batch_import_prewrite_blocked', 'batch_observation_blocked'].includes(event?.kind);
   if (!validTime(observedAt) || workerId !== job.workerId || leaseId !== job.leaseId ||
-      Date.parse(observedAt) >= Date.parse(job.leaseExpiresAt) ||
+      (!settlesExistingAction && Date.parse(observedAt) >= Date.parse(job.leaseExpiresAt)) ||
       !Number.isSafeInteger(event?.chunkIndex) || event.chunkIndex < 0 || event.chunkIndex >= job.chunks.length) {
     throw new Error('D_BATCH_IMPORT_LEASE_OR_SCOPE_INVALID');
   }
@@ -160,7 +187,7 @@ export function applyDBatchImportEvent({ job, event, workerId, leaseId, observed
     chunk.status = 'unknown_outcome';
     chunk.unknownReason = event.reason;
   } else if (event.kind === 'batch_import_prewrite_blocked') {
-    if (job.schemaVersion !== D_BATCH_IMPORT_JOB_VERSION || chunk.status !== 'intent' ||
+    if (job.schemaVersion === historicalJobVersion || chunk.status !== 'intent' ||
         event.requestTransmission !== 'not_attempted' ||
         !safeReasonCode(event.reasonCode)) throw new Error('D_BATCH_IMPORT_PREWRITE_PROOF_INVALID');
     chunk.status = 'prewrite_blocked';
@@ -186,6 +213,17 @@ export function applyDBatchImportEvent({ job, event, workerId, leaseId, observed
       chunk.status = 'observation_stopped';
       chunk.stopReason = 'query_limit';
     }
+  } else if (event.kind === 'batch_observation_blocked') {
+    if (typeof chunk.taskId !== 'string' || !/^[1-9][0-9]*$/.test(chunk.taskId) ||
+        !Number.isSafeInteger(Number(chunk.taskId)) || event.taskId !== chunk.taskId || chunk.observationInFlight ||
+        !D_BATCH_OBSERVATION_BLOCK_REASONS.includes(event.reason) ||
+        Date.parse(observedAt) < Date.parse(job.updatedAt))
+      throw new Error('D_BATCH_IMPORT_OBSERVATION_BLOCK_INVALID');
+    if (chunk.status === 'observation_stopped' && chunk.stopReason === event.reason) return job;
+    if (!['waiting_platform', 'observed_pending', 'unknown_outcome'].includes(chunk.status))
+      throw new Error('D_BATCH_IMPORT_OBSERVATION_BLOCK_INVALID');
+    chunk.status = 'observation_stopped';
+    chunk.stopReason = event.reason;
   } else if (event.kind === 'batch_observation_stopped') {
     if (!['waiting_platform','observed_pending','unknown_outcome'].includes(chunk.status) ||
         chunk.taskId === null || event.taskId !== chunk.taskId || chunk.observationInFlight ||

@@ -28,6 +28,37 @@ function failure(code, state, transmission, status = null) {
   };
 }
 
+test('IN_SALE list requests retain the persisted final-send guard and reject identifier filters before I/O', async () => {
+  const body = { filter: { visibility: 'IN_SALE' }, last_id: '', limit: 1000 };
+  const f = harness(); let guards = 0;
+  await f.transport.requestJson(request({ endpoint: '/v3/product/list', body }), { beforeRequestSend: async () => { guards++; } });
+  assert.equal(guards, 1); assert.equal(f.calls.length, 1);
+  for (const field of ['offer_id', 'product_id', 'skus']) {
+    const blocked = harness();
+    await assert.rejects(() => blocked.transport.requestJson(request({ endpoint: '/v3/product/list',
+      body: { ...body, filter: { ...body.filter, [field]: ['101'] } } }), { beforeRequestSend: async () => {} }), /OZON_DE_HTTP_REQUEST_INVALID/);
+    assert.equal(blocked.keys.length, 0); assert.equal(blocked.calls.length, 0);
+  }
+  const unguarded = harness();
+  await assert.rejects(() => unguarded.transport.requestJson(request({ endpoint: '/v3/product/list', body })), /OZON_DE_HTTP_REQUEST_INVALID/);
+  assert.equal(unguarded.keys.length, 0); assert.equal(unguarded.calls.length, 0);
+  const changedFilter = harness();
+  await assert.rejects(() => changedFilter.transport.requestJson(request({ endpoint: '/v3/product/list',
+    body: { ...body, filter: { visibility: 'ALL' } } }), { beforeRequestSend: async () => {} }), /OZON_DE_HTTP_REQUEST_INVALID/);
+  assert.equal(changedFilter.keys.length, 0); assert.equal(changedFilter.calls.length, 0);
+});
+
+test('a list final-send guard failure makes no network request and legacy list reads retain their existing contract', async () => {
+  const f = harness(); const failure = new Error('scope changed before send');
+  await assert.rejects(() => f.transport.requestJson(request({ endpoint: '/v3/product/list',
+    body: { filter: { visibility: 'IN_SALE' }, last_id: '', limit: 1000 } }),
+  { beforeRequestSend: async () => { throw failure; } }), error => error === failure);
+  assert.equal(f.calls.length, 0);
+  const legacy = harness();
+  await legacy.transport.requestJson(request({ endpoint: '/v3/product/list', body: { filter: { offer_id: ['SYNTHETIC-SKU'], visibility: 'ALL' }, limit: 10 } }));
+  assert.equal(legacy.calls.length, 1);
+});
+
 test("constructing the configured transport performs no credential or network I/O, and current declarations are detached", async () => {
   const productionBindings = [clone(production)], credentialBindings = [clone(credential)];
   const f = harness({ productionBindings, credentialBindings }); assert.equal(f.keys.length, 0); assert.equal(f.calls.length, 0);

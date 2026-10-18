@@ -4,7 +4,7 @@ import { productionOwnerDecisionHttpFixture } from './helpers/d-e-saved-api-fixt
 import { createSelectionReviewRuntimeConfiguration } from '../lib/runtime-configuration.mjs';
 import { createMemoryBusinessStateRepository } from '../lib/business-state-repository.mjs';
 import { createLocalDevelopmentWorkerRegistry } from '../lib/worker-registry.mjs';
-import { createOzonDEHttpTransport } from '../lib/ozon-de-http-transport.mjs';
+import { createOzonDEHttpTransport, OzonDEHttpTransportError } from '../lib/ozon-de-http-transport.mjs';
 import { createOzonAccountReadBindingResolver, accountReadBindingForProduction } from '../lib/ozon-account-read-preparation.mjs';
 import { createOzonAccountReadEvidenceSource, composeOzonAccountPreflightEvidence } from '../lib/ozon-account-read-evidence.mjs';
 import { createRepositoryBackedOzonDEPreflightEvidenceReader } from '../lib/ozon-de-preflight-evidence-reader.mjs';
@@ -21,8 +21,13 @@ import { runPlatformWritePreflight } from '../lib/platform-write-preflight.mjs';
 import { createDPlatformObservationPolicyResolver } from '../lib/runtime-configuration.mjs';
 import { fingerprintCanonicalRecord } from '../lib/production-contract-primitives.mjs';
 import { loadOzonProductImportBatchLimitEvidence } from '../lib/ozon-product-import-batch-limit.mjs';
+import { threeColorC2Fixture, at as batchAt } from './fixtures/sibling-batch-final-family-fixture.mjs';
+import { productionOwnerDecisionFixture } from './fixtures/production-owner-decision-fixture.mjs';
+import { commitSiblingBatchC2Final } from '../lib/sibling-batch-c2-final.mjs';
+import { commitBatchOwnerProductionAuthorization } from '../lib/d-batch-production-authorization.mjs';
+import { enqueueDProductionHandoffInDocument } from '../lib/d-e-software-job-handoff.mjs';
 
-async function fixture({ clockOffsetMs = 0 } = {}) {
+async function fixture({ clockOffsetMs = 0, deRuntimeServices = null, accountRequestJson = null } = {}) {
   const base = await productionOwnerDecisionHttpFixture(), clock = () => new Date(Date.parse(base.owner.formal.at) + clockOffsetMs).toISOString();
   const accountService = { ...base.service, schemaVersion: 'ozon-account-read-service-binding-v1',
     serviceId: 'service:synthetic:account-read', workerId: 'worker:synthetic:account-read' };
@@ -84,7 +89,8 @@ async function fixture({ clockOffsetMs = 0 } = {}) {
     loadDPlatformObservationPolicy: createDPlatformObservationPolicyResolver(configuration),
     preflightRequestMode: 'persisted_evidence_only' });
   const services = createOzonAccountReadServices({ configuration, repository, workerRegistry, serverClock: clock,
-    requestJson: transport.requestJson, evidenceSource: source, preflightProvider: provider, deRuntimeServices: de });
+    requestJson: accountRequestJson ?? transport.requestJson, evidenceSource: source, preflightProvider: provider,
+    deRuntimeServices: deRuntimeServices ?? de });
   const preparation = services.preparation({ candidate: base.candidate, document: base.document }), option = preparation.options[0];
   const input = { candidateId: base.candidate.id, skuPackageId: preparation.skuPackageId, expectedRevision: preparation.expectedRevision,
     bindingId: option.bindingId, configurationVersion: option.configurationVersion, scopeRef: option.scopeRef,
@@ -113,6 +119,256 @@ async function fixture({ clockOffsetMs = 0 } = {}) {
 async function authorizeProduction(f) {
   return commitSingleOwnerProductionAuthorization({ ...f.base.owner.args, repository: f.repository });
 }
+
+async function batchAccountFixture(options = {}) {
+  const continuations = [];
+  const deRuntimeServices = { async continueAuthorizedBatchImport(input) {
+    continuations.push(structuredClone(input));
+    return { status: 'synthetic_batch_continued', platformWrites: 0 };
+  } };
+  const f = await fixture({ ...options, deRuntimeServices });
+  const family = await threeColorC2Fixture(2);
+  await commitSiblingBatchC2Final({ repository: family.repository, runtimeMode: 'local_development',
+    actor: family.actor, input: family.input, verifiedAssets: family.verifiedAssets, serverClock: () => batchAt });
+  const document = await family.repository.readSnapshot();
+  const decisions = document.candidates.slice(1).map((child, index) => {
+    const owner = productionOwnerDecisionFixture(createMemoryBusinessStateRepository, { sourceCandidate: child, sourceAt: batchAt });
+    return { candidate: owner.candidate, ownerInput: { ...owner.args.input, merchantSku: `SYNTHETIC-ACCOUNT-COLOR-${index}` }, owner };
+  });
+  document.candidates.splice(1, decisions.length, ...decisions.map(value => structuredClone(value.candidate)));
+  document.evidencePacks = structuredClone(decisions[0].owner.evidencePacks);
+  document.currentCommissionCatalogs = structuredClone(decisions[0].owner.currentCommissionCatalogs);
+  await f.repository.transact(() => ({ changed: true, document, result: null }));
+  const parent = document.candidates[0];
+  const input = { confirmAll: true, parentCandidateId: parent.id, parentRevision: parent.dataRevision,
+    excludedOfferIds: ['SYNTHETIC-FIRST-UNKNOWN'],
+    members: decisions.map(value => ({ candidateId: value.candidate.id, ownerInput: value.ownerInput })),
+    postImportScope: { schemaVersion: 'd-batch-post-import-scope-v1', inventoryAction: 'create_only',
+      eReadbackOfferIds: decisions.map(value => value.ownerInput.merchantSku) } };
+  return { ...f, continuations, actor: family.actor,
+    async authorizeBatch() {
+      return commitBatchOwnerProductionAuthorization({ repository: f.repository, runtimeMode: 'local_development',
+        actor: family.actor, input, configuration: f.configuration, serverClock: () => batchAt });
+    },
+    async readMember(index, keySuffix = 'initial') {
+      const snapshot = await f.repository.readSnapshot(), candidate = snapshot.candidates.find(value => value.id === input.members[index].candidateId);
+      const preparation = f.services.preparation({ candidate, document: snapshot }), option = preparation.options[0];
+      return f.services.authorizeAndRun({ actor: family.actor, input: { ...f.input, candidateId: candidate.id,
+        skuPackageId: preparation.skuPackageId, expectedRevision: preparation.expectedRevision,
+        bindingId: option.bindingId, configurationVersion: option.configurationVersion, scopeRef: option.scopeRef,
+        idempotencyKey: `owner-read:batch-member:${index}:${preparation.expectedRevision}:${keySuffix}` } });
+    },
+    reconnect(overrides = {}) {
+      return createOzonAccountReadServices({ configuration: f.configuration, repository: f.repository,
+        workerRegistry: createLocalDevelopmentWorkerRegistry({ clock: () => batchAt }), serverClock: () => batchAt,
+        requestJson: async () => { throw new Error('unexpected account request'); }, evidenceSource: f.source,
+        preflightProvider: f.provider, deRuntimeServices, ...overrides });
+    }, get secretReads() { return f.secretReads; }
+  };
+}
+
+test('authorized batch reuses each pre-PA account receipt and publishes every new PA before D continuation', async () => {
+  const f = await batchAccountFixture();
+  assert.equal(f.requests.length, 0); assert.equal(f.secretReads, 0);
+  const reads = [await f.readMember(0), await f.readMember(1)];
+  assert.ok(reads.every(read => read.status === 'completed' && read.productionStatus === null));
+  const before = await f.repository.readSnapshot(), batch = await f.authorizeBatch();
+  const result = await f.services.continueAuthorizedBatch({ batchId: batch.batchId });
+  assert.equal(result.status, 'synthetic_batch_continued');
+  assert.deepEqual(f.continuations, [{ batchId: batch.batchId }]);
+  assert.equal(f.requests.length, 6); assert.equal(f.secretReads, 6);
+  const saved = await f.repository.readSnapshot();
+  assert.deepEqual(saved.candidates[0], before.candidates[0], 'the excluded parent unknown outcome is untouched');
+  for (const [index, member] of batch.members.entries()) {
+    const record = saved.runtime.ozonDEPreflightEvidence[member.authorizationId];
+    assert.equal(record.scope.candidateId, member.candidateId);
+    assert.equal(record.scope.authorizationId, member.authorizationId);
+    assert.equal(record.provenance.softwareJobRef, reads[index].jobId);
+    assert.equal(saved.runtime.softwareJobAuthorizationRecords.find(value =>
+      value.consumedByJobId === reads[index].jobId).useCount, 1);
+  }
+  assert.equal(saved.runtime.softwareJobs.some(job => job.jobType === 'd_production_execution'), false);
+});
+
+test('authorized batch waits for all current account reads without publishing a partial batch or making requests', async () => {
+  const f = await batchAccountFixture();
+  await f.readMember(0);
+  const batch = await f.authorizeBatch(), before = await f.repository.readSnapshot();
+  const result = await f.services.continueAuthorizedBatch({ batchId: batch.batchId });
+  assert.equal(result.status, 'awaiting_account_read');
+  assert.deepEqual(result.members.map(member => member.status), ['completed', 'awaiting_account_read']);
+  assert.equal(result.externalRequests, 0); assert.equal(result.platformWrites, 0);
+  assert.deepEqual(await f.repository.readSnapshot(), before);
+  assert.equal(f.requests.length, 3); assert.deepEqual(f.continuations, []);
+});
+
+test('the final completed child account read continues only its authorized batch after the other child is ready', async () => {
+  const f = await batchAccountFixture(), batch = await f.authorizeBatch();
+  const parent = structuredClone((await f.repository.readSnapshot()).candidates[0]);
+  const first = await f.readMember(0);
+  assert.equal(first.status, 'completed'); assert.equal(first.productionStatus, 'awaiting_account_read');
+  assert.deepEqual(f.continuations, []);
+  const second = await f.readMember(1);
+  assert.equal(second.status, 'completed'); assert.equal(second.productionStatus, 'synthetic_batch_continued');
+  assert.deepEqual(f.continuations, [{ batchId: batch.batchId }]);
+  assert.equal(f.requests.length, 6);
+  assert.deepEqual((await f.repository.readSnapshot()).candidates[0], parent);
+});
+
+test('authorized batch reports genuine failed and unknown account reads without retrying or publishing', async () => {
+  const failed = await batchAccountFixture();
+  failed.responses['/v1/roles'] = {};
+  assert.equal((await failed.readMember(0)).status, 'failed');
+  const failedBatch = await failed.authorizeBatch(), before = await failed.repository.readSnapshot();
+  const result = await failed.services.continueAuthorizedBatch({ batchId: failedBatch.batchId });
+  assert.equal(result.status, 'account_read_incomplete');
+  assert.equal(result.members[0].status, 'account_read_incomplete');
+  assert.equal(result.members[0].jobStatus, 'failed');
+  assert.equal(result.members[1].status, 'awaiting_account_read');
+  assert.deepEqual(await failed.repository.readSnapshot(), before);
+  assert.equal(failed.requests.length, 1); assert.deepEqual(failed.continuations, []);
+
+  let attempted = 0;
+  const unknown = await batchAccountFixture({ accountRequestJson: async (request, options) => {
+    await options.beforeRequestSend(); attempted++;
+    throw new OzonDEHttpTransportError('SYNTHETIC_ACCOUNT_RESPONSE_LOST', { layer: 'network',
+      externalRequestState: 'unknown_outcome', requestTransmission: 'unknown' });
+  } });
+  assert.equal((await unknown.readMember(0)).status, 'unknown_outcome');
+  const unknownBatch = await unknown.authorizeBatch(), unknownBefore = await unknown.repository.readSnapshot();
+  const stopped = await unknown.services.continueAuthorizedBatch({ batchId: unknownBatch.batchId });
+  assert.equal(stopped.status, 'account_read_incomplete'); assert.equal(stopped.members[0].jobStatus, 'unknown_outcome');
+  assert.equal(attempted, 1); assert.deepEqual(unknown.continuations, []);
+  assert.deepEqual(await unknown.repository.readSnapshot(), unknownBefore);
+});
+
+test('authorized batch rejects changed member, authorization, exclusion and routing sources before evidence publication', async () => {
+  const f = await batchAccountFixture(), batch = await f.authorizeBatch(), original = await f.repository.readSnapshot();
+  for (const mutate of [
+    document => { document.runtime.dProductionBatches[0].members.push(structuredClone(batch.members[0])); },
+    document => { document.candidates.push(structuredClone(document.candidates[1])); },
+    document => { document.candidates[1].dataRevision++; },
+    document => { document.candidates[1].lifecycleV11.skuPackage.supplierSkuId = 'DIFFERENT-SUPPLIER-SKU'; },
+    document => { document.runtime.dProductionBatches[0].members[0].authorizationFingerprint = 'f'.repeat(64); },
+    document => { document.runtime.dProductionBatches[0].excludedOfferIds.push(batch.members[0].offerId); },
+    document => { document.runtime.dProductionBatches[0].postImportScope.eReadbackOfferIds.reverse(); },
+    document => { document.runtime.dProductionBatches[0].storeRef.platformStoreId = 'different-store'; },
+    document => { document.candidates[1].lifecycleV11.skuPackage.productionAuthorization.executionBinding.configurationVersion = 'changed'; }
+  ]) {
+    const changed = structuredClone(original); mutate(changed);
+    const services = f.reconnect({ repository: { ...f.repository, async readSnapshot() { return structuredClone(changed); },
+      async transact() { throw new Error('unexpected write for damaged batch source'); } } });
+    await assert.rejects(() => services.continueAuthorizedBatch({ batchId: batch.batchId }),
+      { code: 'OZON_ACCOUNT_READ_BATCH_SOURCE_CHANGED' });
+    assert.deepEqual(await f.repository.readSnapshot(), original);
+  }
+  assert.equal(f.requests.length, 0); assert.equal(f.secretReads, 0); assert.deepEqual(f.continuations, []);
+});
+
+test('authorized batch does not hide damaged completed account source behind a later missing read', async () => {
+  const f = await batchAccountFixture(), read = await f.readMember(0), batch = await f.authorizeBatch();
+  await f.repository.transact(document => {
+    document.runtime.ozonAccountReadReceipts[read.jobId].workerId = 'worker:wrong-source';
+    return { changed: true, document, result: null };
+  });
+  const before = await f.repository.readSnapshot();
+  await assert.rejects(() => f.services.continueAuthorizedBatch({ batchId: batch.batchId }), /RECEIPT_SOURCE_CONFLICT/);
+  assert.deepEqual(await f.repository.readSnapshot(), before); assert.deepEqual(f.continuations, []);
+  assert.equal(f.requests.length, 3);
+});
+
+test('authorized batch validates all completed grants before publishing any member evidence', async () => {
+  const f = await batchAccountFixture(), first = await f.readMember(0), second = await f.readMember(1), batch = await f.authorizeBatch();
+  await f.repository.transact(document => {
+    document.runtime.softwareJobAuthorizationRecords.find(value => value.consumedByJobId === second.jobId).useCount = 0;
+    return { changed: true, document, result: null };
+  });
+  const before = await f.repository.readSnapshot();
+  await assert.rejects(() => f.services.continueAuthorizedBatch({ batchId: batch.batchId }),
+    { code: 'OZON_DE_PREFLIGHT_EVIDENCE_ACCOUNT_SOURCE_INVALID' });
+  assert.deepEqual(await f.repository.readSnapshot(), before); assert.deepEqual(f.continuations, []);
+  assert.equal(f.requests.length, 6); assert.notEqual(first.jobId, second.jobId);
+});
+
+test('authorized batch distinguishes unavailable account configuration from corrupt production source', async () => {
+  const f = await batchAccountFixture(), batch = await f.authorizeBatch(), before = await f.repository.readSnapshot();
+  const noService = f.reconnect({ configuration: { ...f.configuration, ozonAccountReadServiceBindings: [] } });
+  await assert.rejects(() => noService.continueAuthorizedBatch({ batchId: batch.batchId }),
+    { code: 'OZON_ACCOUNT_READ_BATCH_SERVICE_NOT_CONFIGURED' });
+  const noRouting = f.reconnect({ configuration: { ...f.configuration, ozonDECredentialBindings: [] } });
+  await assert.rejects(() => noRouting.continueAuthorizedBatch({ batchId: batch.batchId }),
+    { code: 'OZON_ACCOUNT_READ_BATCH_ACCOUNT_ROUTING_UNAVAILABLE' });
+  assert.deepEqual(await f.repository.readSnapshot(), before);
+  assert.equal(f.requests.length, 0); assert.equal(f.secretReads, 0); assert.deepEqual(f.continuations, []);
+});
+
+test('authorized batch and single production cannot both continue for the same child', async () => {
+  const f = await batchAccountFixture(), batch = await f.authorizeBatch();
+  const handoff = await f.repository.transact(document => ({ changed: true, document,
+    result: enqueueDProductionHandoffInDocument({ document, candidate: document.candidates[1], observedAt: batchAt }) }));
+  await assert.rejects(() => f.services.continueAuthorizedBatch({ batchId: batch.batchId }),
+    { code: 'OZON_ACCOUNT_READ_BATCH_SINGLE_PRODUCTION_CONFLICT' });
+  await assert.rejects(() => f.readMember(0), { code: 'OZON_ACCOUNT_READ_BATCH_SINGLE_PRODUCTION_CONFLICT' });
+  const snapshot = await f.repository.readSnapshot(), job = snapshot.runtime.softwareJobs.find(value => value.jobId === handoff.softwareJobRef.jobId);
+  assert.equal(job.status, 'queued'); assert.equal(job.attempt, 0); assert.equal(job.externalRequestState, 'not_sent');
+  assert.equal(f.requests.length, 3); assert.deepEqual(f.continuations, []);
+});
+
+test('authorized batch refuses account routing drift instead of treating an older completed read as a new grant', async () => {
+  const f = await batchAccountFixture();
+  await f.readMember(0);
+  const batch = await f.authorizeBatch(), before = await f.repository.readSnapshot();
+  const configuration = { ...f.configuration, ozonDECredentialBindings: f.configuration.ozonDECredentialBindings.map(binding =>
+    ({ ...binding, clientId: '700124' })) };
+  await assert.rejects(() => f.reconnect({ configuration }).continueAuthorizedBatch({ batchId: batch.batchId }),
+    { code: 'OZON_ACCOUNT_READ_BATCH_SOURCE_CHANGED' });
+  assert.deepEqual(await f.repository.readSnapshot(), before);
+  assert.equal(f.requests.length, 3); assert.deepEqual(f.continuations, []);
+});
+
+test('authorized batch does not continue when its saved scope changes during local evidence publication', async () => {
+  const f = await batchAccountFixture();
+  await f.readMember(0); await f.readMember(1);
+  const batch = await f.authorizeBatch();
+  let publications = 0;
+  const evidenceSource = { ...f.source, async publish(input) {
+    const result = await f.source.publish(input);
+    if (++publications === 1) await f.repository.transact(document => {
+      document.runtime.dProductionBatches[0].excludedOfferIds[0] = 'CHANGED-EXCLUDED-SOURCE';
+      return { changed: true, document, result: null };
+    });
+    return result;
+  } };
+  await assert.rejects(() => f.reconnect({ evidenceSource }).continueAuthorizedBatch({ batchId: batch.batchId }),
+    { code: 'OZON_ACCOUNT_READ_BATCH_SOURCE_CHANGED' });
+  assert.equal(publications, 2); assert.equal(f.requests.length, 6); assert.deepEqual(f.continuations, []);
+  const saved = await f.repository.readSnapshot();
+  assert.equal(saved.runtime.softwareJobAuthorizationRecords.filter(value => value.action === 'ozon_account_read').length, 2);
+  assert.equal(saved.runtime.dBatchImportJobs, undefined);
+});
+
+test('authorized batch uses the latest genuine failed account attempt and never falls back to an older success', async () => {
+  const f = await batchAccountFixture();
+  await f.readMember(0); await f.readMember(1);
+  const batch = await f.authorizeBatch();
+  const later = await batchAccountFixture({ clockOffsetMs: 1000 });
+  later.responses['/v1/roles'] = {};
+  const failed = await later.readMember(0, 'later-historical-producer');
+  assert.equal(failed.status, 'failed');
+  const history = await later.repository.readSnapshot();
+  await f.repository.transact(document => {
+    document.runtime.softwareJobs.push(...history.runtime.softwareJobs.filter(job => job.jobType === 'ozon_account_read'));
+    document.runtime.softwareJobAuthorizationRecords.push(...history.runtime.softwareJobAuthorizationRecords.filter(value => value.action === 'ozon_account_read'));
+    document.runtime.softwareJobCredentialBindings.push(...history.runtime.softwareJobCredentialBindings.filter(value => value.sideEffectScope === 'ozon_account_read'));
+    Object.assign(document.runtime.ozonAccountReadReceipts, history.runtime.ozonAccountReadReceipts);
+    return { changed: true, document, result: null };
+  });
+  const before = await f.repository.readSnapshot(), result = await f.services.continueAuthorizedBatch({ batchId: batch.batchId });
+  assert.equal(result.status, 'account_read_incomplete'); assert.equal(result.members[0].jobId, failed.jobId);
+  assert.equal(result.members[0].jobStatus, 'failed'); assert.equal(result.members[1].status, 'completed');
+  assert.deepEqual(await f.repository.readSnapshot(), before); assert.deepEqual(f.continuations, []);
+  assert.equal(f.requests.length, 6); assert.equal(later.requests.length, 1);
+});
 
 test('real local transport, pre-PA read and later PA use the same saved source without repeating account requests', async () => {
   const f = await fixture(), original = await f.repository.readSnapshot();
@@ -191,7 +447,8 @@ test('batch E reuses the completed account receipt after write verification expi
     permission.useCount=2;
     return {changed:true,document:state,result:null};
   });
-  await assert.rejects(expiredProvider.loadBatchEReadEvidence(input),/OZON_DE_PREFLIGHT_EVIDENCE_BATCH_E_READ_NOT_AUTHORIZED/);
+  await assert.rejects(expiredProvider.loadBatchEReadEvidence(input),
+    { code: 'OZON_DE_PREFLIGHT_EVIDENCE_BATCH_E_READ_SOURCE_INVALID' });
   assert.equal(f.requests.length,before);
 });
 
@@ -264,6 +521,35 @@ async function composedEvidence(f) {
   const record = document.runtime.ozonDEPreflightEvidence[authorization.authorizationId];
   return { read, authorization, document, record, receipt: document.runtime.ozonAccountReadReceipts[read.jobId] };
 }
+
+test('IN_SALE permission comes from the saved roles receipt without expanding or changing historical read evidence',async()=>{
+  const f=await fixture();
+  f.responses['/v1/roles'].roles[0].methods.push('/v3/product/list');
+  const {record,receipt,document}=await composedEvidence(f),before=structuredClone(document);
+  const input={record,scope:record.scope,checkedAt:record.collectedAt};
+  const grant=await f.source.verifyInSaleListPermission(input);
+  assert.deepEqual(grant,{status:'verified',protocolVersion:'ozon-in-sale-list-v1',
+    endpoint:'/v3/product/list',evidenceRef:`${receipt.receiptId}:roles:in-sale-list`,
+    officialEvidenceRef:'official:ozon-in-sale-list:20261018'});
+  assert.deepEqual(await f.repository.readSnapshot(),before);
+  assert.equal(record.protocols.independentReadback,null,'method projection does not invent a protocol for legacy evidence');
+  assert.equal(f.requests.length,3);assert.equal(f.secretReads,3);
+  await assert.rejects(f.source.verifyInSaleListPermission({...input,checkedAt:record.expiresAt}),/IN_SALE_PERMISSION_NOT_CURRENT/);
+  await f.repository.transact(saved=>{
+    saved.runtime.ozonAccountReadReceipts[receipt.jobId].steps[0].result.facts.roles[0].methods=
+      saved.runtime.ozonAccountReadReceipts[receipt.jobId].steps[0].result.facts.roles[0].methods.filter(method=>method!=='/v3/product/list');
+    return {changed:true,document:saved};
+  });
+  await assert.rejects(f.source.verifyInSaleListPermission(input),/ACCOUNT_SOURCE_|IN_SALE_METHOD_NOT_GRANTED/);
+  assert.equal(f.requests.length,3);assert.equal(f.secretReads,3);
+});
+
+test('four existing E method permissions do not imply a store-wide IN_SALE list grant',async()=>{
+  const f=await fixture(),{record,document}=await composedEvidence(f);
+  await assert.rejects(f.source.verifyInSaleListPermission({record,scope:record.scope,checkedAt:record.collectedAt}),/IN_SALE_METHOD_NOT_GRANTED/);
+  assert.deepEqual(await f.repository.readSnapshot(),document);
+  assert.equal(f.requests.length,3);assert.equal(f.secretReads,3);
+});
 
 test('saved view names actual protocol gaps and reuses a current account receipt without requiring a backend login', async () => {
   const f = await fixture(), { document, record } = await composedEvidence(f);

@@ -12,7 +12,7 @@ import { createMemoryBusinessStateRepository } from '../lib/business-state-repos
 
 const { api: port } = allocatedTestPorts();
 
-test('one authenticated batch confirmation persists authorization and reports unavailable D without an external request', async t => {
+test('one authenticated batch confirmation persists authorization and reports missing account routing without an external request', async t => {
   const fixture = await productionOwnerDecisionHttpFixture();
   const directory = await mkdtemp(path.join(tmpdir(), 'batch-import-api-'));
   const family=await threeColorC2Fixture(1);
@@ -51,7 +51,7 @@ test('one authenticated batch confirmation persists authorization and reports un
   assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
   assert.equal(confirmed.body.executionStatus,'prewrite_blocked');
   assert.equal(confirmed.body.executionView.members[0].offerId,'SYNTHETIC-COLOR-API');
-  assert.equal(confirmed.body.reasonCode,'DE_RUNTIME_UNAVAILABLE_BATCH_IMPORT');
+  assert.equal(confirmed.body.reasonCode,'OZON_ACCOUNT_READ_BATCH_ACCOUNT_ROUTING_UNAVAILABLE');
   assert.equal(confirmed.body.externalRequests, 0);
   const replay = await api.post('/api/d-batches/authorize', input);
   assert.equal(replay.status,200,JSON.stringify(replay.body));

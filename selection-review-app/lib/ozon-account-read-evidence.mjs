@@ -203,6 +203,23 @@ export function createOzonAccountReadEvidenceSource({ repository, loadCurrentRea
     prospective,
     verifySnapshot(document, record, scope) { return verifyRecord(document, record, scope, true); },
     verifyHistoricalSnapshot(document, record, scope) { return verifyRecord(document, record, scope, false); },
+    async verifyInSaleListPermission({record,scope,checkedAt}) {
+      const document=await repository.readSnapshot();
+      const rebuilt=verifyRecord(document,record,scope,true);
+      requireValue(typeof checkedAt==='string'&&Number.isFinite(Date.parse(checkedAt))&&
+        Date.parse(checkedAt)>=Date.parse(rebuilt.collectedAt)&&
+        Date.parse(checkedAt)<Date.parse(rebuilt.expiresAt),'IN_SALE_PERMISSION_NOT_CURRENT');
+      const {receipt}=readAccountSource(document,rebuilt.provenance.softwareJobRef,
+        scope,loadCurrentReadBinding,true);
+      const roles=receipt.steps[0].result.facts.roles;
+      requireValue(Array.isArray(roles)&&roles.some(role=>Array.isArray(role.methods)&&
+        role.methods.includes('/v3/product/list')),'IN_SALE_METHOD_NOT_GRANTED');
+      // This proves the method grant only. The batch owner scope separately authorizes
+      // the bounded store-wide query; old four-endpoint evidence remains unchanged.
+      return Object.freeze({status:'verified',protocolVersion:'ozon-in-sale-list-v1',
+        endpoint:'/v3/product/list',evidenceRef:`${receipt.receiptId}:roles:in-sale-list`,
+        officialEvidenceRef:'official:ozon-in-sale-list:20261018'});
+    },
     async verifySourceReceipt(record, scope) {
       const document = await repository.readSnapshot();
       const rebuilt = verifyRecord(document, record, scope, true);

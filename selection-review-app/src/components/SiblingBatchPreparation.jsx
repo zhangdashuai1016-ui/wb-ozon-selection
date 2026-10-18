@@ -1,5 +1,7 @@
 import {c1CopyFields,siblingPreparationFinalGaps} from '../../lib/sibling-preparation-consistency.mjs';
 import SiblingPreparationWorkspace from './SiblingPreparationWorkspace.jsx';
+import OzonAccountReadCard from './OzonAccountReadCard.jsx';
+import BatchMediaReview from './BatchMediaReview.jsx';
 import { api } from '../api.js';
 import { effectivePreparationValue, requiredPreparationNumber, preparationWorkflowAvailable, preparationDraftScopeCurrent } from '../siblingPreparationState.js';
 import { useState } from 'react';
@@ -16,8 +18,18 @@ const executionStatusNames = Object.freeze({ not_started: '未开始', not_sent:
   ready_to_write: '已核验，库存尚未发送', stock_intent: '库存请求结果待观察',
   stock_accepted: '库存请求已受理', inventory_deferred: '按授权暂不写库存',
   needs_owner: '需要主人处理', precheck_failed: '前置核验失败', prewrite_blocked: '已确认未发送，写入前停止',
-  succeeded: '已完成', verified: '已独立核验' });
+  succeeded: '已完成', verified: '已独立核验', queued: '等待回读', read_in_flight: '正在独立回读',
+  observed_pending: '已记录差异，等待下一次只读核验', verification_pending: '已记录差异，等待下一次只读核验',
+  card_observed_pending_inventory: '商品卡已核对，库存未授权写入',
+  card_and_stock_observed: '商品卡和库存已核对，在售状态仍待验证',
+  not_verified: '尚未验证通过', read_failed: '独立回读失败，已停止',
+  awaiting_owner_media_review:'等待主人并排核图',listed_verified:'E 已独立核验通过',
+  observation_stopped: '只读核验已停止，请查看原因' });
 const executionStatusLabel = status => executionStatusNames[status] ?? `未识别状态（${status}）`;
+const observationStopNames=Object.freeze({query_limit:'只读核验次数已用尽',
+  policy_expired:'只读核验许可已到期'});
+const assetStatusNames=Object.freeze({not_started:'尚无传送回执',in_flight:'传送请求处理中',
+  verified:'图片已传送并核验',failed:'传送明确失败，已停止',unknown_outcome:'传送结果未知，待对账'});
 
 function initialInputs(parent, review, merchantSkus) {
   const draft = parent.supplierDraftV1 ?? {};
@@ -44,8 +56,9 @@ export default function SiblingBatchPreparation(props) {
 }
 
 function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, onConfirmA, onConfirmC1, onPreviewC1, onReadColorDictionary,
-  onAuthorize, onSaveStockDrafts, executionView, executionError, executionLoading = false,
-  onRefreshExecution, onResumeStock,
+  onAuthorize, onSaveStockDrafts, executionView, executionPreparation, executionError, executionLoading = false,
+  onRefreshExecution, onResumeStock,onConfirmMedia,
+  onAuthorizeAccountRead, onContinueAccountRead,
   onUploadAsset, onLinkAsset, onConfirmC2 }) {
   const review = siblingBatchReview(parent, siblings);
   let merchantSkuSuggestions;
@@ -83,7 +96,8 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
   const first = siblings.find(child => child.id === review.rows[0].candidateId);
   const sales = first?.realAConfirmationCard?.salesReview;
   const bindings = review.executionBindings;
-  const finalInput = siblingBatchAuthorizationInput(parent, siblings, bindingId, { inventoryAction });
+  const finalInput = siblingBatchAuthorizationInput(parent, siblings, bindingId,
+    { inventoryAction,eVerificationMode:'owner_media_review_in_sale' });
   const effectiveStock = row => stockEdits[row.sourceSkuId] ?? (row.stock ?? '');
   const stockDirty = review.rows.some(row => String(effectiveStock(row)) !== String(row.stock ?? ''));
   const validStock = review.rows.every(row => effectiveStock(row) !== '' &&
@@ -91,6 +105,7 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
   const allPricesRub = [...new Set(review.rows.map(row => row.buyerPriceRub))];
   const allPricesCny = [...new Set(review.rows.map(row => row.writePriceCny))];
   const confirmationKey = JSON.stringify({ parentRevision: parent.dataRevision,
+    importLimitUse:finalInput.input?.importLimitUse,postImportScope:finalInput.input?.postImportScope,
     members: review.rows.map(row => { const child = siblings.find(candidate => candidate.id === row.candidateId);
       return [row.sourceSkuId, row.candidateId, child?.dataRevision, child?.lifecycleV11?.skuPackage?.dataRevision,
         row.merchantSku, row.buyerPriceRub, row.writePriceCny, row.stock]; }),
@@ -450,8 +465,10 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
         <option value="">请选择本批共同仓库</option>
         {bindings.map(item => <option key={`${item.bindingId}:${item.configurationVersion}`} value={item.bindingId}>{item.warehouseName}</option>)}
       </select></label>
-      <p>本次最终确认范围：创建本批商品、允许上架审核提交，并写入每款下表确认的库存；不再追加库存动作确认。卡其及历史首件排除。</p>
+      <p>本次最终确认范围：传送已确认的最终图片、创建本批商品、允许上架审核提交，并写入每款下表确认的库存；不再追加库存动作确认。卡其及历史首件排除。</p>
       <p>全成员 E 独立回读范围：{review.rows.map(row => row.merchantSku ?? `${row.color} 货号缺失`).join('、')}。首件历史导入不在本批范围。</p>
+      <p>本批采用 2026-10-18 官方观察到的单次导入最多 100 件限制，仅供本批一次生产准入。另授权一次同店在售名单读取：最多 3 页、每页 1000 项、共 90 秒、单请求 30 秒。名单会经过其他在售商品，只保存本批货号与商品编号同时命中的结果；未命中保持未验证。</p>
+      <p>平台回读完成后，请在本页并排核对批准原图与平台图片的内容、首图和顺序。人工核图与官方在售、价格、仓库库存核验全部通过后，才会记录本批 E 验证通过。</p>
       <label><input type="checkbox" checked={isFinalConfirmed} disabled={!workflowAvailable || workspaceSaving || !finalInput.ready || workspaceGaps.length>0 || workspaceDirty || stockDirty || Boolean(executionError) || executionLoading}
         onChange={event => setFinalConfirmed(event.target.checked ? confirmationKey : '')} />我已核对本批全部规格的商品、RUB 买家价、CNY 写入价、库存、共同仓库、最终图、创建、上架审核提交和各款库存，一次确认全部成员。</label>
       <button className="button primary" type="submit" disabled={!workflowAvailable || workspaceSaving || saving || workspaceGaps.length>0 || workspaceDirty || stockDirty || Boolean(executionError) || executionLoading || !isFinalConfirmed || !finalInput.ready}>
@@ -459,16 +476,41 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
       {!finalInput.ready ? <p role="status">{finalInput.reason}</p> : null}
       {executionLoading ? <p role="status">正在核对本批是否已有生产记录。</p> : null}
     </form> : null}
+    {review.rows.some(row => siblings.find(child => child.id === row.candidateId)?.ozonAccountReadPreparation) ?
+      <section aria-label="本批账户只读核验">
+        <h4>本批账户只读核验</h4>
+        <p>各颜色分别使用自己的读取许可和回执。每款仅核验方法权限、公司币种和指定仓库，最多三次请求；全批齐备后软件才继续已授权的上架流程。读取许可不代替商品生产授权。</p>
+        {review.rows.map(row => {
+          const child = siblings.find(candidate => candidate.id === row.candidateId);
+          return child?.ozonAccountReadPreparation ? <article key={child.id}>
+            <h5>{row.color} · {row.sourceSkuId}</h5>
+            <OzonAccountReadCard preparation={child.ozonAccountReadPreparation}
+              onAuthorize={onAuthorizeAccountRead} onContinue={onContinueAccountRead}/>
+          </article> : null;
+        })}
+      </section> : null}
     {executionView ? <section aria-label="本批逐项执行结果">
       <h4>本批逐项执行结果</h4><p>批次：{executionView.batchId} · 请求状态：{executionStatusLabel(executionView.externalRequestState)}。以下为软件记录，是否上架以 E 独立回读为准。</p>
       <p>本批排除的历史首件：{executionView.excludedOfferIds?.join('、') || '无'}</p>
-      <table><thead><tr><th>商家货号</th><th>建卡导入</th><th>库存</th><th>E 回读</th><th>结果与卡点</th></tr></thead>
+      {executionPreparation?.executionStage === 'asset_transport' ? <p role="status">
+        图片准备状态：{assetStatusNames[executionPreparation.status] ?? '准备已停止'}。
+        {executionPreparation.reasonCode ? `卡点：${executionPreparation.reasonCode}` : ''}
+      </p> : null}
+      <table><thead><tr><th>商家货号</th><th>最终图传送</th><th>建卡导入</th><th>库存</th><th>E 回读</th><th>结果与卡点</th></tr></thead>
         <tbody>{executionView.members.map(member => <tr key={member.candidateId}>
-          <td>{member.offerId}</td><td>{executionStatusLabel(member.importStatus)}</td><td>{executionStatusLabel(member.inventoryStatus)}</td>
-          <td>{executionStatusLabel(member.eStatus)}</td><td>{member.importGapCode || member.inventoryReason || member.eGaps?.map(gap =>
+          <td>{member.offerId}</td><td>{assetStatusNames[member.assetStatus ?? 'not_started'] ?? '传送状态需核对'}</td>
+          <td>{executionStatusLabel(member.importStatus)}</td><td>{executionStatusLabel(member.inventoryStatus)}</td>
+          <td>{executionStatusLabel(member.eStatus)}</td><td>{member.importGapCode || member.assetReason || member.inventoryReason ||
+            (member.eStopReason ? observationStopNames[member.eStopReason] ?? `核验停止：${member.eStopReason}` : null) || member.eGaps?.map(gap =>
             typeof gap === 'string' ? gap : gap.message || gap.code).join('；') ||
             (member.listedVerified ? 'E 已独立核验上架' : '尚未独立确认上架')}</td>
         </tr>)}</tbody></table>
+      {executionView.inSaleList?.maxRequests>0?<p>在售名单读取：已使用 {executionView.inSaleList.requestCount} / {executionView.inSaleList.maxRequests} 次。
+        {executionView.inSaleList.status==='matched'?'本批目标已在官方在售名单中命中。':'尚需结合逐款证据完成验证。'}
+        {executionView.inSaleList.stopReason?`停止原因：${executionView.inSaleList.stopReason}`:''}</p>:null}
+      {executionView.members.filter(member=>member.mediaReview).map(member=><BatchMediaReview
+        key={JSON.stringify(member.mediaReview.scope??{candidateId:member.candidateId,status:member.mediaReview.status})}
+        review={member.mediaReview} onConfirm={onConfirmMedia}/>)}
       <button type="button" className="button secondary" disabled={saving || !onRefreshExecution}
         onClick={async () => { setError(''); setSaving(true); try { await onRefreshExecution(executionView.batchId); }
           catch (cause) { setError(errorMessage(cause)); } finally { setSaving(false); } }}>刷新逐项结果</button>

@@ -65,11 +65,11 @@ function replaceJob(document, job) {
 }
 /** Construct routing and registered capabilities only. No candidate/job read, credential resolution or provider invocation. */
 export function createDEProductionRuntimeServices({ repository, runtimeMode, serverClock, workerRegistry,
-  deServiceBindings=[],productionBindings=[],requestJson=null,inspectPlatform=null,loadAdapterCapabilities=null,loadBatchMemberEvidence=null,loadBatchEReadEvidence=null,
+  deServiceBindings=[],productionBindings=[],requestJson=null,inspectPlatform=null,loadAdapterCapabilities=null,loadBatchMemberEvidence=null,loadBatchEReadEvidence=null,loadBatchInSaleListEvidence=null,
   upload=null,resolveLocalAsset=null,loadCurrentProductionBinding=null,preflightRequestMode='external_read',loadDPlatformObservationPolicy=null,verifyInventoryPrerequisiteSource=null,
   observationPumpIntervalMs=null,onObservationError=null,eReadbackPumpIntervalMs=null,onReadbackError=null }={}) {
   assertBusinessStateRepositoryBoundary(repository); assertWorkerRegistryBoundary(workerRegistry);
-  if(typeof serverClock!=='function' || [requestJson,inspectPlatform,loadAdapterCapabilities,loadBatchMemberEvidence,loadBatchEReadEvidence,upload,resolveLocalAsset,loadCurrentProductionBinding,loadDPlatformObservationPolicy,verifyInventoryPrerequisiteSource,onObservationError,onReadbackError]
+  if(typeof serverClock!=='function' || [requestJson,inspectPlatform,loadAdapterCapabilities,loadBatchMemberEvidence,loadBatchEReadEvidence,loadBatchInSaleListEvidence,upload,resolveLocalAsset,loadCurrentProductionBinding,loadDPlatformObservationPolicy,verifyInventoryPrerequisiteSource,onObservationError,onReadbackError]
     .some(value=>value!==null&&typeof value!=='function')) throw new Error('DE_RUNTIME_DEPENDENCY_INVALID');
   if((loadBatchMemberEvidence===null)!==(loadBatchEReadEvidence===null))
     throw new Error('DE_RUNTIME_BATCH_EVIDENCE_DEPENDENCY_INCOMPLETE');
@@ -88,12 +88,12 @@ export function createDEProductionRuntimeServices({ repository, runtimeMode, ser
   }
   const batchImportService = requestJson !== null && loadBatchMemberEvidence !== null && loadBatchEReadEvidence !== null
     ? createDBatchImportSoftwareService({ repository, runtimeMode, workerRegistry, serverClock, services,
-      loadCurrentProductionBinding: production, loadBatchMemberEvidence, loadBatchEReadEvidence,
+      loadCurrentProductionBinding: production, loadBatchMemberEvidence, loadBatchEReadEvidence,loadBatchInSaleListEvidence,
       loadBatchObservationPolicy: ({candidate,productionBinding}) => loadDPlatformObservationPolicy?.({candidate,
         job:{skuPackageId:candidate.lifecycleV11.skuPackage.skuPackageId,
           scopeBinding:{productionBinding:{bindingId:productionBinding.bindingId,
             configurationVersion:productionBinding.configurationVersion}}}}) ?? null,
-      requestJson }) : null;
+      requestJson, upload, resolveLocalAsset }) : null;
   const localWorkerHeartbeatIntervalMs=workerRegistry.persistenceClass==='local_development_ephemeral'
     ? Math.floor(workerRegistry.heartbeatTtlMs/3) : null;
   if(batchImportService!==null && observationPumpIntervalMs!==null &&

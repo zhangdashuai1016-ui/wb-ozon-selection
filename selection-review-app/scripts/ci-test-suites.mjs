@@ -23,6 +23,7 @@ export const API_PROCESS_TESTS = Object.freeze([
   "ozon-account-preparation-api-boundary.test.mjs",
   "d-e-saved-continuation-api.test.mjs",
   "d-batch-import-api.test.mjs",
+  "d-batch-media-review-api.test.mjs",
   "final-pricing-review-api.test.mjs",
   "runtime-package-api.test.mjs",
   "store-binding-api.test.mjs",

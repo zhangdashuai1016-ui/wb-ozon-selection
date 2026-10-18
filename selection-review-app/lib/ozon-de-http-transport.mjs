@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { sameStoreRef, isCompleteStoreRef } from "./store-binding.mjs";
+import { assertInSaleListRequestBody } from './ozon-in-sale-list-observation.mjs';
 import { assertNoProductionSecrets, isCanonicalFrozenRef, fingerprintCanonicalRecord } from "./production-contract-primitives.mjs";
 import { OzonDEHttpTransportError, normalizeOzonDECredentialBindings, assertOzonDECredentialBinding,
   assertOzonDEProductionBindings, assertOzonAccountDiscoveryBindings, isOzonDEHttpClosedObject } from "./ozon-de-http-configuration.mjs";
@@ -13,7 +14,7 @@ const bodylessEndpoints = new Set(["/v1/roles", "/v1/seller/info"]);
 const accountReadEndpoints = new Set([...bodylessEndpoints, "/v2/warehouse/list"]);
 const beforeSendEndpoints = new Set([...accountReadEndpoints, "/v3/product/import", "/v1/product/import/info",
   "/v2/products/stocks", "/v4/product/info/attributes", "/v3/product/info/list", "/v5/product/info/prices",
-  "/v2/product/info/stocks-by-warehouse/fbs"]);
+  "/v2/product/info/stocks-by-warehouse/fbs", "/v3/product/list"]);
 const endpoints = new Map([
   ["/v3/product/import", true], ["/v1/product/import/info", false], ["/v2/products/stocks", true],
   ["/v4/product/info/attributes", false], ["/v3/product/info/list", false], ["/v5/product/info/prices", false],
@@ -156,6 +157,16 @@ export function createOzonDEHttpTransport({ productionBindings, credentialBindin
     if (!options || typeof options !== "object" || Array.isArray(options) || Object.keys(options).some(key => !["signal", "beforeRequestSend"].includes(key)) ||
         options.signal !== undefined && !(options.signal instanceof AbortSignal) || options.beforeRequestSend !== undefined &&
         (typeof options.beforeRequestSend !== "function" || !beforeSendEndpoints.has(scoped.endpoint))) throw transportError("OZON_DE_HTTP_REQUEST_INVALID", { layer: "request" });
+    if (scoped.endpoint === '/v3/product/list' &&
+        (typeof options.beforeRequestSend === 'function' || request.body.filter?.visibility === 'IN_SALE')) {
+      try { assertInSaleListRequestBody(request.body); }
+      catch (error) {
+        if (error?.constructor === Error && error.message === 'OZON_IN_SALE_LIST_REQUEST_BODY_INVALID')
+          throw transportError('OZON_DE_HTTP_REQUEST_INVALID',{layer:'request'});
+        throw error;
+      }
+      if (typeof options.beforeRequestSend !== 'function') throw transportError('OZON_DE_HTTP_REQUEST_INVALID',{layer:'request'});
+    }
     const signal = options.signal, controller = new AbortController(), deadlineAt = performance.now() + timeoutMs;
     let requestTransmission = "not_attempted", httpStatus = null, reader, runningBeforeSend = false;
     const errorFor = (code, layer) => transportError(code, { layer, requestTransmission, httpStatus,
