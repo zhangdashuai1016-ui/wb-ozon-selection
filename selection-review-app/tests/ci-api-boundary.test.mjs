@@ -21,7 +21,7 @@ test("API test inventory contains every separately isolated suite once", () => {
     "b-exact-commission-recalculation-http.test.mjs", "c1-completed-editorial-api.test.mjs",
     "c1-draft-result-read-api.test.mjs", "c1-editorial-review-api.test.mjs", "c1-keyword-handoff-retry-http.test.mjs",
     "c1-local-content-flow-api.test.mjs", "c1-local-preparation-api.test.mjs", "c1-paid-draft-owner-api.test.mjs",
-    "c2-upload-api.test.mjs", "collaboration-api.test.mjs", "d-batch-import-api.test.mjs", "d-e-saved-continuation-api.test.mjs", "dispatch-api.test.mjs",
+    "c2-upload-api.test.mjs", "collaboration-api.test.mjs", "d-batch-import-api.test.mjs", "d-batch-media-review-api.test.mjs", "d-e-saved-continuation-api.test.mjs", "dispatch-api.test.mjs",
     "dispatch-delivery-integration.test.mjs", "extension-heartbeat-api.test.mjs", "final-pricing-review-api.test.mjs",
     "keyword-evidence-runtime-http.test.mjs",
     "lifecycle-c-stage-generic-api.test.mjs", "lifecycle-e-readback-generic-api.test.mjs",
