@@ -1,36 +1,8 @@
 import { createHash } from "node:crypto";
-import { attachTerraAuxiliaryDraft, assertValidSalesSnapshot } from "./sales-snapshot.mjs";
+import { attachTerraAuxiliaryDraft, assertValidSalesSnapshot, SALES_AUXILIARY_OUTPUT_SCHEMA } from "./sales-snapshot.mjs";
 import { normalizeServiceOrigin } from "./runtime-configuration.mjs";
 
 export const A_STAGE_TERRA_GATEWAY_VERSION = "a-stage-terra-gateway-v1";
-
-const OUTPUT_SCHEMA = Object.freeze({
-  type: "object",
-  additionalProperties: false,
-  required: ["summary", "comparabilitySignals", "attributeHints"],
-  properties: {
-    summary: { type: "string", minLength: 1, maxLength: 1200 },
-    comparabilitySignals: {
-      type: "array",
-      maxItems: 12,
-      items: { type: "string", minLength: 1, maxLength: 300 }
-    },
-    attributeHints: {
-      type: "array",
-      maxItems: 30,
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["field", "value", "evidenceRef"],
-        properties: {
-          field: { type: "string", minLength: 1, maxLength: 120 },
-          value: { type: "string", minLength: 1, maxLength: 500 },
-          evidenceRef: { type: "string", minLength: 1, maxLength: 300 }
-        }
-      }
-    }
-  }
-});
 
 function text(value, label) {
   const normalized = String(value ?? "").trim();
@@ -42,7 +14,8 @@ function safeGatewayUrl(value, deploymentMode) {
   try {
     return normalizeServiceOrigin(value, {
       deploymentMode,
-      label: "aStageAiGatewayUrl"
+      label: "aStageAiGatewayUrl",
+      privateNetwork: true
     });
   } catch (error) {
     throw new Error(`A_TERRA_GATEWAY_SCOPE_REJECTED: ${error.message}`);
@@ -105,7 +78,7 @@ export function buildAStageTerraRequest({ candidate, snapshot }) {
       ].join("\n\n"),
       images: []
     },
-    outputSchema: structuredClone(OUTPUT_SCHEMA)
+    outputSchema: structuredClone(SALES_AUXILIARY_OUTPUT_SCHEMA)
   };
 }
 

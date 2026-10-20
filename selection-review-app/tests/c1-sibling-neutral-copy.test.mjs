@@ -57,6 +57,55 @@ const vestPlan = {
     { factPath: paths.cats, valueRu: 'Для кошек', reviewZh: '适用于猫。' } ] }
 };
 
+function vestPlanWithBullets(count) {
+  const source = structuredClone(vestPlan);
+  source.bulletPointsDraft = [source.bulletPointsDraft[0],
+    piece('Ткань оксфорд.', '牛津布面料。', [paths.material], ['saved-vest-keywords/2'],
+      [{ value: 'Оксфорд', dictionaryValueId: 61979 }]),
+    piece('Для любого сезона.', '四季适用。', [paths.season], ['saved-vest-keywords/4'],
+      [{ value: 'На любой сезон', dictionaryValueId: 30937 }]),
+    piece('Подходит для кошек.', '适用于猫。', [paths.cats], ['saved-vest-keywords/3'],
+      [{ value: 'Для кошек', dictionaryValueId: 33754 }]),
+    piece('Мини-жилет для кошек и винной бутылки.', '迷你背心适用于猫和酒瓶。',
+      [paths.form, paths.uses], ['saved-vest-keywords/0'], ['迷你背心', ['猫', '酒瓶']])
+  ].slice(0, count);
+  return source;
+}
+
+for (const count of [2, 5]) {
+  test(`${count} neutral bullets retain their copy, facts and keyword sources without changing the source`, () => {
+    const source = vestPlanWithBullets(count);
+    const before = structuredClone(source);
+    const content = buildC1SiblingNeutralContent(source);
+    assert.deepEqual(content.bulletPointsDraft, before.bulletPointsDraft);
+    assert.deepEqual(content.differences.bulletIndexes, []);
+    for (const [index, bullet] of content.bulletPointsDraft.entries()) {
+      assert.notStrictEqual(bullet, source.bulletPointsDraft[index]);
+      assert.notStrictEqual(bullet.factRefs, source.bulletPointsDraft[index].factRefs);
+      assert.notStrictEqual(bullet.assertions, source.bulletPointsDraft[index].assertions);
+      assert.notStrictEqual(bullet.keywordEvidenceRefs, source.bulletPointsDraft[index].keywordEvidenceRefs);
+      for (const ref of bullet.keywordEvidenceRefs) assert.ok(content.keywordEvidenceRefs.includes(ref));
+    }
+    assert.deepEqual(source, before);
+    content.bulletPointsDraft[1].text = 'Changed projected copy';
+    content.bulletPointsDraft[1].assertions[0].value.value = 'Changed projected fact';
+    content.bulletPointsDraft[1].keywordEvidenceRefs.push('changed:projected-source');
+    assert.deepEqual(source, before);
+  });
+
+  test(`a color in bullet ${count} requires source revision and preserves the source`, () => {
+    for (const [field, value] of [['text', 'Цвет хаки.'], ['reviewZh', '卡其色。'],
+      ['keywordEvidenceRefs', [colorRef]]]) {
+      const source = vestPlanWithBullets(count);
+      source.bulletPointsDraft[count - 1][field] = value;
+      const before = structuredClone(source);
+      assert.throws(() => buildC1SiblingNeutralContent(source),
+        /C1_SIBLING_NEUTRAL_COLOR_ALIAS_REQUIRES_REVISION/);
+      assert.deepEqual(source, before);
+    }
+  });
+}
+
 test('saved vest shaped content keeps common Russian and Chinese claims but removes khaki references', () => {
   const content = buildC1SiblingNeutralContent(vestPlan);
   assert.equal(content.seoTitleDraft.text, 'Одежда для животных: мини-жилет для кошек');
@@ -111,4 +160,16 @@ test('reviewed color slots allow normal words after the exact color without inte
   assert.equal(content.descriptionDraft.text,
     'Мини-жилет из ткани оксфорд подходит для кошек. Его также можно надеть на винную бутылку. Модель подходит для любого сезона.');
   assert.equal(content.seoTitleDraft.reviewZh, '宠物服装：适用于猫的迷你背心。');
+});
+
+test('every bullet without a colour is kept as it is, not only the first one', () => {
+  const second = piece('Подходит для любого сезона: модель из ткани оксфорд.', '四季适用：牛津布款式。',
+    [paths.season, paths.material], ['saved-vest-keywords/2'],
+    [{ value: 'На любой сезон', dictionaryValueId: 30937 }, { value: 'Оксфорд', dictionaryValueId: 61979 }]);
+  const third = piece('Можно надеть на винную бутылку.', '也可以套在酒瓶上。', [paths.uses], ['saved-vest-keywords/4'], [['猫', '酒瓶']]);
+  const plan = { ...vestPlan, bulletPointsDraft: [...vestPlan.bulletPointsDraft, second, third] };
+  const content = buildC1SiblingNeutralContent(plan);
+  assert.deepEqual(content.bulletPointsDraft.map(item => item.text), plan.bulletPointsDraft.map(item => item.text));
+  assert.deepEqual(content.bulletPointsDraft.map(item => item.reviewZh), plan.bulletPointsDraft.map(item => item.reviewZh));
+  assert.deepEqual(content.differences.bulletIndexes, []);
 });

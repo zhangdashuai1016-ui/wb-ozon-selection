@@ -1,7 +1,8 @@
 import { assertDProductionJobReference, currentDProductionRound } from './d-e-software-job-handoff.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { sameStoreRef, isCompleteStoreRef } from './store-binding.mjs';
-import { fingerprintCanonicalRecord } from './production-contract-primitives.mjs';
+import { fingerprintCanonicalRecord, isCanonicalFrozenRef, isOpaqueProductionSourceRef } from './production-contract-primitives.mjs';
+import { isProductionExecutionBinding } from './production-authorization-preparation.mjs';
 import { assertOzonAccountReadBinding, OzonAccountReadError } from './ozon-account-read-contract.mjs';
 
 export const OZON_ACCOUNT_OFFICIAL_CONTRACT_REFS = Object.freeze({
@@ -31,8 +32,17 @@ function candidateBindings(candidate, configuration) {
   if (!sku || candidate.targetPlatform !== 'ozon' || sku.targetPlatform !== 'ozon' ||
       sku.targetStore !== candidate.targetStore || !isCompleteStoreRef(candidate.storeRef, candidate.targetStore)) return [];
   const authorization = sku.productionAuthorization;
+  if (authorization !== null && authorization !== undefined &&
+      (typeof authorization !== 'object' || Array.isArray(authorization) ||
+        !isProductionExecutionBinding(authorization.executionBinding) ||
+        authorization.lockedScope === null || typeof authorization.lockedScope !== 'object' ||
+        Array.isArray(authorization.lockedScope) ||
+        !['warehouseRef', 'credentialAlias'].every(field => isCanonicalFrozenRef(authorization.lockedScope[field]) &&
+          isOpaqueProductionSourceRef(authorization.lockedScope[field])))) {
+    throw new OzonAccountReadError('PRODUCTION_ROUTING_INVALID');
+  }
   return configuration.productionBindings.filter(binding => binding.platform === 'ozon' && sameStoreRef(binding.storeRef, candidate.storeRef) &&
-    (!authorization || binding.bindingId === authorization.executionBinding.bindingId &&
+    (authorization === null || authorization === undefined || binding.bindingId === authorization.executionBinding.bindingId &&
       binding.configurationVersion === authorization.executionBinding.configurationVersion &&
       binding.warehouseRef === authorization.lockedScope.warehouseRef && binding.warehouseId === authorization.executionBinding.warehouseId &&
       binding.credentialAlias === authorization.lockedScope.credentialAlias));
@@ -53,7 +63,17 @@ export function createOzonAccountReadBindingResolver(configuration) {
 /** The owner sees account routing and the bounded action before any permission is saved. */
 export function buildOzonAccountReadPreparation({ candidate, configuration, runtimeView }) {
   if (!candidate.lifecycleV11?.skuPackage || candidate.targetPlatform !== 'ozon') return null;
-  const options = candidateBindings(candidate, configuration).map(production => {
+  const preparation = { schemaVersion: 'ozon-account-read-preparation-v1', candidateId: candidate.id,
+    skuPackageId: candidate.lifecycleV11.skuPackage.skuPackageId, expectedRevision: candidate.dataRevision,
+    runtime: runtimeView, maxRequests: 3, platformWrites: 0 };
+  let productionBindings;
+  try { productionBindings = candidateBindings(candidate, configuration); }
+  catch (error) {
+    if (!(error instanceof OzonAccountReadError) || error.code !== 'OZON_ACCOUNT_READ_PRODUCTION_ROUTING_INVALID') throw error;
+    const reason = '本件历史生产授权的账户或仓库路由不完整或格式无效，账户读取已阻塞；请先核对原授权，不会为旧授权自动补配新路由。';
+    return { ...preparation, status: 'blocked', blocker: { code: error.code, reason }, options: [], message: reason };
+  }
+  const options = productionBindings.map(production => {
     const binding = accountReadBindingForProduction(configuration, production);
     if (binding === null) return null;
     const service = configuration.ozonAccountReadServiceBindings.find(value => value.productionBindingId === binding.bindingId &&
@@ -64,9 +84,7 @@ export function buildOzonAccountReadPreparation({ candidate, configuration, runt
       storeName: production.storeName, warehouseName: production.warehouseName, warehouseId: binding.warehouseId,
       clientId: credential.clientId, credentialAlias: binding.credentialAlias };
   }).filter(value => value !== null);
-  return { schemaVersion: 'ozon-account-read-preparation-v1', candidateId: candidate.id,
-    skuPackageId: candidate.lifecycleV11.skuPackage.skuPackageId, expectedRevision: candidate.dataRevision,
-    options, runtime: runtimeView, maxRequests: 3, platformWrites: 0,
+  return { ...preparation, options,
     message: options.length ? '核验本件商品的账户权限、公司币种和指定仓库，每项读取一次。'
       : '尚未配置本件商品的准确账户、仓库及读取服务。配置齐备后才能显示读取确认。' };
 }

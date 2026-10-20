@@ -37,6 +37,10 @@ import { isCompleteStoreRef, sameStoreRef } from "./store-binding.mjs";
 import { isDeepStrictEqual } from "node:util";
 import { buildC1FinalPlanHistoryReferences } from "./c1-final-plan-revision-preparation.mjs";
 import { enqueueDProductionHandoffInDocument, assertPersistedDProductionHandoff } from "./d-e-software-job-handoff.mjs";
+import { commitLifecycleBEvidencePacks } from "./lifecycle-b-evidence-runtime.mjs";
+import { refreshC1FrozenPlatformSchema } from "./c1-frozen-schema-refresh.mjs";
+import { evidenceScopeMatches } from "./lifecycle-evidence-scope.mjs";
+import { inspectLifecycleEvidenceValidity } from "./lifecycle-evidence-validity.mjs";
 
 const CENTRAL_MODES = new Set(["central_test", "central_production"]);
 function finalPlanHistoryRecords(document, allowMissing = false) {
@@ -58,6 +62,102 @@ function siblingColorHistoryRecords(document, allowMissing = false) {
     throw new Error('C1_SIBLING_COLOR_REVISION_HISTORY_INVALID');
   }
   return records;
+}
+
+// Status may later become superseded; the evidence's source and contents remain immutable.
+function schemaEvidenceContents(pack) {
+  return Object.fromEntries(['id', 'kind', 'scope', 'sourceType', 'sourceRef', 'checkedAt', 'expiresAt',
+    'validity', 'evidenceData', 'commissionCatalogRef'].filter(key => Object.hasOwn(pack, key))
+    .map(key => [key, pack[key]]));
+}
+
+function assertSchemaRefreshReplay(document, existing) {
+  if (existing.action !== 'settle_c1_schema_refresh') return;
+  const record = existing.candidateSnapshot?.lifecycleV11?.c1SchemaRefreshV1;
+  if (['unknown_outcome', 'failed'].includes(existing.result?.status)) {
+    if (existing.schemaEvidencePackRef || record?.status !== existing.result.status || record.evidencePackId !== null ||
+        record.failureCode !== existing.result.failureCode) throw new Error('C1_SCHEMA_REFRESH_REPLAY_EVIDENCE_CONFLICT');
+    return;
+  }
+  const ref = existing.schemaEvidencePackRef;
+  const matches = ref && Array.isArray(document.evidencePacks)
+    ? document.evidencePacks.filter(pack => pack.id === ref.evidencePackId) : [];
+  if (existing.result?.status !== 'succeeded' || record?.status !== 'succeeded' ||
+      matches.length !== 1 || record.evidencePackId !== ref.evidencePackId ||
+      existing.result.evidencePackId !== ref.evidencePackId ||
+      fingerprintCanonicalRecord(schemaEvidenceContents(matches[0])) !== ref.fingerprint) {
+    throw new Error('C1_SCHEMA_REFRESH_REPLAY_EVIDENCE_CONFLICT');
+  }
+}
+
+function commitSchemaRefreshEffect({ document, outcome, operation, actor, current, nextCandidate,
+  skuPackageId, observedAt, authorizationRef, externalRequestRef, externalRequestState }) {
+  const hasEffect = Object.hasOwn(outcome, 'evidencePacksToCommit');
+  if (operation !== 'settle_c1_schema_refresh') {
+    if (hasEffect) throw new Error('BUSINESS_MUTATION_EVIDENCE_EFFECT_OPERATION_INVALID');
+    return null;
+  }
+  if (actor.actorType !== 'human' || actor.source !== 'authenticated_identity_provider' || !actor.roles.includes('owner')) {
+    throw new Error('C1_SCHEMA_REFRESH_EFFECT_OWNER_REQUIRED');
+  }
+  const previous = current.lifecycleV11?.c1SchemaRefreshV1;
+  const saved = nextCandidate.lifecycleV11?.c1SchemaRefreshV1;
+  const sku = current.lifecycleV11?.skuPackage;
+  const nextSku = nextCandidate.lifecycleV11?.skuPackage;
+  if (previous?.schemaVersion !== 'c1-schema-refresh-v1' || previous.status !== 'request_sent' ||
+      previous.candidateId !== current.id || previous.skuPackageId !== skuPackageId ||
+      previous.supplierSkuId !== sku?.supplierSkuId || previous.sourceSkuRevision !== sku?.dataRevision ||
+      sku?.skuPackageId !== skuPackageId || current.dataRevision !== previous.sourceCandidateRevision + 2 ||
+      previous.authorizedByUserId !== actor.userId || previous.useCount !== 1 || previous.maxUses !== 1 ||
+      previous.maximumProviderCalls !== 1 || previous.maxExternalRequests !== 2 || previous.readOnly !== true ||
+      previous.platformWritesAllowed !== false || previous.authorizationId !== authorizationRef ||
+      previous.externalRequestRef !== externalRequestRef || externalRequestRef !== `${authorizationRef}:request` ||
+      !['succeeded', 'unknown_outcome', 'failed'].includes(saved?.status) || externalRequestState !== saved.status ||
+      outcome.result?.status !== saved.status) throw new Error('C1_SCHEMA_REFRESH_EFFECT_BINDING_INVALID');
+  const expectedCandidate = { ...current, dataRevision: current.dataRevision + 1,
+    lifecycleV11: { ...current.lifecycleV11, skuPackage: nextSku, c1SchemaRefreshV1: saved } };
+  if (!isDeepStrictEqual(nextCandidate, expectedCandidate)) throw new Error('C1_SCHEMA_REFRESH_EFFECT_CANDIDATE_CHANGED');
+  if (saved.status !== 'succeeded') {
+    const failureCodeValid = saved.status === 'unknown_outcome'
+      ? saved.failureCode === 'C1_SCHEMA_REFRESH_UNKNOWN_OUTCOME'
+      : ['C1_SCHEMA_REFRESH_EVIDENCE_INVALID', 'C1_SCHEMA_REFRESH_PROVIDER_RESPONSE_INVALID'].includes(saved.failureCode);
+    if (hasEffect || !isDeepStrictEqual(nextSku, sku) || !isDeepStrictEqual(saved, {
+      ...previous, status: saved.status, settledAt: observedAt, evidencePackId: null, failureCode: saved.failureCode
+    }) || !failureCodeValid || outcome.result.failureCode !== saved.failureCode) {
+      throw new Error('C1_SCHEMA_REFRESH_EFFECT_FAILURE_INVALID');
+    }
+    return null;
+  }
+  if (!hasEffect || !Array.isArray(outcome.evidencePacksToCommit) || outcome.evidencePacksToCommit.length !== 1) {
+    throw new Error('C1_SCHEMA_REFRESH_EFFECT_SINGLE_SCHEMA_REQUIRED');
+  }
+  const pack = outcome.evidencePacksToCommit[0];
+  const schema = sku?.c1ProductPlan?.inputSnapshots?.platformSchemaRules;
+  if (pack?.kind !== 'schema' || current.targetPlatform !== 'ozon' || sku.targetPlatform !== 'ozon' ||
+      sku.targetStore !== current.targetStore || schema?.platform !== current.targetPlatform ||
+      sku.g1Identity?.candidateId !== current.id || sku.g1Identity.skuPackageId !== skuPackageId ||
+      sku.g1Identity.supplierSkuId !== sku.supplierSkuId || sku.g1Identity.platform !== 'ozon' ||
+      schema.store !== current.targetStore || !sameStoreRef(current.storeRef, schema.storeRef) ||
+      !sameStoreRef(sku.g1Identity?.storeRef, current.storeRef) || previous.store !== current.targetStore ||
+      !sameStoreRef(previous.storeRef, current.storeRef) || previous.c1PlanId !== sku.c1ProductPlan.c1PlanId ||
+      previous.schemaEvidenceId !== schema.evidenceId || previous.schemaRevision !== schema.schemaRevision ||
+      previous.schemaRuleVersion !== schema.ruleVersion || previous.category !== `ozon:${schema.descriptionCategoryId}:${schema.typeId}` ||
+      !evidenceScopeMatches('schema', pack.scope, { platform: current.targetPlatform, store: current.targetStore,
+        storeRef: current.storeRef, category: previous.category, ruleVersion: previous.schemaRuleVersion }) ||
+      Date.parse(pack.checkedAt) < Date.parse(previous.requestedAt) ||
+      inspectLifecycleEvidenceValidity(pack, { asOf: observedAt }).usable !== true ||
+      !isDeepStrictEqual(saved, { ...previous, status: 'succeeded', settledAt: observedAt,
+        evidencePackId: pack.id, failureCode: null }) || outcome.result.evidencePackId !== pack.id) {
+    throw new Error('C1_SCHEMA_REFRESH_EFFECT_SCOPE_INVALID');
+  }
+  const expected = refreshC1FrozenPlatformSchema({ skuPackage: sku, freshPack: pack, refreshedAt: observedAt });
+  if (!isDeepStrictEqual(nextSku, expected.skuPackage) || !isDeepStrictEqual(outcome.result.change, expected.change)) {
+    throw new Error('C1_SCHEMA_REFRESH_EFFECT_PLAN_INVALID');
+  }
+  const [stored] = commitLifecycleBEvidencePacks(document, [pack], { createdAt: observedAt,
+    createdBy: actor.userId, currentCommissionCatalogs: document.currentCommissionCatalogs ?? [] });
+  // This fingerprint detects accidental evidence divergence on replay; it is not an authorization signature.
+  return { evidencePackId: stored.id, fingerprint: fingerprintCanonicalRecord(schemaEvidenceContents(stored)) };
 }
 const SOFTWARE_JOB_INPUT_KEYS = Object.freeze([
   "candidateId",
@@ -567,7 +667,12 @@ export async function executeBusinessMutation({
   if (createsDomainHandoff && (actor.actorType !== "human" || actor.source !== "authenticated_identity_provider" ||
       !actor.roles.includes("owner"))) throw new Error("BUSINESS_MUTATION_DOMAIN_HANDOFF_OWNER_REQUIRED");
 
-  return repository.transact(async (document) => {
+  // One candidate's records only (AGENTS 3.4). Merchant SKU claims need the other candidates; Schema settlement
+  // atomically appends reusable shared evidence and supersedes the previous pack for its store/category/rule scope.
+  // Only that validated settlement effect may write shared evidence; authorization, claim and adoption stay scoped.
+  const transaction = includeMerchantSkuClaims || operation === "settle_c1_schema_refresh" ? work => repository.transact(work)
+    : work => repository.transactCandidates([targetCandidateId], work);
+  return transaction(async (document) => {
     const observedAt = observedServerTime({ serverClock, serverTime, authoritativeRequired: effect !== null || applicationEffect !== null });
     if (!Array.isArray(document.candidates)) throw new Error("BUSINESS_MUTATION_DOCUMENT_INVALID");
     const runtime = runtimeCollections(document);
@@ -596,6 +701,7 @@ export async function executeBusinessMutation({
           throw new Error('C1_SIBLING_COLOR_REVISION_HISTORY_CONFLICT');
         }
       }
+      assertSchemaRefreshReplay(document, existing);
       assertReplaySoftwareJob(document, existing.result, existing.candidateSnapshot);
       if (applicationEffect) {
         const savedJob = findSoftwareJobInDocument(document, applicationEffect.jobId);
@@ -659,6 +765,9 @@ export async function executeBusinessMutation({
     nextCandidate.dataRevision = sourceRevision + 1;
     const result = structuredClone(outcome.result);
     assertSafeRuntimeRecord(result, "businessMutation.result");
+    const schemaEvidencePackRef = commitSchemaRefreshEffect({ document, outcome, operation, actor, current,
+      nextCandidate, skuPackageId: targetSkuPackageId, observedAt, authorizationRef,
+      externalRequestRef, externalRequestState });
     if (Object.hasOwn(outcome, "finalPlanHistoryRecord")) {
       const history = outcome.finalPlanHistoryRecord;
       const preparation = nextCandidate.lifecycleV11?.c1FinalPlanRevisionPreparation;
@@ -775,6 +884,7 @@ export async function executeBusinessMutation({
         preparationId: outcome.historyRecord.preparationId,
         fingerprint: fingerprintCanonicalRecord(outcome.historyRecord)
       } } : {}),
+      ...(schemaEvidencePackRef ? { schemaEvidencePackRef } : {}),
       recordedAt: observedAt
     });
     return {
@@ -828,7 +938,7 @@ export async function executeSoftwareJobSettlementMutation({
     throw new Error("BUSINESS_MUTATION_WORKER_IDENTITY_REQUIRED");
   }
 
-  return repository.transact(async (document) => {
+  return repository.transactCandidates([targetCandidateId], async (document) => {
     const observedAt = observedServerTime({ serverClock, serverTime, authoritativeRequired: true });
     if (!Array.isArray(document.candidates)) throw new Error("BUSINESS_MUTATION_DOCUMENT_INVALID");
     const runtime = runtimeCollections(document);

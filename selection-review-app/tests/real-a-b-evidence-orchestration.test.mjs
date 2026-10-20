@@ -287,6 +287,8 @@ test("已落盘的同一A/B结果重放时不再调用证据提供器或创建�
   persisted.lifecycleV11 = {
     aConfirmationReceipt: {
       receiptId: first.result.confirmationReceiptId,
+      decision: first.result.decision,
+      confirmedAt,
       sourceCandidateRevision: first.result.sourceCandidateRevision
     },
     opportunityPackage: structuredClone(first.result.opportunityPackage),
@@ -296,6 +298,7 @@ test("已落盘的同一A/B结果重放时不再调用证据提供器或创建�
     c1Handoffs: [structuredClone(first.result.c1Handoff)]
   };
   let replayCalls = 0;
+  const beforeReplay = structuredClone({ persisted, input });
   const replayProviders = new Proxy({}, { get() { replayCalls += 1; throw new Error("重放不应读取提供器"); } });
   const replay = await runRealAConfirmationWithSystemEvidence({
     candidate: persisted,
@@ -312,6 +315,8 @@ test("已落盘的同一A/B结果重放时不再调用证据提供器或创建�
   assert.equal(replay.evidencePacksToCommit.length, 0);
   assert.equal(replay.result.skuPackage.dataRevision, first.result.skuPackage.dataRevision);
   assert.deepEqual(replay.result.c1Handoff, first.result.c1Handoff);
+  assert.deepEqual(replay.result.skuPackage, first.result.skuPackage);
+  assert.deepEqual({ persisted, input }, beforeReplay);
 });
 
 /**

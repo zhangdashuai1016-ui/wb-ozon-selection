@@ -1,3 +1,4 @@
+import { ozonAccountReadCoordinationState, ozonAccountReadProductionEvidenceCurrent } from './ozon-account-read-coordination.mjs';
 import { A_SUPPLIER_IMAGE_SEARCH_JOB_TYPE, A_SUPPLIER_IMAGE_SEARCH_FAILURE_CLASSES, ASupplierImageSearchError,
   assertASupplierImageSearchScope, assertASupplierImageSearchSource, assertASupplierImageSearchAdmission,
   assertASupplierImageSearchReceipt, nextASupplierImageSearchRequest, interruptASupplierImageSearchReceipt } from "./a-supplier-image-search-contract.mjs";
@@ -15,7 +16,7 @@ import { fingerprintCanonicalRecord } from "./production-contract-primitives.mjs
 import { assertCurrentC1AiDraftRequest } from "./c1-ai-draft-contract.mjs";
 import { isDeepStrictEqual } from 'node:util';
 import { assertBusinessStateRepositoryBoundary } from "./business-state-repository.mjs";
-import { assertSafeRuntimeRecord, workerSatisfiesCapabilities } from "./runtime-identity.mjs";
+import { assertSafeRuntimeRecord, sameTeamUser, workerSatisfiesCapabilities } from "./runtime-identity.mjs";
 import { assertWorkerRegistryBoundary } from "./worker-registry.mjs";
 import { isDESoftwareJob } from "./d-e-software-job-admission.mjs";
 import { assertCurrentDJobExecutionCursor } from "./d-production-job-cursor.mjs";
@@ -300,7 +301,7 @@ function currentCandidate(document, job, observedAt) {
     const batch = document.runtime?.aDiscoveryBatches?.[job.subject.batchId];
     if (!batch) throw new ADiscoveryExecutionBlockedError("A_DISCOVERY_BATCH_NOT_FOUND");
     assertADiscoveryBatchSource(batch, assertADiscoveryScope(job.scopeBinding, job));
-    if (batch.ownerUserId !== job.ownerUserId || job.ownerUserId !== job.requestedByUserId) throw new ADiscoveryExecutionBlockedError("A_DISCOVERY_OWNER_CONFLICT");
+    if (!sameTeamUser(batch.ownerUserId, job.ownerUserId) || job.ownerUserId !== job.requestedByUserId) throw new ADiscoveryExecutionBlockedError("A_DISCOVERY_OWNER_CONFLICT");
     return batch;
   }
   if(job?.jobType===D_PLATFORM_OBSERVATION_JOB_TYPE)return assertDPlatformObservationJobSource({document,job,observedAt}).candidate;
@@ -308,7 +309,7 @@ function currentCandidate(document, job, observedAt) {
     const preparation = document.runtime?.ozonAccountPreparations?.[job.subject.preparationId];
     if (!preparation) throw new Error('SOFTWARE_JOB_PREPARATION_NOT_FOUND');
     assertOzonAccountReadSubject(preparation, assertOzonAccountReadScope(job.scopeBinding, job));
-    if (preparation.createdByUserId !== job.ownerUserId || job.ownerUserId !== job.requestedByUserId) {
+    if (!sameTeamUser(preparation.createdByUserId, job.ownerUserId) || job.ownerUserId !== job.requestedByUserId) {
       throw new Error('SOFTWARE_JOB_PREPARATION_OWNER_CONFLICT');
     }
     return preparation;
@@ -707,7 +708,7 @@ export function createRepositoryBackedSoftwareJobStore({ businessStateRepository
     async listAssignableWithDiagnostics({ worker, limit = 1, jobType = null } = {}) {
       return store.listAssignable({ worker, limit, includeRejections: true, jobType });
     },
-    async claim({ jobId, worker, leaseId, leaseDurationMs }) {
+    async claim({ jobId, worker, leaseId, leaseDurationMs, accountReadState }) {
       return businessStateRepository.transact(async (document) => {
         const observedAt = observedServerTime();
         const jobs = softwareJobsInDocument(document);
@@ -728,6 +729,15 @@ export function createRepositoryBackedSoftwareJobStore({ businessStateRepository
         const trustedWorker = registryWorkerForDescriptor(jobs[index], worker);
         const executionBinding = currentExecutionBinding(candidate, jobs[index], trustedWorker, observedAt);
         const decision = assertSoftwareJobAdmittedForClaim({ document, job: jobs[index], worker: trustedWorker, observedAt, executionBinding });
+        if (jobs[index].jobType === 'd_production_execution') {
+          const currentReads = ozonAccountReadCoordinationState({ document, candidateIds: [jobs[index].candidateId] });
+          const preparedReads = accountReadState === undefined && currentReads.length === 0 ? [] : accountReadState;
+          if (preparedReads === undefined) throw new Error('SOFTWARE_JOB_ADMISSION_ACCOUNT_READ_SOURCE_REQUIRED');
+          if (!isDeepStrictEqual(currentReads, preparedReads)) throw new Error('SOFTWARE_JOB_ADMISSION_ACCOUNT_READ_CHANGED');
+          if (!ozonAccountReadProductionEvidenceCurrent({ document, state: currentReads, observedAt })) {
+            throw new Error('SOFTWARE_JOB_ADMISSION_ACCOUNT_EVIDENCE_NOT_CURRENT');
+          }
+        }
         const source = isDESoftwareJob(jobs[index])||jobs[index].jobType===D_PLATFORM_OBSERVATION_JOB_TYPE ? bindSoftwareJobAdmissionDecision(jobs[index], decision) : jobs[index];
         const claimed = claimSoftwareJobLease({
           job: source, worker: trustedWorker, leaseId, serverTime: observedAt, leaseDurationMs

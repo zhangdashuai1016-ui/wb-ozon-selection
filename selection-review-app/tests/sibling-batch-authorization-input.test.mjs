@@ -51,6 +51,23 @@ test('one final decision locks the existing post-import contract and ordered E o
     { inventoryAction: '' }).ready, false);
 });
 
+test('explicit current E choice locks the one-batch limit use and shared bounded list permission',()=>{
+  const {source,parent,child}=readyAuthorizationFamily(),before=structuredClone({parent,child});
+  const input=siblingBatchAuthorizationInput(parent,[child],source.args.input.bindingId,
+    {inventoryAction:'write_authorized_stock',eVerificationMode:'owner_media_review_in_sale'});
+  assert.equal(input.ready,true);
+  assert.deepEqual(input.input.importLimitUse,{schemaVersion:'ozon-product-import-batch-limit-use-input-v1',
+    evidenceRef:'official:ozon-product-import-batch-limit:20261018',decision:'use_for_this_batch_once'});
+  assert.deepEqual(input.input.postImportScope,{schemaVersion:'d-batch-post-import-scope-v2',
+    inventoryAction:'write_authorized_stock',eReadbackOfferIds:['MERCHANT-CHILD'],
+    inSaleList:{schemaVersion:'ozon-in-sale-list-authorization-v1',decision:'read_store_in_sale_list_for_batch',
+      officialEvidenceRef:'official:ozon-in-sale-list:20261018',
+      policy:{pageSize:1000,maxPages:3,requestTimeoutMs:30000,durationMs:90000}}});
+  assert.equal(siblingBatchAuthorizationInput(parent,[child],source.args.input.bindingId,
+    {inventoryAction:'write_authorized_stock',eVerificationMode:'unrecognized'}).ready,false);
+  assert.deepEqual({parent,child},before);
+});
+
 test('final decision rejects a warehouse that is empty, expired or absent from a selected member', () => {
   const { source, parent, child } = readyAuthorizationFamily();
   const bindingId = source.args.input.bindingId;
@@ -61,6 +78,32 @@ test('final decision rejects a warehouse that is empty, expired or absent from a
   const wrongVersion = structuredClone(child);
   wrongVersion.productionOwnerPreparation.executionBindings[0].configurationVersion = '';
   assert.equal(siblingBatchAuthorizationInput(parent, [wrongVersion], bindingId).ready, false);
+});
+
+test('current account-read activity blocks the complete batch decision without changing commercial inputs', async () => {
+  for (const status of ['queued','claimed','waiting_platform','unknown_outcome']) {
+    const {source,parent,child} = readyAuthorizationFamily(), second = secondReadyMember(parent);
+    child.ozonAccountReadPreparation = {candidateId:child.id,skuPackageId:child.lifecycleV11.skuPackage.skuPackageId,
+      expectedRevision:child.dataRevision,options:[],message:'合成账户读取状态',runtime:[{
+        jobId:'job:synthetic:pending-read',status,isCurrent:true,expired:false,canContinue:false,canRefresh:false,
+        requestsSent:status==='waiting_platform'?1:0,observedMethods:[],gaps:[]}]};
+    const before = structuredClone({parent,child,second});
+    const decision = siblingBatchAuthorizationInput(parent,[child,second],source.args.input.bindingId,{inventoryAction:'create_only'});
+    assert.equal(decision.ready,false,status);assert.equal(decision.input,null);assert.match(decision.reason,/账户/u);
+    assert.deepEqual({parent,child,second},before);
+    const html = await renderFinalBatch({parent,siblings:[child,second],onAuthorize:()=>{throw new Error('Rendering must not authorize');}});
+    assert.match(html,/<button[^>]*disabled[^>]*>确认上架（含创建和库存）<\/button>/);
+    child.ozonAccountReadPreparation.runtime[0].status='completed';
+    assert.equal(siblingBatchAuthorizationInput(parent,[child,second],source.args.input.bindingId,{inventoryAction:'create_only'}).ready,true);
+  }
+});
+
+test('an excluded parent read does not block the batch but an unresolved selected-member history does', () => {
+  const {source,parent,child}=readyAuthorizationFamily();
+  parent.ozonAccountReadPreparation={runtime:[{jobId:'job:synthetic:parent',status:'claimed',isCurrent:false}]};
+  assert.equal(siblingBatchAuthorizationInput(parent,[child],source.args.input.bindingId,{inventoryAction:'create_only'}).ready,true);
+  child.ozonAccountReadPreparation={runtime:[{jobId:'job:synthetic:historical',status:'claimed',isCurrent:false}]};
+  assert.equal(siblingBatchAuthorizationInput(parent,[child],source.args.input.bindingId,{inventoryAction:'create_only'}).ready,false);
 });
 
 test('one stock draft submission saves every selected sibling atomically and excludes the old import', async () => {

@@ -4,14 +4,16 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { API_PROCESS_TESTS, SOURCE_CONTRACT_TESTS, SUBPROCESS_TESTS, ISOLATED_TESTS, BUILT_RUNTIME_TESTS } from "./ci-test-suites.mjs";
-import { assertIsolatedApiTestSource, assertLocalApiTestPortsSource } from "./ci-test-policy.mjs";
+import { API_PROCESS_TESTS, SOURCE_CONTRACT_TESTS, SUBPROCESS_TESTS, OFFLINE_NETWORK_BOUNDARY_TESTS, ISOLATED_TESTS, BUILT_RUNTIME_TESTS } from "./ci-test-suites.mjs";
+import { assertIsolatedApiTestSource, assertLocalApiTestPortsSource, assertOfflineNetworkBoundaryTestSource } from "./ci-test-policy.mjs";
 import { createLocalProcessSandboxProfile } from "./local-process-sandbox-profile.mjs";
 
 const appDirectory = fileURLToPath(new URL("..", import.meta.url));
 const requested = process.argv.slice(2);
-const browserFixture = requested.length === 1 && requested[0] === '--browser-fixture';
-const selected = browserFixture ? ['fixtures/start-s1-workspace-browser.mjs'] : requested;
+const integratedBrowserFixture = requested.length === 1 && requested[0] === '--integrated-browser-fixture';
+const browserFixture = integratedBrowserFixture || requested.length === 1 && requested[0] === '--browser-fixture';
+const selected = integratedBrowserFixture ? ['fixtures/start-integrated-workbench-browser.mjs'] :
+  browserFixture ? ['fixtures/start-s1-workspace-browser.mjs'] : requested;
 if (process.platform !== "darwin") throw new Error("LOCAL_API_TESTS_REQUIRE_MACOS_SANDBOX");
 if (!browserFixture && (!selected.length || new Set(selected).size !== selected.length || selected.some(file => !ISOLATED_TESTS.includes(file)))) {
   throw new Error("LOCAL_API_TESTS_REQUIRE_EXPLICIT_CLASSIFIED_FILES");
@@ -125,6 +127,7 @@ for (const file of selected) {
     assertIsolatedApiTestSource({ file, source, sharedFixtureSource, launchScriptSource });
     portSource = assertLocalApiTestPortsSource({ file, source, portFixtureSource, sharedFixtureSource });
   }
+  if (OFFLINE_NETWORK_BOUNDARY_TESTS.includes(file)) assertOfflineNetworkBoundaryTestSource({ file, source });
   if (SUBPROCESS_TESTS.includes(file) && !source.includes("node:child_process") ||
       SOURCE_CONTRACT_TESTS.includes(file) && !source.includes("readFile") && !source.includes("server.mjs")) throw new Error(`LOCAL_API_TEST_CLASSIFICATION_INVALID:${file}`);
   const fixtureFiles = staticFixtureFiles[file] ?? [];
@@ -148,6 +151,9 @@ for (const file of selected) {
     }
     await fs.mkdir(path.join(copy, "data"));
     await fs.copyFile(path.join(appDirectory, "data", "workflow-map.json"), path.join(copy, "data", "workflow-map.json"));
+    for (const entry of ['seerfar-selection', 'platform-profiles', 'platform-mappings']) {
+      await fs.cp(path.join(appDirectory, 'data', entry), path.join(copy, 'data', entry), { recursive: true });
+    }
     for (const entry of fixtureFiles) {
       await fs.mkdir(path.dirname(path.join(copy, entry)), { recursive: true });
       await fs.copyFile(path.join(appDirectory, entry), path.join(copy, entry));
@@ -169,6 +175,7 @@ for (const file of selected) {
       SELECTION_REVIEW_OZON_EVIDENCE_SERVICE_URL: `http://127.0.0.1:${gateway}`,
       SELECTION_REVIEW_CODEX_DISPATCH: "off", SELECTION_REVIEW_AUTO_DELIVER: "off"
     };
+    if (integratedBrowserFixture) env.SELECTION_REVIEW_INTEGRATED_BROWSER_FIXTURE = '1';
     for (const item of ports) await item.release();
     ports.length = 0;
     // A boundary test needs a trusted unsandboxed fixture parent to apply the server's
@@ -179,7 +186,7 @@ for (const file of selected) {
     const childArgs = browserFixture ? [path.join('tests', file)] :
       ['--test', '--test-concurrency=1', '--test-timeout=60000', path.join('tests', file)];
     const code = await runChild(osBoundaryFixture ? childArgs : ['-p', profile, process.execPath, ...childArgs], { cwd: copy, env },
-      osBoundaryFixture ? { command: process.execPath } : browserFixture ? { budgetMs: 600000, plannedInterrupt: true } : {});
+      osBoundaryFixture ? { command: process.execPath } : browserFixture ? { budgetMs: 3600000, plannedInterrupt: true } : {});
     if (code !== 0) { process.exitCode = code || 1; break; }
   } catch (error) {
     if (error.cleanupUnknown === true) removeCopy = false;

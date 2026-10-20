@@ -67,6 +67,26 @@
     "pricingMode": {
       "const": "source-market-fit"
     },
+    "priceInputs": {
+      "type": "object",
+      "required": ["marketReferencePriceRub", "ownerTargetPrice"],
+      "properties": {
+        "marketReferencePriceRub": { "type": "number", "exclusiveMinimum": 0 },
+        "ownerTargetPrice": {
+          "type": "object",
+          "required": ["amountRub", "candidateId", "sourceRevision", "evidenceRef", "confirmedAt"],
+          "properties": {
+            "amountRub": { "type": "number", "exclusiveMinimum": 0 },
+            "candidateId": { "type": "string", "minLength": 1 },
+            "sourceRevision": { "type": "integer", "minimum": 1 },
+            "evidenceRef": { "type": "string", "minLength": 1 },
+            "confirmedAt": { "type": "string", "format": "date-time" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "priceFloors": {
       "type": "object",
       "required": [
@@ -147,6 +167,17 @@
         },
         "comparableCountIsHardGate": {
           "const": false
+        },
+        "feePriceBasis": {
+          "type": "object",
+          "required": ["kind", "targetSalePriceCny", "commissionRate", "marketComparison"],
+          "properties": {
+            "kind": { "const": "owner_target_price" },
+            "targetSalePriceCny": { "type": "number", "exclusiveMinimum": 0 },
+            "commissionRate": { "type": "number", "minimum": 0, "exclusiveMaximum": 1 },
+            "marketComparison": { "const": "reference_only" }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -170,7 +201,8 @@
           "enum": [
             "profit-calculation-v1-unrounded",
             "profit-calculation-v2-formal-commission",
-            "profit-calculation-v3-cost-policy-snapshot"
+            "profit-calculation-v3-cost-policy-snapshot",
+            "profit-calculation-v4-owner-target-price"
           ]
         },
         "recommendedSalePriceCny": {
@@ -221,7 +253,8 @@
     "commissionMode": {
       "enum": [
         "exact",
-        "estimated"
+        "estimated",
+        "official_reference"
       ]
     },
     "internationalFreight": {
@@ -305,6 +338,28 @@
   },
   "allOf": [
     {
+      "if": { "required": ["priceInputs"], "properties": { "priceInputs": { "type": "object" } } },
+      "then": {
+        "required": ["calculation"],
+        "properties": { "calculation": { "type": "object", "properties": { "version": { "const": "profit-calculation-v4-owner-target-price" } } } }
+      }
+    },
+    {
+      "if": {
+        "required": ["calculation"],
+        "properties": { "calculation": { "type": "object", "properties": { "version": { "const": "profit-calculation-v4-owner-target-price" } } } }
+      },
+      "then": {
+        "required": ["priceInputs", "marketFit"],
+        "properties": {
+          "priceInputs": { "$ref": "#/properties/priceInputs" },
+          "marketFit": { "type": "object", "required": ["feePriceBasis"], "properties": {
+            "feePriceBasis": { "$ref": "#/properties/marketFit/properties/feePriceBasis" }
+          } }
+        }
+      }
+    },
+    {
       "if": {
         "required": [
           "calculation"
@@ -316,7 +371,8 @@
               "version": {
                 "enum": [
                   "profit-calculation-v2-formal-commission",
-                  "profit-calculation-v3-cost-policy-snapshot"
+                  "profit-calculation-v3-cost-policy-snapshot",
+                  "profit-calculation-v4-owner-target-price"
                 ]
               }
             }
@@ -333,7 +389,7 @@
           {
             "properties": {
               "commissionMode": {
-                "const": "exact"
+                "enum": ["exact", "official_reference"]
               },
               "calculationType": {
                 "const": "formal"
@@ -431,7 +487,7 @@
           "calculation": {
             "properties": {
               "version": {
-                "const": "profit-calculation-v3-cost-policy-snapshot"
+                "enum": ["profit-calculation-v3-cost-policy-snapshot", "profit-calculation-v4-owner-target-price"]
               }
             },
             "type": "object"

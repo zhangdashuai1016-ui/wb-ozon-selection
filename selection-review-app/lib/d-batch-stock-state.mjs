@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { supportsPostImportBatch, assertDBatchPostImportScope } from './d-batch-production-contract.mjs';
 import { assertSafeRuntimeRecord } from './runtime-identity.mjs';
 import { observedWarehouseAvailableStock } from './e-stage-readback.mjs';
 import { assertDPlatformObservationPolicy } from './d-platform-observation-policy.mjs';
@@ -11,6 +12,8 @@ const time = value => ref(value) && !Number.isNaN(Date.parse(value));
 const states = new Set(['inventory_deferred','awaiting_prerequisites','prerequisites_in_flight',
   'ready_to_write','stock_intent','stock_accepted','needs_owner','precheck_failed',
   'prewrite_blocked','unknown_outcome']);
+const settlementEvents = new Set(['prerequisites_failed','precheck_blocked',
+  'stock_prewrite_blocked','stock_receipt','stock_unknown']);
 
 function assertJob(job) {
   assertDPlatformObservationPolicy(job?.observationPolicy);
@@ -44,14 +47,15 @@ function assertJob(job) {
 export function createDBatchStockJob({ batch, member, taskId, productId, workerId, workerVersion,
   leaseId, leaseExpiresAt, leaseDurationMs, createdAt, observationPolicy }) {
   assertDPlatformObservationPolicy(observationPolicy);
-  if (batch?.schemaVersion !== 'd-batch-production-authorization-v2' ||
-      batch.postImportScope?.schemaVersion !== 'd-batch-post-import-scope-v1' ||
+  if (!supportsPostImportBatch(batch?.schemaVersion) ||
+      !Array.isArray(batch.postImportScope?.eReadbackOfferIds) ||
       !batch.postImportScope.eReadbackOfferIds.includes(member?.offerId) ||
       !batch.members.some(saved => isDeepStrictEqual(saved, member)) ||
       !/^[1-9][0-9]*$/.test(taskId) || !/^[1-9][0-9]*$/.test(productId) ||
       ![workerId,workerVersion,leaseId].every(ref) || !time(createdAt) || !time(leaseExpiresAt) ||
       !Number.isSafeInteger(leaseDurationMs)||leaseDurationMs<1000||leaseDurationMs>300000||
       Date.parse(leaseExpiresAt) <= Date.parse(createdAt)) throw new Error('D_BATCH_STOCK_ADMISSION_INVALID');
+  assertDBatchPostImportScope(batch.postImportScope, batch.members.map(saved => saved.offerId), batch.schemaVersion);
   const inventoryAction = batch.postImportScope.inventoryAction;
   const job = { schemaVersion:D_BATCH_STOCK_JOB_VERSION,
     jobId:`d-batch-stock:${batch.batchId}:${member.candidateId}`, batchId:batch.batchId,
@@ -71,7 +75,8 @@ export function createDBatchStockJob({ batch, member, taskId, productId, workerI
 export function applyDBatchStockEvent({ job, event, workerId, leaseId, observedAt }) {
   assertJob(job);
   if (!time(observedAt) || workerId !== job.workerId || leaseId !== job.leaseId ||
-      Date.parse(observedAt) >= Date.parse(job.leaseExpiresAt) ||
+      Date.parse(observedAt) < Date.parse(job.updatedAt) ||
+      (Date.parse(observedAt) >= Date.parse(job.leaseExpiresAt) && !settlementEvents.has(event?.kind)) ||
       event?.offerId !== job.offerId || event.taskId !== job.taskId || event.productId !== job.productId) {
     throw new Error('D_BATCH_STOCK_LEASE_OR_SCOPE_INVALID');
   }
@@ -115,7 +120,8 @@ export function applyDBatchStockEvent({ job, event, workerId, leaseId, observedA
       throw new Error('D_BATCH_STOCK_PRECHECK_BLOCK_INVALID');
     next.failureReason=event.reason;next.status='precheck_failed';
   }else if(event.kind==='stock_prewrite_blocked'){
-    if(!['ready_to_write','stock_intent'].includes(next.status)||!ref(event.reason))
+    if(!['ready_to_write','stock_intent'].includes(next.status)||!ref(event.reason)||
+        event.requestTransmission!=='not_attempted')
       throw new Error('D_BATCH_STOCK_PREWRITE_BLOCK_INVALID');
     next.failureReason=event.reason;next.status='prewrite_blocked';
   }else if(event.kind==='stock_receipt'){

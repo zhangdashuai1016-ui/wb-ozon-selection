@@ -1,4 +1,5 @@
 import { readAProductDetailSupplierEvidence } from './a-product-detail-evidence.mjs';
+import { platformOfStore } from "./store-registry.mjs";
 import { readConfirmedSupplierPowerProfile, readConfirmedSupplierVariantAttributes } from './confirmed-supplier-inputs.mjs';
 import { isDeepStrictEqual } from "node:util";
 import { createC1ProductPlan } from "./c1-product-plan.mjs";
@@ -8,6 +9,7 @@ import {
   assertValidLifecyclePackage, validateLifecyclePackage
 } from "./product-lifecycle-schema.mjs";
 import { runSkuProfitModel, validateProfitModel } from "./profit-model.mjs";
+import { validateOwnerTargetPriceSource } from "./profit-model-calculation.mjs";
 import { sameStoreRef } from "./store-binding.mjs";
 import { createLifecycleBInputBundle, assertValidLifecycleBInputBundle, inspectLifecycleBInputReadiness, validateLifecycleBInputBundle, inspectCommissionCatalogValidity } from "./lifecycle-b-input-bundle.mjs";
 import {
@@ -20,6 +22,7 @@ import {
   recommendSupplierOption
 } from "./supplier-selection-flow.mjs";
 import { assertValidSupplierOption, UNKNOWN } from "./supplier-option.mjs";
+import { extractPinduoduoGoodsId, supplierCapturePlatform } from "./source-capture.mjs";
 
 export const REAL_A_B_C1_FLOW_VERSION = "real-a-b-c1-flow-v1.1";
 
@@ -43,6 +46,7 @@ function deepFreeze(value) {
 }
 
 function offerIdFromUrl(value) {
+  if (supplierCapturePlatform(value) === "pinduoduo") return extractPinduoduoGoodsId(value) || null;
   return new URL(value).pathname.match(/\/offer\/(\d+)\.html/i)?.[1] || null;
 }
 
@@ -82,9 +86,10 @@ function supplierOption(normalized, candidate, confirmedAt) {
   const capturedAttributes = saved ? {} : capturedSupplierAttributes(candidate);
   const variantAttributes = readConfirmedSupplierVariantAttributes(candidate, supplier);
   const declaredPowerProfile = readConfirmedSupplierPowerProfile(candidate);
+  const platform = supplierCapturePlatform(supplier.productUrl) === "pinduoduo" ? "pinduoduo" : "1688";
   const option = {
-    supplierOptionId: `supplier-option:1688:${offerId}`,
-    sourcePlatform: "1688",
+    supplierOptionId: `supplier-option:${platform}:${offerId}`,
+    sourcePlatform: platform,
     productUrl: supplier.productUrl,
     offerId,
     supplierSalesEvidence: UNKNOWN,
@@ -145,12 +150,16 @@ function opportunityPackage(candidate, normalized, confirmedAt) {
   const snapshot = salesSnapshot(candidate, normalized.salesReview.snapshotId);
   if (!snapshot) throw new Error("REAL_A_SNAPSHOT_CHANGED: 确认卡销售快照已经不存在");
   const option = supplierOption(normalized, candidate, confirmedAt);
+  const ownerTargetPrice = normalized.targetSalePriceRub == null ? null : {
+    amountRub: normalized.targetSalePriceRub, candidateId: candidate.id, sourceRevision: candidate.dataRevision,
+    evidenceRef: `owner-a-confirmation:${candidate.id}:${candidate.dataRevision}`, confirmedAt
+  };
   const opportunity = {
     schemaVersion: PRODUCT_LIFECYCLE_SCHEMA_VERSION,
     entityType: "OpportunityPackage",
     parentOpportunityId: `opportunity:${candidate.id}`,
     directionName: candidate.productName,
-    targetPlatform: candidate.targetStore === "wb" ? "wb" : "ozon",
+    targetPlatform: platformOfStore(candidate.targetStore) ?? "ozon",
     targetStore: candidate.targetStore,
     dataRevision: candidate.dataRevision,
     businessPhase: "A",
@@ -179,6 +188,7 @@ function opportunityPackage(candidate, normalized, confirmedAt) {
         at: confirmedAt,
         sourceCandidateId: candidate.id,
         sourceCandidateRevision: candidate.dataRevision,
+        ...(ownerTargetPrice ? { ownerTargetPrice } : {}),
         externalAccesses: 0
       }]
     }
@@ -244,6 +254,9 @@ function replayExistingLifecycle(candidate, validation) {
   const components = supplierSku?.attributes?.purchaseCostComponents;
   const identity = supply?.supplierOption;
   const sameSales = opportunity.salesSnapshots?.some((item) => item.snapshotId === expected.salesReview.snapshotId);
+  if (!Array.isArray(opportunity.audit?.history)) throw new Error("REAL_A_EXISTING_LIFECYCLE_INVALID: 历史A确认记录无效");
+  const frozenTarget = opportunity.audit.history.find(item => item?.event === "real_a_one_card_inputs_frozen")?.ownerTargetPrice;
+  const sameTarget = (expected.targetSalePriceRub ?? null) === (frozenTarget?.amountRub ?? null);
   const sameSupply = identity?.productUrl === expected.supplierConfirmation.productUrl &&
     supplierSku?.supplierSkuId === expected.supplierConfirmation.supplierSkuId &&
     supplierSku?.variantKey === expected.supplierConfirmation.variantKey &&
@@ -255,7 +268,9 @@ function replayExistingLifecycle(candidate, validation) {
     supplierSku?.dimensions?.length === expected.supplierConfirmation.dimensionsCm.length &&
     supplierSku?.dimensions?.width === expected.supplierConfirmation.dimensionsCm.width &&
     supplierSku?.dimensions?.height === expected.supplierConfirmation.dimensionsCm.height;
-  if (!sameSales || !sameSupply) {
+  if (!sameSales || !sameSupply || !sameTarget || (frozenTarget && !validateOwnerTargetPriceSource(frozenTarget, {
+    opportunityPackage: opportunity, candidateId: candidate.id, confirmationSource: lifecycle
+  }))) {
     throw new Error("REAL_A_ALREADY_CONFIRMED_CONFLICT: 本次A确认输入与已冻结销售或供应数据不一致");
   }
   const receipt = lifecycle.aConfirmationReceipt;
@@ -411,7 +426,10 @@ export function runRealAConfirmationToBAndC1({
     createdAt: confirmedAt
   });
   const bResult = calculateBAndCreateC1({ opportunity, skuPackage,
-    salesSelection: { salesSnapshotId: validation.normalized.salesReview.snapshotId }, evidence, processedAt });
+    salesSelection: { salesSnapshotId: validation.normalized.salesReview.snapshotId,
+      ...(validation.normalized.targetSalePriceRub == null ? {} : {
+        ownerTargetPrice: structuredClone(opportunity.audit.history.find(item => item.event === "real_a_one_card_inputs_frozen").ownerTargetPrice)
+      }) }, evidence, processedAt });
   skuPackage = bResult.skuPackage;
   const c1Handoff = bResult.c1Handoff;
   if (JSON.stringify(candidate) !== before) throw new Error("REAL_A_INPUT_MUTATED");
@@ -441,7 +459,8 @@ export function runRealAConfirmationToBAndC1({
 const B_RECALCULATION_ERROR_CODES = new Set([
   "B_EXACT_RECALCULATION_INPUT_INVALID", "B_EXACT_RECALCULATION_AUTHENTICATED_OWNER_REQUIRED", "B_EXACT_RECALCULATION_SOURCE_CONFLICT",
   "B_EXACT_RECALCULATION_NOT_AVAILABLE", "B_EXACT_RECALCULATION_EXACT_EVIDENCE_REQUIRED",
-  "B_EXACT_RECALCULATION_EVIDENCE_UNAVAILABLE", "B_EXACT_RECALCULATION_JOBS_PRESENT"
+  "B_EXACT_RECALCULATION_EVIDENCE_UNAVAILABLE", "B_EXACT_RECALCULATION_JOBS_PRESENT",
+  "B_EXACT_RECALCULATION_AUTOPILOT_GRANT_REQUIRED", "B_EXACT_RECALCULATION_SOFTWARE_EXACT_ONLY"
 ]);
 export class BExactCommissionRecalculationError extends Error {
   constructor(code) {
@@ -471,6 +490,7 @@ export function assertCurrentBCommissionEvidence({ bundle, evidencePacks, curren
       ["platform", "store", "category", "salesScheme"].some(key => pack.scope[key] !== context[key]) ||
       !sameStoreRef(pack.scope.storeRef, context.storeRef) || pack.evidenceData?.commissionRate !== fee.commissionRate ||
       pack.evidenceData?.commissionEvidenceMode !== fee.commissionEvidenceMode ||
+      !isDeepStrictEqual(pack.evidenceData?.officialCommissionBinding ?? null, fee.officialCommissionBinding ?? null) ||
       !isDeepStrictEqual(pack.commissionCatalogRef ?? null, fee.commissionCatalogRef ?? null)) rejectCommission("B_COMMISSION_SOURCE_CONFLICT");
   const validity = inspectCommissionCatalogValidity({ pack, currentCommissionCatalogs, asOf });
   if (!validity.available) rejectCommission(`B_COMMISSION_CATALOG_${validity.status.toUpperCase()}`);
@@ -523,7 +543,14 @@ export function prepareSavedConditionalBExactInputs({ candidate, evidencePacks, 
   }
   if (!validateLifecycleBInputBundle(priorBundle).valid) rejectB("B_EXACT_RECALCULATION_SOURCE_CONFLICT");
   const packaging = priorBundle.packagingSnapshot;
-  const normalizedSubmission = { supplierConfirmation: { weightKg: packaging?.weightKg, dimensionsCm: packaging?.dimensionsCm } };
+  const normalizedSubmission = { supplierConfirmation: { weightKg: packaging?.weightKg, dimensionsCm: packaging?.dimensionsCm },
+    targetSalePriceRub: active.recommendedSalePriceRub };
+  const ownerTargetPrice = active.priceInputs?.ownerTargetPrice;
+  if (ownerTargetPrice && !validateOwnerTargetPriceSource(ownerTargetPrice, {
+    opportunityPackage: opportunity, candidateId: candidate.id, confirmationSource: lifecycle
+  })) {
+    rejectB("B_EXACT_RECALCULATION_SOURCE_CONFLICT");
+  }
   if (!validateLifecycleBInputBundle(priorBundle, {
     candidate: { ...candidate, dataRevision: receipt.sourceCandidateRevision }, normalizedSubmission
   }).valid || supplier.weight?.unit !== "kg" || supplier.weight.value !== packaging.weightKg ||
@@ -555,7 +582,8 @@ export function prepareSavedConditionalBExactInputs({ candidate, evidencePacks, 
     rejectB("B_EXACT_RECALCULATION_EXACT_EVIDENCE_REQUIRED");
   }
   return deepFreeze({ opportunityPackage: structuredClone(opportunity), skuPackage: structuredClone(sku),
-    salesSelection: { salesSnapshotId }, evidence, priorTechnicalFailure: structuredClone(failure) });
+    salesSelection: { salesSnapshotId, ...(ownerTargetPrice ? { ownerTargetPrice: structuredClone(ownerTargetPrice) } : {}) },
+    evidence, priorTechnicalFailure: structuredClone(failure) });
 }
 
 export function runSavedConditionalBWithExactEvidence(input) {

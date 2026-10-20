@@ -35,6 +35,21 @@ const candidate = (id, extra = {}) => ({ id, productName: `合成商品 ${id}`, 
   workflowStatus: 'codex_processing', displayStatus: 'codex_processing', imageUrl: '', needsFromUser: [],
   updatedAt: '2026-09-09T04:00:00.000Z', createdAt: '2026-09-09T04:00:00.000Z', ...extra });
 
+test('首页和看板采用已保存 SKU 阶段，旧 A 执行记录不能把 C1 商品放回待确认', () => {
+  for (const [phase, column] of [['B', 'prepare'], ['C1', 'prepare'], ['C2', 'prepare'], ['D', 'publish'], ['E', 'live']]) {
+    const item = candidate(`canonical-${phase}`, {
+      executionRuntime: { businessPhase: 'A' },
+      lifecycleV11: { skuPackage: { businessPhase: phase } }
+    });
+    const before = structuredClone(item);
+    assert.equal(boardColumnKey(item), column);
+    assert.equal(boardColumns([item], 'miska').find(value => value.key === column).count, 1);
+    assert.equal(boardColumns([item], 'dandanshu').every(value => value.count === 0), true);
+    assert.equal(boardColumns([{ ...item, workflowStatus: 'eliminated' }], 'miska').every(value => value.count === 0), true);
+    assert.deepEqual(item, before);
+  }
+});
+
 test('本店的待决定商品、自动排除和你已排除分成三份，已建卡的商品只给查看入口', () => {
   const view = viewOf(batchEntry({ products: [
     product('2107989735', { estimate: estimate('selectable', { maximumAllInPurchaseRmb: 120.5 }) }),
@@ -109,22 +124,137 @@ test('店铺切换同时过滤查询结果和商品，未完成的查询不进�
 test('五列进行中按业务阶段归位，已淘汰不出现，等你一行来自已保存的缺口', () => {
   const candidates = [
     candidate('candidate:a', { executionRuntime: { businessPhase: 'A' }, needsFromUser: ['补一个1688链接', '补重量'] }),
-    candidate('candidate:b', { executionRuntime: { businessPhase: 'B' } }),
-    candidate('candidate:c', { executionRuntime: { businessPhase: 'C1' }, workflowStatus: 'listing_preparation' }),
-    candidate('candidate:d', { executionRuntime: { businessPhase: 'D' }, workflowStatus: 'ready_to_list' }),
+    candidate('candidate:b', { executionRuntime: { businessPhase: 'B', status: 'running' } }),
+    candidate('candidate:c', { executionRuntime: { businessPhase: 'C1', status: 'queued' }, workflowStatus: 'listing_preparation' }),
+    candidate('candidate:d', { executionRuntime: { businessPhase: 'D', status: 'waiting_owner' }, workflowStatus: 'ready_to_list' }),
     candidate('candidate:e', { workflowStatus: 'listed', displayStatus: 'listed' }),
     candidate('candidate:x', { workflowStatus: 'eliminated' })
   ];
   const columns = boardColumns(candidates, 'miska');
+  assert.deepEqual(columns.map(column => column.title), ['找货', '待确认', '准备中', '待上架', '在售']);
   assert.deepEqual(columns.map(column => column.title), BOARD_COLUMNS.map(column => column.title));
   assert.deepEqual(columns.map(column => column.cards.map(card => card.id)),
-    [['candidate:a'], ['candidate:b'], ['candidate:c'], ['candidate:d'], ['candidate:e']]);
-  assert.equal(columns[0].cards[0].waitingLine, '补一个1688链接');
-  assert.equal(columns[1].cards[0].waitingLine, null);
-  assert.equal(columns[0].cards[0].statusLine, '选品处理');
+    [[], ['candidate:a'], ['candidate:b', 'candidate:c'], ['candidate:d'], ['candidate:e']]);
+  // 「等你」一行和「需要你处理」用同一个判断、同一句话。
+  assert.equal(columns[1].cards[0].waitingLine, inboxItems(candidates, 'miska')[0].need);
+  assert.equal(columns[2].cards[0].waitingLine, null);
+  // 一套说法：不再出现旧系统的「选品处理」「上架前确认」。
+  assert.deepEqual(columns.slice(2).flatMap(column => column.cards.map(card => card.statusLine)), ['软件在做', '排着等软件', '等你决定', '已上架']);
   // A candidate that never carried a saved phase still lands somewhere the owner can find it.
-  assert.equal(boardColumnKey(candidate('candidate:n', { workflowStatus: 'needs_user_data' })), 'find');
+  assert.equal(boardColumnKey(candidate('candidate:n', { workflowStatus: 'needs_user_data' })), 'confirm');
   assert.equal(boardColumnKey(candidate('candidate:l', { workflowStatus: 'listed', executionRuntime: { businessPhase: 'B' } })), 'live');
+});
+
+test('进行中：录入还在找的在「找货」，找完等「做这件」的和正式利润没过线的在「待确认」，也都在「需要你处理」', () => {
+  const candidates = [
+    candidate('candidate:q', { workflowStatus: 'awaiting_user_direction', intake: { stage: 'queued', sourceKind: 'pinduoduo' } }),
+    candidate('candidate:r', { workflowStatus: 'awaiting_user_direction', intake: { stage: 'ready', sourceKind: 'pinduoduo' },
+      roughProfit: { status: 'ok', profitPerUnitRmb: 12, passes: true } }),
+    candidate('candidate:f', { workflowStatus: 'awaiting_user_direction', intake: { stage: 'ready', sourceKind: 'pinduoduo' },
+      executionRuntime: { businessPhase: 'B', status: 'completed' }, gate1: { decision: 'accept' },
+      gate1DecisionV1: { decision: 'accept' }, supplierDraftV1: { schemaVersion: 'supplier-draft-v1' },
+      gate1ShortfallV1: { unitProfitRmb: 1.2, shortfallRmb: 4.8, resolvedAt: null } }),
+    candidate('candidate:old', { workflowStatus: 'codex_processing' })
+  ];
+  const columns = boardColumns(candidates, 'miska');
+  assert.deepEqual(columns[0].cards.map(card => card.id), ['candidate:q']);
+  assert.deepEqual(columns[1].cards.map(card => card.id).sort(), ['candidate:f', 'candidate:old', 'candidate:r']);
+  const byId = new Map(columns[1].cards.map(card => [card.id, card]));
+  assert.equal(byId.get('candidate:r').statusLine, '找完了，等你点「做这件」');
+  assert.equal(byId.get('candidate:r').roughProfit.label, '粗算 约 ¥12.00/件');
+  assert.equal(byId.get('candidate:f').statusLine, '正式利润没过线');
+  assert.match(byId.get('candidate:f').waitingLine, /离门槛还差每件 ¥4\.80.*换货源、改售价，或者不做/u);
+  // 老商品没走录入、也没决定过：不算在等主人，不涌进「需要你处理」。
+  assert.equal(byId.get('candidate:old').statusLine, '还没决定做不做');
+  assert.equal(byId.get('candidate:old').waitingLine, null);
+  const inbox = inboxItems(candidates, 'miska');
+  assert.deepEqual(inbox.map(item => item.id).sort(), ['candidate:f', 'candidate:r']);
+  const ready = inbox.find(item => item.id === 'candidate:r');
+  assert.deepEqual(ready.reasons, ['找完了，看同款、货源和粗算，决定做不做这件']);
+  assert.deepEqual(ready.action, { key: 'open', label: '去确认' });
+  assert.equal(inbox.find(item => item.id === 'candidate:f').action.label, '去选怎么办');
+});
+
+test('进行中把卡住的显示出来：排队第几、整条队停着、插件没连上、停在哪一步、没货源、B 之后的技术停下', () => {
+  const intake = stage => ({ stage, sourceKind: 'pinduoduo' });
+  const candidates = [
+    candidate('candidate:q1', { workflowStatus: 'awaiting_user_direction', intake: intake('queued') }),
+    candidate('candidate:q2', { workflowStatus: 'awaiting_user_direction', intake: intake('reading_source') }),
+    candidate('candidate:gone', { workflowStatus: 'awaiting_user_direction', intake: { stage: 'blocked', sourceKind: 'pinduoduo',
+      blocker: { code: 'source_delisted', scope: 'item', retryable: false, message: '货源已经下架了，换一个货源，或者不做这件' } } }),
+    candidate('candidate:late', { workflowStatus: 'awaiting_user_direction', intake: { stage: 'blocked', sourceKind: 'pinduoduo',
+      blocker: { code: 'presale_too_late', scope: 'item', retryable: false, message: '货源是预售，发货比店铺档案里允许的晚' } } }),
+    candidate('candidate:nosrc', { workflowStatus: 'codex_processing' }),
+    candidate('candidate:ext', { executionRuntime: { businessPhase: 'C1', status: 'blocked', technicalFailure: { kind: 'external_dependency' } } }),
+    candidate('candidate:unk', { executionRuntime: { businessPhase: 'D', status: 'blocked', technicalFailure: { kind: 'unknown_outcome' } } }),
+    candidate('candidate:exc', { executionRuntime: { businessPhase: 'B', status: 'blocked', exceptionCase: { status: 'open' } } })
+  ];
+  const queue = { items: [
+    { candidateId: 'candidate:q1', stage: 'queued', queue: { position: 2, total: 3 }, batch: { position: 3, total: 8 } },
+    { candidateId: 'candidate:q2', stage: 'reading_source', queue: null, batch: null }
+  ], pause: { code: 'slider_required', message: '要你在自己的 Chrome 里拖一下滑块，过了再点「接着找」' }, extension: { online: true } };
+  const cards = new Map(boardColumns(candidates, 'miska', { intakeQueue: queue }).flatMap(column => column.cards).map(card => [card.id, card]));
+  assert.equal(cards.get('candidate:q1').positionLine, '第 3 / 8 条 · 排第 2 / 3');
+  assert.equal(cards.get('candidate:q1').statusLine, '排队中');
+  assert.match(cards.get('candidate:q1').stuckLine, /^整条队先停着：要你在自己的 Chrome 里拖一下滑块/u);
+  assert.equal(cards.get('candidate:q2').statusLine, '正在读货源页');
+  assert.equal(cards.get('candidate:q2').stuck, true);
+  // 卡住的给一个按钮：整条队停着点「接着找」，在等你的点「去处理」。
+  assert.deepEqual(cards.get('candidate:q1').action, { key: 'resume', label: '接着找' });
+  assert.deepEqual(cards.get('candidate:gone').action, { key: 'open', label: '去处理' });
+  assert.equal(cards.get('candidate:ext').action, null);
+  // 没连上插件、没有整页暂停时，在跑的说插件没连上。
+  const offline = boardColumns(candidates, 'miska', { intakeQueue: { ...queue, pause: null, extension: { online: false } } })[0].cards;
+  assert.equal(offline.find(card => card.id === 'candidate:q2').stuckLine, '插件没连上，这件排着等，什么都不会丢');
+  // 停下来的：等你那一行已经说了原因，卡仍标成卡住。
+  assert.equal(cards.get('candidate:gone').stuck, true);
+  assert.match(cards.get('candidate:gone').waitingLine, /^货源已经下架了/u);
+  assert.equal(cards.get('candidate:late').stuckLine, '货源是预售，发货比店铺档案里允许的晚');
+  const retry = boardColumns([candidate('candidate:unread', { workflowStatus: 'awaiting_user_direction', dataRevision: 7,
+    intake: { stage: 'blocked', sourceKind: 'pinduoduo', blocker: { code: 'unknown_outcome', scope: 'item', retryable: true, message: '没等到结果' } } })], 'miska');
+  assert.deepEqual(retry[0].cards[0].action, { key: 'retry', label: '核实', dataRevision: 7 });
+  assert.equal(cards.get('candidate:nosrc').stuckLine, '没有货源：还没有货源');
+  assert.equal(cards.get('candidate:ext').stuckLine, '外部服务不可用，已停下');
+  assert.equal(cards.get('candidate:unk').stuckLine, '结果未知，要先核对，不会自动重做');
+  assert.equal(cards.get('candidate:exc').stuckLine, '需要技术维护，异常已记下');
+  // 不在跑、没卡住的，不标卡住。
+  const calm = boardColumns([candidate('candidate:ok', { executionRuntime: { businessPhase: 'C1', status: 'running' } })], 'miska');
+  assert.equal(calm[2].cards[0].stuck, false);
+});
+
+test('进行中的名字先用中文，同一件货的几个颜色合成一张卡，不另算价', () => {
+  const choices = [{ sourceSkuId: '11', attributes: { 颜色: '卡其' } }, { sourceSkuId: '12', attributes: { 颜色: '黑色' } },
+    { sourceSkuId: '13', attributes: { 颜色: '粉色' } }];
+  const parent = candidate('candidate:vest', { productName: 'Жилет для кошки', executionRuntime: { businessPhase: 'C1', status: 'running' },
+    sourceCapture: { title: '猫咪背心 宠物衣服', selectedSkuIds: ['11'], skuChoices: choices } });
+  const sibling = (id, sku, runtime) => candidate(id, { productName: `原商品同款：Жилет · 供应商原色 x · SKU ${sku}`,
+    siblingSourceV1: { parentCandidateId: 'candidate:vest', supplierSkuId: sku, salesSnapshotId: 'snapshot:parent' },
+    sourceCapture: { title: '猫咪背心 宠物衣服', selectedSkuIds: [], skuChoices: choices }, executionRuntime: runtime });
+  const candidates = [parent,
+    sibling('candidate:black', '12', { businessPhase: 'C1', status: 'blocked', technicalFailure: { kind: 'known_technical_failure' } }),
+    sibling('candidate:pink', '13', { businessPhase: 'D', status: 'waiting_owner' }),
+    candidate('candidate:ru', { productName: 'Органайзер', sourceCapture: { title: '桌面收纳盒' } }),
+    candidate('candidate:translated', { productName: 'Коврик', aDiscoveryEvidenceV2: { marketProductId: '2107989735' } })];
+  const view = viewOf(batchEntry({ products: [product('2107989735', { titleZh: '合成中文标题' })] }));
+  const columns = boardColumns(candidates, 'miska', { discoveryView: view });
+  const copy = columns.find(column => column.key === 'prepare');
+  assert.equal(copy.count, 2, '列上的数字数的是商品，不是卡');
+  assert.equal(copy.cards.length, 1);
+  const vest = copy.cards[0];
+  assert.equal(vest.id, 'candidate:vest');
+  assert.equal(vest.title, '猫咪背心 宠物衣服');
+  assert.deepEqual(vest.members, [{ id: 'candidate:vest', dataRevision: null, label: '卡其', statusLine: '软件在做' },
+    { id: 'candidate:black', dataRevision: null, label: '黑色', statusLine: '已停下' }]);
+  assert.equal(vest.stuckLine, '黑色：技术失败，已安全停下');
+  assert.equal(vest.elsewhereLine, '同一件货另有颜色在：待上架 1 个');
+  const pink = columns.find(column => column.key === 'publish').cards[0];
+  assert.equal(pink.title, '猫咪背心 宠物衣服');
+  assert.equal(pink.elsewhereLine, '同一件货另有颜色在：准备中 2 个');
+  // 卡上不显示价格：各色按原商品定价时的那份销售快照算，不在这里另算。
+  assert.equal(JSON.stringify(columns).includes('₽'), false);
+  const titles = new Map(columns.flatMap(column => column.cards).map(card => [card.id, card.title]));
+  assert.equal(titles.get('candidate:ru'), '桌面收纳盒');
+  assert.equal(titles.get('candidate:translated'), '合成中文标题');
 });
 
 test('需要你处理只列出真的在等你的商品，并保留其余缺口数量', () => {
@@ -139,10 +269,10 @@ test('需要你处理只列出真的在等你的商品，并保留其余缺口�
   // Owner feedback 2026-09-11: a row has to say what it is waiting for, read from this product's own records —
   // 找货 not filled in yet comes first, then the platform's own asks, in that order.
   assert.deepEqual(items[0], { id: 'candidate:a', dataRevision: null, title: '合成商品 candidate:a', imageUrl: '',
-    storeLabel: 'Miska', statusLine: '选品处理', need: '找货还没填', moreNeeds: 2,
+    storeLabel: 'Miska', statusLine: '待确认 · 还没决定做不做', family: 'candidate:a', colour: null, need: '找货还没填', moreNeeds: 2,
     reasons: ['找货还没填', '补一个1688链接', '补重量'], action: { key: 'draft', label: '去填找货' } });
   assert.equal(items[1].moreNeeds, 1);
-  assert.equal(items[1].statusLine, '待上架准备');
+  assert.equal(items[1].statusLine, '准备中 · 状态还没记录');
 });
 
 test('点数一行和查询时间只在已保存结果里有时才出现，不要的理由固定五个', () => {
@@ -170,6 +300,39 @@ test('newRoundPlan explains one click before anything is created and refuses whe
   assert.equal(newRoundPlan(running, 'miska').ready, false); assert.match(newRoundPlan(running, 'miska').reason, /在进行/);
   assert.equal(newRoundPlan({ ...base, canPrepare: false }, 'miska').ready, false);
   assert.equal(newRoundPlan({ ...base, bindings: [] }, 'miska').ready, false);
+});
+
+test('付费查询保留服务端的具体配置阻塞，过期依据不冒充没配置方向，也不改写历史', () => {
+  const cases = [
+    ['PLAN_NOT_CONFIGURED', /还没有配置.*方向/u],
+    ['CONNECTOR_NOT_CONFIGURED', /连接器/u],
+    ['SERVICE_NOT_CONFIGURED', /可执行的服务/u],
+    ['PLAN_NOT_SUPPORTED', /不支持/u],
+    ['EVIDENCE_UNAVAILABLE', /依据没有找到/u],
+    ['EVIDENCE_UNVERIFIED', /还没有核验/u],
+    ['EVIDENCE_REVOKED', /已撤销/u],
+    ['EVIDENCE_SUPERSEDED', /被新版本替代/u],
+    ['EVIDENCE_NOT_EFFECTIVE', /尚未生效/u],
+    ['EVIDENCE_EXPIRED', /依据已过期.*不会自动续期/u],
+    ['EVIDENCE_AMBIGUOUS', /相互冲突/u],
+    ['EVIDENCE_INVALID', /不一致/u],
+    ['NEW_CONFIGURATION_FAILURE', /NEW_CONFIGURATION_FAILURE.*维护人员核对/u],
+    ['__proto__', /__proto__.*维护人员核对/u]
+  ];
+  for (const [code, reason] of cases) {
+    const blocked = { ...viewOf(batchEntry()), canPrepare: false, plans: [],
+      bindings: [{ bindingId: 'binding:x', configurationVersion: 'version:1' }], configurationBlockers: [code] };
+    const before = structuredClone(blocked);
+    const result = newRoundPlan(blocked, 'miska');
+    assert.equal(result.ready, false, code);
+    assert.equal(result.plan, null, code);
+    assert.equal(result.resume, null, code);
+    assert.match(result.reason, reason, code);
+    assert.deepEqual(blocked, before, '展示阻塞不续期、不建批次、不修改已有作业');
+  }
+  const multiple = newRoundPlan({ configurationBlockers: ['EVIDENCE_EXPIRED', 'SERVICE_NOT_CONFIGURED', 'EVIDENCE_EXPIRED'] }, 'miska');
+  assert.equal(multiple.reason.match(/依据已过期/gu).length, 1);
+  assert.match(multiple.reason, /可执行的服务/u);
 });
 
 const orphanEntry = ({ batchId = 'a-discovery-batch:orphan', createdAt = '2026-09-10T04:00:00.000Z',
@@ -459,4 +622,20 @@ test('采到1688页面还没选规格、或采集已停止的商品，即使没�
   assert.deepEqual(new Set(items.map(item => item.id)), new Set(['candidate:sku', 'candidate:failed']));
   assert.equal(items.find(item => item.id === 'candidate:sku').action.key, 'sku');
   assert.equal(items.find(item => item.id === 'candidate:failed').action.key, 'capture');
+});
+
+test('做这件之后软件停下来等你的，进「需要你处理」，理由照搬软件停下的原话；软件还在做的不算等你', () => {
+  const autopilot = (status, extra = {}) => candidate(`candidate:${status}`, { workflowStatus: 'listing_preparation',
+    gate1AutopilotView: { status, line: `${status} 那一句`, stops: [], moreStops: 0, ...extra } });
+  const waiting = autopilot('waiting_owner', { stops: [{ code: 'c1_material_gap', line: '还没有保存这件商品的品牌与权利声明，这一步只能你来签' },
+    { code: 'c1_material_gap', line: '必填属性「类型」仍需核对' }], moreStops: 1 });
+  assert.deepEqual(ownerAttentionReasons(waiting), { reasons: ['还没有保存这件商品的品牌与权利声明，这一步只能你来签', '必填属性「类型」仍需核对', '还有 1 项，打开看'],
+    action: { key: 'open', label: '打开' } });
+  assert.deepEqual(ownerAttentionReasons(autopilot('failed')).reasons, ['failed 那一句']);
+  const items = inboxItems([waiting, autopilot('failed'), autopilot('ready'), autopilot('running'), autopilot('working')], 'miska');
+  assert.deepEqual(items.map(item => item.id).sort(), ['candidate:failed', 'candidate:ready', 'candidate:waiting_owner']);
+  // 进行中看板上，软件停下来等你的那一句就是卡片下面「等你」那一行；软件还在做的，那一行是空的。
+  const cards = boardColumns([waiting, autopilot('running')], 'miska').flatMap(column => column.cards);
+  assert.equal(cards.find(card => card.id === 'candidate:waiting_owner').waitingLine, '还没有保存这件商品的品牌与权利声明，这一步只能你来签');
+  assert.equal(cards.find(card => card.id === 'candidate:running').waitingLine, null);
 });

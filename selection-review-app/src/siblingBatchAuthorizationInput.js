@@ -1,6 +1,16 @@
 import { productionAuthorizationInputFromCard } from './productionAuthorizationInput.js';
 import { siblingBatchReview } from './siblingBatchReview.js';
 
+/** Unsettled work remains occupied even when its evidence is no longer the current selection. */
+export function siblingBatchAccountReadBlocker(candidates) {
+  const reads = candidates.flatMap(candidate => candidate?.ozonAccountReadPreparation?.runtime ?? []);
+  if (reads.some(read => read.status === 'unknown_outcome')) return '本批账户请求结果待核对，不能确认新的上架批次。';
+  if (reads.some(read => ['queued', 'claimed', 'waiting_platform'].includes(read.status))) {
+    return '本批账户核验尚未结束，请等待已授权读取完成后再核对最终上架。';
+  }
+  return null;
+}
+
 /** Compose a single owner decision from current server preparations only. */
 export function siblingBatchAuthorizationInput(parent, candidates, bindingId, options = {}) {
   if (typeof parent?.id !== 'string' || parent.id.trim() === '' ||
@@ -9,6 +19,8 @@ export function siblingBatchAuthorizationInput(parent, candidates, bindingId, op
   }
   const review = siblingBatchReview(parent, candidates);
   if (!review?.ready) return { ready: false, reason: '批次成员还有 A/B/C1/C2 或当前价格、库存缺项。', input: null };
+  const accountReadBlocker = siblingBatchAccountReadBlocker(review.rows.map(row => candidates.find(candidate => candidate.id === row.candidateId)));
+  if (accountReadBlocker !== null) return { ready: false, reason: accountReadBlocker, input: null };
   if (!['create_only', 'write_authorized_stock'].includes(options.inventoryAction)) {
     return { ready: false, reason: '请选择仅创建商品或写入已授权库存的明确范围。', input: null };
   }
@@ -35,9 +47,18 @@ export function siblingBatchAuthorizationInput(parent, candidates, bindingId, op
       bindingId: binding.bindingId, configurationVersion: binding.configurationVersion,
       merchantSku: commercial.merchantSku, confirmExactScope: true } });
   }
+  if (options.eVerificationMode !== undefined && options.eVerificationMode !== 'owner_media_review_in_sale') {
+    return {ready:false,reason:'E 核验范围无效，请刷新最终确认卡。',input:null};
+  }
+  const currentE=options.eVerificationMode==='owner_media_review_in_sale';
   return { ready: true, reason: '', input: { confirmAll: true,
     parentCandidateId: parent.id, parentRevision: parent.dataRevision,
     excludedOfferIds: [excluded], members,
-    postImportScope: { schemaVersion: 'd-batch-post-import-scope-v1', inventoryAction: options.inventoryAction,
-      eReadbackOfferIds: members.map(member => member.ownerInput.merchantSku) } } };
+    ...(currentE?{importLimitUse:{schemaVersion:'ozon-product-import-batch-limit-use-input-v1',
+      evidenceRef:'official:ozon-product-import-batch-limit:20261018',decision:'use_for_this_batch_once'}}:{}),
+    postImportScope: { schemaVersion: currentE?'d-batch-post-import-scope-v2':'d-batch-post-import-scope-v1', inventoryAction: options.inventoryAction,
+      eReadbackOfferIds: members.map(member => member.ownerInput.merchantSku),
+      ...(currentE?{inSaleList:{schemaVersion:'ozon-in-sale-list-authorization-v1',
+        decision:'read_store_in_sale_list_for_batch',officialEvidenceRef:'official:ozon-in-sale-list:20261018',
+        policy:{pageSize:1000,maxPages:3,requestTimeoutMs:30000,durationMs:90000}}}:{}) } } };
 }

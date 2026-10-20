@@ -1,14 +1,39 @@
+import { readCompletedOzonAccountReadSource } from './ozon-account-read-evidence.mjs';
+import { ozonAccountReadCoordinationState, ozonAccountReadProductionBlocker, ozonAccountReadRefreshProductionBusy } from './ozon-account-read-coordination.mjs';
 import { createOzonAccountReadRuntime } from './ozon-account-read-runtime.mjs';
-import { assertOzonAccountReadReceipt, OzonAccountReadError } from './ozon-account-read-contract.mjs';
+import { isDeepStrictEqual } from 'node:util';
+import { assertOzonAccountReadReceipt, assertOzonAccountReadScope, readOzonAccountReadTerminal, completedOzonAccountReadEvidenceExpiresAt,
+  OzonAccountReadError } from './ozon-account-read-contract.mjs';
 import { createOzonAccountReadBindingResolver, buildOzonAccountReadPreparation, currentOzonAccountReadJobs,
-  accountReadBindingForProduction } from './ozon-account-read-preparation.mjs';
+  accountReadBindingForProduction, sameAccountReadRouting, validOzonAccountReadRevisions } from './ozon-account-read-preparation.mjs';
 import { assertOzonDEPreflightEvidenceScope, inspectOzonDEPreflightCapabilities, OzonDEPreflightEvidenceError } from './ozon-de-preflight-provider.mjs';
 import { buildDESavedJobRuntimeView } from './d-e-runtime-view.mjs';
 import { createDPlatformObservationPolicyResolver } from './runtime-configuration.mjs';
 import { validateSoftwareJobAdmission } from './software-job-admission.mjs';
-import { softwareJobsInDocument } from './software-job-contract.mjs';
+import { softwareJobsInDocument, SOFTWARE_JOB_STATUSES } from './software-job-contract.mjs';
 import { currentDProductionRound } from './d-e-software-job-handoff.mjs';
 import { fingerprintCanonicalRecord } from './production-contract-primitives.mjs';
+import { assertValidProductionAuthorization } from './production-authorization.mjs';
+import { assertCurrentProductionExecutionBinding } from './platform-write-preflight.mjs';
+import { isCompleteStoreRef, sameStoreRef } from './store-binding.mjs';
+import {supportedBatchVersion,supportsPostImportBatch,assertDBatchPostImportScope} from './d-batch-production-contract.mjs';
+import { projectDBatchExecutionView } from './d-batch-execution-view.mjs';
+
+const text = value => typeof value === 'string' && value.trim().length > 0;
+const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const fail = code => { throw new OzonAccountReadError(code); };
+
+function productionBatches(document) {
+  if (!Array.isArray(document.candidates) || !object(document.runtime) ||
+      Object.hasOwn(document.runtime, 'dProductionBatches') && !Array.isArray(document.runtime.dProductionBatches)) fail('REPOSITORY_INVALID');
+  const batches = document.runtime.dProductionBatches ?? [];
+  if (batches.some(batch => !object(batch) || !Array.isArray(batch.members))) fail('REPOSITORY_INVALID');
+  return batches;
+}
+
+function batchesForCandidate(document, candidateId) {
+  return productionBatches(document).filter(batch => batch.members.some(member => member.candidateId === candidateId));
+}
 
 function scopeFor(candidate, binding) {
   const authorization = candidate.lifecycleV11.skuPackage.productionAuthorization, locked = authorization.lockedScope;
@@ -42,7 +67,7 @@ export function createOzonAccountReadServices({ configuration, repository, worke
       worker: { workerId: binding.workerId, version: binding.workerVersion, leaseDurationMs: binding.leaseDurationMs },
       loadCurrentReadBinding, requestJson }));
   }
-  function savedReads(document, candidateId) {
+  function savedReads(document, candidateId, { routingBlocker = null } = {}) {
     const hasRuntime = Object.hasOwn(document, 'runtime');
     const runtime = hasRuntime ? document.runtime : {};
     if (runtime === null || typeof runtime !== 'object' || Array.isArray(runtime) ||
@@ -57,20 +82,28 @@ export function createOzonAccountReadServices({ configuration, repository, worke
     const candidate = document.candidates.find(value => value.id === candidateId);
     if (!candidate?.lifecycleV11?.skuPackage || candidate.targetPlatform !== 'ozon') return [];
     const candidateJobs = jobs.filter(job => job.jobType === 'ozon_account_read' && job.candidateId === candidateId);
-    const relevantBindings = configuration.productionBindings.filter(production => candidateJobs.some(job =>
-      job.scopeBinding.bindingId === production.bindingId && job.scopeBinding.configurationVersion === production.configurationVersion));
+    const relevantBindings = routingBlocker === null ? configuration.productionBindings.filter(production => candidateJobs.some(job =>
+      job.scopeBinding.bindingId === production.bindingId && job.scopeBinding.configurationVersion === production.configurationVersion)) : [];
     const currentIds = new Set(relevantBindings.flatMap(production => {
       const binding = loadCurrentReadBinding({ document, candidateId, skuPackageId: candidate.lifecycleV11.skuPackage.skuPackageId,
         bindingId: production.bindingId, configurationVersion: production.configurationVersion });
       return binding === null ? [] : currentOzonAccountReadJobs({ document, candidate, binding }).slice(0, 1).map(job => job.jobId);
     }));
+    const checkedAt = serverClock();
+    const unresolved = ozonAccountReadProductionBlocker(ozonAccountReadCoordinationState({ document, candidateIds: [candidateId] }));
+    let productionBusy;
     return candidateJobs.map(job => {
       const receipt = runtime.ozonAccountReadReceipts?.[job.jobId];
       if (runtime.ozonAccountReadReceipts && Object.hasOwn(runtime.ozonAccountReadReceipts, job.jobId)) {
         assertOzonAccountReadReceipt(receipt, job);
       }
-      const isCurrent = currentIds.has(job.jobId), expired = Date.parse(serverClock()) >= Date.parse(job.scopeBinding.expiresAt);
-      let admissionBlocker = null;
+      const isCurrent = currentIds.has(job.jobId), expired = Date.parse(checkedAt) >= Date.parse(job.scopeBinding.expiresAt);
+      const completed = job.status === 'completed' ? readCompletedOzonAccountReadSource(document, job.jobId) : null;
+      const evidenceExpiresAt = completed === null ? null : completedOzonAccountReadEvidenceExpiresAt(completed.receipt);
+      const refreshDue = isCurrent && evidenceExpiresAt !== null && Date.parse(checkedAt) >= Date.parse(evidenceExpiresAt);
+      if (refreshDue && productionBusy === undefined) productionBusy = ozonAccountReadRefreshProductionBusy({ document, candidateId });
+      const canRefresh = refreshDue && routingBlocker === null && unresolved === null && !productionBusy && services.has(job.scopeBinding.bindingId);
+      let admissionBlocker = routingBlocker;
       if (isCurrent && !expired && job.status === 'queued' && job.revision === candidate.dataRevision) {
         try { validateSoftwareJobAdmission({ document, job, observedAt: serverClock(), phase: 'claim', workerId:
           configuration.ozonAccountReadServiceBindings.find(value => value.productionBindingId === job.scopeBinding.bindingId)?.workerId ?? null }); }
@@ -80,7 +113,7 @@ export function createOzonAccountReadServices({ configuration, repository, worke
         }
       }
       return { jobId: job.jobId, status: job.status, expectedRevision: job.revision, bindingId: job.scopeBinding.bindingId,
-        isCurrent, expired, admissionBlocker,
+        isCurrent, expired, admissionBlocker, evidenceExpiresAt, canRefresh,
         configurationVersion: job.scopeBinding.configurationVersion, createdAt: job.createdAt,
         requestsSent: receipt?.steps.some(step => step.requestTransmission === 'unknown') ? 'unknown'
           : receipt ? receipt.steps.filter(step => step.requestTransmission !== 'not_attempted').length : 0,
@@ -122,7 +155,131 @@ export function createOzonAccountReadServices({ configuration, repository, worke
     if (capabilities.gaps.some(gap => gap.code !== 'asset_transport_not_verified')) {
       return { status: 'account_evidence_gaps', externalRequests: 0, platformWrites: 0, gaps: capabilities.gaps };
     }
-    return deRuntimeServices.continueSavedCurrent(input);
+    try {
+      return await deRuntimeServices.continueSavedCurrent(input, {
+        accountReadState: ozonAccountReadCoordinationState({ document, candidateIds: [candidate.id] }) });
+    } catch (error) {
+      if (error?.constructor !== Error || !['SOFTWARE_JOB_ADMISSION_ACCOUNT_READ_BLOCKED',
+        'SOFTWARE_JOB_ADMISSION_ACCOUNT_READ_CHANGED', 'SOFTWARE_JOB_ADMISSION_ACCOUNT_EVIDENCE_NOT_CURRENT'].includes(error.message)) throw error;
+      return { status: 'account_read_incomplete', reasonCode: error.message, externalRequests: 0, platformWrites: 0 };
+    }
+  }
+  function authorizedBatchSources(document, batchId) {
+    const batches = productionBatches(document), matches = batches.filter(batch => batch.batchId === batchId);
+    if (!text(batchId) || matches.length !== 1) fail('BATCH_NOT_UNIQUE');
+    const batch = matches[0], members = batch.members;
+    if (!supportedBatchVersion(batch.schemaVersion) ||
+        members.length === 0 || members.length > 100 || !text(batch.ownerActorId) || !Number.isFinite(Date.parse(batch.confirmedAt)) ||
+        !isCompleteStoreRef(batch.storeRef, batch.storeRef?.stableStoreId) ||
+        !Array.isArray(batch.excludedOfferIds) || batch.excludedOfferIds.length !== 1 || batch.excludedOfferIds.some(value => !text(value)) ||
+        new Set(batch.excludedOfferIds).size !== batch.excludedOfferIds.length ||
+        members.some(member => !object(member) || ['candidateId', 'skuPackageId', 'offerId', 'authorizationId', 'authorizationFingerprint']
+          .some(field => !text(member[field])) || !Number.isSafeInteger(member.sourceRevision) || member.sourceRevision < 0 ||
+          member.resultRevision !== member.sourceRevision + 1 || batch.excludedOfferIds.includes(member.offerId)) ||
+        ['candidateId', 'skuPackageId', 'offerId', 'authorizationId'].some(field => new Set(members.map(member => member[field])).size !== members.length)) {
+      fail('BATCH_SOURCE_CHANGED');
+    }
+    if(supportsPostImportBatch(batch.schemaVersion)){
+      try{assertDBatchPostImportScope(batch.postImportScope,members.map(member=>member.offerId),batch.schemaVersion);}
+      catch(error){
+        if(error?.constructor===Error&&['D_BATCH_POST_IMPORT_SCOPE_INVALID',
+          'D_BATCH_IN_SALE_LIST_AUTHORIZATION_INVALID'].includes(error.message))fail('BATCH_SOURCE_CHANGED');
+        throw error;
+      }
+    }
+    const jobs = softwareJobsInDocument({ runtime: { ...document.runtime } });
+    const candidateIds = new Set(members.map(member => member.candidateId)), candidates = new Map();
+    for (const candidate of document.candidates) {
+      if (!candidateIds.has(candidate.id)) continue;
+      if (candidates.has(candidate.id)) fail('BATCH_SOURCE_CHANGED');
+      candidates.set(candidate.id, candidate);
+    }
+    const sources = members.map(member => {
+      const candidate = candidates.get(member.candidateId), sku = candidate?.lifecycleV11?.skuPackage;
+      const authorization = sku?.productionAuthorization;
+      if (!candidate || !authorization || candidate.dataRevision !== member.resultRevision || sku.skuPackageId !== member.skuPackageId ||
+          authorization.authorizationId !== member.authorizationId || fingerprintCanonicalRecord(authorization) !== member.authorizationFingerprint ||
+          authorization.sourceCandidateRevision !== member.sourceRevision || authorization.resultCandidateRevision !== member.resultRevision ||
+          authorization.authorizedByActorId !== batch.ownerActorId || authorization.authorizedAt !== batch.confirmedAt ||
+          authorization.lockedScope?.merchantSku !== member.offerId || authorization.lockedScope.supplierSkuId !== sku.supplierSkuId ||
+          candidate.targetPlatform !== 'ozon' || sku.targetPlatform !== 'ozon' || candidate.targetStore !== batch.storeRef.stableStoreId ||
+          sku.targetStore !== candidate.targetStore || !sameStoreRef(candidate.storeRef, batch.storeRef) ||
+          !sameStoreRef(authorization.lockedScope.storeRef, batch.storeRef) || batchesForCandidate(document, candidate.id).length !== 1) fail('BATCH_SOURCE_CHANGED');
+      if (sku.dHandoff?.softwareJobCreated === true || sku.dHandoff?.softwareJobRef ||
+          jobs.some(job => job.jobType === 'd_production_execution' &&
+            (job.candidateId === candidate.id || job.scopeBinding?.authorizationRef === member.authorizationId))) fail('BATCH_SINGLE_PRODUCTION_CONFLICT');
+      assertValidProductionAuthorization(authorization, { candidateId: candidate.id, candidateRevision: candidate.dataRevision,
+        skuPackage: sku, lifecycleState: 'persisted' });
+      const bindings = configuration.productionBindings.filter(value => value.bindingId === authorization.executionBinding.bindingId &&
+        value.configurationVersion === authorization.executionBinding.configurationVersion);
+      if (bindings.length !== 1) fail('BATCH_SOURCE_CHANGED');
+      const binding = bindings[0];
+      assertCurrentProductionExecutionBinding({ productionAuthorization: authorization, currentProductionBinding: binding, checkedAt: serverClock() });
+      const readBinding = accountReadBindingForProduction(configuration, binding);
+      if (readBinding === null) fail('BATCH_ACCOUNT_ROUTING_UNAVAILABLE');
+      const readServices = configuration.ozonAccountReadServiceBindings.filter(value => value.productionBindingId === binding.bindingId &&
+        value.productionConfigurationVersion === binding.configurationVersion);
+      if (readServices.length === 0) fail('BATCH_SERVICE_NOT_CONFIGURED');
+      if (readServices.length !== 1) fail('BATCH_SOURCE_CHANGED');
+      const currentBinding = loadCurrentReadBinding({ document, candidateId: candidate.id, skuPackageId: sku.skuPackageId,
+        bindingId: binding.bindingId, configurationVersion: binding.configurationVersion });
+      if (currentBinding === null || !sameAccountReadRouting(currentBinding, readBinding)) fail('BATCH_SOURCE_CHANGED');
+      const revisions = validOzonAccountReadRevisions({ document, candidate });
+      for (const job of jobs.filter(job => job.jobType === 'ozon_account_read' && job.candidateId === candidate.id &&
+        job.skuPackageId === sku.skuPackageId && revisions.includes(job.revision))) {
+        assertOzonAccountReadScope(job.scopeBinding, job);
+        if (job.scopeBinding.supplierSkuId !== sku.supplierSkuId ||
+            job.scopeBinding.bindingId === readBinding.bindingId && job.scopeBinding.configurationVersion === readBinding.configurationVersion &&
+            !sameAccountReadRouting(job.scopeBinding, readBinding)) fail('BATCH_SOURCE_CHANGED');
+      }
+      return { member, candidate, authorization, binding, readBinding, scope: scopeFor(candidate, binding) };
+    });
+    return { batch, sources };
+  }
+  function batchAccountReads(document, source) {
+    const receipts = document.runtime.ozonAccountReadReceipts;
+    if (receipts !== undefined && !object(receipts)) fail('REPOSITORY_INVALID');
+    return source.sources.map(value => {
+      const job = currentOzonAccountReadJobs({ document, candidate: value.candidate, binding: value.readBinding })[0] ?? null;
+      if (job === null) return { source: value, job, record: null };
+      if (!SOFTWARE_JOB_STATUSES.includes(job.status) || document.runtime.softwareJobs.filter(value => value.jobId === job.jobId).length !== 1) fail('JOB_SOURCE_CONFLICT');
+      const receipt = receipts?.[job.jobId];
+      if (receipts !== undefined && Object.hasOwn(receipts, job.jobId)) assertOzonAccountReadReceipt(receipt, job);
+      if (['completed', 'failed', 'unknown_outcome'].includes(job.status)) {
+        const terminal = readOzonAccountReadTerminal(receipt, job);
+        if (terminal.status !== job.status || terminal.externalRequestState !== job.externalRequestState) fail('JOB_SOURCE_CONFLICT');
+      }
+      // Validate completed sources even when another member is missing; a damaged
+      // grant or receipt is a source error, never a benign authorization wait.
+      const record = job.status === 'completed' ? evidenceSource.prospective({ document, scope: value.scope, jobId: job.jobId }) : null;
+      return { source: value, job, record };
+    });
+  }
+  async function continueAuthorizedBatch({ batchId }) {
+    const document = await repository.readSnapshot(), source = authorizedBatchSources(document, batchId);
+    const reads = batchAccountReads(document, source);
+    const members = reads.map(({ source: { member }, job, record }) => ({ candidateId: member.candidateId, skuPackageId: member.skuPackageId,
+      offerId: member.offerId, status: job === null ? 'awaiting_account_read' : job.status === 'completed' && Date.parse(serverClock()) >= Date.parse(record.collectedAt) && Date.parse(serverClock()) < Date.parse(record.expiresAt) ? 'completed' : 'account_read_incomplete',
+      jobId: job?.jobId ?? null, jobStatus: job?.status ?? null }));
+    if (members.some(member => member.status !== 'completed')) {
+      return { status: members.some(member => member.status === 'account_read_incomplete') ? 'account_read_incomplete' : 'awaiting_account_read',
+        batchId, members, externalRequests: 0, platformWrites: 0 };
+    }
+    for (const read of reads) await evidenceSource.publish({ scope: read.source.scope, jobId: read.job.jobId });
+    const currentDocument = await repository.readSnapshot(), current = authorizedBatchSources(currentDocument, batchId);
+    const currentReads = batchAccountReads(currentDocument, current);
+    if (currentReads.some(read => read.record === null || Date.parse(serverClock()) < Date.parse(read.record.collectedAt) ||
+      Date.parse(serverClock()) >= Date.parse(read.record.expiresAt)) || !isDeepStrictEqual(source.batch, current.batch) || !isDeepStrictEqual(reads.map(read => ({ scope: read.source.scope,
+      job: read.job, record: read.record })), currentReads.map(read => ({ scope: read.source.scope, job: read.job, record: read.record })))) fail('BATCH_SOURCE_CHANGED');
+    // The existing D service owns intent, send guards and unknown-outcome replay
+    // protection. Publishing read evidence grants no additional write authority.
+    try { return await deRuntimeServices.continueAuthorizedBatchImport({ batchId }); }
+    catch (error) {
+      if (error?.constructor !== Error || !['D_BATCH_IMPORT_ACCOUNT_READ_BLOCKED', 'D_BATCH_IMPORT_ACCOUNT_READ_CHANGED', 'D_BATCH_IMPORT_ACCOUNT_EVIDENCE_NOT_CURRENT'].includes(error.message)) throw error;
+      const executionView = projectDBatchExecutionView(await repository.readSnapshot(), batchId);
+      return { status: 'account_read_incomplete', batchId, members, reasonCode: error.message, executionView,
+        externalRequests: executionView.assetRequestTransmission === 'not_attempted' ? 0 : 'unknown', platformWrites: 0 };
+    }
   }
   async function continueAfterRead(candidateId, outcome) {
     if (outcome.status !== 'completed') return null;
@@ -131,8 +288,15 @@ export function createOzonAccountReadServices({ configuration, repository, worke
     // 账户核验完成后接续的是「当前这一轮」；主人重派过的话，第一轮早已停在终态。
     const job = authorization ? currentDProductionRound(document, { authorizationRef: authorization.authorizationId,
       authorizationFingerprint: fingerprintCanonicalRecord(authorization) }) : null;
-    if (!candidate || !job || job.status !== 'queued') return null;
-    return continueProduction({ candidateId, jobId: job.jobId, expectedRevision: candidate.dataRevision });
+    if (!candidate) return null;
+    const batches = batchesForCandidate(document, candidateId);
+    if (batches.length > 1) fail('BATCH_NOT_UNIQUE');
+    if (job !== null) {
+      if (batches.length !== 0) fail('BATCH_SINGLE_PRODUCTION_CONFLICT');
+      if (job.status !== 'queued') return null;
+      return continueProduction({ candidateId, jobId: job.jobId, expectedRevision: candidate.dataRevision });
+    }
+    return batches.length === 1 ? continueAuthorizedBatch({ batchId: batches[0].batchId }) : null;
   }
   // 视图与执行层必须读同一份策略来源：优先用调用方注入的那一个（正式服务注入的就是给 D 运行时的同一个），
   // 没注入才退回按当前配置构造。两处读法不一致会让「按钮说能继续、执行层说不能」这种自相矛盾出现。
@@ -219,9 +383,14 @@ export function createOzonAccountReadServices({ configuration, repository, worke
         d: { ...view.d, canContinueSaved: false, blockers: [...view.d.blockers, { code: invalidSource ? reason : 'OZON_ACCOUNT_EVIDENCE_REQUIRED', message }] } };
     },
     preparation({ candidate, document }) {
-      return buildOzonAccountReadPreparation({ candidate, configuration, runtimeView: savedReads(document, candidate.id) });
+      const preparation = buildOzonAccountReadPreparation({ candidate, configuration, runtimeView: [] });
+      const routingBlocker = preparation !== null && preparation.status === 'blocked' ? preparation.blocker.code : null;
+      // A damaged immutable production route blocks continuation, not visibility of the saved read history.
+      const runtime = savedReads(document, candidate.id, { routingBlocker });
+      return preparation === null ? null : { ...preparation, runtime };
     },
     continueProduction,
+    continueAuthorizedBatch,
     async authorizeAndRun({ actor, input }) {
       const service = services.get(input.bindingId);
       if (!service) throw new OzonAccountReadError('SERVICE_NOT_CONFIGURED');

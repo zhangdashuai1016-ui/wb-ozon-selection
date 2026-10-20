@@ -1,9 +1,9 @@
-import { inspectLifecycleEvidenceValidity, isLifecycleEvidenceValidityMetadataValid } from "./lifecycle-evidence-validity.mjs";
+import { GUOO_MAIN_QUOTE_CALCULATION_RULE_STATUS, inspectLifecycleEvidenceValidity, isLifecycleEvidenceValidityMetadataValid } from "./lifecycle-evidence-validity.mjs";
 import { resolveLifecycleBCostPolicy } from "./global-pricing-policy.mjs";
-import { GUOO_MAIN_QUOTE_CALCULATION_RULE_STATUS } from "./guoo-tariff-reader.mjs";
 import { isDeepStrictEqual } from "node:util";
 import { buildExpectedEvidenceScope, evidenceScopeMatches, normalizeEvidenceScope } from "./lifecycle-evidence-scope.mjs";
 import { isCompleteStoreRef, sameStoreRef } from "./store-binding.mjs";
+import { platformOfStore } from "./store-registry.mjs";
 import { validateSalesSnapshot } from "./sales-snapshot.mjs";
 
 export const LIFECYCLE_B_INPUT_BUNDLE_VERSION = "lifecycle-b-input-bundle-v1.2-cost-policy";
@@ -250,7 +250,7 @@ export function resolveLifecycleEvidenceContext(candidate) {
   const context = isObject(candidate?.lifecycleEvidenceContextV11)
     ? candidate.lifecycleEvidenceContextV11
     : {};
-  const platform = candidate.targetStore === "wb" ? "wb" : "ozon";
+  const platform = platformOfStore(candidate.targetStore) ?? "ozon";
   const explicitPlatform = nonEmptyString(context.platform) ? normalizedText(context.platform) : null;
   const explicitStore = nonEmptyString(context.store) ? normalizedText(context.store) : null;
   const targetStore = nonEmptyString(candidate.targetStore) ? normalizedText(candidate.targetStore) : null;
@@ -707,6 +707,11 @@ export function validateLifecycleBInputBundle(bundle, { candidate, normalizedSub
     bundle.platformFeeEvidence.officialCommissionBinding, {
       candidateId: bundle.sourceCandidateId, candidateRevision: bundle.sourceCandidateRevision
     })) errors.push(error("platformFeeEvidence.officialCommissionBinding", "官方费表绑定与冻结候选不一致"));
+  if (bundle.platformFeeEvidence?.commissionEvidenceMode === "official_reference" && normalizedSubmission?.targetSalePriceRub != null &&
+      (!Number.isFinite(normalizedSubmission.targetSalePriceRub) || normalizedSubmission.targetSalePriceRub <= 0 ||
+        bundle.platformFeeEvidence.officialCommissionBinding?.priceRub !== normalizedSubmission.targetSalePriceRub)) {
+    errors.push(error("platformFeeEvidence.officialCommissionBinding.priceRub", "官方费表绑定价必须与本次主人目标成交价完全一致"));
+  }
   if (bundle.platformFeeEvidence?.commissionEstimateAuthorization && !isCommissionEstimateAuthorizationForScope(
     bundle.platformFeeEvidence.commissionEstimateAuthorization, {
       candidateId: bundle.sourceCandidateId, candidateRevision: bundle.sourceCandidateRevision,

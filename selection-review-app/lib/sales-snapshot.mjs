@@ -2,6 +2,42 @@ export const SALES_SNAPSHOT_SCHEMA_VERSION = "sales-snapshot-v1.1";
 export const MOCK_OZON_COLLECTOR_VERSION = "mock-ozon-sales-snapshot-v1";
 export const REAL_OZON_COLLECTOR_VERSION = "real-ozon-sales-snapshot-v1";
 export const TERRA_AUXILIARY_DRAFT_VERSION = "terra-a-sales-draft-v1";
+// Shared DTO for auxiliary output. These hints cannot override observed facts.
+export const SALES_AUXILIARY_OUTPUT_SCHEMA = Object.freeze({
+  type: "object",
+  additionalProperties: false,
+  required: ["summary", "comparabilitySignals", "attributeHints"],
+  properties: {
+    summary: { type: "string", minLength: 1, maxLength: 1200 },
+    comparabilitySignals: {
+      type: "array", maxItems: 12,
+      items: { type: "string", minLength: 1, maxLength: 300 }
+    },
+    attributeHints: {
+      type: "array", maxItems: 30,
+      items: {
+        type: "object", additionalProperties: false,
+        required: ["field", "value", "evidenceRef"],
+        properties: {
+          field: { type: "string", minLength: 1, maxLength: 120 },
+          value: { type: "string", minLength: 1, maxLength: 500 },
+          evidenceRef: { type: "string", minLength: 1, maxLength: 300 }
+        }
+      }
+    }
+  }
+});
+
+export function isSalesAuxiliaryAttributeHint(value) {
+  const schema = SALES_AUXILIARY_OUTPUT_SCHEMA.properties.attributeHints.items;
+  return value !== null && typeof value === "object" && !Array.isArray(value) &&
+    Object.keys(value).length === schema.required.length && schema.required.every(key => {
+      const { minLength, maxLength } = schema.properties[key];
+      if (!Object.hasOwn(value, key) || typeof value[key] !== "string" || value[key].length > maxLength * 2) return false;
+      const length = [...value[key]].length;
+      return length >= minLength && length <= maxLength;
+    });
+}
 export const OZON_COLLECTION_RESULT_VERSION = "ozon-sales-collection-result-v1";
 /**
  * A market snapshot derived from one already-saved Seerfar category-detail receipt. It is not a page read: every
@@ -20,6 +56,13 @@ export const SEERFAR_CATEGORY_DETAIL_SNAPSHOT_KEYS = Object.freeze([
 ]);
 const SEERFAR_MARKET_METRIC_KEYS = Object.freeze(["salesCount", "salesWindow", "revenue", "reviewCount", "reviewRating"]);
 export const UNKNOWN = "unknown";
+/**
+ * 查询结果里售价的币种从哪来。Seerfar 的商品记录不带币种（合同里 currency 固定是 null），所以新写的快照记成
+ * 「服务商没给」，币种保持 unknown。2026-10-13 之前写的快照记的是「按平台惯例当成卢布」——那是软件补的，
+ * 不是证据；这些旧快照原样保留、照样校验通过，但它们的卢布不算有证据的币种（见 salesSnapshotCurrencyEvidenced）。
+ */
+export const SEERFAR_PRICE_CURRENCY_UNREPORTED = "provider_unreported";
+export const SEERFAR_PRICE_CURRENCY_ASSUMED = "ozon_platform_currency";
 
 export function extractOzonProductId(value) {
   try {
@@ -110,8 +153,13 @@ function validateSeerfarCategoryDetailSnapshot(snapshot, errors) {
     push(errors, "collectorMode", "查询结果快照必须声明只读的品类查询采集模式");
   }
   if (snapshot.sellerType !== UNKNOWN) push(errors, "sellerType", "查询结果没有卖家身份证据，只能是unknown");
-  if (snapshot.priceCurrencySource !== "ozon_platform_currency") {
-    push(errors, "priceCurrencySource", "必须写明售价币种依据的是平台币种约定");
+  if (snapshot.priceCurrencySource === SEERFAR_PRICE_CURRENCY_UNREPORTED) {
+    if (snapshot.currency !== UNKNOWN) push(errors, "currency", "服务商没给币种时，币种只能是unknown");
+  } else if (snapshot.priceCurrencySource === SEERFAR_PRICE_CURRENCY_ASSUMED) {
+    // 旧快照：当时按平台惯例写成了 RUB。只认它原来的样子，不让新写入再走这条路以外的组合。
+    if (snapshot.currency !== "RUB") push(errors, "currency", "旧版按平台惯例记录的币种只能是RUB");
+  } else {
+    push(errors, "priceCurrencySource", "必须写明售价币种从哪来：服务商没给，或旧版按平台惯例记录");
   }
   const metrics = snapshot.marketMetrics;
   if (!isObject(metrics)) {
@@ -260,6 +308,15 @@ export function validateSalesSnapshot(snapshot) {
   if (snapshot.source === SEERFAR_CATEGORY_DETAIL_SOURCE) validateSeerfarCategoryDetailSnapshot(snapshot, errors);
   else if (snapshot.source !== undefined) push(errors, "source", "销售快照来源类型无效");
   return { valid: errors.length === 0, errors };
+}
+
+/**
+ * 这份快照的售价币种有没有证据：页面或接口明确给出的三位币种代码才算。unknown 不算；旧版 Seerfar 快照里
+ * 按平台惯例补上的 RUB 也不算——服务商自己没说。没有证据的币种不能当正式价格依据（A 确认、同款各色定价）。
+ */
+export function salesSnapshotCurrencyEvidenced(snapshot) {
+  if (!isObject(snapshot) || !/^[A-Z]{3}$/.test(String(snapshot.currency))) return false;
+  return snapshot.priceCurrencySource !== SEERFAR_PRICE_CURRENCY_ASSUMED;
 }
 
 export function attachTerraAuxiliaryDraft(snapshot, draft) {

@@ -1,19 +1,19 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { CredentialStoreError, createOsCredentialStore, isCredentialStorePlatformSupported } from "./credential-store.mjs";
+import { credentialStoreUsableIn } from "./server-secret-store.mjs";
 import { sameStoreRef, isCompleteStoreRef } from "./store-binding.mjs";
+import { assertInSaleListRequestBody } from './ozon-in-sale-list-observation.mjs';
 import { assertNoProductionSecrets, isCanonicalFrozenRef, fingerprintCanonicalRecord } from "./production-contract-primitives.mjs";
 import { OzonDEHttpTransportError, normalizeOzonDECredentialBindings, assertOzonDECredentialBinding,
   assertOzonDEProductionBindings, assertOzonAccountDiscoveryBindings, isOzonDEHttpClosedObject } from "./ozon-de-http-configuration.mjs";
 export { OzonDEHttpTransportError, normalizeOzonDECredentialBindings } from "./ozon-de-http-configuration.mjs";
 
-const execFileAsync = promisify(execFile);
 const officialOrigin = "https://api-seller.ozon.ru";
 const requestFields = ["platform", "store", "storeRef", "warehouseRef", "credentialAlias", "method", "endpoint", "body", "write", "executionKey"];
 const bodylessEndpoints = new Set(["/v1/roles", "/v1/seller/info"]);
 const accountReadEndpoints = new Set([...bodylessEndpoints, "/v2/warehouse/list"]);
 const beforeSendEndpoints = new Set([...accountReadEndpoints, "/v3/product/import", "/v1/product/import/info",
   "/v2/products/stocks", "/v4/product/info/attributes", "/v3/product/info/list", "/v5/product/info/prices",
-  "/v2/product/info/stocks-by-warehouse/fbs"]);
+  "/v2/product/info/stocks-by-warehouse/fbs", "/v3/product/list"]);
 const endpoints = new Map([
   ["/v3/product/import", true], ["/v1/product/import/info", false], ["/v2/products/stocks", true],
   ["/v4/product/info/attributes", false], ["/v3/product/info/list", false], ["/v5/product/info/prices", false],
@@ -33,22 +33,28 @@ function apiKey(value) {
   return value.trim();
 }
 
-/** Local development adapter only. Explicit injection replaces this boundary in a central runtime. */
-export async function readOzonDEKeychainSecret(binding, { signal, runtimeMode = "local_development", execFileImpl = execFileAsync, platform = process.platform } = {}) {
+/** This computer's OS store in local development; a central runtime passes the server's secret settings as credentialStore. */
+export async function readOzonDEKeychainSecret(binding, { signal, runtimeMode = "local_development", execFileImpl, platform = process.platform,
+  credentialStore } = {}) {
   assertOzonDECredentialBinding(binding);
-  if (runtimeMode !== "local_development" || platform !== "darwin") throw transportError("OZON_DE_CREDENTIAL_READER_UNAVAILABLE", { layer: "credential" });
-  if (typeof execFileImpl !== "function" || signal !== undefined && !(signal instanceof AbortSignal)) throw transportError("OZON_DE_HTTP_CONFIGURATION_INVALID");
+  if (!credentialStoreUsableIn(runtimeMode, credentialStore) || credentialStore === undefined && !isCredentialStorePlatformSupported(platform)) {
+    throw transportError("OZON_DE_CREDENTIAL_READER_UNAVAILABLE", { layer: "credential" });
+  }
+  if (execFileImpl !== undefined && typeof execFileImpl !== "function" || signal !== undefined && !(signal instanceof AbortSignal)) throw transportError("OZON_DE_HTTP_CONFIGURATION_INVALID");
   if (signal?.aborted) throw transportError("OZON_DE_HTTP_CANCELLED", { layer: "credential" });
-  let result;
+  const store = credentialStore ?? createOsCredentialStore({ platform, ...(execFileImpl ? { execFileImpl } : {}) });
+  let stdout;
   try {
-    result = await execFileImpl("/usr/bin/security", ["find-generic-password", "-w", "-s", binding.keychainService, "-a", binding.keychainAccount],
-      { encoding: "utf8", maxBuffer: 8 * 1024, timeout: 5000, signal });
+    stdout = await store.readSecret({ service: binding.keychainService, account: binding.keychainAccount }, { maxBuffer: 8 * 1024, timeout: 5000, signal });
   } catch (error) {
     if (programError(error)) throw error;
+    if (error instanceof CredentialStoreError && error.code === "credential_store_unavailable") {
+      throw transportError("OZON_DE_CREDENTIAL_READER_UNAVAILABLE", { layer: "credential" });
+    }
     // This process boundary deliberately excludes stdout, stderr, command arguments and the original error object.
     throw transportError(signal?.aborted ? "OZON_DE_HTTP_CANCELLED" : "OZON_DE_CREDENTIAL_READ_FAILED", { layer: "credential" });
   }
-  return apiKey(result?.stdout);
+  return apiKey(stdout);
 }
 
 function originFor(baseUrl, runtimeMode) {
@@ -156,6 +162,16 @@ export function createOzonDEHttpTransport({ productionBindings, credentialBindin
     if (!options || typeof options !== "object" || Array.isArray(options) || Object.keys(options).some(key => !["signal", "beforeRequestSend"].includes(key)) ||
         options.signal !== undefined && !(options.signal instanceof AbortSignal) || options.beforeRequestSend !== undefined &&
         (typeof options.beforeRequestSend !== "function" || !beforeSendEndpoints.has(scoped.endpoint))) throw transportError("OZON_DE_HTTP_REQUEST_INVALID", { layer: "request" });
+    if (scoped.endpoint === '/v3/product/list' &&
+        (typeof options.beforeRequestSend === 'function' || request.body.filter?.visibility === 'IN_SALE')) {
+      try { assertInSaleListRequestBody(request.body); }
+      catch (error) {
+        if (error?.constructor === Error && error.message === 'OZON_IN_SALE_LIST_REQUEST_BODY_INVALID')
+          throw transportError('OZON_DE_HTTP_REQUEST_INVALID',{layer:'request'});
+        throw error;
+      }
+      if (typeof options.beforeRequestSend !== 'function') throw transportError('OZON_DE_HTTP_REQUEST_INVALID',{layer:'request'});
+    }
     const signal = options.signal, controller = new AbortController(), deadlineAt = performance.now() + timeoutMs;
     let requestTransmission = "not_attempted", httpStatus = null, reader, runningBeforeSend = false;
     const errorFor = (code, layer) => transportError(code, { layer, requestTransmission, httpStatus,

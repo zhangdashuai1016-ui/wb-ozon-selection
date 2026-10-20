@@ -3,8 +3,14 @@ import { constants } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 
+// Versioned defaults are code inputs, distinct from the separately configured business data file.
+export const RUNTIME_PACKAGE_STATIC_DATA_FILES = Object.freeze([
+  "data/seerfar-selection/store-profiles.json", "data/seerfar-selection/season-calendar.json",
+  "data/platform-profiles/ozon.json", "data/platform-profiles/wb.json", "data/platform-mappings/wb-734.json"
+]);
 export const RUNTIME_PACKAGE_FILES = Object.freeze([
-  "server.mjs", "package.json", "scripts/launch-server.sh", "启动今日选品评审台.command"
+  "server.mjs", "package.json", "scripts/launch-server.sh", "启动今日选品评审台.command",
+  ...RUNTIME_PACKAGE_STATIC_DATA_FILES
 ]);
 // docs/contracts 是运行期真要读的官方合同证据：lib/ozon-de-protocol-catalog.mjs 在服务启动时就 readFile 它们，
 // 漏打包会让新版本根本起不来。r64 是靠手工补拷进去才活着的，这里把它纳入正式包。
@@ -148,6 +154,7 @@ export async function prepareRuntimePackage({ sourceDirectory, outputDirectory, 
       formatVersion: "selection-review-runtime-package-v1", status: "prepared",
       dependencyVersions, preparationNodeVersion: process.version, preparationPlatform: process.platform, preparationArchitecture: process.arch,
       persistentContentIncluded: false, installed: false, activated: false, startupVerified: false,
+      staticConfigurationFiles: [...RUNTIME_PACKAGE_STATIC_DATA_FILES],
       requiredLaunchEnvironment: ["SELECTION_REVIEW_DATA_FILE", "SELECTION_REVIEW_PORT"],
       persistentConfiguration: "Supply workflow map, store bindings and upload location separately when authorizing installation."
     };

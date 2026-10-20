@@ -12,7 +12,10 @@ import { assertDPlatformObservationScope } from './d-platform-observation-contra
 import { decodeAttempt } from './d-execution-request-codec.mjs';
 import { ozonProductionConnectionRequirements } from './ozon-production-strategy.mjs';
 import { STORE_IDENTITY_PATHS, canStoreIdentityPathAnchor } from './platform-write-preflight-contract.mjs';
-import { assertOzonProductImportBatchLimitEvidence } from './ozon-product-import-batch-limit.mjs';
+import { assertOzonProductImportBatchLimitEvidence, assertOzonProductImportBatchLimitFact,
+  assertOzonProductImportBatchLimitUse } from './ozon-product-import-batch-limit.mjs';
+import { D_BATCH_PRODUCTION_AUTHORIZATION_VERSION, supportsPostImportBatch,
+  assertDBatchPostImportScope } from './d-batch-production-contract.mjs';
 
 const scopeFields = ['candidateId','skuPackageId','supplierSkuId','authorizationId','sourceCandidateRevision','storeRef','warehouseRef','warehouseId','credentialAlias','bindingId','configurationVersion'];
 const inspectionFields = ['observedStore','observedStoreRef','storeIdentityStatus','storeIdentityEvidenceRef','permissionStatus','permissionEvidenceRef','connections','platformWritableFields','imagePermissionStatus','imagePermissionEvidenceRef','priceFieldCurrency','priceCurrencyEvidenceRef','risks'];
@@ -144,7 +147,7 @@ function batchEReadScope({candidate,productionBinding,batch,offerId}) {
   assertValidProductionAuthorization(authorization);
   const locked = authorization.lockedScope;
   const members = batch?.members?.filter(member => member.candidateId === candidate.id);
-  requireValue(batch?.schemaVersion === 'd-batch-production-authorization-v2' &&
+  requireValue(supportsPostImportBatch(batch?.schemaVersion) &&
     Array.isArray(batch.postImportScope?.eReadbackOfferIds) &&
     batch.postImportScope.eReadbackOfferIds.includes(offerId) &&
     members?.length === 1 && members[0].offerId === offerId &&
@@ -210,6 +213,14 @@ function unknownInspection(scope, preparationId, reason, systemError) {
     platformWritableFields:[],imagePermissionStatus:'unknown',imagePermissionEvidenceRef:evidenceRef,priceFieldCurrency:'unknown',priceCurrencyEvidenceRef:evidenceRef,
     risks:[{code:reason,message:systemError ? '持久账户证据校验失败，本轮停止' : '账户、权限或协议的当前持久证据不完整，本轮停止'}]};
 }
+function verifiedAssetTransport(assetTransport, authorization) {
+  safe(assetTransport);
+  requireValue(assetTransport?.status === 'verified' && assetTransport.mode === 'preapproved_stable_https' && ref(assetTransport.evidenceRef) &&
+    Array.isArray(assetTransport.resolvedAssets) && assetTransport.resolvedAssets.length === authorization.lockedScope.finalUploads.length &&
+    assetTransport.resolvedAssets.every((asset,index)=>asset.assetId === authorization.lockedScope.finalUploads[index].assetId) &&
+    resolveFinalUploads({finalUploads:authorization.lockedScope.finalUploads,adapterCapabilities:{status:'ready',assetTransport}}).status === 'ready', 'ASSET_RECEIPT_INVALID');
+  return structuredClone(assetTransport);
+}
 function assetEvidence(candidate, authorization) {
   const state = candidate.lifecycleV11.skuPackage.dAssetTransport;
   if (state === null || state === undefined || state.status !== 'verified' || state.continuationBlocked) return null;
@@ -218,15 +229,24 @@ function assetEvidence(candidate, authorization) {
     Date.parse(intent.persistedAt) <= Date.parse(intent.completedAt) && intent.candidateId === candidate.id && intent.skuPackageId === authorization.lockedScope.skuPackageId && intent.authorizationId === authorization.authorizationId &&
     intent.authorizationFingerprint === fingerprintProductionAuthorization(authorization) && validateProductionPlanAuthorizationBinding(intent.productionPlan,authorization).valid &&
     isDeepStrictEqual(intent.finalUploadAssetIds,authorization.lockedScope.finalUploads.map(asset=>asset.assetId)), 'ASSET_SCOPE_MISMATCH');
-  safe(state.assetTransport);
-  requireValue(state.assetTransport?.status === 'verified' && state.assetTransport.mode === 'preapproved_stable_https' && ref(state.assetTransport.evidenceRef) &&
-    Array.isArray(state.assetTransport.resolvedAssets) && state.assetTransport.resolvedAssets.length === authorization.lockedScope.finalUploads.length &&
-    state.assetTransport.resolvedAssets.every((asset,index)=>asset.assetId === authorization.lockedScope.finalUploads[index].assetId) &&
-    resolveFinalUploads({finalUploads:authorization.lockedScope.finalUploads,adapterCapabilities:{status:'ready',assetTransport:state.assetTransport}}).status === 'ready', 'ASSET_RECEIPT_INVALID');
-  return structuredClone(state.assetTransport);
+  return verifiedAssetTransport(state.assetTransport, authorization);
+}
+function batchAssetEvidence({proof,candidate,authorization,batch}) {
+  if (proof === null) return assetEvidence(candidate,authorization);
+  requireValue(closed(proof,['schemaVersion','recordId','batchId','candidateId','skuPackageId','sourceRevision',
+    'authorizationId','authorizationFingerprint','finalUploadAssetIds','storeRef','productionPlan','assetTransport']) &&
+    proof.schemaVersion === 'd-batch-asset-proof-v1' &&
+    proof.recordId === `d-batch-assets:${batch.batchId}:${candidate.id}` && proof.batchId === batch.batchId &&
+    proof.candidateId === candidate.id && proof.skuPackageId === authorization.lockedScope.skuPackageId &&
+    proof.sourceRevision === candidate.dataRevision && proof.authorizationId === authorization.authorizationId &&
+    proof.authorizationFingerprint === fingerprintProductionAuthorization(authorization) &&
+    sameStoreRef(proof.storeRef,batch.storeRef) && sameStoreRef(proof.storeRef,authorization.lockedScope.storeRef) &&
+    isDeepStrictEqual(proof.finalUploadAssetIds,authorization.lockedScope.finalUploads.map(asset=>asset.assetId)) &&
+    validateProductionPlanAuthorizationBinding(proof.productionPlan,authorization).valid, 'BATCH_ASSET_SCOPE_MISMATCH');
+  return verifiedAssetTransport(proof.assetTransport,authorization);
 }
 /** Shared pure capability projection; callers must verify the persisted source before using a record. */
-export function inspectOzonDEPreflightCapabilities({candidate,authorization,scope,record,reason,now}) {
+export function inspectOzonDEPreflightCapabilities({candidate,authorization,scope,record,reason,now,batch=null,batchAssetProof=null}) {
   const inspection = record?.inspection;
   const result = inspectAdapterCapabilities({store:scope.storeRef.stableStoreId,storeRef:scope.storeRef,warehouseRef:scope.warehouseRef,credentialAlias:scope.credentialAlias,warehouseId:scope.warehouseId,
     // verifiedVia 必须跟着身份一起往下走：丢了它，下游只能看见一个恒为 null 的 observedStoreRef，
@@ -236,7 +256,8 @@ export function inspectOzonDEPreflightCapabilities({candidate,authorization,scop
       observedStore:inspection.observedStore,observedStoreRef:inspection.observedStoreRef,verifiedVia:inspection.storeIdentityVia ?? 'platform_store_id',
       credentialAlias:scope.credentialAlias,evidenceRef:inspection.storeIdentityEvidenceRef},
     productImport:record?.protocols.productImport ?? null,inventoryWrite:record?.protocols.inventoryWrite ?? null,independentReadback:record?.protocols.independentReadback ?? null,
-    assetTransport:assetEvidence(candidate,authorization)});
+    assetTransport:batch === null ? assetEvidence(candidate,authorization) :
+      batchAssetEvidence({proof:batchAssetProof,candidate,authorization,batch})});
   const gaps = [...structuredClone(result.gaps)];
   if (record && !['ozon-de-preflight-evidence-v3','ozon-de-preflight-evidence-v4'].includes(record.schemaVersion)) gaps.push({code:'evidence_protocol_version_outdated',field:'accountEvidence',message:'旧版协议证据仅供历史读取，当前执行需要新版核验'});
   if (reason !== null) gaps.push({code:reason,field:'accountEvidence',message:'当前账户实证不可用'});
@@ -246,14 +267,21 @@ export function inspectOzonDEPreflightCapabilities({candidate,authorization,scop
       writeScope:authorization.lockedScope.allowedWriteFields.every(field=>inspection.platformWritableFields.includes(field))};
     for (const name of ozonProductionConnectionRequirements('seller_api').requiredConnections) checks[`${name}Connection`] = inspection.connections[name].status === 'connected';
     for (const [field, ready] of Object.entries(checks)) if (!ready) gaps.push({code:'account_inspection_not_ready',field,message:'当前账户实证不满足生产范围'});
+    for (const risk of inspection.risks) {
+      if (risk.code === 'account_warehouse_not_rfbs' || risk.code === 'account_warehouse_paused') {
+        gaps.push({code:risk.code,field:'warehouse',message:risk.message});
+      }
+    }
 }
 return gaps.length === 0 ? result : {...structuredClone(result),status:'not_ready',evidenceRef:null,gaps};
 }
 /** No network, credential reader, retry or write dependency exists in this provider. */
-export function createOzonDEPreflightProvider({readEvidence,serverClock,verifySourceSnapshot=null,loadBatchLimitEvidence=null}) {
+export function createOzonDEPreflightProvider({readEvidence,serverClock,verifySourceSnapshot=null,loadBatchLimitEvidence=null,loadBatchAssetProof=null,verifyInSaleListPermission=null}) {
   requireValue(typeof readEvidence === 'function' && typeof serverClock === 'function' &&
     (verifySourceSnapshot === null || typeof verifySourceSnapshot === 'function') &&
-    (loadBatchLimitEvidence === null || typeof loadBatchLimitEvidence === 'function'), 'DEPENDENCY_INVALID');
+    (loadBatchLimitEvidence === null || typeof loadBatchLimitEvidence === 'function') &&
+    (loadBatchAssetProof === null || typeof loadBatchAssetProof === 'function') &&
+    (verifyInSaleListPermission === null || typeof verifyInSaleListPermission === 'function'), 'DEPENDENCY_INVALID');
   async function read(scope, now) {
     try {
       const value = await readEvidence(structuredClone(scope));
@@ -268,10 +296,28 @@ export function createOzonDEPreflightProvider({readEvidence,serverClock,verifySo
       throw error;
     }
   }
-  return Object.freeze({
+  const provider={
+    async loadBatchInSaleListEvidence(input) {
+      requireValue(input.batch?.schemaVersion==='d-batch-production-authorization-v3'&&
+        input.batch.postImportScope?.schemaVersion==='d-batch-post-import-scope-v2'&&
+        input.batch.postImportScope.inSaleList?.decision==='read_store_in_sale_list_for_batch'&&
+        verifyInSaleListPermission!==null,'IN_SALE_SCOPE_NOT_AUTHORIZED');
+      const exact=await provider.loadBatchEReadEvidence(input);
+      const scope=batchEReadScope(input),{record,systemError}=await read(scope,exact.checkedAt);
+      requireValue(!systemError,'BATCH_E_READ_SOURCE_INVALID');
+      requireValue(record!==null,'IN_SALE_SOURCE_UNAVAILABLE');
+      const protocol=await verifyInSaleListPermission({record,scope,checkedAt:exact.checkedAt});
+      requireValue(protocol?.status==='verified'&&protocol.protocolVersion==='ozon-in-sale-list-v1'&&
+        protocol.endpoint==='/v3/product/list'&&ref(protocol.evidenceRef)&&
+        protocol.officialEvidenceRef===input.batch.postImportScope.inSaleList.officialEvidenceRef,
+      'IN_SALE_METHOD_NOT_GRANTED');
+      return Object.freeze({checkedAt:exact.checkedAt,capabilities:{...exact.capabilities,
+        inSaleListObservation:structuredClone(protocol)}});
+    },
     async loadBatchEReadEvidence(input) {
       const checkedAt=serverClock(),scope=batchEReadScope(input);
-      const {record}=await read(scope,checkedAt);
+      const {record,systemError}=await read(scope,checkedAt);
+      requireValue(!systemError,'BATCH_E_READ_SOURCE_INVALID');
       const inspection=record?.inspection,protocol=record?.protocols.independentReadback;
       // permissionStatus aggregates write methods too. The receipt-backed protocol status
       // is the exact role grant for all four independent read endpoints.
@@ -291,20 +337,37 @@ export function createOzonDEPreflightProvider({readEvidence,serverClock,verifySo
         evidenceRef:record.evidenceId,independentReadback:structuredClone(protocol)}});
     },
     async loadBatchMemberEvidence({candidate,productionBinding,batch,purpose='new_import'}) {
-      requireValue(['new_import','import_observation','stock_write'].includes(purpose), 'BATCH_EVIDENCE_PURPOSE_INVALID');
+      requireValue(['new_import','import_observation','stock_write','asset_transport'].includes(purpose), 'BATCH_EVIDENCE_PURPOSE_INVALID');
+      if (batch?.schemaVersion === D_BATCH_PRODUCTION_AUTHORIZATION_VERSION) {
+        assertDBatchPostImportScope(batch.postImportScope, batch.members.map(member => member.offerId), batch.schemaVersion);
+        assertOzonProductImportBatchLimitUse(batch.importLimitUse, { batch });
+      }
       const checkedAt = serverClock();
       const {scope,authorization} = inputScope({candidate,productionBinding,batch,
         job:{jobType:'d_batch_import',batchId:batch?.batchId}},checkedAt);
       const {record,reason,systemError} = await read(scope,checkedAt);
-      let capabilities = inspectOzonDEPreflightCapabilities({candidate,authorization,scope,record,reason,now:checkedAt});
+      const batchAssetProof = loadBatchAssetProof === null ? null :
+        await loadBatchAssetProof({candidate:structuredClone(candidate),batch:structuredClone(batch)});
+      let capabilities = inspectOzonDEPreflightCapabilities({candidate,authorization,scope,record,reason,now:checkedAt,batch,batchAssetProof});
       if (purpose === 'new_import') {
         requireValue(loadBatchLimitEvidence !== null, 'BATCH_LIMIT_SOURCE_REQUIRED');
-        const limit = assertOzonProductImportBatchLimitEvidence(await loadBatchLimitEvidence());
-        requireValue(Date.parse(checkedAt) >= Date.parse(limit.observedAt) &&
-          Date.parse(checkedAt) < Date.parse(limit.validUntil), 'BATCH_LIMIT_NOT_CURRENT');
-        capabilities = Object.freeze({...capabilities,productImport:Object.freeze({...capabilities.productImport,
-          maxItemsPerRequest:limit.maxItemsPerRequest,limitEvidenceRef:limit.evidenceRef,
-          limitObservedAt:limit.observedAt,validUntil:limit.validUntil})});
+        const loaded = await loadBatchLimitEvidence({ batch: structuredClone(batch) });
+        if (batch.schemaVersion === D_BATCH_PRODUCTION_AUTHORIZATION_VERSION) {
+          const limit = assertOzonProductImportBatchLimitFact(loaded);
+          const limitUse = assertOzonProductImportBatchLimitUse(batch.importLimitUse, { batch, checkedAt });
+          const productImport = {...capabilities.productImport};
+          delete productImport.validUntil;
+          capabilities = Object.freeze({...capabilities,productImport:Object.freeze({...productImport,
+            maxItemsPerRequest:limit.maxItemsPerRequest,limitEvidenceRef:limit.evidenceRef,
+            limitObservedAt:limit.observedAt,limitUse:structuredClone(limitUse)})});
+        } else {
+          const limit = assertOzonProductImportBatchLimitEvidence(loaded);
+          requireValue(Date.parse(checkedAt) >= Date.parse(limit.observedAt) &&
+            Date.parse(checkedAt) < Date.parse(limit.validUntil), 'BATCH_LIMIT_NOT_CURRENT');
+          capabilities = Object.freeze({...capabilities,productImport:Object.freeze({...capabilities.productImport,
+            maxItemsPerRequest:limit.maxItemsPerRequest,limitEvidenceRef:limit.evidenceRef,
+            limitObservedAt:limit.observedAt,validUntil:limit.validUntil})});
+        }
       }
       const inspection = record === null ? unknownInspection(scope,batch.batchId,reason,systemError) : structuredClone(record.inspection);
       return Object.freeze({capabilities,inspection,checkedAt});
@@ -367,5 +430,6 @@ export function createOzonDEPreflightProvider({readEvidence,serverClock,verifySo
       if (record && !['ozon-de-preflight-evidence-v3','ozon-de-preflight-evidence-v4'].includes(record.schemaVersion)) return unknownInspection(scope,preparation.preparationId,'evidence_protocol_version_outdated',false);
       return record === null ? unknownInspection(scope,preparation.preparationId,reason,systemError) : structuredClone(record.inspection);
     }
-  });
+  };
+  return Object.freeze(provider);
 }

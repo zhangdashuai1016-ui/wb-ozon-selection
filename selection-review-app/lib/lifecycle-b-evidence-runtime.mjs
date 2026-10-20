@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
+import { platformOfStore, profitRuleKeyOfStore } from "./store-registry.mjs";
 import { normalizeEvidenceScope, evidenceScopeKey, evidenceScopeMatches } from "./lifecycle-evidence-scope.mjs";
 import { validateLifecycleEvidenceData, isLifecycleEvidenceTraceValid, inspectCommissionCatalogValidity,
   normalizeCurrentCommissionCatalogs } from "./lifecycle-b-input-bundle.mjs";
@@ -22,7 +23,7 @@ function summaryFor(pack) {
 }
 
 export function resolveLifecycleBProfitRule(candidate, rules) {
-  const key = { dandanshu: "ozonDandanshu", miska: "ozonMiska", wb: "wbCrossListing" }[candidate?.targetStore];
+  const key = profitRuleKeyOfStore(candidate?.targetStore);
   if (!key || !isObject(rules) || !isObject(rules[key])) {
     throw Object.assign(new Error("B_EVIDENCE_COST_POLICY_INCOMPLETE: 当前店铺成本规则缺失"), { code: "B_EVIDENCE_COST_POLICY_INCOMPLETE" });
   }
@@ -37,7 +38,7 @@ function lifecycleBCostPolicySnapshot(profitRule, context) {
 }
 
 export function buildLifecycleBExplicitOtherCosts(candidate, profitRule, { asOf = new Date().toISOString() } = {}) {
-  const context = { platform: candidate?.targetStore === "wb" ? "wb" : "ozon", store: candidate?.targetStore,
+  const context = { platform: platformOfStore(candidate?.targetStore) ?? "ozon", store: candidate?.targetStore,
     storeRef: candidate?.storeRef, salesScheme: candidate?.lifecycleEvidenceContextV11?.salesScheme };
   const snapshot = lifecycleBCostPolicySnapshot(profitRule, context);
   const resolved = resolveLifecycleBCostPolicy({ snapshot, context, asOf });
@@ -131,6 +132,20 @@ export function assertLifecycleBCostsCurrent({ candidate, rules, otherCosts, asO
   return currentCosts;
 }
 
+function replacesSameEvidence(existing, pack) {
+  if (existing.kind !== pack.kind || !evidenceScopeMatches(pack.kind, existing.scope, pack.scope)) return false;
+  if (pack.kind !== 'commission') return true;
+  const previous = existing.evidenceData, next = pack.evidenceData;
+  if (previous.commissionEvidenceMode !== next.commissionEvidenceMode) return false;
+  if (next.commissionEvidenceMode === 'official_reference') {
+    return isDeepStrictEqual(previous.officialCommissionBinding, next.officialCommissionBinding);
+  }
+  if (next.commissionEvidenceMode === 'estimated') {
+    return isDeepStrictEqual(previous.commissionEstimateAuthorization, next.commissionEstimateAuthorization);
+  }
+  return true;
+}
+
 export function commitLifecycleBEvidencePacks(data, packs, { createdAt, createdBy = "system_read_only", currentCommissionCatalogs = [] } = {}) {
   if (!isObject(data) || !Array.isArray(data.evidencePacks) || !Array.isArray(packs)) {
     throw new Error("B_EVIDENCE_COMMIT_INVALID_INPUT");
@@ -178,7 +193,7 @@ export function commitLifecycleBEvidencePacks(data, packs, { createdAt, createdB
       continue;
     }
     for (const existing of next) {
-      if (existing.status === "active" && existing.kind === pack.kind && evidenceScopeMatches(pack.kind, existing.scope, pack.scope)) existing.status = "superseded";
+      if (existing.status === "active" && replacesSameEvidence(existing, pack)) existing.status = "superseded";
     }
     next.push(pack);
   }

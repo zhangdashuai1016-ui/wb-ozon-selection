@@ -14,6 +14,8 @@ import {
   executeAliyunOssAssetIntent,
   markAliyunOssAssetIntentPersisted,
   settleAliyunOssAssetIntent,
+  settleAliyunOssAssetState,
+  verifiedAliyunOssAssetTransport,
   reconcileAliyunOssAssetIntentAfterRestart
 } from "../lib/aliyun-oss-d-asset-integration.mjs";
 import { inspectAdapterCapabilities, resolveFinalUploads, OZON_DE_READBACK_ENDPOINTS } from "../lib/ozon-seller-api-de-adapter.mjs";
@@ -49,6 +51,37 @@ test("OSS素材意图必须绑定当前revision、主人授权和完整finalUplo
   assert.equal(intent.platformWrites, 0);
   assert.throws(() => createPersistableAliyunOssAssetIntent({ candidate, expectedDataRevision: candidate.dataRevision - 1, ownerDecision: ownerDecision(candidate), startedAt: NOW }), /OSS_D_REVISION_CONFLICT/);
   assert.throws(() => createPersistableAliyunOssAssetIntent({ candidate, expectedDataRevision: candidate.dataRevision, ownerDecision: { ...ownerDecision(candidate), finalUploadAssetIds: ownerDecision(candidate).finalUploadAssetIds.toReversed() }, startedAt: NOW }), /OSS_D_SCOPE_MISMATCH/);
+});
+
+test('pure OSS state settlement matches the candidate adapter without changing its revision or authorization', async () => {
+  const candidate = structuredClone(authorizedCandidate());
+  const intent = markAliyunOssAssetIntentPersisted({
+    intent: createPersistableAliyunOssAssetIntent({ candidate, expectedDataRevision: candidate.dataRevision,
+      ownerDecision: ownerDecision(candidate), startedAt: NOW }), persistedAt: NOW });
+  const result = await executeAliyunOssAssetIntent({ persistedIntent: intent, candidate,
+    currentProductionBinding: currentProductionBindingFixture(candidate.lifecycleV11.skuPackage.productionAuthorization),
+    serverClock: () => NOW, upload: async ({ finalUploads, beforePublicWrite }) => {
+      for (const { assetId, order, sha256 } of finalUploads) await beforePublicWrite({ assetId, order, sha256 });
+      return { status: 'verified', mode: 'preapproved_stable_https', protocolVersion: 'aliyun-oss-final-assets-v1',
+        approvedHosts: ['assets.example.invalid'], evidenceRef: 'oss:pure-state:synthetic',
+        resolvedAssets: finalUploads.map(asset => ({ assetId: asset.assetId, sha256: asset.sha256,
+          order: asset.order, platformAcceptedUrl: `https://assets.example.invalid/${asset.assetId}.png`,
+          stable: true, authorizationStatus: 'approved', evidenceRef: `oss:${asset.assetId}` })) };
+    } });
+  const state = { schemaVersion: 'aliyun-oss-d-asset-state-v1', status: 'in_flight', executionRevision: 1,
+    intent, assetTransport: null, automaticRetry: false, platformWrites: 0 };
+  candidate.lifecycleV11.skuPackage.dAssetTransport = state;
+  const before = structuredClone(candidate), authorization = candidate.lifecycleV11.skuPackage.productionAuthorization;
+  const nextState = settleAliyunOssAssetState({ candidateId: candidate.id,
+    skuPackageId: candidate.lifecycleV11.skuPackage.skuPackageId, currentCandidateRevision: candidate.dataRevision,
+    productionAuthorization: authorization, state, persistedIntent: intent, result, settledAt: NOW });
+  assert.deepEqual(settleAliyunOssAssetIntent({ candidate, persistedIntent: intent, result, settledAt: NOW })
+    .lifecycleV11.skuPackage.dAssetTransport, nextState);
+  assert.deepEqual(candidate, before);
+  assert.deepEqual(verifiedAliyunOssAssetTransport({ state: nextState, candidateId: candidate.id,
+    skuPackageId: candidate.lifecycleV11.skuPackage.skuPackageId, productionAuthorization: authorization }), result.assetTransport);
+  assert.throws(() => verifiedAliyunOssAssetTransport({ state: nextState, candidateId: 'candidate:other',
+    skuPackageId: candidate.lifecycleV11.skuPackage.skuPackageId, productionAuthorization: authorization }), /RECEIPT_SCOPE_INVALID/);
 });
 
 test("持久化后只调用一次OSS并把稳定URL证据直接接入D适配器", async () => {

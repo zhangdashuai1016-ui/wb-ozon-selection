@@ -112,6 +112,10 @@ export function createPersistableAliyunOssAssetIntent({
     finalUploadAssetIds: expectedAssetIds,
     startedAt
   };
+  return createAssetIntentRecord(intentCore);
+}
+
+function createAssetIntentRecord(intentCore) {
   return freeze({
     schemaVersion: ALIYUN_OSS_D_ASSET_INTEGRATION_VERSION,
     intentId: `oss-asset-intent:${digest(intentCore)}`,
@@ -137,6 +141,33 @@ export function markAliyunOssAssetIntentPersisted({ intent, persistedAt, persist
     throw new Error("OSS_D_REVISION_CONFLICT: 持久化后的候选修订号无效");
   }
   return freeze({ ...structuredClone(intent), status: "in_flight", persistedAt, persistedCandidateRevision });
+}
+
+/** Validate the saved intent from its own frozen authorization, without reading current candidate state. */
+export function assertPersistedAliyunOssAssetIntent(intent) {
+  if (!intent || intent.schemaVersion !== ALIYUN_OSS_D_ASSET_INTEGRATION_VERSION ||
+      intent.status !== "in_flight" || !isoDate(intent.persistedAt) || !isoDate(intent.startedAt) ||
+      Date.parse(intent.persistedAt) < Date.parse(intent.startedAt) ||
+      !Number.isSafeInteger(intent.candidateDataRevision) || intent.candidateDataRevision < 0) {
+    throw new Error("OSS_D_INTENT_NOT_PERSISTED");
+  }
+  const inputs = projectProductionPlanInputs(intent.productionPlan);
+  const authorization = intent.productionPlan.sourceAuthorization;
+  if (inputs.candidateId !== intent.candidateId || inputs.skuPackageId !== intent.skuPackageId ||
+      authorization.authorizationId !== intent.authorizationId ||
+      fingerprintProductionAuthorization(authorization) !== intent.authorizationFingerprint ||
+      intent.productionPlan.planId !== intent.productionPlanId || intent.productionPlan.createdAt !== intent.startedAt ||
+      inputs.assetsFinalUploadsVersion !== intent.assetsFinalUploadsVersion ||
+      !isDeepStrictEqual(inputs.finalUploads.map(asset => asset.assetId), intent.finalUploadAssetIds)) {
+    throw new Error("OSS_D_INTENT_FROZEN_SOURCE_INVALID");
+  }
+  const core = Object.fromEntries(["candidateId", "candidateDataRevision", "skuPackageId", "authorizationId",
+    "authorizationFingerprint", "productionPlanId", "productionPlan", "assetsFinalUploadsVersion",
+    "finalUploadAssetIds", "startedAt"].map(field => [field, intent[field]]));
+  const expected = markAliyunOssAssetIntentPersisted({ intent: createAssetIntentRecord(core),
+    persistedAt: intent.persistedAt, persistedCandidateRevision: intent.persistedCandidateRevision });
+  if (!isDeepStrictEqual(intent, expected)) throw new Error("OSS_D_INTENT_FROZEN_SOURCE_INVALID");
+  return intent;
 }
 
 /**
@@ -170,7 +201,8 @@ export async function executeAliyunOssAssetIntent({
   const savedJob = assertSoftwareJobReference(candidate, softwareJobRef);
   const acceptsPrewriteFailure = savedJob ? isAssetTransportPrewriteFailure : isProductionExecutionPrewriteFailure;
   if (savedJob ? typeof beforeSavedJobPublicWrite !== "function" ||
-      !isDeepStrictEqual(skuPackage.dAssetTransport?.softwareJobRef, softwareJobRef) : beforeSavedJobPublicWrite !== null) {
+      !isDeepStrictEqual(skuPackage.dAssetTransport?.softwareJobRef, softwareJobRef) :
+      beforeSavedJobPublicWrite !== null && typeof beforeSavedJobPublicWrite !== "function") {
     throw new Error("OSS_D_SOFTWARE_JOB_WRITE_GATE_REQUIRED");
   }
   const plan = persistedIntent.productionPlan;
@@ -213,7 +245,10 @@ export async function executeAliyunOssAssetIntent({
       if (!expected || !asset || Object.keys(asset).length !== 3 ||
           ["assetId", "order", "sha256"].some(field => asset[field] !== expected[field])) throw new Error("OSS_D_WRITE_GATE_SCOPE_INVALID");
       if (savedJob) await beforeSavedJobPublicWrite(asset);
-      else assertCurrentProductionExecutionBinding({ productionAuthorization: authorization, currentProductionBinding, checkedAt: clockValue() });
+      else {
+        assertCurrentProductionExecutionBinding({ productionAuthorization: authorization, currentProductionBinding, checkedAt: clockValue() });
+        if (beforeSavedJobPublicWrite !== null) await beforeSavedJobPublicWrite(asset);
+      }
     } catch (error) {
       gateError = error;
       gateFailed = true;
@@ -247,8 +282,9 @@ export async function executeAliyunOssAssetIntent({
     });
   } catch (error) {
     if (gateFailed && (!gateFailure || !acceptsPrewriteFailure(gateFailure))) throw gateError;
-    if (savedJob && uploadReturned && !gateFailed) throw error;
-    if (savedJob && [TypeError, ReferenceError, SyntaxError, RangeError, EvalError, URIError].some(Type => error instanceof Type)) throw error;
+    const guardedExecution = savedJob || beforeSavedJobPublicWrite !== null;
+    if (guardedExecution && uploadReturned && !gateFailed) throw error;
+    if (guardedExecution && [TypeError, ReferenceError, SyntaxError, RangeError, EvalError, URIError].some(Type => error instanceof Type)) throw error;
     const prewriteFailure = gateFailure || assetTransportPrewriteFailure(error);
     const completedAt = clockValue();
     if (publicWriteAttempts === 0 && prewriteFailure && acceptsPrewriteFailure(prewriteFailure)) {
@@ -276,12 +312,25 @@ export async function executeAliyunOssAssetIntent({
 
 /** 保存本次已发生的结果；并发资料变更只阻止后续执行，不丢弃上传回执。 */
 export function settleAliyunOssAssetIntent({ candidate, persistedIntent, result, settledAt }) {
-  if (!isoDate(settledAt)) throw new Error("OSS_D_TIME_INVALID: 结果保存时间无效");
   const sku = candidate?.lifecycleV11?.skuPackage;
-  const state = sku?.dAssetTransport;
+  const state = settleAliyunOssAssetState({
+    candidateId: candidate?.id, skuPackageId: sku?.skuPackageId,
+    currentCandidateRevision: candidate?.dataRevision,
+    productionAuthorization: sku?.productionAuthorization,
+    state: sku?.dAssetTransport, persistedIntent, result, settledAt
+  });
+  const next = structuredClone(candidate);
+  next.lifecycleV11.skuPackage.dAssetTransport = state;
+  return next;
+}
+
+/** Pure settlement shared by candidate jobs and batch execution records. Neither revision nor authorization is mutated. */
+export function settleAliyunOssAssetState({ candidateId, skuPackageId, currentCandidateRevision,
+  productionAuthorization, state, persistedIntent, result, settledAt }) {
+  if (!isoDate(settledAt)) throw new Error("OSS_D_TIME_INVALID: 结果保存时间无效");
   if (!state || state.intent?.intentId !== persistedIntent?.intentId || state.intent.status !== "in_flight" ||
       state.executionRevision !== 1 || !isDeepStrictEqual(state.intent, persistedIntent) ||
-      candidate.id !== persistedIntent.candidateId || sku.skuPackageId !== persistedIntent.skuPackageId) {
+      candidateId !== persistedIntent.candidateId || skuPackageId !== persistedIntent.skuPackageId) {
     throw new Error("OSS_D_SETTLEMENT_CONFLICT: 当前执行身份或修订不一致");
   }
   if (!result || Object.keys(result).length !== 6 ||
@@ -312,16 +361,32 @@ export function settleAliyunOssAssetIntent({ candidate, persistedIntent, result,
     expectedIntent.failureCode = result.intent.failureCode;
   }
   if (!isDeepStrictEqual(result.intent, expectedIntent)) throw new Error("OSS_D_SETTLEMENT_RESULT_INVALID: 执行意图发生变化");
-  const continuationBlocked = candidate.dataRevision !== persistedIntent.persistedCandidateRevision ||
-    !validateProductionPlanAuthorizationBinding(persistedIntent.productionPlan, sku.productionAuthorization).valid;
-  const next = structuredClone(candidate);
-  next.lifecycleV11.skuPackage.dAssetTransport = {
+  const continuationBlocked = currentCandidateRevision !== persistedIntent.persistedCandidateRevision ||
+    !validateProductionPlanAuthorizationBinding(persistedIntent.productionPlan, productionAuthorization).valid;
+  return {
     ...structuredClone(state), status: result.status, executionRevision: 2,
     intent: structuredClone(result.intent), assetTransport: structuredClone(result.assetTransport),
     continuationBlocked, blockReason: continuationBlocked ? "candidate_changed_during_asset_transport" : null,
     settledAt, automaticRetry: false, platformWrites: 0
   };
-  return next;
+}
+
+/** Validate the independent persisted receipt before projecting stable URLs into a production capability. */
+export function verifiedAliyunOssAssetTransport({ state, candidateId, skuPackageId, productionAuthorization }) {
+  const intent = state?.intent;
+  if (state?.schemaVersion !== "aliyun-oss-d-asset-state-v1" || state.status !== "verified" ||
+      state.executionRevision !== 2 || state.continuationBlocked !== false || intent?.status !== "completed" ||
+      intent.candidateId !== candidateId || intent.skuPackageId !== skuPackageId ||
+      intent.authorizationId !== productionAuthorization?.authorizationId ||
+      intent.authorizationFingerprint !== fingerprintProductionAuthorization(productionAuthorization) ||
+      !validateProductionPlanAuthorizationBinding(intent.productionPlan, productionAuthorization).valid ||
+      !isoDate(intent.persistedAt) || !isoDate(intent.completedAt) ||
+      Date.parse(intent.persistedAt) > Date.parse(intent.completedAt) ||
+      !isDeepStrictEqual(intent.finalUploadAssetIds, productionAuthorization.lockedScope.finalUploads.map(asset => asset.assetId))) {
+    throw new Error("OSS_D_RECEIPT_SCOPE_INVALID");
+  }
+  assertVerifiedAssetTransport(state.assetTransport, productionAuthorization.lockedScope.finalUploads);
+  return structuredClone(state.assetTransport);
 }
 
 export function reconcileAliyunOssAssetIntentAfterRestart({ persistedIntent, restartedAt }) {

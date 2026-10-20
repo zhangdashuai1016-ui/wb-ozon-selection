@@ -5,6 +5,9 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { productionOwnerDecisionHttpFixture, startSavedDEApi } from './helpers/d-e-saved-api-fixture.mjs';
+import { accountReadConcurrencyFixture } from './helpers/account-read-concurrency-fixture.mjs';
+import { createMemoryBusinessStateRepository } from '../lib/business-state-repository.mjs';
+import { createOzonAccountReadBindingResolver } from '../lib/ozon-account-read-preparation.mjs';
 
 const { api: port } = allocatedTestPorts();
 test('real account HTTP boundary rejects anonymous, cross-origin, stale and unconfirmed requests before credentials or business changes', async t => {
@@ -38,4 +41,40 @@ test('real account HTTP boundary rejects anonymous, cross-origin, stale and unco
   await api.restart(); await api.authenticate('login');
   assert.deepEqual((await api.get('/api/state')).body.candidates.find(candidate => candidate.id === fixture.candidate.id).ozonAccountReadPreparation, preparation);
   assert.deepEqual(await api.readBytes(), bytes); await api.assertClean();
+});
+
+test('real HTTP refresh boundary exposes persisted expiry and rejects missing, wrong and premature refresh intent with no request or mutation',async t=>{
+  const fixture=await productionOwnerDecisionHttpFixture(),repository=createMemoryBusinessStateRepository(fixture.document);
+  const service={...fixture.service,schemaVersion:'ozon-account-read-service-binding-v1',
+    serviceId:'service:synthetic:account-read',workerId:'worker:synthetic:account-read'};
+  const credential={credentialAlias:fixture.binding.credentialAlias,clientId:'700123',
+    keychainService:'synthetic-account-boundary',keychainAccount:'synthetic-account'};
+  const configuration={productionBindings:[fixture.binding],ozonAccountReadServiceBindings:[service],ozonDECredentialBindings:[credential]};
+  const readBinding=createOzonAccountReadBindingResolver(configuration)({document:fixture.document,candidateId:fixture.candidate.id,
+    skuPackageId:fixture.candidate.lifecycleV11.skuPackage.skuPackageId,bindingId:fixture.binding.bindingId,
+    configurationVersion:fixture.binding.configurationVersion});
+  const account=await accountReadConcurrencyFixture({repository,clock:()=>new Date().toISOString(),
+    candidateId:fixture.candidate.id,productionBinding:fixture.binding,readBinding});
+  const completed=await account.run();assert.equal(completed.status,'completed');assert.equal(account.requests.length,3);
+  const directory=await mkdtemp(path.join(tmpdir(),'account-refresh-boundary-http-'));
+  const api=await startSavedDEApi(t,{directory,port,document:await repository.readSnapshot(),binding:fixture.binding,
+    accountReadServices:[service],credentialBindings:[credential]});
+  await api.authenticate();const bytes=await api.readBytes(),state=await api.get('/api/state');
+  const preparation=state.body.candidates.find(candidate=>candidate.id===fixture.candidate.id).ozonAccountReadPreparation;
+  const current=preparation.runtime.find(value=>value.isCurrent);
+  assert.equal(current.jobId,completed.job.jobId);assert.equal(current.canRefresh,false);assert.equal(current.evidenceExpiresAt,account.input.expiresAt);
+  const input={...account.input,idempotencyKey:'account:http:refresh',refreshOfJobId:completed.job.jobId};
+  const route=`/api/candidates/${fixture.candidate.id}/lifecycle/account-read/authorize`;
+  assert.equal((await api.post(route,input,{authenticated:false})).status,401);
+  assert.equal((await api.post(route,input,{headers:{Origin:'https://unrelated.invalid'}})).status,403);
+  const withoutRefresh={...input};delete withoutRefresh.refreshOfJobId;
+  for(const [body,code] of [[input,'OZON_ACCOUNT_READ_REFRESH_NOT_DUE'],
+    [{...input,refreshOfJobId:'account:other-job'},'OZON_ACCOUNT_READ_REFRESH_TARGET_CONFLICT'],
+    [withoutRefresh,'OZON_ACCOUNT_READ_REFRESH_NOT_SUPPORTED']]){
+    const result=await api.post(route,body);assert.equal(result.status,409,JSON.stringify(result.body));assert.equal(result.body.code,code);
+    assert.deepEqual(await api.readBytes(),bytes);
+  }
+  await api.restart();await api.authenticate('login');
+  const repeated=await api.post(route,input);assert.equal(repeated.status,409);assert.equal(repeated.body.code,'OZON_ACCOUNT_READ_REFRESH_NOT_DUE');
+  assert.deepEqual(await api.readBytes(),bytes);assert.equal(api.dependencyRequests(),0);await api.assertClean();
 });

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "ozon-product-import-batch-limit-fact-v1",
+  "evidenceRef": "official:ozon-product-import-batch-limit:20261018",
+  "sourceUrl": "https://docs.ozon.ru/api/seller/#operation/ProductAPI_ImportProductsV3",
+  "operationId": "ProductAPI_ImportProductsV3",
+  "endpoint": "/v3/product/import",
+  "sourceStatement": "В одном запросе можно передать до 100 товаров. Каждый товар — это отдельный элемент в массиве items.",
+  "itemsConstraint": "items Array of objects <= 100 items",
+  "maxItemsPerRequest": 100,
+  "observedAt": "2026-10-18T13:14:14.542Z",
+  "officialValidityPeriodPublished": false
+}

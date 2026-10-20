@@ -1,10 +1,11 @@
+import { ozonAccountReadCoordinationState, ozonAccountReadProductionBlocker } from './ozon-account-read-coordination.mjs';
 import { A_SUPPLIER_IMAGE_SEARCH_JOB_TYPE, assertASupplierImageSearchScope, assertASupplierImageSearchSource, assertASupplierImageSearchAuthorization, assertASupplierImageSearchCredential } from "./a-supplier-image-search-contract.mjs";
 import { A_PRODUCT_DETAIL_JOB_TYPE, assertAProductDetailScope, assertAProductDetailCandidateSource, assertAProductDetailAuthorization, assertAProductDetailCredential } from "./a-product-detail-contract.mjs";
 import { A_DISCOVERY_JOB_TYPE, assertADiscoveryScope, assertADiscoveryBatchSource,
   assertADiscoveryAuthorization, assertADiscoveryCredential } from "./a-discovery-contract.mjs";
 import { D_PLATFORM_OBSERVATION_JOB_TYPE, assertDPlatformObservationScope, createDPlatformObservationAdmission } from './d-platform-observation-contract.mjs';
 import { fingerprintCanonicalRecord, dProductionJobRound } from "./production-contract-primitives.mjs";
-import { assertSafeRuntimeRecord, workerSatisfiesCapabilities } from "./runtime-identity.mjs";
+import { assertSafeRuntimeRecord, sameTeamUser, workerSatisfiesCapabilities } from "./runtime-identity.mjs";
 import { legacyKeywordJobBlocksPaidExecution } from "./keyword-evidence-software-job-state.mjs";
 import { normalizeC1SourceIdentity } from "./c1-product-plan.mjs";
 import { sameStoreRef } from "./store-binding.mjs";
@@ -430,14 +431,14 @@ function candidateForJob(document, job) {
     const batch = document.runtime?.aDiscoveryBatches?.[job.subject.batchId];
     if (!batch) throw new Error("A_DISCOVERY_BATCH_NOT_FOUND");
     assertADiscoveryBatchSource(batch, assertADiscoveryScope(job.scopeBinding, job));
-    if (batch.ownerUserId !== job.ownerUserId || job.ownerUserId !== job.requestedByUserId) throw new Error("A_DISCOVERY_OWNER_CONFLICT");
+    if (!sameTeamUser(batch.ownerUserId, job.ownerUserId) || job.ownerUserId !== job.requestedByUserId) throw new Error("A_DISCOVERY_OWNER_CONFLICT");
     return batch;
   }
   if (isAccountPreparationSoftwareJob(job)) {
     const preparation = document.runtime?.ozonAccountPreparations?.[job.subject.preparationId];
     if (!preparation) throw new Error('SOFTWARE_JOB_ADMISSION_PREPARATION_NOT_FOUND');
     assertOzonAccountReadSubject(preparation, assertOzonAccountReadScope(job.scopeBinding, job));
-    if (preparation.createdByUserId !== job.ownerUserId || job.ownerUserId !== job.requestedByUserId) {
+    if (!sameTeamUser(preparation.createdByUserId, job.ownerUserId) || job.ownerUserId !== job.requestedByUserId) {
       throw new Error('SOFTWARE_JOB_ADMISSION_PREPARATION_OWNER_MISMATCH');
     }
     return preparation;
@@ -814,6 +815,10 @@ export function validateSoftwareJobAdmission({ document, job, observedAt, phase,
   if(job.jobType===D_PLATFORM_OBSERVATION_JOB_TYPE)return createDPlatformObservationAdmission({document,job,worker,executionBinding,phase,observedAt:observed});
   const candidate = candidateForJob(document, job);
   if (isDESoftwareJob(job)) {
+    if (job.jobType === 'd_production_execution' && ['claim', 'external_request'].includes(phase) &&
+        ozonAccountReadProductionBlocker(ozonAccountReadCoordinationState({ document, candidateIds: [job.candidateId] }))) {
+      throw new Error('SOFTWARE_JOB_ADMISSION_ACCOUNT_READ_BLOCKED');
+    }
     return createDEJobAdmissionDecision({ candidate, job, observedAt: observed, phase, worker, executionBinding });
   }
   const expectedRevision = phase === "enqueue_before_candidate_commit" ? job.scopeBinding.sourceRevision : job.revision;

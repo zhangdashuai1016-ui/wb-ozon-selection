@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { preparedFixture, capabilities as formalCapabilities } from './helpers/d-software-fixture.mjs';
 import { finalAssets as syntheticFinalAssets } from './helpers/c2-software-fixture.mjs';
-import { createMemoryBusinessStateRepository, initialBusinessStateDocument } from '../lib/business-state-repository.mjs';
+import { createJsonBusinessStateRepository, createMemoryBusinessStateRepository, initialBusinessStateDocument } from '../lib/business-state-repository.mjs';
 import { createLocalDevelopmentWorkerRegistry } from '../lib/worker-registry.mjs';
 import { createStoreIsolatedOzonSellerApiDEAdapter } from '../lib/ozon-seller-api-de-adapter.mjs';
 import { OzonDEHttpTransportError } from '../lib/ozon-de-http-configuration.mjs';
@@ -11,6 +14,9 @@ import { fingerprintCanonicalRecord } from '../lib/production-contract-primitive
 import { projectDBatchExecutionView } from '../lib/d-batch-execution-view.mjs';
 import { deSoftwareJobScopeFixture } from './fixtures/d-e-software-job-scope-fixture.mjs';
 import { validateProductionRecord } from '../lib/production-record-contract.mjs';
+import { loadOzonProductImportBatchLimitFact, createOzonProductImportBatchLimitUse } from '../lib/ozon-product-import-batch-limit.mjs';
+import { ozonAccountReadCoordinationState } from '../lib/ozon-account-read-coordination.mjs';
+import { accountReadConcurrencyFixture, waitForAccountReadBoundary } from './helpers/account-read-concurrency-fixture.mjs';
 
 const at = '2026-08-22T07:25:00.000Z';
 const observationPolicy = { schemaVersion: 'd-platform-observation-policy-v1',
@@ -21,8 +27,8 @@ const binding = { warehouseRef: 'warehouse:synthetic:dandanshu', credentialAlias
 async function fixture({ failReceipt = false, createAdapterFailures = 0, observationItems = null, count = 2,
   inventoryAction = null, maxItemsPerRequest = null, failImportCall = null,
   expireLimitAfterIntentChunk = null, failPrewriteCheckpoint = false,
-  importFailure = null } = {}) {
-  let currentTime = at;
+  importFailure = null, beforeImportResponse = null, beforeSendFailure = null, scopedLimit = false, beforeAdapter = null } = {}) {
+  let currentTime = scopedLimit ? '2026-10-18T13:15:00.000Z' : at;
   const colors = count === 2 ? ['white', 'black'] : ['black', 'navy', 'khaki'];
   const sources = [];
   for (let index = 0; index < count; index++) {
@@ -70,6 +76,27 @@ async function fixture({ failReceipt = false, createAdapterFailures = 0, observa
       authorizationId: source.authorization.authorizationId,
       authorizationFingerprint: fingerprintCanonicalRecord(source.authorization),
       status: 'authorized', taskId: null, productId: null })) }];
+  if (scopedLimit) {
+    const fact=await loadOzonProductImportBatchLimitFact(),batch=document.runtime.dProductionBatches[0];
+    batch.schemaVersion='d-batch-production-authorization-v3';
+    batch.ownerActorId='synthetic-owner';batch.confirmedAt=currentTime;
+    for(const saved of batch.members) saved.sourceRevision=saved.resultRevision-1;
+    batch.postImportScope={schemaVersion:'d-batch-post-import-scope-v2',inventoryAction:inventoryAction??'create_only',
+      eReadbackOfferIds:batch.members.map(member=>member.offerId),inSaleList:{
+        schemaVersion:'ozon-in-sale-list-authorization-v1',decision:'read_store_in_sale_list_for_batch',
+        officialEvidenceRef:'official:ozon-in-sale-list:20261018',
+        policy:{pageSize:1000,maxPages:3,requestTimeoutMs:30000,durationMs:90000}}};
+    batch.importLimitUse=createOzonProductImportBatchLimitUse({batch,input:{
+      schemaVersion:'ozon-product-import-batch-limit-use-input-v1',evidenceRef:fact.evidenceRef,decision:'use_for_this_batch_once'}});
+    Object.assign(capability.productImport,{maxItemsPerRequest:100,limitEvidenceRef:fact.evidenceRef,
+      limitObservedAt:fact.observedAt,limitUse:structuredClone(batch.importLimitUse)});
+    delete capability.productImport.validUntil;
+    for(const member of members) {
+      member.executionContext.currentProductionBinding=structuredClone(member.executionContext.currentProductionBinding);
+      member.executionContext.currentProductionBinding.verification.expiresAt='2026-11-01T00:00:00.000Z';
+      member.observationPolicy={...observationPolicy,expiresAt:'2026-11-01T00:00:00.000Z'};
+    }
+  }
   const baseRepository = createMemoryBusinessStateRepository(document);
   let rejectReceipt = failReceipt;
   let rejectPrewrite = failPrewriteCheckpoint;
@@ -88,24 +115,30 @@ async function fixture({ failReceipt = false, createAdapterFailures = 0, observa
   }) } : baseRepository;
   const workerRegistry = createLocalDevelopmentWorkerRegistry({ clock: () => currentTime });
   workerRegistry.register({ workerId: 'worker:batch-synthetic', version: 'v1',
-    capabilities: ['ozon-production-execution'], observedAt: at });
+    capabilities: ['ozon-production-execution'], observedAt: currentTime });
   const calls = [];
   let remainingAdapterFailures = createAdapterFailures;
   let readCount = 0;
-  const runtimeOptions = { repository, workerRegistry, serverClock: () => currentTime,
+  const runtimeOptions = (runtimeRepository = repository) => ({ repository: runtimeRepository, workerRegistry, serverClock: () => currentTime,
     leaseDurationMs: 60_000,
     verifyCurrentBatchEvidence: async () => {
-      const saved = await repository.readSnapshot();
+      const saved = await runtimeRepository.readSnapshot();
       assert.equal(saved.runtime.dProductionBatches[0].members.length, members.length);
+      if (beforeSendFailure && saved.runtime.dBatchImportJobs?.some(job =>
+        job.chunks.some(chunk => chunk.status === 'intent'))) throw beforeSendFailure;
     },
     createAdapter: async () => {
+      if (beforeAdapter) await beforeAdapter();
       if (remainingAdapterFailures > 0) { remainingAdapterFailures--; throw new Error('synthetic adapter startup failure'); }
       const adapter = createStoreIsolatedOzonSellerApiDEAdapter({ adapterCapabilities: capability,
-      requestJson: async request => {
+      requestJson: async (request, options) => {
+        await options?.beforeRequestSend?.();
         calls.push(request);
         if (request.write) {
           const sendCount=calls.filter(call=>call.write).length;
           if(sendCount===failImportCall)throw importFailure ?? new Error('synthetic import response lost');
+          if (beforeImportResponse) await beforeImportResponse({ repository: runtimeRepository, workerRegistry,
+            setTime: value => { currentTime = value; } });
           return { result: { task_id: 500 + sendCount } };
         }
         const items = observationItems?.[readCount++] ?? [
@@ -121,12 +154,139 @@ async function fixture({ failReceipt = false, createAdapterFailures = 0, observa
             if(event.kind==='batch_import_intent' && event.chunkIndex===expireLimitAfterIntentChunk)
               currentTime=capability.productImport.validUntil;
           }}) };
-    } };
-  const runtime = createPersistedDBatchImportRuntime(runtimeOptions);
-  return { repository, runtime, members, capability, calls, workerRegistry,
-    restartRuntime:()=>createPersistedDBatchImportRuntime(runtimeOptions),
+    } });
+  const runtime = createPersistedDBatchImportRuntime(runtimeOptions());
+  return { repository, runtime, members, capability, calls, workerRegistry, clock:()=>currentTime,
+    restartRuntime:(registry=workerRegistry,runtimeRepository=repository)=>createPersistedDBatchImportRuntime({...runtimeOptions(runtimeRepository),workerRegistry:registry}),
     setTime: value => { currentTime = value; } };
 }
+
+async function accountForImportBatch(f, options={}) {
+  const document=await f.repository.readSnapshot(),candidate=document.candidates[1];
+  return accountReadConcurrencyFixture({repository:f.repository,clock:f.clock,candidateId:candidate.id,
+    productionBinding:f.members[1].executionContext.currentProductionBinding,...options});
+}
+async function importInputWithAccountState(f) {
+  const document=await f.repository.readSnapshot();
+  return {batchId:'d-batch:synthetic',members:f.members,adapterCapabilities:f.capability,workerId:'worker:batch-synthetic',
+    accountReadState:ozonAccountReadCoordinationState({document,candidateIds:document.runtime.dProductionBatches[0].members.map(member=>member.candidateId)})};
+}
+
+test('batch import cannot omit its prepared account source once real account reads exist',async()=>{
+  const f=await fixture(),account=await accountForImportBatch(f);await account.run();
+  const before=await f.repository.readSnapshot(),input=await importInputWithAccountState(f);delete input.accountReadState;
+  await assert.rejects(()=>f.runtime.run(input),/D_BATCH_IMPORT_ACCOUNT_READ_SOURCE_REQUIRED/);
+  assert.deepEqual(await f.repository.readSnapshot(),before);assert.deepEqual(f.calls,[]);
+});
+
+for(const status of ['queued','unknown_outcome'])test(`batch import admission rejects a real ${status} account read with no lease or intent`,async()=>{
+  const f=await fixture(),account=await accountForImportBatch(f,{responseMode:status==='unknown_outcome'?'unknown':'observed'});
+  const read=status==='queued'?await account.enqueue():await account.run();assert.equal(read.status,status);
+  const before=await f.repository.readSnapshot(),input=await importInputWithAccountState(f);
+  await assert.rejects(()=>f.runtime.run(input),/D_BATCH_IMPORT_ACCOUNT_READ_BLOCKED/);
+  assert.deepEqual(await f.repository.readSnapshot(),before);assert.deepEqual(f.calls,[]);
+});
+
+test('batch import admission prevents an expired refresh while its first adapter is still pending',async()=>{
+  const entered=Promise.withResolvers(),release=Promise.withResolvers();
+  const f=await fixture({beforeAdapter:async()=>{entered.resolve();await release.promise;}}),account=await accountForImportBatch(f);
+  const expiry=new Date(Date.parse(f.clock())+1000).toISOString(),completed=await account.run({expiresAt:expiry});await account.publish(completed);
+  const running=f.runtime.run(await importInputWithAccountState(f));
+  await waitForAccountReadBoundary(entered.promise,running,release.resolve);
+  try{
+    f.setTime(expiry);
+    const before=await f.repository.readSnapshot();assert.equal(before.runtime.dBatchImportJobs.length,1);assert.deepEqual(f.calls,[]);
+    await assert.rejects(()=>account.enqueue({refreshOfJobId:completed.job.jobId,idempotencyKey:'account:refresh:after-import-admission'}),
+      {code:'OZON_ACCOUNT_READ_REFRESH_PRODUCTION_BUSY'});
+    assert.deepEqual(await f.repository.readSnapshot(),before);assert.equal(account.requests.length,3);
+  }finally{release.resolve();await running;}
+});
+
+for(const expiresFirst of ['grant','roles'])test(`batch import preparation crossing ${expiresFirst} expiry creates no job or intent and preserves refresh`,async()=>{
+  const f=await fixture(),account=await accountForImportBatch(f),expiry=new Date(Date.parse(f.clock())+1000).toISOString();
+  if(expiresFirst==='roles')account.responses['/v1/roles'].expires_at=expiry;
+  const completed=await account.run(expiresFirst==='grant'?{expiresAt:expiry}:{});await account.publish(completed);
+  const before=await f.repository.readSnapshot(),prepared=await importInputWithAccountState(f);
+  const entered=Promise.withResolvers(),release=Promise.withResolvers();let paused=false;
+  const guardedRepository={...f.repository,transact:async mutator=>{
+    if(!paused){paused=true;entered.resolve();await release.promise;}
+    return f.repository.transact(mutator);
+  }};
+  const running=f.restartRuntime(f.workerRegistry,guardedRepository).run(prepared);
+  await waitForAccountReadBoundary(entered.promise,running,release.resolve);
+  f.setTime(expiry);release.resolve();
+  await assert.rejects(running,/D_BATCH_IMPORT_ACCOUNT_EVIDENCE_NOT_CURRENT/);
+  assert.deepEqual(await f.repository.readSnapshot(),before);assert.deepEqual(f.calls,[]);
+  const refreshed=await account.enqueue({refreshOfJobId:completed.job.jobId,idempotencyKey:`account:refresh:expired-${expiresFirst}-during-import`});
+  assert.equal(refreshed.status,'queued');assert.equal(account.requests.length,3);
+  const after=await f.repository.readSnapshot();assert.deepEqual(after.candidates,before.candidates);
+  assert.deepEqual(after.runtime.dProductionBatches,before.runtime.dProductionBatches);
+  assert.deepEqual(after.runtime.ozonAccountReadReceipts,before.runtime.ozonAccountReadReceipts);
+  assert.deepEqual(after.runtime.ozonDEPreflightEvidence,before.runtime.ozonDEPreflightEvidence);
+  assert.equal(after.runtime.dBatchImportJobs,undefined);
+});
+
+test('a completed-to-failed account refresh between import preparation and admission rejects the stale source atomically',async()=>{
+  const f=await fixture(),account=await accountForImportBatch(f),expiry=new Date(Date.parse(f.clock())+1000).toISOString();
+  const completed=await account.run({expiresAt:expiry});await account.publish(completed);
+  const prepared=await importInputWithAccountState(f),entered=Promise.withResolvers(),release=Promise.withResolvers();let paused=false;
+  const guardedRepository={...f.repository,transact:async mutator=>{
+    if(!paused){paused=true;entered.resolve();await release.promise;}
+    return f.repository.transact(mutator);
+  }};
+  const running=f.restartRuntime(f.workerRegistry,guardedRepository).run(prepared);
+  await waitForAccountReadBoundary(entered.promise,running,release.resolve);
+  let before;
+  try{
+    f.setTime(expiry);
+    const retry=await accountForImportBatch(f,{responseMode:'unavailable'});
+    const failed=await retry.run({refreshOfJobId:completed.job.jobId,idempotencyKey:'account:refresh:during-import-prepare'});
+    assert.equal(failed.status,'failed');assert.equal(retry.requests.length,1);
+    before=await f.repository.readSnapshot();assert.equal(before.runtime.dBatchImportJobs,undefined);
+  }finally{release.resolve();}
+  await assert.rejects(running,/D_BATCH_IMPORT_ACCOUNT_READ_CHANGED/);
+  assert.deepEqual(await f.repository.readSnapshot(),before);assert.deepEqual(f.calls,[]);
+});
+
+test('new batch keeps one import job after JSON reopen and cannot replay its adoption',async t=>{
+  const f=await fixture({scopedLimit:true,createAdapterFailures:1,inventoryAction:'create_only'});
+  const input={batchId:'d-batch:synthetic',members:f.members,adapterCapabilities:f.capability,workerId:'worker:batch-synthetic'};
+  await assert.rejects(()=>f.runtime.run(input),/synthetic adapter startup failure/);
+  const before=await f.repository.readSnapshot(),job=before.runtime.dBatchImportJobs[0];
+  assert.equal(job.schemaVersion,'d-batch-import-job-v4');
+  assert.equal(job.jobId,before.runtime.dProductionBatches[0].importLimitUse.importJobId);
+  assert.deepEqual(job.importLimitUse,before.runtime.dProductionBatches[0].importLimitUse);
+  assert.equal(job.chunks[0].status,'not_sent');assert.equal(f.calls.length,0);
+  const directory=await mkdtemp(path.join(tmpdir(),'d-batch-limit-reopen-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  const filePath=path.join(directory,'business-state.json');
+  const writer=createJsonBusinessStateRepository({filePath,initializeIfMissing:true,initialDocument:before});
+  await writer.transact(document=>({changed:true,document,result:null}));
+  const reopened=createJsonBusinessStateRepository({filePath});
+  assert.deepEqual(await reopened.readSnapshot(),before);
+  assert.equal((await f.restartRuntime(f.workerRegistry,reopened).run(input)).status,'waiting_platform');
+  const replayRepository=createJsonBusinessStateRepository({filePath});
+  assert.equal((await f.restartRuntime(f.workerRegistry,replayRepository).run(input)).status,'idempotent_replay');
+  const after=await replayRepository.readSnapshot();
+  assert.equal(after.runtime.dBatchImportJobs.length,1);
+  assert.deepEqual(after.runtime.dBatchImportJobs[0].importLimitUse,job.importLimitUse);
+  assert.equal(f.calls.filter(call=>call.write).length,1);
+  assert.equal((await f.restartRuntime(f.workerRegistry,replayRepository).observe({...input,chunkIndex:0})).status,'partial_failure');
+  const observed=await createJsonBusinessStateRepository({filePath}).readSnapshot();
+  assert.equal(observed.runtime.dBatchStockJobs.length,1);
+  assert.equal(observed.runtime.dBatchStockJobs[0].status,'inventory_deferred');
+  assert.deepEqual(await f.repository.readSnapshot(),before);
+});
+
+test('new batch import adoption rejects capability scope drift before saving any job or request',async()=>{
+  const f=await fixture({scopedLimit:true,inventoryAction:'create_only'});
+  const input={batchId:'d-batch:synthetic',members:f.members,adapterCapabilities:f.capability,workerId:'worker:batch-synthetic'};
+  f.capability.productImport.limitUse.members[0].authorizationFingerprint='b'.repeat(64);
+  const before=await f.repository.readSnapshot();
+  await assert.rejects(()=>f.runtime.run(input),/LIMIT_USE_SCOPE_MISMATCH/);
+  assert.deepEqual(await f.repository.readSnapshot(),before);
+  assert.equal(f.calls.length,0);
+});
 
 test('persisted batch intent sends once, then one task read settles each offer independently', async () => {
   const { repository, runtime, members, capability, calls } = await fixture();
@@ -287,6 +447,66 @@ test('typed transport with attempted transmission remains unknown after one writ
   assert.equal(f.calls.filter(call=>call.write).length,1);
 });
 
+test('a late task receipt survives lease and heartbeat expiry without sending another chunk', async () => {
+  const f = await fixture({ count: 3, maxItemsPerRequest: 1,
+    beforeImportResponse: ({ setTime }) => setTime('2026-08-22T07:26:01.000Z') });
+  const input = { batchId: 'd-batch:synthetic', members: f.members,
+    adapterCapabilities: f.capability, workerId: 'worker:batch-synthetic' };
+  assert.equal((await f.runtime.run(input)).status, 'waiting_platform');
+  const saved = await f.repository.readSnapshot();
+  assert.deepEqual(saved.runtime.dBatchImportJobs[0].chunks.map(chunk => [chunk.status, chunk.taskId]),
+    [['waiting_platform', '501'], ['not_sent', null], ['not_sent', null]]);
+  assert.equal(saved.runtime.dProductionBatches[0].externalRequestState, 'task_received');
+  assert.equal(f.workerRegistry.findEligible(['ozon-production-execution']).length, 0);
+  assert.equal(f.calls.length, 1);
+  await assert.rejects(() => f.restartRuntime().run(input), /WORKER_NOT_CURRENT/);
+  assert.equal(f.calls.length, 1);
+});
+
+test('a late response cannot settle a replaced holder, authorization or frozen request', async () => {
+  for (const changed of ['lease', 'holder', 'authorization', 'frozen']) {
+    const f = await fixture({ beforeImportResponse: async ({ repository, setTime }) => {
+      setTime('2026-08-22T07:26:01.000Z');
+      await repository.transact(document => {
+        const job = document.runtime.dBatchImportJobs[0];
+        if (changed === 'lease') job.leaseId = 'lease:replacement';
+        if (changed === 'holder') job.workerId = 'worker:replacement';
+        if (changed === 'authorization') document.runtime.dProductionBatches[0].members[0].authorizationId =
+          'authorization:replacement';
+        if (changed === 'frozen') {
+          const frozen = job.chunks[0].frozenImport;
+          frozen.items[0].name += ' changed';
+          frozen.itemFingerprint = fingerprintCanonicalRecord(frozen.items);
+          frozen.contentFingerprint = fingerprintCanonicalRecord({ items: frozen.items,
+            memberSources: frozen.memberSources });
+        }
+        return { changed: true, document, result: null };
+      });
+    } });
+    const input = { batchId: 'd-batch:synthetic', members: f.members,
+      adapterCapabilities: f.capability, workerId: 'worker:batch-synthetic' };
+    assert.equal((await f.runtime.run(input)).status, 'unknown_outcome');
+    assert.equal((await f.repository.readSnapshot()).runtime.dBatchImportJobs[0].chunks[0].taskId, null);
+    assert.equal(f.calls.length, 1);
+  }
+});
+
+test('a programming failure inside the final send guard is saved as unsent and still exposed', async () => {
+  const cause = new TypeError('synthetic final guard failure');
+  const f = await fixture({ beforeSendFailure: cause });
+  const input = { batchId: 'd-batch:synthetic', members: f.members,
+    adapterCapabilities: f.capability, workerId: 'worker:batch-synthetic' };
+  await assert.rejects(() => f.runtime.run(input), error =>
+    error instanceof OzonDEHttpTransportError && error.cause === cause &&
+    error.externalRequestState === 'not_sent' && error.requestTransmission === 'not_attempted');
+  const saved = await f.repository.readSnapshot();
+  assert.equal(saved.runtime.dBatchImportJobs[0].chunks[0].status, 'prewrite_blocked');
+  assert.equal(saved.runtime.dProductionBatches[0].externalRequestState, 'not_sent');
+  assert.equal(f.calls.length, 0);
+  assert.equal((await f.restartRuntime().run(input)).status, 'idempotent_replay');
+  assert.equal(f.calls.length, 0);
+});
+
 test('adapter startup failure can resume only a never-sent chunk', async () => {
   const { repository, runtime, members, capability, calls } = await fixture({ createAdapterFailures: 1 });
   const input = { batchId: 'd-batch:synthetic', members, adapterCapabilities: capability,
@@ -396,6 +616,123 @@ test('an expired worker heartbeat cannot renew itself through a batch checkpoint
   workerRegistry.heartbeat({ workerId: input.workerId, version: 'v1',
     capabilities: ['ozon-production-execution'] });
   assert.equal((await runtime.observe({ ...input, chunkIndex: 0 })).status, 'partial_failure');
+});
+
+test('observation preparation blocks stop only the saved task without a read or lease renewal', async () => {
+  for (const reason of ['evidence_not_ready', 'service_not_configured']) {
+    const f = await fixture();
+    const input = { batchId: 'd-batch:synthetic', members: f.members,
+      adapterCapabilities: f.capability, workerId: 'worker:batch-synthetic' };
+    await f.runtime.run(input);
+    const before = await f.repository.readSnapshot();
+    f.setTime('2026-08-22T07:26:01.000Z');
+    const emptyRegistry = createLocalDevelopmentWorkerRegistry({ clock: () => '2026-08-22T07:26:01.000Z' });
+    assert.equal(emptyRegistry.get(input.workerId), null);
+    const stoppingRuntime = reason === 'service_not_configured' ? f.restartRuntime(emptyRegistry) : f.runtime;
+    const stopped = await stoppingRuntime.blockObservation({ batchId: input.batchId, chunkIndex: 0, reason,
+      expectedSource: before.runtime.dBatchImportJobs[0], expectedBatch: before.runtime.dProductionBatches[0] });
+    assert.equal(stopped.chunks[0].status, 'observation_stopped');
+    assert.equal(stopped.chunks[0].stopReason, reason);
+    assert.equal(stopped.chunks[0].taskId, '501');
+    assert.equal(stopped.chunks[0].observationReads, 0);
+    assert.equal(stopped.chunks[0].observationInFlight, false);
+    assert.equal(stopped.leaseExpiresAt, before.runtime.dBatchImportJobs[0].leaseExpiresAt);
+    const saved = await f.repository.readSnapshot();
+    assert.equal(saved.runtime.dProductionBatches[0].externalRequestState, 'task_received');
+    assert.deepEqual(saved.candidates, before.candidates);
+    assert.equal(f.workerRegistry.findEligible(['ozon-production-execution']).length, 0);
+    assert.equal(f.calls.length, 1);
+    await stoppingRuntime.blockObservation({ batchId: input.batchId, chunkIndex: 0, reason,
+      expectedSource: saved.runtime.dBatchImportJobs[0], expectedBatch: saved.runtime.dProductionBatches[0] });
+    assert.deepEqual(await f.repository.readSnapshot(), saved);
+    assert.equal(f.calls.length, 1);
+  }
+});
+
+test('observation preparation refuses unclassified reasons, changed sources and invalid holders', async () => {
+  const f = await fixture();
+  const input = { batchId: 'd-batch:synthetic', members: f.members,
+    adapterCapabilities: f.capability, workerId: 'worker:batch-synthetic' };
+  await f.runtime.run(input);
+  const before = await f.repository.readSnapshot();
+  await assert.rejects(() => f.runtime.blockObservation({ batchId: input.batchId, chunkIndex: 0,
+    reason: 'unknown_system_failure', expectedSource: before.runtime.dBatchImportJobs[0],
+    expectedBatch: before.runtime.dProductionBatches[0] }),
+  /OBSERVATION_BLOCK_NOT_ADMITTED/);
+  await assert.rejects(() => f.runtime.blockObservation({ batchId: input.batchId, chunkIndex: 0,
+    reason: 'evidence_not_ready' }), /OBSERVATION_BLOCK_NOT_ADMITTED/);
+  assert.deepEqual(await f.repository.readSnapshot(), before);
+  await f.repository.transact(document => {
+    document.runtime.dBatchImportJobs[0].workerVersion = 'changed-version';
+    return { changed: true, document, result: null };
+  });
+  const changedWorker = await f.repository.readSnapshot();
+  await assert.rejects(() => f.runtime.blockObservation({ batchId: input.batchId, chunkIndex: 0,
+    reason: 'evidence_not_ready', expectedSource: before.runtime.dBatchImportJobs[0],
+    expectedBatch: before.runtime.dProductionBatches[0] }), /CHECKPOINT_SCOPE_CHANGED/);
+  assert.deepEqual(await f.repository.readSnapshot(), changedWorker);
+  await f.repository.transact(document => {
+    document.runtime.dBatchImportJobs[0].workerVersion = 'v1';
+    document.runtime.dProductionBatches[0].excludedOfferIds = ['changed-exclusion'];
+    return { changed: true, document, result: null };
+  });
+  const changedBatch = await f.repository.readSnapshot();
+  await assert.rejects(() => f.runtime.blockObservation({ batchId: input.batchId, chunkIndex: 0,
+    reason: 'evidence_not_ready', expectedSource: before.runtime.dBatchImportJobs[0],
+    expectedBatch: before.runtime.dProductionBatches[0] }), /CHECKPOINT_SCOPE_CHANGED/);
+  assert.deepEqual(await f.repository.readSnapshot(), changedBatch);
+  await f.repository.transact(document => {
+    document.runtime.dProductionBatches[0].excludedOfferIds = before.runtime.dProductionBatches[0].excludedOfferIds;
+    document.candidates[0].dataRevision++;
+    return { changed: true, document, result: null };
+  });
+  const changed = await f.repository.readSnapshot();
+  await assert.rejects(() => f.runtime.blockObservation({ batchId: input.batchId, chunkIndex: 0,
+    reason: 'evidence_not_ready', expectedSource: before.runtime.dBatchImportJobs[0],
+    expectedBatch: before.runtime.dProductionBatches[0] }), /OBSERVATION_SOURCE_CHANGED/);
+  assert.deepEqual(await f.repository.readSnapshot(), changed);
+  await f.repository.transact(document => {
+    document.candidates[0].dataRevision = before.candidates[0].dataRevision;
+    document.runtime.dBatchImportJobs[0].chunks[0].frozenImport.items[0].name += ' damaged';
+    return { changed: true, document, result: null };
+  });
+  const damaged = await f.repository.readSnapshot();
+  await assert.rejects(() => f.runtime.blockObservation({ batchId: input.batchId, chunkIndex: 0,
+    reason: 'service_not_configured', expectedSource: damaged.runtime.dBatchImportJobs[0],
+    expectedBatch: damaged.runtime.dProductionBatches[0] }), /FROZEN_IMPORT_INVALID/);
+  assert.deepEqual(await f.repository.readSnapshot(), damaged);
+  assert.equal(f.calls.length, 1);
+});
+
+test('observation preparation cannot record an old failure to the holder replacing its pending source', async () => {
+  const f = await fixture();
+  const input = { batchId: 'd-batch:synthetic', members: f.members,
+    adapterCapabilities: f.capability, workerId: 'worker:batch-synthetic' };
+  await f.runtime.run(input);
+  const entered = Promise.withResolvers(), prepared = Promise.withResolvers();
+  const pending = (async () => {
+    const source = await f.repository.readSnapshot();
+    entered.resolve();
+    await prepared.promise;
+    return f.runtime.blockObservation({ batchId: input.batchId, chunkIndex: 0,
+      reason: 'evidence_not_ready', expectedSource: source.runtime.dBatchImportJobs[0],
+      expectedBatch: source.runtime.dProductionBatches[0] });
+  })();
+  await entered.promise;
+  f.workerRegistry.register({ workerId: 'worker:replacement', version: 'v1',
+    capabilities: ['ozon-production-execution'], observedAt: at });
+  await f.repository.transact(document => {
+    const job = document.runtime.dBatchImportJobs[0];
+    job.workerId = 'worker:replacement';
+    job.leaseId = 'lease:replacement';
+    job.revision++;
+    return { changed: true, document, result: null };
+  });
+  const replaced = await f.repository.readSnapshot();
+  prepared.resolve();
+  await assert.rejects(() => pending, /CHECKPOINT_SCOPE_CHANGED/);
+  assert.deepEqual(await f.repository.readSnapshot(), replaced);
+  assert.equal(f.calls.length, 1);
 });
 
 test('a selected 32-SKU family imports 31 once after its first SKU already succeeded', async t => {

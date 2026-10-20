@@ -10,7 +10,9 @@ import { isDeepStrictEqual } from "node:util";
 import { PROFIT_THRESHOLD_POLICIES, validateProfitThresholds } from "./profit-threshold-policy.mjs";
 import { resolveBMarketPrice } from "./market-sample-policy.mjs";
 import { validateOwnerSupplyConfirmation } from "./supplier-selection-flow.mjs";
-import { PROFIT_CALCULATION_VERSION, FORMAL_COMMISSION_CALCULATION_VERSION, validateProfitCalculation } from "./profit-model-calculation.mjs";
+import { PROFIT_CALCULATION_VERSION, FORMAL_COMMISSION_CALCULATION_VERSION, OWNER_TARGET_PROFIT_CALCULATION_VERSION,
+  COST_POLICY_PROFIT_CALCULATION_VERSIONS, validateProfitCalculation, validateOwnerTargetPrice, validateOwnerTargetPriceSource } from "./profit-model-calculation.mjs";
+import { isOfficialCommissionBindingForCandidate } from "./lifecycle-b-input-bundle.mjs";
 import {
   GLOBAL_DAMAGE_LOSS_RESERVE_RATE,
   GLOBAL_LABEL_FEE_PER_ORDER_CNY,
@@ -104,6 +106,9 @@ export function validateProfitModel(model) {
     "profitMargin"
   ];
   if (!isObject(model)) return { valid: false, errors: [{ path: "$", message: "必须是对象" }] };
+  if (Object.hasOwn(model, "priceInputs") && model.calculation?.version !== OWNER_TARGET_PROFIT_CALCULATION_VERSION) {
+    errors.push({ path: "priceInputs", message: "主人目标价必须使用双价格计算版本" });
+  }
   if (model.schemaVersion !== PROFIT_MODEL_SCHEMA_VERSION) errors.push({ path: "schemaVersion", message: `必须是${PROFIT_MODEL_SCHEMA_VERSION}` });
   if (!/^profit-v[1-9]\d*$/.test(String(model.profitModelVersion || ""))) errors.push({ path: "profitModelVersion", message: "必须使用profit-vN" });
   if (!isoDateTime(model.calculatedAt)) errors.push({ path: "calculatedAt", message: "必须是有效时间" });
@@ -119,7 +124,7 @@ export function validateProfitModel(model) {
   if (model.commissionMode !== undefined && !["exact", "estimated", "official_reference"].includes(model.commissionMode)) {
     errors.push({ path: "commissionMode", message: "必须明确为exact、estimated或official_reference" });
   }
-  if (![FORMAL_COMMISSION_CALCULATION_VERSION, PROFIT_CALCULATION_VERSION].includes(model.calculation?.version) && model.commissionMode === "estimated" && model.exactCommissionRequiredAtC !== true) {
+  if (![FORMAL_COMMISSION_CALCULATION_VERSION, ...COST_POLICY_PROFIT_CALCULATION_VERSIONS].includes(model.calculation?.version) && model.commissionMode === "estimated" && model.exactCommissionRequiredAtC !== true) {
     errors.push({ path: "exactCommissionRequiredAtC", message: "估算佣金必须在C阶段补取精确佣金" });
   }
   validateMoneyObject(model.sellerSettlementRevenue, "sellerSettlementRevenue", errors);
@@ -133,7 +138,7 @@ export function validateProfitModel(model) {
     }
   }
   if (model.pricingPolicyVersion !== undefined) {
-    if (model.calculation?.version !== PROFIT_CALCULATION_VERSION && model.pricingPolicyVersion !== GLOBAL_PRICING_POLICY_VERSION) errors.push({ path: "pricingPolicyVersion", message: "必须使用当前全局定价政策" });
+    if (!COST_POLICY_PROFIT_CALCULATION_VERSIONS.includes(model.calculation?.version) && model.pricingPolicyVersion !== GLOBAL_PRICING_POLICY_VERSION) errors.push({ path: "pricingPolicyVersion", message: "必须使用当前全局定价政策" });
     if (model.pricingMode !== "source-market-fit") errors.push({ path: "pricingMode", message: "选品B阶段必须使用source-market-fit" });
     if (!isObject(model.priceFloors) || !finite(model.priceFloors.breakEvenPriceCny) || !finite(model.priceFloors.marginFloorCny) ||
         !finite(model.priceFloors.minimumProfitFloorCny) || !finite(model.priceFloors.qualifyingFloorCny) ||
@@ -145,7 +150,7 @@ export function validateProfitModel(model) {
       errors.push({ path: "marketFit", message: "必须保存市场价格与成本价格线比较，竞品数量不得成为硬门槛" });
     }
     const components = model.otherCosts?.components;
-    if (model.calculation?.version !== PROFIT_CALCULATION_VERSION && (!isObject(components) || components.labelRmb !== GLOBAL_LABEL_FEE_PER_ORDER_CNY ||
+    if (!COST_POLICY_PROFIT_CALCULATION_VERSIONS.includes(model.calculation?.version) && (!isObject(components) || components.labelRmb !== GLOBAL_LABEL_FEE_PER_ORDER_CNY ||
         components.damageReserveRate !== GLOBAL_DAMAGE_LOSS_RESERVE_RATE ||
         components.withdrawalFeeRate !== GLOBAL_WITHDRAWAL_FEE_RATE)) {
       errors.push({ path: "otherCosts.components", message: "全局贴单、破损丢失和提现费必须各计一次" });
@@ -223,12 +228,16 @@ export function runSkuProfitModel({
   const resolvedMarket = resolveBMarketPrice(opportunityPackage, salesSnapshotId);
   const salesSnapshot = resolvedMarket.snapshot;
   if (!salesSnapshot || !skuPackage.inheritedSalesSnapshotRefs.includes(salesSnapshotId)) throw new Error("B_INPUT_GAP: SKU未继承所选销售快照");
-  const recommendedSalePriceRub = requireNumber(
+  const marketReferencePriceRub = requireNumber(
     resolvedMarket.recommendedSalePrice.amount,
     "A销售建议价格",
     { positive: true }
   );
   if (resolvedMarket.recommendedSalePrice.currency !== "RUB") throw new Error("B_INPUT_GAP: 当前测试销售价格必须为RUB");
+  const ownerPriced = Object.hasOwn(selection, "ownerTargetPrice");
+  if (ownerPriced && !validateOwnerTargetPrice(selection.ownerTargetPrice)) throw new Error("B_INPUT_GAP: 主人目标价决定不完整或无效");
+  const ownerTargetPrice = ownerPriced ? selection.ownerTargetPrice : null;
+  const recommendedSalePriceRub = ownerPriced ? ownerTargetPrice.amountRub : marketReferencePriceRub;
 
   const supplySnapshot = requireObject(skuPackage.selectedSupplySnapshot, "主人确认供应SKU快照");
   const supplySku = requireObject(supplySnapshot.supplierSku, "主人确认供应SKU");
@@ -290,15 +299,31 @@ export function runSkuProfitModel({
   ];
   const calculationTime = requireString(calculatedAt, "利润计算时间");
   const existing = skuPackage.profitModels.find((item) =>
-    item.calculation?.version === PROFIT_CALCULATION_VERSION &&
+    COST_POLICY_PROFIT_CALCULATION_VERSIONS.includes(item.calculation?.version) &&
     item.marketAssessmentRef === resolvedMarket.assessment.assessmentId &&
     item.calculatedAt === calculationTime && JSON.stringify(item.inputSnapshotRefs) === JSON.stringify(inputSnapshotRefs)
   );
+  if (existing && !isDeepStrictEqual(existing.priceInputs?.ownerTargetPrice ?? null, ownerTargetPrice)) {
+    throw new Error("PROFIT_REPLAY_CONFLICT: 相同计算标识的主人目标价决定已变化");
+  }
+  if (!ownerPriced && opportunityPackage.audit.history.some(record => record?.ownerTargetPrice !== undefined)) {
+    throw new Error("B_INPUT_GAP: 已保存主人目标价的商品不得回退为市场参考价计算");
+  }
+  if (ownerPriced && (!validateOwnerTargetPriceSource(ownerTargetPrice, { opportunityPackage, candidateId: skuPackage.g1Identity.candidateId }) ||
+      Date.parse(ownerTargetPrice.confirmedAt) > Date.parse(calculationTime))) {
+    throw new Error("B_INPUT_GAP: 主人目标价无法回连当前商品已保存的价格决定");
+  }
+  if (commissionMode === "official_reference" && (!isOfficialCommissionBindingForCandidate(fees.officialCommissionBinding, {
+    candidateId: skuPackage.g1Identity.candidateId, candidateRevision: fees.officialCommissionBinding?.candidateRevision
+  }) || fees.officialCommissionBinding.priceRub !== recommendedSalePriceRub)) {
+    throw new Error("B_INPUT_GAP: 官方佣金绑定必须与当前SKU和实际B目标成交价完全一致");
+  }
   const rawPriceCny = recommendedSalePriceRub / rubPerCny;
   const recommendedSalePriceCny = roundMoney(rawPriceCny);
   const pricing = calculateProjectSourceMarketFit({
     resolvedCostPolicy,
-    marketReferencePriceCny: rawPriceCny,
+    marketReferencePriceCny: marketReferencePriceRub / rubPerCny,
+    ...(ownerPriced ? { targetSalePriceCny: rawPriceCny } : {}),
     actualPurchaseCostCny: actualPurchaseCostAmount,
     packagingCostCny: packagingRmb,
     internationalFreightPerOrderCny: internationalFreightAmount,
@@ -315,11 +340,12 @@ export function runSkuProfitModel({
   const settlementAmount = roundMoney(rawPriceCny * (1 - commissionRate));
   const variableOtherCosts = rawPriceCny * Object.entries(pricing.variableRates).filter(([key]) => key !== "commission").reduce((sum, [, value]) => sum + value, 0);
   const totalOtherCosts = roundMoney(packagingRmb + labelRmb + fixedOtherRmb + variableOtherCosts);
-  const rawUnitProfitRmb = pricing.evaluatedAtMarketPrice.unroundedUnitProfitCny;
+  const evaluation = ownerPriced ? pricing.evaluatedAtTargetPrice : pricing.evaluatedAtMarketPrice;
+  const rawUnitProfitRmb = evaluation.unroundedUnitProfitCny;
   const unitProfitRmb = roundMoney(rawUnitProfitRmb);
   const profitMargin = roundRate(rawUnitProfitRmb / rawPriceCny);
   const conditional = commissionMode === "estimated";
-  const result = conditional ? "manual_review" : pricing.evaluatedAtMarketPrice.thresholdPassed ? "passed" : "rejected";
+  const result = conditional ? "manual_review" : evaluation.thresholdPassed ? "passed" : "rejected";
 
   const model = {
     schemaVersion: PROFIT_MODEL_SCHEMA_VERSION,
@@ -335,8 +361,9 @@ export function runSkuProfitModel({
     pricingMode: pricing.pricingMode,
     recommendedSalePriceRub,
     recommendedSalePriceCny,
+    ...(ownerPriced ? { priceInputs: { marketReferencePriceRub, ownerTargetPrice: structuredClone(ownerTargetPrice) } } : {}),
     calculation: {
-      version: PROFIT_CALCULATION_VERSION,
+      version: ownerPriced ? OWNER_TARGET_PROFIT_CALCULATION_VERSION : PROFIT_CALCULATION_VERSION,
       recommendedSalePriceCny: rawPriceCny,
       unitProfitRmb: rawUnitProfitRmb
     },
@@ -408,7 +435,9 @@ export function runSkuProfitModel({
     executionMode: "five_upstream_evidence_sources_only",
     externalAccesses: [],
     requestedExistingFields: [],
-    formula: "先按采购到手成本、包材、整单国际物流、每单贴单费和全部收入费率反推价格线；项目合格底线取15%利润率线与20元利润线的较低者（满足任一项）；再用A阶段市场目标价计算实际利润并比较市场余量。"
+    formula: ownerPriced
+      ? "按冻结完整成本和主人目标成交价计算正式利润、结算及收入费率成本，满足15%利润率或20元利润任一项；市场参考价独立保留，市场余量仅按本次目标价费率作参考比较。"
+      : "先按采购到手成本、包材、整单国际物流、每单贴单费和全部收入费率反推价格线；项目合格底线取15%利润率线与20元利润线的较低者（满足任一项）；再用A阶段市场目标价计算实际利润并比较市场余量。"
   };
   assertValidProfitModel(model);
 

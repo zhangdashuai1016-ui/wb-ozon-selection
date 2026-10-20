@@ -72,9 +72,117 @@ const forbiddenPatterns = [
   ["child process", /node:child_process/u],
   ["network server", /\bcreateServer\s*\(|\.listen\s*\(/u],
   ["network client", /\bfetch\s*\(|\bWebSocket\s*\(|\bXMLHttpRequest\b|node:https?/u],
+  ["database client", /\bfrom\s*["']pg["']|\bimport\s*\(\s*["']pg["']\s*\)/u],
   ["live candidate fixture", /candidates\.json/u],
   ["isolated API fixture", sharedApiFixtureImport],
 ];
+
+/** Offline boundary tests may import HTTP clients only to install fail-fast, zero-call tripwires. */
+export function assertOfflineNetworkBoundaryTestSource({ file, source }) {
+  for (const [label, pattern] of forbiddenPatterns) {
+    if (label === "network client") continue;
+    if (pattern.test(source) || label === "child process" && containsChildProcessOperation(source, file)) {
+      throw new Error(`CI_TEST_REQUIRES_CLASSIFICATION:${label}:${file}`);
+    }
+  }
+  const fail = reason => { throw new Error(`CI_OFFLINE_NETWORK_BOUNDARY_INVALID:${reason}:${file}`); };
+  let ast;
+  try { ast = parseAst(source); }
+  catch (cause) { throw new Error(`CI_TEST_SOURCE_PARSE_FAILED:${file}`, { cause }); }
+  const nodes = [], parents = new Map(), pending = [ast];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    nodes.push(node);
+    for (const value of Object.values(node)) {
+      const children = Array.isArray(value) ? value : [value];
+      for (const child of children) if (child && typeof child.type === "string") {
+        parents.set(child, node);
+        pending.push(child);
+      }
+    }
+  }
+  const ancestor = (node, predicate) => {
+    for (let parent = parents.get(node); parent; parent = parents.get(parent)) if (predicate(parent)) return parent;
+  };
+  const member = (node, name) => node?.type === "MemberExpression" && calleeName(node) === name;
+  const clients = new Map(), assertions = new Set(), tests = new Set();
+  const networkModule = /^(?:node:)?(?:https?|http2|net|tls|dns(?:\/promises)?|dgram)$|^undici$/u;
+  for (const node of nodes) {
+    if (["ImportDeclaration", "ImportExpression", "ExportNamedDeclaration", "ExportAllDeclaration"].includes(node.type) && node.source) {
+      const name = staticString(node.source);
+      if (networkModule.test(name)) {
+        if (node.type !== "ImportDeclaration" || !/^node:https?$/u.test(name) || node.specifiers.length !== 1 ||
+            !["ImportDefaultSpecifier", "ImportNamespaceSpecifier"].includes(node.specifiers[0].type)) fail("client_import");
+        clients.set(node.specifiers[0].local.name, name.slice(5));
+      }
+      if (node.type === "ImportDeclaration" && ["node:assert/strict", "node:assert", "node:test"].includes(name)) {
+        for (const specifier of node.specifiers) if (specifier.type === "ImportDefaultSpecifier") {
+          (name === "node:test" ? tests : assertions).add(specifier.local.name);
+        }
+      }
+    }
+    if (node.type === "CallExpression" && isModuleLoader(node.callee) && node.arguments.length > 0 &&
+        networkModule.test(staticString(node.arguments[0]))) fail("client_import");
+  }
+  const assertion = (node, method) => node?.type === "CallExpression" && member(node.callee, method) &&
+    node.callee.object.type === "Identifier" && assertions.has(node.callee.object.name);
+  const tripwires = new Map(), allowedClientReferences = new Set();
+  for (const node of nodes) {
+    if (node.type !== "CallExpression" || !member(node.callee, "method") || !member(node.callee.object, "mock") ||
+        node.callee.object.object.type !== "Identifier" || node.arguments.length !== 3) continue;
+    const [target, operation, callback] = node.arguments;
+    if (target.type !== "Identifier" || !["ArrowFunctionExpression", "FunctionExpression"].includes(callback.type) ||
+        !assertion(callback.body, "fail")) continue;
+    const kind = target.name === "globalThis" && staticString(operation) === "fetch" ? "fetch" :
+      clients.has(target.name) && staticString(operation) === "request" ? clients.get(target.name) : undefined;
+    if (kind) {
+      tripwires.set(node, { kind, context: node.callee.object.object.name });
+      allowedClientReferences.add(target);
+    }
+  }
+  for (const node of nodes) {
+    if (node.type === "Identifier" && clients.has(node.name) &&
+        !["ImportDefaultSpecifier", "ImportNamespaceSpecifier"].includes(parents.get(node)?.type) &&
+        !allowedClientReferences.has(node)) fail("client_use");
+    if (node.type === "Identifier" && ["fetch", "WebSocket", "XMLHttpRequest", "EventSource"].includes(node.name) ||
+        node.type === "MemberExpression" && node.object.type === "Identifier" && node.object.name === "globalThis" &&
+        (node.computed && staticString(node.property) === undefined || ["fetch", "WebSocket", "XMLHttpRequest", "EventSource"].includes(calleeName(node)))) {
+      fail("client_use");
+    }
+  }
+  const guardedHelpers = new Set();
+  for (const node of nodes) {
+    if (node.type !== "VariableDeclarator" || node.id.type !== "Identifier" || node.init?.type !== "ArrayExpression" ||
+        node.init.elements.length !== 3 || !node.init.elements.every(value => tripwires.has(value))) continue;
+    const registrations = node.init.elements.map(value => tripwires.get(value));
+    const helper = ancestor(node, value => value.type === "FunctionDeclaration");
+    if (!helper || helper.params[0]?.type !== "Identifier" || new Set(registrations.map(value => value.kind)).size !== 3 ||
+        registrations.some(value => value.context !== helper.params[0].name)) continue;
+    const zeroCalls = nodes.some(value => {
+      if (!assertion(value, "equal") || value.arguments.length !== 2 || value.arguments[1].type !== "Literal" ||
+          value.arguments[1].value !== 0) return false;
+      const count = value.arguments[0];
+      if (count.type !== "CallExpression" || !member(count.callee, "callCount") || !member(count.callee.object, "mock") ||
+          count.callee.object.object.type !== "Identifier") return false;
+      const loop = ancestor(value, candidate => candidate.type === "ForOfStatement");
+      const after = ancestor(value, candidate => candidate.type === "CallExpression" && member(candidate.callee, "after") &&
+        candidate.callee.object.type === "Identifier" && candidate.callee.object.name === helper.params[0].name);
+      return loop?.right.type === "Identifier" && loop.right.name === node.id.name &&
+        loop.left.type === "VariableDeclaration" && loop.left.declarations[0]?.id.name === count.callee.object.object.name &&
+        after && ancestor(after, candidate => candidate.type === "FunctionDeclaration") === helper;
+    });
+    if (zeroCalls) guardedHelpers.add(helper.id.name);
+  }
+  const testCalls = nodes.filter(node => node.type === "CallExpression" && node.callee.type === "Identifier" && tests.has(node.callee.name));
+  if (guardedHelpers.size === 0 || testCalls.length === 0) fail("tripwire_proof");
+  for (const node of testCalls) {
+    const callback = node.arguments.at(-1), first = callback?.body?.body?.[0];
+    if (!callback || callback.params?.[0]?.type !== "Identifier" || first?.type !== "ExpressionStatement" ||
+        first.expression.type !== "CallExpression" || first.expression.callee.type !== "Identifier" ||
+        !guardedHelpers.has(first.expression.callee.name) || first.expression.arguments.length !== 1 ||
+        first.expression.arguments[0].type !== "Identifier" || first.expression.arguments[0].name !== callback.params[0].name) fail("unguarded_test");
+  }
+}
 
 /** API tests may use the shared isolated subprocess fixture or the packaged launch script; inspect those implementations too. */
 export function assertIsolatedApiTestSource({file,source,sharedFixtureSource,launchScriptSource}) {

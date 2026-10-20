@@ -16,6 +16,8 @@ import { createRepositoryBackedSoftwareJobStore } from '../lib/software-job-repo
 import { savedDProductionJobFixture } from './fixtures/d-production-saved-job-fixture.mjs';
 import { runPersistedDExecution } from '../lib/d-e-software-integration.mjs';
 import { fingerprintCanonicalRecord } from '../lib/production-contract-primitives.mjs';
+import { accountReadConcurrencyFixture, waitForAccountReadBoundary } from './helpers/account-read-concurrency-fixture.mjs';
+import { ozonAccountReadCoordinationState } from '../lib/ozon-account-read-coordination.mjs';
 const clone=value=>structuredClone(value);
 const published=await loadPublishedSchemaValidator(),validJob=published.getSchema('software-job-v1.schema.json');
 async function fixture({stableAssets=false}={}){
@@ -137,6 +139,124 @@ function missingAccountCapabilities({candidate,productionBinding},clock){
   warehouseRef:productionBinding.warehouseRef,credentialAlias:productionBinding.credentialAlias,warehouseId:productionBinding.warehouseId,
   inspectedAt:clock(),storeIdentity:null,productImport:null,assetTransport:null,inventoryWrite:null,independentReadback:null});
 }
+
+async function accountForSavedD(f,options={}){
+ return accountReadConcurrencyFixture({repository:f.repository,clock:f.options.serverClock,
+  candidateId:f.candidate.id,productionBinding:f.binding,...options});
+}
+async function savedDAccountState(f){
+ return {accountReadState:ozonAccountReadCoordinationState({document:await f.repository.readSnapshot(),candidateIds:[f.candidate.id]})};
+}
+
+test('single-SKU D cannot omit its account preparation source once persisted account reads exist',async()=>{
+ const f=await fixture(),account=await accountForSavedD(f);await account.run();
+ const before=await f.repository.readSnapshot(),runtime=createDEProductionRuntimeServices(f.options);
+ await assert.rejects(()=>runtime.continueSavedCurrent(f.input),/SOFTWARE_JOB_ADMISSION_ACCOUNT_READ_SOURCE_REQUIRED/);
+ assert.deepEqual(await f.repository.readSnapshot(),before);assert.deepEqual(f.calls,[]);assert.deepEqual(f.puts,[]);
+});
+
+for(const status of ['queued','unknown_outcome'])test(`single-SKU D claim rejects a real ${status} account read without creating a lease or preparation`,async()=>{
+ const f=await fixture(),account=await accountForSavedD(f,{responseMode:status==='unknown_outcome'?'unknown':'observed'});
+ const read=status==='queued'?await account.enqueue():await account.run();assert.equal(read.status,status);
+ const before=await f.repository.readSnapshot(),runtime=createDEProductionRuntimeServices(f.options);
+ const source=await savedDAccountState(f);
+ await assert.rejects(()=>runtime.continueSavedCurrent(f.input,source),/SOFTWARE_JOB_ADMISSION_ACCOUNT_READ_BLOCKED/);
+ assert.deepEqual(await f.repository.readSnapshot(),before);
+ assert.deepEqual(f.calls,[]);assert.deepEqual(f.puts,[]);assert.deepEqual(f.counts(),{inspections:0,capabilityReads:0});
+});
+
+test('an explicit account refresh wins before single-SKU D claim and leaves the original production job untouched',async()=>{
+ const f=await fixture(),account=await accountForSavedD(f),expiry=new Date(Date.parse(f.options.serverClock())+1000).toISOString();
+ const completed=await account.run({expiresAt:expiry});f.advance(1000);
+ const refreshed=await account.enqueue({refreshOfJobId:completed.job.jobId,idempotencyKey:'account:refresh:before-d-claim'});
+ assert.equal(refreshed.status,'queued');
+ const before=await f.repository.readSnapshot(),runtime=createDEProductionRuntimeServices(f.options);
+ const source=await savedDAccountState(f);
+ await assert.rejects(()=>runtime.continueSavedCurrent(f.input,source),/SOFTWARE_JOB_ADMISSION_ACCOUNT_READ_BLOCKED/);
+ assert.deepEqual(await f.repository.readSnapshot(),before);assert.deepEqual(f.calls,[]);assert.deepEqual(f.puts,[]);
+ assert.equal(account.requests.length,3);
+});
+
+test('single-SKU D claim wins before asynchronous capability preparation and refuses the expired refresh without another grant',async()=>{
+ const f=await fixture(),account=await accountForSavedD(f),expiry=new Date(Date.parse(f.options.serverClock())+1000).toISOString();
+ const completed=await account.run({expiresAt:expiry});await account.publish(completed);
+ const entered=Promise.withResolvers(),release=Promise.withResolvers();
+ const runtime=createDEProductionRuntimeServices({...f.options,loadAdapterCapabilities:async input=>{
+  entered.resolve();await release.promise;return f.options.loadAdapterCapabilities(input);
+ }});
+ const running=runtime.continueSavedCurrent(f.input,await savedDAccountState(f));await waitForAccountReadBoundary(entered.promise,running,release.resolve);
+ try{
+  f.advance(1000);
+  const before=await f.repository.readSnapshot(),job=before.runtime.softwareJobs.find(value=>value.jobId===f.input.jobId);
+  assert.equal(job.status,'claimed');assert.equal(job.externalRequestState,'not_sent');assert.deepEqual(f.calls,[]);assert.deepEqual(f.puts,[]);
+  await assert.rejects(()=>account.enqueue({refreshOfJobId:completed.job.jobId,idempotencyKey:'account:refresh:after-d-claim'}),
+   {code:'OZON_ACCOUNT_READ_REFRESH_PRODUCTION_BUSY'});
+  assert.deepEqual(await f.repository.readSnapshot(),before);assert.equal(account.requests.length,3);
+ }finally{release.resolve();await running;}
+});
+
+test('a first account grant cannot enter after single-SKU D has claimed its lease',async()=>{
+ const f=await fixture(),entered=Promise.withResolvers(),release=Promise.withResolvers();
+ const runtime=createDEProductionRuntimeServices({...f.options,loadAdapterCapabilities:async input=>{
+  entered.resolve();await release.promise;return f.options.loadAdapterCapabilities(input);
+ }});
+ const running=runtime.continueSavedCurrent(f.input);await waitForAccountReadBoundary(entered.promise,running,release.resolve);
+ try{
+  const account=await accountForSavedD(f),before=await f.repository.readSnapshot();
+  assert.equal(before.runtime.softwareJobs.find(value=>value.jobId===f.input.jobId).status,'claimed');
+  await assert.rejects(()=>account.enqueue(),{code:'OZON_ACCOUNT_READ_REFRESH_PRODUCTION_BUSY'});
+  assert.deepEqual(await f.repository.readSnapshot(),before);assert.deepEqual(account.requests,[]);
+  assert.equal(before.runtime.softwareJobs.some(job=>job.jobType==='ozon_account_read'),false);
+  assert.deepEqual(f.calls,[]);assert.deepEqual(f.puts,[]);
+ }finally{release.resolve();await running;}
+});
+
+for(const expiresFirst of ['grant','roles'])test(`single-SKU D policy wait crossing ${expiresFirst} expiry preserves the queued job and explicit refresh`,async()=>{
+ const f=await fixture(),account=await accountForSavedD(f),expiry=new Date(Date.parse(f.options.serverClock())+1000).toISOString();
+ if(expiresFirst==='roles')account.responses['/v1/roles'].expires_at=expiry;
+ const completed=await account.run(expiresFirst==='grant'?{expiresAt:expiry}:{});await account.publish(completed);
+ const before=await f.repository.readSnapshot(),entered=Promise.withResolvers(),release=Promise.withResolvers();
+ const runtime=createDEProductionRuntimeServices({...f.options,loadDPlatformObservationPolicy:async input=>{
+  entered.resolve();await release.promise;return f.options.loadDPlatformObservationPolicy(input);
+ }});
+ const running=runtime.continueSavedCurrent(f.input,await savedDAccountState(f));
+ await waitForAccountReadBoundary(entered.promise,running,release.resolve);
+ f.advance(1000);release.resolve();
+ await assert.rejects(running,/SOFTWARE_JOB_ADMISSION_ACCOUNT_EVIDENCE_NOT_CURRENT/);
+ const stopped=await f.repository.readSnapshot(),job=stopped.runtime.softwareJobs.find(value=>value.jobId===f.input.jobId);
+ assert.equal(job.status,'queued');assert.equal(job.attempt,0);assert.equal(job.leaseId,null);
+ assert.deepEqual(stopped,before);assert.deepEqual(f.calls,[]);assert.deepEqual(f.puts,[]);
+ assert.deepEqual(f.counts(),{inspections:0,capabilityReads:0});
+ const refreshed=await account.enqueue({refreshOfJobId:completed.job.jobId,idempotencyKey:`account:refresh:expired-${expiresFirst}-during-policy`});
+ assert.equal(refreshed.status,'queued');assert.equal(account.requests.length,3);
+ const after=await f.repository.readSnapshot();assert.deepEqual(after.candidates,before.candidates);
+ assert.deepEqual(after.runtime.softwareJobs.find(value=>value.jobId===f.input.jobId),job);
+ assert.deepEqual(after.runtime.ozonAccountReadReceipts,before.runtime.ozonAccountReadReceipts);
+ assert.deepEqual(after.runtime.ozonDEPreflightEvidence,before.runtime.ozonDEPreflightEvidence);
+});
+
+test('an account refresh that fails while single-SKU observation policy is pending cannot consume a D lease from an old snapshot',async()=>{
+ const f=await fixture(),account=await accountForSavedD(f),expiry=new Date(Date.parse(f.options.serverClock())+1000).toISOString();
+ const completed=await account.run({expiresAt:expiry});await account.publish(completed);
+ const entered=Promise.withResolvers(),release=Promise.withResolvers();
+ const runtime=createDEProductionRuntimeServices({...f.options,loadDPlatformObservationPolicy:async input=>{
+  entered.resolve();await release.promise;return f.options.loadDPlatformObservationPolicy(input);
+ }});
+ const running=runtime.continueSavedCurrent(f.input,await savedDAccountState(f));await waitForAccountReadBoundary(entered.promise,running,release.resolve);
+ let before;
+ try{
+  f.advance(1000);const retry=await accountForSavedD(f,{responseMode:'unavailable'});
+  const failed=await retry.run({refreshOfJobId:completed.job.jobId,idempotencyKey:'account:refresh:during-d-policy'});
+  assert.equal(failed.status,'failed');assert.equal(retry.requests.length,1);
+  before=await f.repository.readSnapshot();
+ }finally{release.resolve();}
+ await assert.rejects(running,/ACCOUNT_READ_CHANGED/);
+ const after=await f.repository.readSnapshot(),job=after.runtime.softwareJobs.find(value=>value.jobId===f.input.jobId);
+ assert.equal(job.status,'queued');assert.equal(job.attempt,0);assert.equal(job.leaseId,null);
+ assert.deepEqual(after,before);assert.deepEqual(f.calls,[]);assert.deepEqual(f.puts,[]);
+ assert.deepEqual(f.counts(),{inspections:0,capabilityReads:0});
+});
+
 test('construction performs zero repository/provider reads; missing declared service or function leaves queued unchanged',async()=>{
  const f=await fixture();let reads=0;const repository={...f.repository,readSnapshot:async()=>{reads++;return f.repository.readSnapshot();}};
  const runtime=createDEProductionRuntimeServices({...f.options,repository});assert.equal(reads,0);assert.deepEqual(f.counts(),{inspections:0,capabilityReads:0});assert.equal(f.calls.length+f.puts.length,0);

@@ -4,9 +4,11 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { prepareRuntimePackage } from "../scripts/runtime-package.mjs";
+import { loadSeerfarSelectionConfig } from "../lib/seerfar-selection-config.mjs";
+import { loadPlatformProfile, loadPlatformMapping } from "../lib/platform-projection.mjs";
 import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 
 const appDir = fileURLToPath(new URL("..", import.meta.url));
@@ -21,12 +23,12 @@ if (port === gatewayPort) throw new Error("TEST_REQUIRES_DISTINCT_PORTS");
 const base = `http://127.0.0.1:${port}`;
 const extensionOrigin = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-function started(child) {
+function started(child, stderr) {
   return new Promise((resolve, reject) => {
     let stdout = "";
-    const timer = setTimeout(() => finish(new Error("PACKAGED_SERVER_START_TIMEOUT")), 10000);
+    const timer = setTimeout(() => finish(new Error(`PACKAGED_SERVER_START_TIMEOUT:${JSON.stringify({ stdout, stderr })}`)), 10000);
     const onData = chunk => { stdout += chunk; if (stdout.includes(base)) finish(); };
-    const onExit = (code, signal) => finish(new Error(`PACKAGED_SERVER_START_FAILED:${code}:${signal}`));
+    const onExit = (code, signal) => finish(new Error(`PACKAGED_SERVER_START_FAILED:${JSON.stringify({ code, signal, stdout, stderr })}`));
     function finish(error) {
       clearTimeout(timer);
       child.stdout.off("data", onData); child.off("error", finish); child.off("exit", onExit);
@@ -71,7 +73,20 @@ test("the prepared package serves built UI and preserves both historical runtime
   assert.equal(receipt.activated, false);
   assert.equal(receipt.persistentContentIncluded, false);
   const packageEntries = await fs.readdir(output);
-  for (const excluded of ["data", "logs", "evidence", "product-images", ".env"]) assert.equal(packageEntries.includes(excluded), false);
+  for (const excluded of ["logs", "evidence", "product-images", ".env"]) assert.equal(packageEntries.includes(excluded), false);
+  assert.deepEqual((await fs.readdir(path.join(output, "data"))).sort(),
+    ["platform-mappings", "platform-profiles", "seerfar-selection"]);
+  for (const directory of ["seerfar-selection", "platform-profiles", "platform-mappings"]) {
+    for (const file of await fs.readdir(path.join(output, "data", directory))) {
+      assert.deepEqual(await fs.readFile(path.join(output, "data", directory, file)),
+        await fs.readFile(path.join(appDir, "data", directory, file)));
+    }
+  }
+  const selectionConfig = await loadSeerfarSelectionConfig({ directory: pathToFileURL(path.join(output, "data", "seerfar-selection") + path.sep) });
+  assert.deepEqual(Object.keys(selectionConfig.profiles).sort(), ["dandanshu", "miska"]);
+  assert.equal((await loadPlatformProfile("ozon", { directory: path.join(output, "data", "platform-profiles") })).platform, "ozon");
+  assert.equal((await loadPlatformProfile("wb", { directory: path.join(output, "data", "platform-profiles") })).platform, "wb");
+  assert.equal((await loadPlatformMapping("wb", "734", { directory: path.join(output, "data", "platform-mappings") })).platform, "wb");
   let externalRequests = 0;
   observer = http.createServer((_request, response) => {
     externalRequests += 1;
@@ -100,7 +115,7 @@ test("the prepared package serves built UI and preserves both historical runtime
       }, stdio: ["ignore", "pipe", "pipe"]
     });
     child.stderr.on("data", chunk => stderr.push(String(chunk)));
-    await started(child);
+    await started(child, stderr);
     const health = await (await fetch(`${base}/api/health`)).json();
     assert.equal(health.ok, true);
     assert.equal(health.dataVersion, 2);
@@ -133,7 +148,7 @@ test("the prepared package serves built UI and preserves both historical runtime
     assert.equal(state.summary.dispatch.processingCounts.actualRunning, 0);
     const heartbeat = await fetch(`${base}/api/extension/heartbeat`, { method: "POST",
       headers: { Origin: extensionOrigin, "Content-Type": "application/json" },
-      body: JSON.stringify({ version: "1.2.7", backgroundReady: true, observedAt: new Date().toISOString() }) });
+      body: JSON.stringify({ version: "1.6.0", backgroundReady: true, observedAt: new Date().toISOString() }) });
     assert.equal(heartbeat.status, 200);
     assert.equal((await heartbeat.json()).captureJob, null);
     assert.deepEqual(await fs.readFile(dataFile), bytes);

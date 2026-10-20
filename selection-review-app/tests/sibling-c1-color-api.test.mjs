@@ -4,10 +4,29 @@ import assert from 'node:assert/strict';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { siblingColorState } from './fixtures/sibling-color-state.mjs';
+import { siblingColorState, siblingColorSchemaPack } from './fixtures/sibling-color-state.mjs';
 import { startSavedDEApi } from './helpers/d-e-saved-api-fixture.mjs';
 
 const { api: port } = allocatedTestPorts();
+
+function savedSchemaPack(candidate, id = 'schema:synthetic:saved-current') {
+  const pack = siblingColorSchemaPack(candidate);
+  pack.id = id;
+  pack.checkedAt = '2026-08-18T00:00:00.000Z';
+  pack.expiresAt = '2099-01-01T00:00:00.000Z';
+  pack.sourceRef = 'synthetic:saved-current-schema';
+  pack.evidenceData.schemaRevision = 'schema:synthetic:saved-current-version';
+  pack.evidenceData.writeBindings.schemaRevision = pack.evidenceData.schemaRevision;
+  pack.evidenceData.writeBindings.evidenceRef = pack.id;
+  return pack;
+}
+
+async function startSchemaPreparationApi(t, document, identityProvider = 'local_owner_password') {
+  const candidate = document.candidates[1];
+  return startSavedDEApi(t, { directory: await mkdtemp(path.join(tmpdir(), 'sibling-schema-api-')),
+    port, document, binding: { storeRef: candidate.storeRef, platform: candidate.targetPlatform },
+    productionBindings: [], identityProvider });
+}
 
 test('unsettled color reads cannot be cleared through the frozen sibling revision API', async t => {
   for (const status of ['request_sent', 'unknown_outcome']) {
@@ -172,5 +191,159 @@ test('owner-authorized complete color choices are read once, saved and mapped wi
   assert.equal(mapping.body.result.externalCalls, 0);
   assert.equal(api.dictionaryRequests(), 1);
   assert.equal(api.dependencyRequests(), 0);
+  await api.assertClean();
+});
+
+test('schema refresh and local adoption reject missing owner, malformed inputs and stale revisions before any request', async t => {
+  const document = siblingColorState(), candidate = document.candidates[1], pack = savedSchemaPack(candidate);
+  document.evidencePacks.push(pack);
+  const api = await startSchemaPreparationApi(t, document);
+  const base = `/api/candidates/${candidate.id}/lifecycle/c1`;
+  const actions = [
+    { route: `${base}/refresh-category-schema`, input: { candidateId: candidate.id, dataRevision: candidate.dataRevision } },
+    { route: `${base}/adopt-saved-category-schema`, input: { candidateId: candidate.id,
+      dataRevision: candidate.dataRevision, evidencePackId: pack.id } }
+  ];
+  const before = await api.readBytes();
+  for (const action of actions) {
+    const response = await api.post(action.route, action.input, { authenticated: false,
+      headers: { 'x-user-id': 'synthetic-owner', 'x-session-id': 'synthetic-session', 'x-user-role': 'owner' } });
+    assert.equal(response.status, 401, JSON.stringify(response.body));
+    assert.deepEqual(await api.readBytes(), before);
+  }
+  await api.authenticate();
+  for (const action of actions) {
+    for (const invalid of [null, { ...action.input, candidateId: 'synthetic-other-candidate' },
+      { ...action.input, dataRevision: String(action.input.dataRevision) },
+      { ...action.input, dataRevision: -1 }, { ...action.input, extra: true },
+      { ...action.input, dataRevision: Number.MAX_SAFE_INTEGER + 1 }]) {
+      const response = await api.post(action.route, invalid);
+      assert.equal(response.status, 400, JSON.stringify(response.body));
+      assert.match(response.body.message, /当前商品、修订号/);
+      assert.deepEqual(await api.readBytes(), before);
+    }
+    const stale = await api.post(action.route, { ...action.input, dataRevision: candidate.dataRevision + 1 });
+    assert.equal(stale.status, 409, JSON.stringify(stale.body));
+    assert.match(stale.body.message, /商品资料已变化/);
+    assert.deepEqual(await api.readBytes(), before);
+  }
+  for (const evidencePackId of ['', '   ', 1]) {
+    const response = await api.post(actions[1].route, { ...actions[1].input, evidencePackId });
+    assert.equal(response.status, 400, JSON.stringify(response.body));
+    assert.deepEqual(await api.readBytes(), before);
+  }
+  assert.deepEqual(await api.readDocument(), document);
+  assert.equal(api.dictionaryRequests(), 0);assert.equal(api.dependencyRequests(), 0);
+  await api.assertClean();
+});
+
+test('development-default identity cannot authorize schema refresh or adopt saved evidence through forged owner headers', async t => {
+  const document = siblingColorState(), candidate = document.candidates[1], pack = savedSchemaPack(candidate);
+  document.evidencePacks.push(pack);
+  const api = await startSchemaPreparationApi(t, document, 'development_default'), before = await api.readBytes();
+  for (const action of ['refresh-category-schema', 'adopt-saved-category-schema']) {
+    const input = { candidateId: candidate.id, dataRevision: candidate.dataRevision,
+      ...(action === 'adopt-saved-category-schema' ? { evidencePackId: pack.id } : {}) };
+    const response = await api.post(`/api/candidates/${candidate.id}/lifecycle/c1/${action}`, input,
+      { authenticated: false, headers: { 'x-user-id': 'synthetic-owner', 'x-session-id': 'synthetic-session', 'x-user-role': 'owner' } });
+    assert.equal(response.status, 403, JSON.stringify(response.body));
+    assert.equal(response.body.code, 'C1_SCHEMA_REFRESH_OWNER_REQUIRED');
+    assert.equal(response.body.externalRequests, 0);
+    assert.deepEqual(await api.readBytes(), before);
+  }
+  assert.equal(api.dictionaryRequests(), 0);assert.equal(api.dependencyRequests(), 0);
+  await api.assertClean();
+});
+
+test('unsettled schema reads preserve their original state and cannot be replayed or replaced by local adoption', async t => {
+  for (const status of ['request_sent', 'unknown_outcome']) await t.test(status, async child => {
+    const document = siblingColorState(), candidate = document.candidates[1], pack = savedSchemaPack(candidate);
+    const previous = { schemaVersion: 'c1-schema-refresh-v1', status,
+      authorizationId: `schema:synthetic:${status}`, candidateId: candidate.id,
+      skuPackageId: candidate.lifecycleV11.skuPackage.skuPackageId, sourceCandidateRevision: candidate.dataRevision,
+      externalRequestRef: `schema:synthetic:${status}:request`, useCount: 1,
+      requestedAt: '2026-08-18T00:00:00.000Z', failureCode: status === 'unknown_outcome' ? 'C1_SCHEMA_REFRESH_UNKNOWN_OUTCOME' : null };
+    candidate.lifecycleV11.c1SchemaRefreshV1 = previous;
+    candidate.dataRevision += 2;
+    document.evidencePacks.push(pack);
+    const api = await startSchemaPreparationApi(child, document);
+    await api.authenticate();
+    const before = await api.readBytes();
+    const base = `/api/candidates/${candidate.id}/lifecycle/c1`, input = { candidateId: candidate.id, dataRevision: candidate.dataRevision };
+    for (const action of ['refresh-category-schema', 'adopt-saved-category-schema']) {
+      const response = await api.post(`${base}/${action}`, { ...input,
+        ...(action === 'adopt-saved-category-schema' ? { evidencePackId: pack.id } : {}) });
+      assert.equal(response.status, 409, JSON.stringify(response.body));
+      assert.equal(response.body.code, previous.failureCode ?? 'C1_SCHEMA_REFRESH_RESULT_UNCONFIRMED');
+      assert.equal(response.body.requestState, status);
+      assert.equal(response.body.externalRequests, null);
+      assert.equal(response.body.newExternalRequests, 0);
+      assert.equal(response.body.platformWrites, 0);assert.equal(response.body.paidCalls, 0);
+      assert.deepEqual(await api.readBytes(), before);
+    }
+    await api.restart();await api.authenticate('login');
+    const repeated = await api.post(`${base}/refresh-category-schema`, input);
+    assert.equal(repeated.status, 409, JSON.stringify(repeated.body));
+    assert.equal(repeated.body.requestState, status);assert.equal(repeated.body.newExternalRequests, 0);
+    assert.deepEqual(await api.readBytes(), before);
+    assert.deepEqual((await api.readDocument()).candidates[1].lifecycleV11.c1SchemaRefreshV1, previous);
+    assert.equal(api.dictionaryRequests(), 0);assert.equal(api.dependencyRequests(), 0);
+    await api.assertClean();
+  });
+});
+
+test('local schema adoption accepts only the exact active scope and updates all plan references without any external request', async t => {
+  const document = siblingColorState(), candidate = document.candidates[1], pack = savedSchemaPack(candidate);
+  const wrongPacks = ['store', 'category', 'rule', 'inactive'].map(kind => {
+    const wrong = savedSchemaPack(candidate, `schema:synthetic:wrong-${kind}`);
+    if (kind === 'store') wrong.scope.storeRef.platformStoreId = 'synthetic-other-store';
+    if (kind === 'category') wrong.scope.category = 'ozon:17028665:999';
+    if (kind === 'rule') wrong.scope.ruleVersion = 'synthetic-other-rule';
+    if (kind === 'inactive') wrong.status = 'superseded';
+    return wrong;
+  });
+  document.evidencePacks.push(pack, ...wrongPacks);
+  const api = await startSchemaPreparationApi(t, document);
+  await api.authenticate();
+  const before = await api.readDocument(), bytes = await api.readBytes();
+  const route = `/api/candidates/${candidate.id}/lifecycle/c1/adopt-saved-category-schema`;
+  const input = { candidateId: candidate.id, dataRevision: candidate.dataRevision, evidencePackId: pack.id };
+  for (const evidencePackId of [...wrongPacks.map(item => item.id), 'schema:synthetic:missing']) {
+    const response = await api.post(route, { ...input, evidencePackId });
+    assert.equal(response.status, 409, JSON.stringify(response.body));
+    assert.equal(response.body.code, 'C1_SCHEMA_REFRESH_SAVED_EVIDENCE_INVALID');
+    assert.equal(response.body.requestState, 'not_sent');assert.equal(response.body.externalRequests, 0);
+    assert.equal(response.body.platformWrites, 0);assert.equal(response.body.paidCalls, 0);
+    assert.deepEqual(await api.readBytes(), bytes);
+  }
+  const results = await Promise.all([api.post(route, input), api.post(route, input)]);
+  assert.ok(results.some(result => result.status === 200), JSON.stringify(results));
+  for (const result of results) {
+    assert.ok([200, 409].includes(result.status), JSON.stringify(result.body));
+    if (result.status === 409) assert.match(result.body.message, /商品资料已变化/);
+    else {
+      assert.equal(result.body.status, 'succeeded');assert.equal(result.body.change.evidenceId, pack.id);
+      assert.equal(result.body.externalRequests, 0);assert.equal(result.body.platformWrites, 0);assert.equal(result.body.paidCalls, 0);
+    }
+  }
+  const saved = await api.readDocument(), updated = saved.candidates[1], sku = updated.lifecycleV11.skuPackage;
+  const plan = sku.c1ProductPlan;
+  assert.equal(updated.dataRevision, candidate.dataRevision + 1);
+  assert.equal(sku.businessPhase, 'C1');assert.equal(plan.status, 'inputs_ready');
+  assert.deepEqual([plan.schemaSnapshotRef, plan.inputRefs.platformSchemaEvidenceId,
+    plan.frozenInputRefs.schemaSnapshotRef, plan.inputSnapshots.platformSchemaRules.evidenceId], Array(4).fill(pack.id));
+  assert.deepEqual(plan.inputSnapshots.platformSchemaRules.attributes, pack.evidenceData.attributes);
+  const { c1ProductPlan: previousPlan, ...previousSku } = before.candidates[1].lifecycleV11.skuPackage;
+  const { c1ProductPlan: currentPlan, ...currentSku } = sku;
+  assert.deepEqual(currentSku, previousSku);
+  assert.notEqual(currentPlan.schemaSnapshotRef, previousPlan.schemaSnapshotRef);
+  assert.deepEqual(saved.candidates[0], before.candidates[0]);assert.deepEqual(saved.evidencePacks, before.evidencePacks);
+  assert.equal(updated.lifecycleV11.c1SchemaRefreshV1, undefined);
+  assert.equal(saved.runtime.softwareJobs, undefined);
+  assert.equal(saved.runtime.idempotencyRecords.length, 1);
+  assert.equal(saved.runtime.operationAudit.length, 1);
+  assert.equal(saved.runtime.operationAudit[0].action, 'adopt_saved_c1_schema');
+  assert.equal(saved.runtime.operationAudit[0].authorizationRef, null);
+  assert.equal(api.dictionaryRequests(), 0);assert.equal(api.dependencyRequests(), 0);
   await api.assertClean();
 });

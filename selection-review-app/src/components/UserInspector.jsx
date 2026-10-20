@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { buildBExactCommissionInput } from "../bExactCommissionInput.js";
 import FormRevisionNotice, { useCandidateForm, useSubmit } from "./FormRevisionNotice.jsx";
+import { platformOfStore } from "../../lib/store-registry.mjs";
 import { optionalNumber, candidatePlatform, safeWebUrl } from "../formState.js";
 import { finiteDisplayNumber, formatMoney, formatPercent } from "../finiteDisplay.js";
 import { buildCandidateCommentInput, shouldClearSubmittedComment } from "../commentInput.js";
@@ -14,6 +15,7 @@ import C1OzonAttributePanel from "./C1OzonAttributePanel.jsx";
 import { candidateStoreFrozen, candidateProductionFactsFrozen } from "../../lib/candidate-user-fields.mjs";
 import { STORE_LABELS } from "../constants";
 import { salesCaptureFailurePresentation } from "../extensionStatus";
+import { captureBlockFor } from "../captureControlView.js";
 import { wbPresentation } from "../wbPresentation";
 import { MessageIcon } from "./Icons";
 import { evaluatePostLaunchObservation, POST_LAUNCH_THRESHOLDS } from "../../lib/post-launch-observation.mjs";
@@ -563,7 +565,8 @@ function ComparableCapturePanel({ candidate, captureControl, onStart }) {
   const snapshots = Array.isArray(candidate.salesSnapshotsV11) ? candidate.salesSnapshotsV11 : [];
   const comparables = snapshots.filter(snapshot => snapshot?.comparable === true);
   const own = snapshots.filter(snapshot => snapshot?.comparable !== true);
-  const busy = captureControl?.status === "busy";
+  const block = captureBlockFor(captureControl, candidate.id);
+  const busy = block.busy;
   const valid = /^https:\/\/(?:www\.)?ozon\.ru\/product\/[^\s]+$/i.test(url.trim());
   if (!candidate.lifecycleV11?.skuPackage) return null;
   return (
@@ -595,7 +598,7 @@ function ComparableCapturePanel({ candidate, captureControl, onStart }) {
       {error ? <p role="alert">{error}</p> : null}
       <button type="button" className="button secondary" disabled={!valid || saving || busy}
         onClick={() => run(async () => { await onStart(url.trim()); setUrl(""); })}>
-        {saving ? "正在连接Chrome…" : busy ? "其他商品正在采集" : "用Chrome读这个对标页面（一次）"}
+        {saving ? "正在连接Chrome…" : busy ? block.button : "用Chrome读这个对标页面（一次）"}
       </button>
     </section>
   );
@@ -699,7 +702,7 @@ function ListingPreparationPanel({ candidate, captureControl, onStartOzonSalesCa
             <b>新版生命周期 · C1商品方案</b>
             <span>精确SKU：{lifecycleSku.supplierSkuId} · 当前阶段：{lifecycleSku.businessPhase} · 技术状态：{lifecycleSku.technicalStatus}</span>
             <span>商品事实：{supplierFactSummary || "供应属性未完整确认"}{materialFact?.verificationStatus === "confirmed" ? ` · 材质：${String(materialFact.value)}` : " · 材质：unknown"}{batteryFact?.verificationStatus === "confirmed" ? ` · 电池：${String(batteryFact.value)}` : " · 电池：unknown"}</span>
-            {activeProfit ? <span>市场目标成交价：{finiteDisplayNumber(activeProfit.recommendedSalePriceRub) === null ? "未取得" : `${activeProfit.recommendedSalePriceRub} RUB`} · 单件利润 {formatMoney(activeProfit.unitProfitRmb)} · 利润率 {formatPercent(activeProfit.profitMargin, 2)}</span> : null}
+            {activeProfit ? <span>本轮目标成交价：{finiteDisplayNumber(activeProfit.recommendedSalePriceRub) === null ? "未取得" : `${activeProfit.recommendedSalePriceRub} RUB`} · 单件利润 {formatMoney(activeProfit.unitProfitRmb)} · 利润率 {formatPercent(activeProfit.profitMargin, 2)}</span> : null}
             {activeProfit?.priceFloors ? <span>成本反推合格底线：¥{activeProfit.priceFloors.qualifyingFloorCny} · 盈亏线 ¥{activeProfit.priceFloors.breakEvenPriceCny} · 市场余量 ¥{activeProfit.marketFit?.headroomCny}</span> : null}
             {c1Plan?.seoTitleDraft?.text ? <span>俄语标题草稿：{c1Plan.seoTitleDraft.text}</span> : null}
             <span>关键词证据：仅展示当前冻结草稿；来源与用量请以正式作业回执为准，缺失不记为0。</span>
@@ -830,7 +833,7 @@ function ReadyPanel({ candidate, rules, onMarkListed }) {
   const [showListedForm, setShowListedForm] = useState(false);
   const { saving, error, run } = useSubmit();
   const emptyForm = () => ({
-    platform: candidate.targetStore === "wb" ? "wb" : ["dandanshu", "miska"].includes(candidate.targetStore) ? "ozon" : "",
+    platform: platformOfStore(candidate.targetStore) ?? "",
     productId: "",
     merchantSku: "",
     productUrl: "",
@@ -1159,7 +1162,8 @@ function OzonSalesCapturePanel({ candidate, captureControl, extensionStatus, onS
   const canShow = /^https:\/\/(?:www\.)?ozon\.ru\/product\//i.test(candidate.productUrl || "") &&
     ["awaiting_user_direction", "codex_processing", "needs_user_data"].includes(candidate.workflowStatus) &&
     !candidate.lifecycleV11?.skuPackage;
-  const captureBusy = captureControl?.status === "busy";
+  const captureBlock = captureBlockFor(captureControl, candidate.id);
+  const captureBusy = captureBlock.busy;
   const { saving, error: actionError, run: submitAction } = useSubmit();
   if (!canShow) return null;
 
@@ -1212,12 +1216,12 @@ function OzonSalesCapturePanel({ candidate, captureControl, extensionStatus, onS
         {captureBusy && capture.status !== "waiting_extension" ? (
           <div className="source-capture-summary capture-busy">
             <b>商品采集控制正在使用</b>
-            <span>{captureControl.label}；当前商品不会排队，也不会自动重试。</span>
+            <span>{captureBlock.label}；当前商品不会排队，也不会自动重试。</span>
           </div>
         ) : null}
         {capture.status !== "waiting_extension" ? (
           <button type="button" className="button primary" disabled={saving || captureBusy} onClick={start}>
-            {saving ? "正在连接Chrome…" : captureBusy ? "其他商品正在采集" : capture.status === "failed" ? "按当前页面重试一次" : "用Chrome采集当前Ozon快照（一次）"}
+            {saving ? "正在连接Chrome…" : captureBusy ? captureBlock.button : capture.status === "failed" ? "按当前页面重试一次" : "用Chrome采集当前Ozon快照（一次）"}
           </button>
         ) : null}
       </div>

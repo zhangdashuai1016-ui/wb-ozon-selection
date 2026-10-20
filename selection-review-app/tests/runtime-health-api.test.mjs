@@ -68,7 +68,7 @@ globalThis.fetch=async()=>{counts.network++;save();throw new Error('UNEXPECTED_T
   const errors = []; child.stderr.on('data', chunk => errors.push(String(chunk)));
   t.after(async () => { try { await stopApiProcess(child); } finally { await rm(directory, { recursive: true, force: true }); } });
   await new Promise((resolve, reject) => {
-    let output = ''; const timer = setTimeout(() => finish(new Error('HEALTH_API_START_TIMEOUT')), 20000);
+    let output = ''; const timer = setTimeout(() => finish(new Error(`HEALTH_API_START_TIMEOUT:${JSON.stringify({ output, errors })}`)), 20000);
     const data = chunk => { output += chunk; if (output.includes(base)) finish(); };
     const exit = (code, signal) => finish(new Error(`HEALTH_API_START_FAILED:${code}:${signal}:${errors.join('').slice(-1000)}`));
     function finish(error) { clearTimeout(timer); child.stdout.off('data', data); child.off('exit', exit); child.off('error', finish); error ? reject(error) : resolve(); }
@@ -85,6 +85,11 @@ globalThis.fetch=async()=>{counts.network++;save();throw new Error('UNEXPECTED_T
 
 test('fresh readiness preserves unknown outcomes and all bytes under 16.8MB state and real one-second A/keyword/D/E consumers', async t => {
   const api = await start(t, { large: true, polling: true });
+  const firstReadiness = await api.get('/api/health');
+  assert.equal(firstReadiness.status, 200, JSON.stringify(firstReadiness.body));
+  assert.equal(firstReadiness.body.readiness.fresh, true);
+  assert.equal(firstReadiness.body.extensionHeartbeat.status, 'not_seen');
+  assert.equal(firstReadiness.body.captureControl.status, 'idle');
   const before = JSON.parse(await readFile(api.probe, 'utf8')).reads;
   await new Promise(resolve => setTimeout(resolve, 2200));
   const durations = [];

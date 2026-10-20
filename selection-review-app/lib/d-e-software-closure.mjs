@@ -13,7 +13,7 @@ import {
   fingerprintProductionPlan,
   validateProductionPlanAuthorizationBinding
 } from "./production-plan.mjs";
-import { assertCurrentPlatformWritePreflight, assertCurrentProductionExecutionBinding, assertCurrentDExecutionContext, isStoreIdentityAnchored } from "./platform-write-preflight.mjs";
+import { assertCurrentPlatformWritePreflight, assertCurrentProductionExecutionBinding, assertCurrentDExecutionContext, platformWritePreflightExecutionGaps } from "./platform-write-preflight.mjs";
 import { buildOzonSellerImportRequest } from "./ozon-seller-api-production-adapter.mjs";
 import { resolveFinalUploads as resolveOzonFinalUploads } from "./ozon-seller-api-de-adapter.mjs";
 import { formatDReadbackMismatchReason } from "./production-execution-failure.mjs";
@@ -61,28 +61,6 @@ function gap(code, field, message) {
   return { code, field, message };
 }
 
-function validPreflight(plan, inputs, preflight, gaps) {
-  if (preflight.sourceProductionPlanId !== plan.planId ||
-      preflight.sourceProductionPlanFingerprint !== fingerprintProductionPlan(plan)) {
-    gaps.push(gap("preflight_stale", "platformWritePreflight", "前检不属于当前ProductionPlan"));
-  }
-  // 同 draft 写入口：仓库反推下 observedStoreRef 恒为 null，身份靠 verifiedVia 那条锚成立；其余路径不变。
-  if (preflight.targetPlatform !== inputs.platform || preflight.storeIdentity.expectedStore !== inputs.store ||
-      preflight.storeIdentity.observedStore !== inputs.store || preflight.storeIdentity.status !== "matched" ||
-      !sameStoreRef(preflight.storeIdentity.expectedStoreRef, inputs.storeRef) ||
-      !isStoreIdentityAnchored({ via: preflight.storeIdentity.verifiedVia, observedStoreRef: preflight.storeIdentity.observedStoreRef, expectedStoreRef: inputs.storeRef })) {
-    gaps.push(gap("store_identity_not_ready", "platformWritePreflight.storeIdentity", "Seller API店铺身份未与授权店铺一致"));
-  }
-  if (preflight.permission.status !== "verified" || preflight.connectionStatus.api.status !== "connected") {
-    gaps.push(gap("seller_api_not_ready", "platformWritePreflight.connectionStatus.api", "Seller API权限或连接未验证"));
-  }
-  if (preflight.priceCurrency.status !== "matched" || preflight.priceCurrency.expected !== "CNY") {
-    gaps.push(gap("price_currency_not_ready", "platformWritePreflight.priceCurrency", "Ozon中国卖家写入币种必须验证为CNY"));
-  }
-  const missing = REQUIRED_WRITE_FIELDS.filter((field) => !preflight.effectiveWritableFields.includes(field));
-  if (missing.length > 0) gaps.push(gap("write_fields_not_ready", "platformWritePreflight.effectiveWritableFields", `平台当前不可写：${missing.join(",")}`));
-}
-
 function resolveAssets(plan, capabilities, gaps) {
   const resolution = resolveOzonFinalUploads({ finalUploads: plan.finalUploads, adapterCapabilities: capabilities });
   if (resolution.status !== "ready") gaps.push(...resolution.gaps);
@@ -105,7 +83,7 @@ function validateCapabilities(plan, capabilities, gaps) {
   const inventory = capabilities.inventoryWrite;
   if (!isObject(inventory) || inventory.status !== "verified" || !nonEmpty(inventory.endpoint) ||
       !nonEmpty(inventory.warehouseId) || !sameStoreRef(inventory.storeRef, plan.storeRef) || inventory.warehouseRef !== plan.warehouseRef || inventory.credentialAlias !== plan.credentialAlias || !nonEmpty(inventory.protocolVersion) || !nonEmpty(inventory.evidenceRef)) {
-    gaps.push(gap("inventory_protocol_not_ready", "adapterCapabilities.inventoryWrite", "库存100所需接口、仓库和协议证据未锁定"));
+    gaps.push(gap("inventory_protocol_not_ready", "adapterCapabilities.inventoryWrite", "库存写入所需接口、仓库和协议证据未锁定"));
   }
   if (capabilities.independentReadback?.status !== "verified" || !nonEmpty(capabilities.independentReadback.evidenceRef)) {
     gaps.push(gap("readback_protocol_not_ready", "adapterCapabilities.independentReadback", "Seller API独立回读协议未验证"));
@@ -137,10 +115,11 @@ export function prepareSingleSkuDExecution({
   if (inputs.publishScope !== "create_and_allow_validation_moderation") {
     gaps.push(gap("seller_api_publish_scope_not_ready", "publishScope", "当前Ozon Seller API导入路径只支持创建并进入校验/审核"));
   }
-  if (inputs.stock !== 100) gaps.push(gap("stock_not_locked", "stock", "新品库存必须由授权快照锁定为100"));
+  // The stock is the count the owner locked on the final card; 100 is only the prefilled default (AGENTS 11, review P0-5).
+  if (!Number.isSafeInteger(inputs.stock) || inputs.stock < 0) gaps.push(gap("stock_not_locked", "stock", "新品库存必须由授权快照锁定为非负整数"));
   const missingFields = REQUIRED_WRITE_FIELDS.filter((field) => !inputs.allowedWriteFields.includes(field));
   if (missingFields.length > 0) gaps.push(gap("authorization_write_scope_incomplete", "allowedWriteFields", `主人授权未覆盖：${missingFields.join(",")}`));
-  validPreflight(productionPlan, inputs, platformWritePreflight, gaps);
+  gaps.push(...platformWritePreflightExecutionGaps({ productionPlan, platformWritePreflight, requiredWriteFields: REQUIRED_WRITE_FIELDS }));
   validateCapabilities(inputs, adapterCapabilities, gaps);
   if (adapterCapabilities?.inventoryWrite?.warehouseId !== executionBinding.warehouseId) {
     gaps.push(gap("authorized_warehouse_mismatch", "adapterCapabilities.inventoryWrite.warehouseId", "库存接口仓库不属于主人冻结的生产配置"));
@@ -204,7 +183,7 @@ export function prepareSingleSkuDExecution({
     merchantSku: inputs.sku.merchantSku,
     supplierSkuId: inputs.sku.supplierSkuId,
     platformWritePrice: structuredClone(inputs.platformWritePrice),
-    stock: 100,
+    stock: inputs.stock,
     assetsFinalUploadsVersion: inputs.assetsFinalUploadsVersion,
     finalUploads: assets,
     publishScope: inputs.publishScope,
@@ -216,12 +195,12 @@ export function prepareSingleSkuDExecution({
       warehouseId: adapterCapabilities.inventoryWrite.warehouseId,
       protocolVersion: adapterCapabilities.inventoryWrite.protocolVersion,
       evidenceRef: adapterCapabilities.inventoryWrite.evidenceRef,
-      stock: 100
+      stock: inputs.stock
     },
     independentReadback: {
       evidenceRef: adapterCapabilities.independentReadback.evidenceRef,
       expectedPrice: structuredClone(inputs.platformWritePrice),
-      expectedStock: 100,
+      expectedStock: inputs.stock,
       expectedImageCount: assets.length,
       expectation: projectProductionReadbackExpectation({ finalUploads: assets, warehouseId: adapterCapabilities.inventoryWrite.warehouseId })
     },
@@ -295,7 +274,7 @@ function readbackMatches(request, observation) {
   if (!nonEmpty(String(observation.platformProductId || ""))) errors.push("platformProductId");
   if (!isObject(observation.currentPrice) || observation.currentPrice.amount !== request.platformWritePrice.amount ||
       observation.currentPrice.currency !== request.platformWritePrice.currency) errors.push("currentPrice");
-  if (observation.currentStock !== 100) errors.push("currentStock");
+  if (observation.currentStock !== request.stock) errors.push("currentStock");
   if (observation.imageCount !== request.finalUploads.length) errors.push("imageCount");
   // D proves the authorized creation and stock write. CDN identity, image order and sale eligibility
   // remain E acceptance checks; keep the original observed media and statuses in immediateReadback.
@@ -429,12 +408,12 @@ export async function executeDSoftwareAttempt({ executionAttempt, executionConte
     activated: false,
     advertisingOpened: false,
     inventoryModified: true,
-    stockWritten: 100,
+    stockWritten: request.inventoryWrite.stock,
     imagesUploaded: request.finalUploads.length,
     finalUploadAssetIds: request.finalUploads.map((asset) => asset.assetId),
     mainImageAssetId: request.finalUploads[0].assetId,
     expectedPrice: structuredClone(request.platformWritePrice),
-    expectedStock: 100,
+    expectedStock: request.independentReadback.expectedStock,
     expectedImageCount: request.finalUploads.length,
     readbackExpectation: structuredClone(request.independentReadback.expectation),
     independentReadbackVerified: true

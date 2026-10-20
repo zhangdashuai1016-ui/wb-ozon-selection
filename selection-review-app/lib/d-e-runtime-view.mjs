@@ -1,13 +1,15 @@
 import { readDProductionJobWaiting, readDPlatformStoppedJobTerminal, readDInitialImportStoppedJobTerminal,
   readDOwnerStockRegisteredJobTerminal, D_OWNER_STOCK_REGISTRATION_FIELD,
-  D_UNKNOWN_OUTCOME_REOBSERVATION_FIELD } from './d-platform-observation-contract.mjs';
+  D_UNKNOWN_OUTCOME_REOBSERVATION_FIELD, dPlatformStateReconciliationsFor, importedProductObservation,
+  D_PLATFORM_STATE_RECONCILIATION_LIMIT } from './d-platform-observation-contract.mjs';
 import { isDeepStrictEqual } from "node:util";
 import { assertDProductionJobReference, assertEReadbackJobReference, currentDProductionRound,
   dProductionRoundDispatchable } from "./d-e-software-job-handoff.mjs";
 import { assertDEJobAdmissionDecision, createDEJobAdmissionDecision, DESoftwareJobAdmissionError } from "./d-e-software-job-admission.mjs";
 import { assertDProductionRecordSource, assertDProductionReceiptChain, DEJobScopeError } from "./d-e-software-job-scope.mjs";
 import { DProductionJobCursorError } from "./d-production-job-cursor.mjs";
-import { productionAuthorizationRollbackEligible, PRODUCTION_AUTHORIZATION_ROLLBACK_FIELD } from "./production-authorization-rollback.mjs";
+import { productionAuthorizationRollbackEligible } from "./production-authorization-rollback.mjs";
+import { classifyArchivedDProductionJobs } from "./production-authorization-rollback-contract.mjs";
 import { assertEReadbackAttempt } from "./e-readback-attempt.mjs";
 import { validateSystemCreatedVerificationRecord } from "./e-stage-readback.mjs";
 import { normalizeDEServiceBindings, isRuntimeConfigurationTimestamp } from "./runtime-configuration.mjs";
@@ -110,13 +112,16 @@ function savedMaterial(stage, job, candidate, view, observedAt) {
       const countOnly = continuation.observationHistory?.findLast(entry =>
         entry.queryKind === 'import_task' && (entry.result?.importObservation?.errorCount ?? 0) > 0
           && !Array.isArray(entry.result.importObservation.errors));
-      if (countOnly && !Array.isArray(importErrors)) {
+      // 已经按平台现状收口登记的这一轮，导入任务上的旧错误不再摆出来：商品现状已经核实过没有错误。
+      const settledFromPlatform = continuation.status === 'owner_stock_registered' &&
+        dPlatformStateReconciliationsFor(candidate, continuation.taskId).length > 0;
+      if (countOnly && !Array.isArray(importErrors) && !settledFromPlatform) {
         view.blockers.push(blocker('D_IMPORT_ERRORS_DETAIL_MISSING',
           `平台在导入任务上报了 ${countOnly.result.importObservation.errorCount} 条错误，`
           + '但这条观察记录是本次改动之前落的，当时只记了条数、没有留下明细。'
           + '重新观察一次就会把每条错误的级别与文案补齐并显示在这里。'));
       }
-      if (Array.isArray(importErrors)) {
+      if (Array.isArray(importErrors) && !settledFromPlatform) {
         for (const [index, item] of importErrors.entries()) {
           const where = item.attributeName ?? item.field ?? null;
           view.blockers.push(blocker(`D_IMPORT_ERROR_${index + 1}`,
@@ -147,6 +152,26 @@ function savedMaterial(stage, job, candidate, view, observedAt) {
           sourceDJobId: job.jobId, taskId: continuation.taskId,
           productId: withProduct ? String(withProduct.result.importObservation.productId) : null,
           expectedRevision: candidate.dataRevision };
+        // 「按平台现状收口」：导入任务过期读不到时，改读平台上这件商品的现状和库存（两次只读）。
+        // 条件与合同 reconcileDUnknownOutcomeFromPlatformStateInDocument 同一口径，界面不自己拼。
+        const imported = importedProductObservation(continuation);
+        const reconciliations = dPlatformStateReconciliationsFor(candidate, continuation.taskId);
+        const twoQueriesLeft = Boolean(policy) && policy.maxQueries - (continuation.queryCount ?? 0) >= 2;
+        const twoQueriesFit = Boolean(policy) && Date.parse(policy.expiresAt) - Date.parse(observedAt) >= 2 * policy.intervalMs;
+        const reconcileBlocker = job.failureClass !== 'd-platform-unknown-outcome' || continuation.inventoryWriteState !== 'not_sent' ||
+            state.platformWrites !== 1 || state.checkpoints?.length !== 2
+          ? { code: 'NOT_RECONCILABLE', message: '这一轮停下的原因不是导入结果未知，不能按平台现状收口。' }
+          : !imported ? { code: 'NO_PLATFORM_PRODUCT', message: '平台还没有给出商品号，无法按平台现状收口。' }
+          : reconciliations.length >= D_PLATFORM_STATE_RECONCILIATION_LIMIT
+            ? { code: 'RECONCILE_LIMIT_REACHED', message: `已经按平台现状收口过 ${reconciliations.length} 次都没有核实，请把上面停在什么上告诉施工方。` }
+          : !twoQueriesLeft ? { code: 'QUERY_BUDGET_EXHAUSTED', message: '本轮查询预算不够再查两次（商品现状和库存）。' }
+          : !twoQueriesFit ? { code: 'OBSERVATION_POLICY_UNAVAILABLE', message: '平台查询策略缺失或已经到期。' }
+          : null;
+        view.platformStateReconciliation = { canReconcile: reconcileBlocker === null, blocker: reconcileBlocker,
+          sourceDJobId: job.jobId, taskId: continuation.taskId,
+          productId: imported ? String(imported.result.importObservation.productId) : null,
+          expectedRevision: candidate.dataRevision, attempts: reconciliations.length,
+          attemptsLeft: Math.max(D_PLATFORM_STATE_RECONCILIATION_LIMIT - reconciliations.length, 0) };
       }
       if (continuation.status === 'owner_stock_registered') {
         // 主人要求三句分开显示，不许合并成「已上架」：谁建的、库存谁写的、E 谁核的，是三件事。
@@ -269,19 +294,12 @@ function continuationConfiguration({ stage, job, candidate, runtime, serviceBind
  *       并且都停在「失败、且证明一个请求都没发出去」。
  * 来路不明的外来作业照旧判冲突。
  */
-function dJobsHaveSingleTraceableSource(candidate, relevant, job) {
+function dJobsHaveSingleTraceableSource(candidate, relevant, job, allJobs) {
   const currentRef = job?.scopeBinding?.authorizationRef;
   if (!job || !currentRef) return false;
-  const archivedRefs = new Set((candidate.lifecycleV11?.[PRODUCTION_AUTHORIZATION_ROLLBACK_FIELD] ?? [])
-    .map(entry => entry.productionAuthorizationRef?.authorizationId)
-    .filter(value => typeof value === "string" && value.length > 0));
-  return relevant.every(entry => {
-    const entryRef = entry.scopeBinding?.authorizationRef;
-    if (entryRef === currentRef) return true;
-    return archivedRefs.has(entryRef) && entry.status === "failed" &&
-      entry.externalRequestState === "not_sent" && entry.externalRequestRef === null &&
-      entry.resultEnvelope === null;
-  });
+  const archived = classifyArchivedDProductionJobs({ candidate, jobs: allJobs });
+  return archived.valid && relevant.every(entry =>
+    entry.scopeBinding?.authorizationRef === currentRef || archived.archivedJobIds.has(entry.jobId));
 }
 
 export function buildDESavedJobRuntimeView({ candidate, runtime, serviceBindings = [], productionBindings = [], dependencyView = {}, observedAt }) {
@@ -294,7 +312,8 @@ export function buildDESavedJobRuntimeView({ candidate, runtime, serviceBindings
   const lifecycle = candidate.lifecycleV11, sku = lifecycle?.skuPackage;
   if (!sku) return null;
   const refs = { D: sku.dHandoff?.softwareJobRef, E: lifecycle.eIndependentReadbackJobRefV1 };
-  const jobs = (runtime.softwareJobs ?? []).filter(job => job.candidateId === candidate.id || job.jobId === refs.D?.jobId || job.jobId === refs.E?.jobId);
+  const allJobs = runtime.softwareJobs ?? [];
+  const jobs = allJobs.filter(job => job.candidateId === candidate.id || job.jobId === refs.D?.jobId || job.jobId === refs.E?.jobId);
   if (sku.dHandoff?.schemaVersion !== "c2-d-handoff-v2" && !refs.D && !refs.E &&
       !jobs.some(job => Object.values(TYPES).includes(job.jobType))) return null;
   const document = { candidates: [candidate], runtime: { softwareJobs: jobs } };
@@ -310,7 +329,7 @@ export function buildDESavedJobRuntimeView({ candidate, runtime, serviceBindings
         authorizationFingerprint: sku.productionAuthorization ? fingerprintCanonicalRecord(sku.productionAuthorization) : null })
       : relevant.find(entry => entry.jobId === refs[stage]?.jobId) ?? relevant[0];
     let view = stageBase(stage, job);
-    const sameSource = stage === "D" ? dJobsHaveSingleTraceableSource(candidate, relevant, job) : relevant.length === 1;
+    const sameSource = stage === "D" ? dJobsHaveSingleTraceableSource(candidate, relevant, job, allJobs) : relevant.length === 1;
     if (!job || !sameSource || !refs[stage]) { stages[stage.toLowerCase()] = conflict(view, "DE_SAVED_JOB_REFERENCE_CONFLICT"); continue; }
     try {
       view = savedMaterial(stage, job, candidate, view, observedAt);
@@ -369,6 +388,18 @@ export function buildDESavedJobRuntimeView({ candidate, runtime, serviceBindings
     reobservationBlocker: !sourceConflict && stages.d?.unknownOutcomeReobservation
       && stages.d.unknownOutcomeReobservation.canReobserve !== true
       ? stages.d.unknownOutcomeReobservation.blocker ?? null : null,
+    canReconcileFromPlatformState: !sourceConflict && stages.d?.platformStateReconciliation?.canReconcile === true,
+    platformStateReconciliation: !sourceConflict && stages.d?.platformStateReconciliation?.canReconcile === true
+      ? { sourceDJobId: stages.d.platformStateReconciliation.sourceDJobId,
+          taskId: stages.d.platformStateReconciliation.taskId,
+          productId: stages.d.platformStateReconciliation.productId,
+          expectedRevision: stages.d.platformStateReconciliation.expectedRevision }
+      : null,
+    platformStateReconciliationAttemptsLeft: !sourceConflict && stages.d?.platformStateReconciliation
+      ? stages.d.platformStateReconciliation.attemptsLeft : null,
+    platformStateReconciliationBlocker: !sourceConflict && stages.d?.platformStateReconciliation
+      && stages.d.platformStateReconciliation.canReconcile !== true
+      ? stages.d.platformStateReconciliation.blocker ?? null : null,
     canRecoverInitialImport: !sourceConflict && stages.d?.initialImportRecovery?.canRecover === true,
     initialImportRecovery: !sourceConflict && stages.d?.initialImportRecovery?.canRecover === true
       ? { sourceDJobId: stages.d.initialImportRecovery.sourceDJobId, taskId: stages.d.initialImportRecovery.taskId,

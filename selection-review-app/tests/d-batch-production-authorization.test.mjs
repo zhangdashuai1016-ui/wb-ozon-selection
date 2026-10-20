@@ -6,6 +6,7 @@ import { commitSiblingBatchC2Final } from '../lib/sibling-batch-c2-final.mjs';
 import { createMemoryBusinessStateRepository } from '../lib/business-state-repository.mjs';
 import { commitBatchOwnerProductionAuthorization } from '../lib/d-batch-production-authorization.mjs';
 import { loadPublishedSchemaValidator } from './helpers/published-schema-validator.mjs';
+import { assertOzonProductImportBatchLimitUse } from '../lib/ozon-product-import-batch-limit.mjs';
 
 const schemaValidator = await loadPublishedSchemaValidator();
 
@@ -41,6 +42,57 @@ async function twoMemberFixture() {
   const {source,input,args}=await fixture(2);
   return {repository:source.repository,input,args};
 }
+
+function currentInput(input) {
+  return {...input,importLimitUse:{schemaVersion:'ozon-product-import-batch-limit-use-input-v1',
+    evidenceRef:'official:ozon-product-import-batch-limit:20261018',decision:'use_for_this_batch_once'},
+    postImportScope:{...input.postImportScope,schemaVersion:'d-batch-post-import-scope-v2',inSaleList:{
+      schemaVersion:'ozon-in-sale-list-authorization-v1',decision:'read_store_in_sale_list_for_batch',
+      officialEvidenceRef:'official:ozon-in-sale-list:20261018',
+      policy:{pageSize:1000,maxPages:3,requestTimeoutMs:30000,durationMs:90000}}}};
+}
+
+test('explicit current batch freezes one import-limit adoption and list scope atomically and idempotently',async()=>{
+  const f=await fixture(),input=currentInput(f.input),now='2026-10-18T13:15:00.000Z';
+  const configuration=structuredClone(f.args.configuration);
+  for(const binding of configuration.productionBindings) binding.verification.expiresAt='2026-11-01T00:00:00.000Z';
+  await f.source.repository.transact(document=>{
+    // The isolated fixture explicitly keeps its synthetic cost sources usable at the new test clock.
+    for(const pack of document.evidencePacks) pack.expiresAt='2026-11-01T00:00:00.000Z';
+    return {changed:true,document,result:null};
+  });
+  const args={...f.args,configuration,serverClock:()=>now};
+  const batch=await commitBatchOwnerProductionAuthorization({...args,input});
+  assert.equal(batch.schemaVersion,'d-batch-production-authorization-v3');
+  assert.equal(batch.postImportScope.schemaVersion,'d-batch-post-import-scope-v2');
+  assert.equal(batch.importLimitUse.confirmedBy,f.args.actor.userId);
+  assert.equal(batch.importLimitUse.confirmedAt,now);
+  assert.equal(batch.importLimitUse.importJobId,`d-batch-import:${batch.batchId}`);
+  assert.equal(assertOzonProductImportBatchLimitUse(batch.importLimitUse,{batch}),batch.importLimitUse);
+  assert.deepEqual(batch.importLimitUse.members.map(member=>member.resultRevision),batch.members.map(member=>member.resultRevision));
+  const saved=await f.source.repository.readSnapshot();
+  assert.equal(saved.runtime.dBatchImportJobs?.length??0,0);
+  assert.deepEqual(await commitBatchOwnerProductionAuthorization({...args,input}),batch);
+  assert.deepEqual(await f.source.repository.readSnapshot(),saved);
+  assert.throws(()=>assertOzonProductImportBatchLimitUse(batch.importLimitUse,{batch:{...batch,ownerActorId:'other-owner'}}),/SCOPE_MISMATCH/);
+  await f.source.repository.transact(document=>{
+    document.runtime.dProductionBatches[0].postImportScope.inventoryAction='write_authorized_stock';
+    return {changed:true,document,result:null};
+  });
+  await assert.rejects(()=>commitBatchOwnerProductionAuthorization({...args,input}),/D_BATCH_REPLAY_CONFLICT/);
+});
+
+test('new batch facts cannot be adopted before observation or injected into a legacy scope',async()=>{
+  const f=await fixture(),before=await f.source.repository.readSnapshot();
+  const input=currentInput(f.input);
+  await assert.rejects(()=>commitBatchOwnerProductionAuthorization({...f.args,input}),/LIMIT_USE_INVALID/);
+  const {importLimitUse,...withoutUse}=input;
+  await assert.rejects(()=>commitBatchOwnerProductionAuthorization({...f.args,input:withoutUse}),/POST_IMPORT_SCOPE_INVALID/);
+  await assert.rejects(()=>commitBatchOwnerProductionAuthorization({...f.args,input:{...f.input,importLimitUse}}),/POST_IMPORT_SCOPE_INVALID/);
+  await assert.rejects(()=>commitBatchOwnerProductionAuthorization({...f.args,input:{...input,
+    importLimitUse:{...importLimitUse,batchId:'client-supplied'}}}),/LIMIT_USE_INPUT_INVALID/);
+  assert.deepEqual(await f.source.repository.readSnapshot(),before);
+});
 
 test('two member authorization is atomic and each member gets its own identity', async () => {
   const { repository, input, args } = await twoMemberFixture();
@@ -139,4 +191,22 @@ test('an existing partial batch cannot capture a selected sibling, while exact h
   assert.deepEqual(await commitBatchOwnerProductionAuthorization({...historical.args,
     input:historical.input}),batch);
   assert.deepEqual(await historical.source.repository.readSnapshot(),saved);
+});
+
+test('a batch that could not be sent now is not created at all, and a saved batch replays without being asked again', async () => {
+  const { source, input, args } = await fixture();
+  const before = await source.repository.readSnapshot();
+  const stop = Object.assign(new Error('D_BATCH_IMPORT_LIMIT_NOT_CURRENT'), { code: 'D_BATCH_IMPORT_LIMIT_NOT_CURRENT' });
+  const asked = [];
+  await assert.rejects(() => commitBatchOwnerProductionAuthorization({ ...args, input,
+    newBatchGate: time => { asked.push(time); throw stop; } }), /D_BATCH_IMPORT_LIMIT_NOT_CURRENT/);
+  assert.deepEqual(asked, [at]);
+  assert.deepEqual(await source.repository.readSnapshot(), before, 'nothing saved and no product held by a batch');
+  const saved = await commitBatchOwnerProductionAuthorization({ ...args, input, newBatchGate: time => { asked.push(time); } });
+  assert.equal(saved.status, 'authorized');
+  assert.equal(asked.length, 2);
+  assert.deepEqual(await commitBatchOwnerProductionAuthorization({ ...args, input, newBatchGate: () => { throw stop; } }), saved,
+    'replaying a saved batch reads it back; the gate is only for creating one');
+  await assert.rejects(() => commitBatchOwnerProductionAuthorization({ ...args, input, newBatchGate: 'yes' }),
+    /D_BATCH_AUTHORIZATION_CONTEXT_INVALID/);
 });

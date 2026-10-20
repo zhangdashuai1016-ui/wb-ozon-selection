@@ -5,6 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { inflateRawSync } from "node:zlib";
+import { GUOO_MAIN_QUOTE_CALCULATION_RULE_STATUS } from "./lifecycle-evidence-validity.mjs";
+export { GUOO_MAIN_QUOTE_CALCULATION_RULE_STATUS } from "./lifecycle-evidence-validity.mjs";
 
 const execFile = promisify(execFileCallback);
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -439,7 +441,6 @@ function catalogUnresolvedRules(worksheet, selected) {
 
 // Stamped on a reading only after assertMainSheetQuoteFormula has checked that row's own
 // quote cells. An evidence pack without it was projected by a reader that never checked them.
-export const GUOO_MAIN_QUOTE_CALCULATION_RULE_STATUS = "main_sheet_quote_verified";
 
 // This is a finite contract for the adopted 8/19 main sheet, not a formula evaluator.
 const MAIN_WEIGHT_FORMULA = 'IF(OR(AND(D5>=2.001,D5<=30,D7>1501,D7<7000,SUM(H5:H7)<=310,H5<=150,H6<=80,H7<=80),AND(D5>=5.001,D5<=30,D7>7001,D7<250000,SUM(H5:H7)<=310,H5<=150,H6<=80,H7<=80)),MAX(H5*H6*H7/12000,D5),D5)';

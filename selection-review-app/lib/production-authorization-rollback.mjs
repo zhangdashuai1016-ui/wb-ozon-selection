@@ -3,9 +3,10 @@ import { assertNoProductionSecrets, fingerprintCanonicalRecord } from "./product
 import { assertSafeRuntimeRecord } from "./runtime-identity.mjs";
 import { softwareJobsInDocument } from "./software-job-contract.mjs";
 import { D_PRODUCTION_ROUND_BLOCKERS, dProductionRoundDispatchable } from "./d-e-software-job-handoff.mjs";
+import { PRODUCTION_AUTHORIZATION_ROLLBACK_ARCHIVE_VERSION, PRODUCTION_AUTHORIZATION_ROLLBACK_FIELD }
+  from "./production-authorization-rollback-contract.mjs";
 
-export const PRODUCTION_AUTHORIZATION_ROLLBACK_ARCHIVE_VERSION = "production-authorization-rollback-archive-v1";
-export const PRODUCTION_AUTHORIZATION_ROLLBACK_FIELD = "productionAuthorizationRollbackArchiveV1";
+export { PRODUCTION_AUTHORIZATION_ROLLBACK_ARCHIVE_VERSION, PRODUCTION_AUTHORIZATION_ROLLBACK_FIELD };
 
 export const PRODUCTION_AUTHORIZATION_ROLLBACK_BLOCKERS = Object.freeze({
   NO_AUTHORIZATION: "本商品没有当前生产授权，没有可作废的对象。",

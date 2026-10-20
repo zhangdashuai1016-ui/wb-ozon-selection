@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { errorMessage } from "../formState.js";
+import { BOSS_ONLY_NOTE } from "../ownerAccess.js";
 import { storeLabel } from "../selectionDeskView.js";
 import { toggleLocalSupplierSkuSelection } from "../aSupplierCaptureSelection.js";
 import { profitStepGaps, profitStepSubmission } from "../../lib/profit-step-review.mjs";
@@ -15,7 +16,11 @@ import C1RightsReviewPanel from "./C1RightsReviewPanel.jsx";
 import C1OzonAttributePanel from "./C1OzonAttributePanel.jsx";
 import C2FinalAssetsPanel from "./C2FinalAssetsPanel.jsx";
 import FinalProductPlanCard from "./FinalProductPlanCard.jsx";
+import Gate1AutopilotSection from "./Gate1AutopilotSection.jsx";
+import Gate2ListingCard from "./Gate2ListingCard.jsx";
 import SiblingBatchPreparation from './SiblingBatchPreparation.jsx';
+import Gate1Card from "./Gate1Card.jsx";
+import ProductPublishSection, { showsProductPublish } from "./ProductPublishSection.jsx";
 
 /**
  * One product page for the owner: the six steps of a product, with only the step that is actually open expanded.
@@ -135,6 +140,12 @@ export function skuChoiceSaved(candidate) {
 /** The step the owner is actually on. Supply is confirmed only once the lifecycle froze an A confirmation. */
 export function currentProductStep(candidate) {
   if (candidate?.workflowStatus === "listed") return "readback";
+  // 冻结 SKU 包是当前业务阶段；旧执行记录可能还停在前一步。
+  const skuPhase = typeof candidate?.lifecycleV11?.skuPackage?.businessPhase === "string" ? candidate.lifecycleV11.skuPackage.businessPhase : "";
+  if (skuPhase.startsWith("E")) return "readback";
+  if (skuPhase.startsWith("D")) return "publish";
+  if (skuPhase.startsWith("C")) return "copy";
+  if (skuPhase.startsWith("B")) return "profit";
   const phase = typeof candidate?.executionRuntime?.businessPhase === "string" ? candidate.executionRuntime.businessPhase : "";
   if (phase.startsWith("E")) return "readback";
   if (phase.startsWith("D")) return "publish";
@@ -150,6 +161,7 @@ export function currentProductStep(candidate) {
 export function showsSkuChoice(candidate) {
   if (!skuChoiceReady(candidate)) return false;
   if (candidate?.lifecycleV11?.aConfirmationReceipt?.decision === "confirm") return false;
+  if (candidate?.lifecycleV11?.skuPackage?.selectedSupplySnapshot?.ownerSupplyConfirmation?.status === "confirmed") return false;
   return ["select", "profit"].includes(currentProductStep(candidate));
 }
 
@@ -158,6 +170,15 @@ export function showsSkuChoice(candidate) {
  * Nothing new is confirmed here: ownerSupplyConfirmed stays false and the sales review keeps its unknown judgments,
  * so the request only queues the 1688 capture job the software already runs today.
  */
+/** 一次操作的结果，放在触发它的那个按钮旁边；其余操作的结果仍在页面顶部那一个提示位。 */
+function StepResult({ at, noticeAt, error, notice }) {
+  if (noticeAt !== at) return null;
+  return <>
+    {error ? <p role="alert" className="product-step-result">{error}</p> : null}
+    {notice ? <p role="status" className="product-notice product-step-result">{notice}</p> : null}
+  </>;
+}
+
 export function captureSubmissionFromDraft({ candidate, draft, marketSnapshot }) {
   if (!isObject(candidate) || !isObject(draft)) return null;
   return {
@@ -241,18 +262,29 @@ export const CAPTURE_REVIEW_BLOCKED_MESSAGE =
   "插件领走了上一次采集，但一直没有把结果传回来，服务端只能记成「结果未知」。软件不会替你猜这次采到了什么，所以在你确认之前，这件商品不能再申请采集。";
 export const CAPTURE_REVIEW_ACTION_LABEL = "这次采集没有结果，我确认并重新申请";
 
+/** 货源平台由链接本身决定：拼多多的商品页和分享短链叫拼多多，其余（包括还没填链接）照旧叫 1688。 */
+export const supplySiteName = value =>
+  /^https:\/\/(?:mobile\.yangkeduo\.com|mobile\.pinduoduo\.com|p\.pinduoduo\.com)\//i.test(String(value ?? "").trim()) ? "拼多多" : "1688";
+
 /** The capture job in the owner's words; a failed run stays visible as history, never as the current state. */
 export function captureStatusLine(candidate) {
   const capture = candidate?.sourceCapture;
   if (!isObject(capture)) return "还没有申请过插件采集。";
-  if (capture.status === "captured_waiting_owner_selection") return "插件已采到1688页面数据，等你选具体规格。";
-  if (capture.jobStatus === "claimed" || capture.status === "extension_running") return "插件已领取本次采集，正在读取1688页面。";
+  const site = supplySiteName(capture.sourceUrl || candidate?.sourceUrl);
+  if (capture.status === "captured_waiting_owner_selection") return `插件已采到${site}页面数据，等你选具体规格。`;
+  if (capture.jobStatus === "claimed" || capture.status === "extension_running") return `插件已领取本次采集，正在读取${site}页面。`;
   if (capture.status === "waiting_extension") return "已排队，等插件领取本次采集。";
   const reason = textOf(capture.reason) || textOf(capture.failureCode);
   if (captureNeedsOwnerReview(candidate)) return `上一次采集的结果未知：${reason || "服务端没有收到结果"}。`;
   if (captureOutcomeUnknown(candidate)) return `上一次采集的结果未知：${reason || "服务端没有收到结果"}。你已确认这次没有结果，可以重新申请采集。`;
   if (capture.failureCode) return `上一次采集已停止：${reason}。`;
   return `当前采集状态：${textOf(capture.status) || "未取得"}。`;
+}
+
+/** 价格带单位。币种是 unknown（Seerfar 的售价就是这样，服务商没给币种）时照实说「币种未知」，不当成卢布。 */
+function priceWithUnit(amount, currency) {
+  if (currency === "RUB") return `${amount} 卢布`;
+  return textOf(currency) === "" || currency === "unknown" ? `${amount}（币种未知）` : `${amount} ${currency}`;
 }
 
 function marketSnapshotLine(snapshot) {
@@ -262,11 +294,11 @@ function marketSnapshotLine(snapshot) {
   const window = isObject(metrics.salesWindow) && metrics.salesWindow.startDate && metrics.salesWindow.endDate
     ? `${metrics.salesWindow.startDate} 至 ${metrics.salesWindow.endDate}`
     : "30 天";
-  const price = finite(snapshot.currentPrice) === null ? "未取得" : `${snapshot.currentPrice} ${snapshot.currency === "RUB" ? "卢布" : snapshot.currency}`;
+  const price = finite(snapshot.currentPrice) === null ? "未取得" : priceWithUnit(snapshot.currentPrice, snapshot.currency);
   return `市场快照：Seerfar ${day ?? "时间未取得"} · 售价 ${price} · ${window}销量 ${count(metrics.salesCount)} · 评价 ${count(metrics.reviewCount)}`;
 }
 
-function estimateLines(estimateRecord) {
+function estimateLines(estimateRecord, origins = null) {
   if (!isObject(estimateRecord)) return { headline: "填好上面的资料并保存后，这里显示采购上限和利润。", detail: null, warning: null };
   const estimate = estimateRecord.estimate ?? {};
   const warning = isObject(estimateRecord.routeBlock) ? estimateRecord.routeBlock : null;
@@ -280,7 +312,7 @@ function estimateLines(estimateRecord) {
     : `${chosen.route} · 计费 ${chosen.chargeableKg} 公斤 · 运费 ${money(chosen.freightRmb)}${estimate.freight?.oversize === true ? "（超抛）" : ""}`;
   const headline = profit === null
     ? `采购上限 ${ceiling ?? "未取得"} · ${freight}`
-    : `按你填的到手总价 ${money(profit.allInPurchaseRmb)}：单件利润 ${money(profit.unitProfitRmb)} · 利润率 ${percent(profit.marginRate) ?? "未取得"} · ${profit.passes ? "达到本店利润门槛" : "没到本店利润门槛"}`;
+    : `按${draftPurchaseLabel(origins)}到手总价 ${money(profit.allInPurchaseRmb)}：单件利润 ${money(profit.unitProfitRmb)} · 利润率 ${percent(profit.marginRate) ?? "未取得"} · ${profit.passes ? "达到本店利润门槛" : "没到本店利润门槛"}`;
   const detail = `采购上限 ${ceiling ?? "未取得"} · ${freight} · 佣金 ${percent(estimate.commission?.rate) ?? "未取得"}`;
   return { headline, detail: profit === null ? null : detail, warning };
 }
@@ -291,49 +323,18 @@ function estimateLines(estimateRecord) {
  * saved estimate alone, whether the next move is 申请插件采集 or the form itself.
  */
 export function nextProductAction(view) {
-  if (!isObject(view?.supplierDraftV1)) return { key: "form", hint: null };
+  // 没有找货方案时，下一步是上面的「做这件」卡；方案只由那张卡存下（2026-10-10 拿掉了手填表）。
+  if (!isObject(view?.supplierDraftV1)) return { key: "gate1", hint: null };
   const record = view.supplierDraftEstimateV1 ?? null;
   if (!isObject(record) || record.estimate?.status !== "ok") {
-    return { key: "form", hint: "下一步：把上面缺的资料补齐，再保存一次。" };
+    return { key: "capture", hint: "下一步：点下面的「申请插件采集」，让插件去读这家货源的规格；粗算还缺的几项，采回来或正式算利润时再补。" };
   }
   return record.profitAtDeclaredPurchase?.passes === true
     ? { key: "capture", hint: "下一步：点下面的「申请插件采集」，让插件去读这个1688页面。" }
-    : { key: "form", hint: "下一步：这件没到本店利润门槛，改上面的货价或目标成交价再保存一次。" };
+    : { key: "capture", hint: "下一步：粗算没到本店利润门槛，仍可以采回真实规格价再看；正式利润没过线时会回到「需要你处理」，给你换货源、改售价或不做。" };
 }
 
-function draftFormState({ draft, candidate, marketSnapshot }) {
-  if (isObject(draft)) {
-    return {
-      sourceUrl: draft.sourceUrl ?? "",
-      goodsPriceRmb: numberField(draft.goodsPriceRmb),
-      domesticShippingRmb: numberField(draft.domesticShippingRmb),
-      packedWeightKg: numberField(draft.packedWeightKg),
-      length: numberField(draft.dimensionsCm?.length),
-      width: numberField(draft.dimensionsCm?.width),
-      height: numberField(draft.dimensionsCm?.height),
-      targetSalePriceRub: numberField(draft.targetSalePriceRub),
-      note: draft.note ?? ""
-    };
-  }
-  // No draft yet: prefill from whatever the owner already saved through the older per-field form.
-  const shipping = finite(candidate?.domesticShippingRmb);
-  const allIn = finite(candidate?.purchasePriceRmb);
-  const goods = allIn === null ? null : shipping === null ? allIn : Math.round((allIn - shipping) * 100) / 100;
-  return {
-    sourceUrl: textOf(candidate?.sourceUrl),
-    goodsPriceRmb: numberField(goods === null || goods < 0 ? null : goods),
-    domesticShippingRmb: numberField(shipping),
-    packedWeightKg: numberField(candidate?.packedWeightKg),
-    length: numberField(candidate?.dimensionsCm?.length),
-    width: numberField(candidate?.dimensionsCm?.width),
-    height: numberField(candidate?.dimensionsCm?.height),
-    // Owner question 2026-09-11: the target price should not be typed out of thin air, so it starts at what the same
-    // product sells for today; the saved per-field figure only fills in when this round has no snapshot price.
-    targetSalePriceRub: numberField(finite(marketSnapshot?.currentPrice) ?? finite(candidate?.expectedPriceRub)),
-    note: ""
-  };
-}
-
+const NUMBER_PATTERN = /^\d+(?:\.\d+)?$/;
 const RUB = value => (finite(value) === null ? "未取得" : `${value} 卢布`);
 
 /** Which of the store's two thresholds this price reached first, in the store rule's own numbers. */
@@ -355,7 +356,7 @@ export function thresholdBasisLine(guidance) {
  * would earn, and a short ladder. The commission rate on each line is the official one for that price band, which is
  * why a line above the band edge carries a different rate; the page computes none of it.
  */
-function PricingGuidance({ guidance }) {
+function PricingGuidance({ guidance, purchaseLabel = "你填的" }) {
   if (!isObject(guidance)) {
     return <div className="product-pricing" aria-label="定价指引">
       <h4>定价指引</h4>
@@ -391,7 +392,7 @@ function PricingGuidance({ guidance }) {
     <p className="product-pricing-provenance">
       口径：成交收入按已保存的官方汇率 1 元 ≈ {finite(guidance.rubPerCny) === null ? "未取得" : guidance.rubPerCny} 卢布折算，
       扣官方佣金（超过档位分界线会换一档费率）、退货运营和破损丢失储备、提现费，再扣国际运费、包材、贴标，
-      最后扣你填的到手总价 {money(guidance.allInPurchaseRmb) ?? "未取得"}（其余固定成本合计 {money(guidance.nonPurchaseFixedRmb) ?? "未取得"}）。
+      最后扣{purchaseLabel}到手总价 {money(guidance.allInPurchaseRmb) ?? "未取得"}（其余固定成本合计 {money(guidance.nonPurchaseFixedRmb) ?? "未取得"}）。
     </p>
   </div>;
 }
@@ -406,32 +407,113 @@ const PENDING = "待补";
 const yuanOr = value => money(value) ?? PENDING;
 
 /**
+ * 找货方案里这一项是谁给的（服务端那份 supplierDraftOriginsV1，或「算利润」那份 review.supply.origins）。
+ * 主人自己给的照旧说「你填的」；「做这件」存下的方案大多是软件读的数，照实说从哪读的，不许冒充主人填的
+ * （AGENTS.md §4.4）。服务端没给来源时按主人填的说，和以前一字不差。
+ */
+export function draftOrigin(origins, field) {
+  const origin = isObject(origins) ? origins[field] : null;
+  return isObject(origin) && origin.owner === false && textOf(origin.label) !== ""
+    ? { owner: false, label: origin.label } : { owner: true, label: "你填的" };
+}
+
+/** 「到手总价」是谁给的：货价和国内运费都是主人填的才说「你填的」，否则说是找货方案里的。 */
+function draftPurchaseLabel(origins) {
+  return draftOrigin(origins, "goodsPriceRmb").owner && draftOrigin(origins, "domesticShippingRmb").owner ? "你填的" : "找货方案的";
+}
+
+/**
  * 「你填的」那个小标记。
  * 每一格数字都要能说出自己是采到的还是主人声明的，所以这里只认服务端给的 basis，不去猜、也不去认来源字符串。
  * `captured` 和没有 basis 的格子一个字都不加——2026-09-16 之前的表长什么样，没签字的表还长什么样。
+ * 声明补进来的数是找货方案里的；方案里那个数是软件读的（「做这件」存下的），就标「按找货方案」，不说「你填的」。
  */
-function declaredMark(basis) {
-  if (basis === "owner_declared") return <span className="product-sku-declared">{" · 你填的"}</span>;
-  return basis === "mixed" ? <span className="product-sku-declared">{" · 部分你填的"}</span> : null;
+function declaredMark(basis, origin = null) {
+  const owner = origin?.owner !== false;
+  if (basis === "owner_declared") return <span className="product-sku-declared">{owner ? " · 你填的" : " · 按找货方案"}</span>;
+  return basis === "mixed" ? <span className="product-sku-declared">{owner ? " · 部分你填的" : " · 部分按找货方案"}</span> : null;
 }
 
 /**
  * 同一个标记的纯文字版。要拼进一整句话里的时候用它：拆成相邻的两个文本节点，服务端渲染会在中间插进一段注释，
  * 那句话就不再是一句话了。
  */
-function declaredText(basis) {
-  return basis === "owner_declared" ? "（你填的）" : basis === "mixed" ? "（部分你填的）" : "";
+function declaredText(basis, origin = null) {
+  const owner = origin?.owner !== false;
+  if (basis === "owner_declared") return owner ? "（你填的）" : "（按找货方案）";
+  return basis === "mixed" ? (owner ? "（部分你填的）" : "（部分按找货方案）") : "";
 }
 
 /**
  * 这个规格的货价是哪儿来的。
  * 只有页面真的按规格给了价，才可以说「这个规格在 1688 页面上自己的价」。主人签过同重同价之后，页面从来没有给过
- * 这个规格一个价，那句话就是软件替页面说的——所以这里照实换成他自己填的那一个数。
+ * 这个规格一个价，那句话就是软件替页面说的——所以这里照实换成找货方案里那一个数，并说清楚那个数是谁给的。
  */
-export function profitStepPriceOriginText(basis) {
-  return basis === "owner_declared"
-    ? "（页面没有按规格分列价格，这是你在「找货」里填的）"
-    : "（这个规格在 1688 页面上自己的价）";
+export function profitStepPriceOriginText(basis, origin = null) {
+  if (basis !== "owner_declared") return "（这个规格在 1688 页面上自己的价）";
+  return origin?.owner === false
+    ? `（页面没有按规格分列价格，这是「找货」方案里的货价：${origin.label}）`
+    : "（页面没有按规格分列价格，这是你在「找货」里填的）";
+}
+
+/**
+ * 「找货」里那一句：方案里的每个数是谁给的。手填的方案每个数都是主人的，这句话不出现；
+ * 「做这件」存下的方案逐项说清楚哪几个是软件读的，主人才知道哪几个要自己核对。
+ */
+export function draftOriginsLine(draft, origins) {
+  if (!isObject(draft)) return null;
+  const dimensions = isObject(draft.dimensionsCm) ? draft.dimensionsCm : {};
+  const size = ["length", "width", "height"].every(key => finite(dimensions[key]) !== null)
+    ? `${dimensions.length}×${dimensions.width}×${dimensions.height} 厘米` : null;
+  const fields = [
+    ["goodsPriceRmb", "货价", money(draft.goodsPriceRmb)],
+    ["domesticShippingRmb", "国内运费", money(draft.domesticShippingRmb)],
+    ["packedWeightKg", "打包重量", finite(draft.packedWeightKg) === null ? null : `${draft.packedWeightKg} 公斤`],
+    ["dimensionsCm", "包装", size],
+    ["targetSalePriceRub", "目标成交价", finite(draft.targetSalePriceRub) === null ? null : `${draft.targetSalePriceRub} 卢布`]
+  ];
+  if (fields.every(([field]) => draftOrigin(origins, field).owner)) return null;
+  return `方案里的数：${fields.map(([field, name, value]) => `${name} ${value ?? "未取得"}（${draftOrigin(origins, field).label}）`).join(" · ")}。`;
+}
+
+/** 改包装尺寸那一份提交：当前修订号和长宽高三个大于 0 的数，缺一个就不交。 */
+export function draftDimensionsPayload(form, dataRevision) {
+  if (!Number.isInteger(dataRevision)) return null;
+  const dimensionsCm = {};
+  for (const key of ["length", "width", "height"]) {
+    const value = String(form?.[key] ?? "").trim();
+    if (!NUMBER_PATTERN.test(value) || !(Number(value) > 0)) return null;
+    dimensionsCm[key] = Number(value);
+  }
+  return { dataRevision, dimensionsCm };
+}
+
+/**
+ * 包装尺寸改成实际的。只在方案里的尺寸不是主人给的时候出现：「做这件」存下的尺寸常是 Seerfar 记录的同类商品尺寸，
+ * 不是这件货量过的包装（AGENTS.md §5.3）。改了之后这一项记成「你填的」，运费和利润按新尺寸重算；不派任务、不碰平台。
+ */
+function DraftDimensionsControl({ dimensions, dataRevision, saving, onRevise, idPrefix }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(() => ({ length: String(dimensions?.length ?? ""), width: String(dimensions?.width ?? ""),
+    height: String(dimensions?.height ?? "") }));
+  if (typeof onRevise !== "function") return null;
+  if (!open) {
+    return <button type="button" className="button secondary" disabled={saving} onClick={() => setOpen(true)}>改成实际尺寸</button>;
+  }
+  const payload = draftDimensionsPayload(form, dataRevision);
+  return <div className="product-draft-dimensions" role="group" aria-label="改成实际的包装尺寸">
+    {[["length", "长"], ["width", "宽"], ["height", "高"]].map(([key, name]) => <label key={key} className="product-field"
+      htmlFor={`${idPrefix}-${key}`}>
+      <span className="product-field-label">{`${name}（厘米）`}</span>
+      <input id={`${idPrefix}-${key}`} type="number" min="0" step="0.1" inputMode="decimal" value={form[key]} disabled={saving}
+        onChange={event => setForm(current => ({ ...current, [key]: event.target.value }))} />
+    </label>)}
+    {payload === null ? <span className="product-field-error" role="alert">长宽高都填大于 0 的厘米数</span> : null}
+    <span className="gate1-actions">
+      <button type="button" className="button primary" disabled={saving || payload === null} onClick={() => onRevise(payload)}>保存尺寸</button>
+      <button type="button" className="button secondary" disabled={saving} onClick={() => setOpen(false)}>取消</button>
+    </span>
+  </div>;
 }
 
 /** The one-line conclusion, in the table's own two numbers. */
@@ -504,10 +586,15 @@ export function skuWeightGapNotice(table) {
  * 重量本来就该一样，可他在「找货」里填过的数，软件不许自己拿来用——所以这里给他一个签字的地方，而不是替他签。
  * 没有缺项、或者他还没在「找货」里填那两个数的时候，这一块不出现：没有事要他做。
  */
-export function skuUniformSupplyNotice(step) {
+export function skuUniformSupplyNotice(step, origins = null) {
   if (!isObject(step)) return null;
   const basis = isObject(step.basis) ? step.basis : {};
-  const declared = `${basis.packedWeightKg} 公斤 / ${money(basis.goodsPriceRmb) ?? "—"}`;
+  // 找货方案里这两个数是谁给的：都是主人填的，照旧说「你填的」；「做这件」存下的方案里是软件读的，逐个说从哪读的。
+  const weightOrigin = draftOrigin(origins, "packedWeightKg");
+  const priceOrigin = draftOrigin(origins, "goodsPriceRmb");
+  const typed = weightOrigin.owner && priceOrigin.owner;
+  const declared = typed ? `${basis.packedWeightKg} 公斤 / ${money(basis.goodsPriceRmb) ?? "—"}`
+    : `${basis.packedWeightKg} 公斤（${weightOrigin.label}）/ ${money(basis.goodsPriceRmb) ?? "—"}（${priceOrigin.label}）`;
   if (step.declared === true) {
     const weight = Number.isInteger(step.appliedWeightCount) ? step.appliedWeightCount : 0;
     const price = Number.isInteger(step.appliedPriceCount) ? step.appliedPriceCount : 0;
@@ -515,10 +602,11 @@ export function skuUniformSupplyNotice(step) {
       .filter(Boolean).join(" 和 ");
     return {
       mode: "declared",
-      heading: "这些规格按你填的算",
+      heading: typed ? "这些规格按你填的算" : "这些规格按找货方案算",
       message: `你声明过这 ${step.total} 个规格是同一件货的不同规格。${filled === ""
         ? "这一次采到的重量和货价都齐全，所以这份声明一行都没有用上——表里的数字全是采到的。"
-        : `所以${filled}用的是你在「找货」里填的 ${declared}，表里标成「你填的」；采到了真实数字的规格还是按采到的算。`}`,
+        : typed ? `所以${filled}用的是你在「找货」里填的 ${declared}，表里标成「你填的」；采到了真实数字的规格还是按采到的算。`
+          : `所以${filled}用的是「找货」方案里的 ${declared}，表里标成「按找货方案」；采到了真实数字的规格还是按采到的算。`}`,
       buttonLabel: "撤回这个声明",
       uniform: false
     };
@@ -537,10 +625,13 @@ export function skuUniformSupplyNotice(step) {
     mode: "offer",
     heading: "这些规格是同一件货吗？",
     message: `这一次采集里${parts}，那几行的运费和利润只能写「${PENDING}」。如果这 ${step.total} 个规格就是同一件货的` +
-      `不同规格（比如只差颜色），点下面这个按钮，就是你声明：它们同重同价，按你在「找货」里填的 ${declared} 算。` +
-      `这是你自己填的数，不是采到的，表里会照实标成「你填的」；采到了真实重量或货价的规格仍然按采到的算。` +
+      (typed
+        ? `不同规格（比如只差颜色），点下面这个按钮，就是你声明：它们同重同价，按你在「找货」里填的 ${declared} 算。` +
+          "这是你自己填的数，不是采到的，表里会照实标成「你填的」；采到了真实重量或货价的规格仍然按采到的算。"
+        : `不同规格（比如只差颜色），点下面这个按钮，就是你声明：它们同重同价，按「找货」方案里的 ${declared} 算。` +
+          "这两个数不是这次采到的，是你点「做这件」时认下的，表里会照实标成「按找货方案」；采到了真实重量或货价的规格仍然按采到的算。") +
       `${lapsed === "" ? "" : `（${lapsed}）`}`,
-    buttonLabel: "这些规格同重同价，按我填的算",
+    buttonLabel: typed ? "这些规格同重同价，按我填的算" : "这些规格同重同价，按找货方案算",
     uniform: true
   };
 }
@@ -575,6 +666,15 @@ export function profitStepFirstSkuId(review, picked) {
   const chosen = picked === null || picked === undefined ? null : String(picked);
   if (chosen !== null && ids.includes(chosen)) return chosen;
   return typeof review?.suggestedSkuId === "string" && ids.includes(review.suggestedSkuId) ? review.suggestedSkuId : null;
+}
+
+/**
+ * 对标商品是不是主人在「做这件」卡上认的那个 Ozon 同款。是的话，「可比的同类」主人已经在那张卡上说过了，不再问第二遍。
+ * 只认编号对得上：对标换成了别的商品（主人另读了一个页面），就照旧让他勾。
+ */
+export function profitStepComparabilityBound(review, gate1Pick) {
+  const number = textOf(review?.benchmark?.productNumber);
+  return number !== "" && isObject(gate1Pick) && String(gate1Pick.id ?? "") === number;
 }
 
 /** This store's own line, in the store rule's own two numbers — never a figure written into this page. */
@@ -622,7 +722,7 @@ export function profitStepSuggestionLine(review) {
   if (!isObject(benchmark) || textOf(benchmark.matchedValue) === "") {
     return "对标那款商品的标题里没写规格，软件判断不出该先上哪一个，你自己定。";
   }
-  const price = finite(benchmark.currentPrice) === null ? "" : `，售价 ${benchmark.currentPrice} 卢布`;
+  const price = finite(benchmark.currentPrice) === null ? "" : `，售价 ${priceWithUnit(benchmark.currentPrice, benchmark.currency)}`;
   const same = finite(benchmark.sameAttributeCount) ?? 0;
   const rest = same > 1
     ? `这一套里同规格的有 ${same} 个，建议里挑的是其中最赚的一个，具体哪个你自己定。`
@@ -634,12 +734,33 @@ export function profitStepSuggestionLine(review) {
  * Owner ruling 2026-09-13: 以采集到的页面价为准，但要把它和「找货」里填的货价的差额标出来。
  * 两者相同就没有差额可说，这句话也就不出现。
  */
-export function profitStepPriceDeltaLine(spec) {
+export function profitStepPriceDeltaLine(spec, origin = null) {
   const delta = spec?.priceDelta ?? null;
   if (!isObject(delta)) return null;
   const direction = delta.deltaRmb > 0 ? "贵" : "便宜";
+  if (origin?.owner === false) {
+    return `「找货」方案里的货价是 ${money(delta.declaredRmb)}（${origin.label}）；这一步按这个规格自己的页面价 ${money(delta.pageRmb)} 算，` +
+      `页面价比方案里的${direction} ${money(Math.abs(delta.deltaRmb))}。`;
+  }
   return `你在「找货」里填的货价是 ${money(delta.declaredRmb)}；这一步按这个规格自己的页面价 ${money(delta.pageRmb)} 算，` +
     `页面价比你填的${direction} ${money(Math.abs(delta.deltaRmb))}。`;
+}
+
+/**
+ * 「确认这套供货」之前要让主人看见：这一套里哪几个数不是他填的，是软件读来的。点确认就是他认了这些数
+ * （AGENTS.md §4.4 的主人供货确认），所以必须在按钮之前说，而不是让「你填的」替软件说话。
+ * 货价和打包重量只有按找货方案补进来（同重同价）时才是方案里的数；采到的规格价和重量不在这里。
+ */
+export function profitStepSoftwareReadItems(review, spec) {
+  const origins = review?.supply?.origins ?? null;
+  return [
+    ["goodsPriceRmb", "货价", spec?.priceBasis === "owner_declared"],
+    ["domesticShippingRmb", "国内运费", true],
+    ["packedWeightKg", "打包重量", spec?.weightBasis === "owner_declared"],
+    ["dimensionsCm", "包装尺寸", true],
+    ["targetSalePriceRub", "目标成交价", true]
+  ].filter(([field, , used]) => used && !draftOrigin(origins, field).owner)
+    .map(([field, name]) => ({ field, name, label: draftOrigin(origins, field).label }));
 }
 
 /** Where the official rate ladder changes gear, read from the official table itself. */
@@ -697,6 +818,28 @@ export function cargoFactsStepGaps(step) {
   // 读不到这一块的时候也算没确认：宁可按钮不亮，也不能让主人点了才吃服务端那个 422。
   return [{ field: "cargoFacts", label: "运输属性", why: textOf(step?.gate?.reason)
     || "这件商品的运输属性还没有你的确认。软件要先知道它带不带电、是不是普货，才能核验线路收不收这件货。" }];
+}
+
+/**
+ * 运输属性表单照现在这样记下去，线路核验用不用得上。和服务端 lib/cargo-facts-declaration.mjs 的
+ * validateOwnerCargoFactsDeclaration、cargoFactsGate 是同一套规则（那个文件连着服务端专用的模块，页面引不进来），
+ * tests/product-page-ui.test.mjs 拿同一张输入表逐个比对两边。
+ */
+export function cargoFactsFormGaps(form) {
+  const facts = cargoFactsPayload(form, 0);
+  const problems = [];
+  if (facts.generalCargo === true && ["installed", "standalone"].includes(facts.batteryType)) problems.push("普货和带电不能同时成立");
+  if (facts.batteryType === "none" && facts.batteryEnergyWh !== null) problems.push("不带电就不能填电池瓦时");
+  const pending = [];
+  if (!["none", "installed", "standalone"].includes(facts.batteryType)) pending.push("带不带电");
+  if (facts.generalCargo === null) pending.push("是不是普货");
+  if (facts.personalUse === null) pending.push("个人自用还是商业用");
+  if (facts.irregularShape === null) pending.push("是不是异形件");
+  if (["installed", "standalone"].includes(facts.batteryType) && facts.batteryEnergyWh === null) pending.push("电池瓦时");
+  if (!problems.length && !pending.length) return [];
+  return [{ field: "cargoFacts", label: "运输属性", why: problems.length
+    ? `运输属性里${problems.join("，")}，改一下。`
+    : `运输属性里还有「${pending.join("」「")}」没定；线路核验用不了说不准的值，在下面那一块选好。` }];
 }
 
 /* ── 每单额外操作费 ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -762,6 +905,14 @@ export function extraHandlingFeesStepGaps(step) {
  * 「这笔费用涨到 ¥X 以上，这个规格才会掉出利润线」——主人 2026-09-15 最看重的那一句。
  * X 由服务端按这个规格自己的利润和这家店自己的门槛现算，页面一个数都不写。
  */
+/**
+ * 确认供货时能不能顺手把这笔钱一起记下：只有清单是空的（¥0.00）才行。那正是上面利润表现在用的数；加了钱，
+ * 利润就要按它重算，主人得先在这一块点一下确认，看到重算后的利润再确认供货。
+ */
+export function extraHandlingFeesFoldable(step, rows) {
+  return isObject(step) && step.gate?.ready !== true && extraHandlingFeesPayload(rows, 0).items.length === 0;
+}
+
 export function extraHandlingFeeBreakLine(spec) {
   const point = spec?.extraHandling ?? null;
   if (!isObject(point) || finite(point.breakRmb) === null) return null;
@@ -827,7 +978,7 @@ export function profitStepSubmitState({ review, firstSkuId, comparabilityConfirm
   }
   if (spec === null) return { ready: false, gaps: [], hint: "先在上面指定一个变体先上架。" };
   if (!comparabilityConfirmed || !supplyConfirmed) {
-    return { ready: false, gaps: [], hint: "两件都确认后才能进入下一步。" };
+    return { ready: false, gaps: [], hint: "先勾上「这两件商品是可比的同类」，才能确认这套供货。" };
   }
   const rest = (finite(review?.passCount) ?? 0) - 1;
   return { ready: true, gaps: [],
@@ -888,9 +1039,9 @@ export function foldedStepLine(stepKey, step, candidate) {
   if (stepKey === "select" && skuChoiceSaved(candidate)) {
     return `已选定 ${candidate.sourceCapture.selectedSkuIds.length} 个规格，已经锁进这件商品的供货方案。`;
   }
-  if (stepKey === step) return "这一步的详细界面还在旧版页面里，先用「打开旧版A卡」查看。";
+  if (stepKey === step) return "这一步现在没有要你在这里点的东西；需要你处理的事会出现在「需要你处理」里。";
   return productStepPassed(stepKey, step)
-    ? "这一步已经做完了；详细内容还在旧版页面里，用「打开旧版A卡」可以回看。"
+    ? "这一步已经做完了。"
     : "等前面的步骤完成后再开始。";
 }
 
@@ -901,17 +1052,20 @@ export function foldedStepState(stepKey, step, candidate) {
 }
 
 /** Where every number in the table came from, in the owner's words and the records' own values. */
-function SkuChoiceSources({ table }) {
+function SkuChoiceSources({ table, origins = null }) {
   const source = table.sources;
   const parts = source.reserveParts;
+  const price = draftOrigin(origins, "targetSalePriceRub");
+  const weight = draftOrigin(origins, "packedWeightKg");
+  const goods = draftOrigin(origins, "goodsPriceRmb");
   return <dl className="product-pricing-facts product-sku-sources" aria-label="数字来源">
-    <div><dt>目标售价</dt><dd>{RUB(source.targetSalePriceRub)} · 你填的</dd></div>
+    <div><dt>目标售价</dt><dd>{`${RUB(source.targetSalePriceRub)} · ${price.label}`}</dd></div>
     <div><dt>央行汇率</dt><dd>{finite(source.rubPerCny) === null ? "未取得"
       : `1 元 ≈ ${source.rubPerCny} 卢布${textOf(source.fxRateDate) ? ` · ${source.fxRateDate}` : ""}`}</dd></div>
-    <div><dt>Ozon 官方佣金</dt><dd>{percent(source.commissionRate) ?? "未取得"} · 按你填的售价所在档</dd></div>
+    <div><dt>Ozon 官方佣金</dt><dd>{`${percent(source.commissionRate) ?? "未取得"} · ${price.owner ? "按你填的售价所在档" : "按目标售价所在档"}`}</dd></div>
     <div><dt>物流线路</dt><dd>{source.routes.length === 0 ? "未取得"
       : `${source.routes.join(" / ")}${textOf(source.tariffRuleVersion) ? ` · ${source.tariffRuleVersion} 资费` : ""}`}</dd></div>
-    <div><dt>国内运费</dt><dd>{money(source.domesticShippingRmb) ?? "未取得"} · 你填的</dd></div>
+    <div><dt>国内运费</dt><dd>{`${money(source.domesticShippingRmb) ?? "未取得"} · ${draftOrigin(origins, "domesticShippingRmb").label}`}</dd></div>
     {/* 这笔钱是这件商品自己声明的，不是一个项目假设值；还没声明过的时候必须说出来，不能让它冒充一个签过字的数。 */}
     <div><dt>每单额外操作费</dt><dd>{money(source.packagingRmbDefault) ?? "未取得"}
       {source.extraHandlingDeclared === true ? " · 你声明的" : " · 还没声明，暂按这个数"}</dd></div>
@@ -922,8 +1076,8 @@ function SkuChoiceSources({ table }) {
       ? `（有 ${table.weightMissingCount} 个规格页面没给，运费和利润留空）` : ""}</dd></div>
     {/* 签过字才有这一行：这张表里哪几个数不是采到的，是主人自己声明的。没签字的时候这一行不存在。 */}
     {isObject(table.uniformSupply) ? <div><dt>{"你声明的同重同价"}</dt><dd>
-      {`${table.uniformSupply.appliedWeightSkuIds.length} 个规格按你填的 ${table.uniformSupply.packedWeightKg} 公斤算运费，`}
-      {`${table.uniformSupply.appliedPriceSkuIds.length} 个规格按你填的 ${money(table.uniformSupply.goodsPriceRmb)} 算货价`}
+      {`${table.uniformSupply.appliedWeightSkuIds.length} 个规格按${weight.owner ? "你填的" : `找货方案里的（${weight.label}）`} ${table.uniformSupply.packedWeightKg} 公斤算运费，`}
+      {`${table.uniformSupply.appliedPriceSkuIds.length} 个规格按${goods.owner ? "你填的" : `找货方案里的（${goods.label}）`} ${money(table.uniformSupply.goodsPriceRmb)} 算货价`}
       {dayOf(table.uniformSupply.declaredAt) ? ` · ${dayOf(table.uniformSupply.declaredAt)} 你声明的` : " · 你声明的"}
     </dd></div> : null}
   </dl>;
@@ -935,21 +1089,21 @@ function SkuChoiceSources({ table }) {
  * platform; the checkboxes are local until that button is pressed.
  */
 function SkuChoiceSection({ candidate, table, chosen, saving, recapturable = false, onRecapture, onToggle, onToggleAll,
-  onSubmit, uniformStep = null, onDeclareUniformSupply = null }) {
+  onSubmit, uniformStep = null, onDeclareUniformSupply = null, origins = null }) {
   const capture = candidate.sourceCapture;
   const swing = skuChoiceSwing(table);
   const allState = selectAllState(chosen, table.rows);
   const columns = table.columns.length > 0 ? table.columns : ["规格"];
   const savedIds = Array.isArray(capture.selectedSkuIds) ? capture.selectedSkuIds : [];
   const gap = skuWeightGapNotice(table);
-  const uniform = skuUniformSupplyNotice(uniformStep);
+  const uniform = skuUniformSupplyNotice(uniformStep, origins);
   return <section className="product-section product-sku-choice" aria-label="选规格">
     <h3>选哪个规格上架</h3>
     {/* 一个重量都没采到时，「按利润挑」这句话就是假的，不能照说。 */}
-    <p className="product-section-hint">{`插件已经把这件1688货源的 ${table.total} 个规格采回来了。${gap?.all === true
+    <p className="product-section-hint">{`插件已经把这件${supplySiteName(capture.sourceUrl)}货源的 ${table.total} 个规格采回来了。${gap?.all === true
       ? "它们货价不同、重量也不同，但这一次没有采到重量，所以现在还挑不了利润。"
-      : "它们货价不同、重量不同，所以运费和利润也不同——这一步就是让你按利润挑，而不是自己去1688页面上对着表格数。"}`}</p>
-    <p className="product-sku-offer">货源 1688 / {textOf(capture.offerId) || "未取得"}
+      : `它们货价不同、重量不同，所以运费和利润也不同——这一步就是让你按利润挑，而不是自己去${supplySiteName(capture.sourceUrl)}页面上对着表格数。`}`}</p>
+    <p className="product-sku-offer">货源 {supplySiteName(capture.sourceUrl)} / {textOf(capture.offerId) || "未取得"}
       {` · 目标售价 ${RUB(table.sources.targetSalePriceRub)}`}
       {dayOf(capture.observedAt) ? ` · ${dayOf(capture.observedAt)} 采到` : ""}</p>
 
@@ -1024,8 +1178,8 @@ function SkuChoiceSection({ candidate, table, chosen, saving, recapturable = fal
                 ? table.columns.map((key, index) => <td key={key}>{textOf(row.values[index]) || "—"}</td>)
                 : <td>{row.label}</td>}
               {/* 主人的原话：表里要标明「你填的」而不是「采到的」。这两个数只要不是这次采到的，就当场说出来。 */}
-              <td>{yuanOr(row.priceCny)}{declaredMark(row.priceBasis)}</td>
-              <td>{finite(row.chargeableKg) === null ? PENDING : `${row.chargeableKg} 公斤`}{declaredMark(row.weightBasis)}</td>
+              <td>{yuanOr(row.priceCny)}{declaredMark(row.priceBasis, draftOrigin(origins, "goodsPriceRmb"))}</td>
+              <td>{finite(row.chargeableKg) === null ? PENDING : `${row.chargeableKg} 公斤`}{declaredMark(row.weightBasis, draftOrigin(origins, "packedWeightKg"))}</td>
               <td>{yuanOr(row.freightRmb)}</td>
               {/* 待补 is not a profit, so it never wears the profit's colour. */}
               <td className={row.unitProfitRmb === null ? "product-sku-pending" : "product-sku-profit"}>{yuanOr(row.unitProfitRmb)}</td>
@@ -1052,7 +1206,7 @@ function SkuChoiceSection({ candidate, table, chosen, saving, recapturable = fal
       <RecaptureControl candidate={candidate} disabled={saving} onRecapture={onRecapture} />
     </div> : null}
 
-    <SkuChoiceSources table={table} />
+    <SkuChoiceSources table={table} origins={origins} />
 
     <p className="product-sku-foot">
       <strong>选完之后会发生什么：</strong>{"软件把你选中的规格锁进这件商品的供货方案，商品页的进度条从「选定」走到「算利润」。这一步"}
@@ -1113,9 +1267,14 @@ function OzonCategoryReadBlock({ step, saving, onRead }) {
  * 还没声明过的时候这一块必须把两件事说清楚：这件商品还没声明过这笔钱，以及上面那些利润是暂按 ¥0.00 算的。
  * 绝不能悄悄拿一个项目假设值算给他看——2026-09-15 之前页面按 ¥3 显示，确认时按这件货自己的数算，两个数不是一回事。
  */
-export function ExtraHandlingFeesBlock({ step, dataRevision, saving, onDeclare }) {
-  const [rows, setRows] = useState(() => extraHandlingFeesFormState(step));
+export function ExtraHandlingFeesBlock({ step, dataRevision, saving, onDeclare, rows: heldRows = null, onRowsChange = null,
+  folded = false }) {
+  const [ownRows, setOwnRows] = useState(() => extraHandlingFeesFormState(step));
   const [editing, setEditing] = useState(false);
+  // 「算利润」那张卡握着这份清单时，用它的；单独摆出来时用自己的。
+  const held = Array.isArray(heldRows) && typeof onRowsChange === "function";
+  const rows = held ? heldRows : ownRows;
+  const setRows = held ? update => onRowsChange(typeof update === "function" ? update(heldRows) : update) : setOwnRows;
   if (!isObject(step)) return null;
   const declared = step.declared === true;
   const label = textOf(step.label) || "每单额外操作费";
@@ -1135,8 +1294,9 @@ export function ExtraHandlingFeesBlock({ step, dataRevision, saving, onDeclare }
       <span>{declared ? "已确认" : "包材 / 拆单费 / 合包费 / 额外材料费这一类，每单要另外花的钱"}</span>
     </div>
 
-    <p className="product-cargo-headline">{textOf(step.headline) ||
-      "一行都没有就是 ¥0.00，那也是一次明确的声明；不用加钱就直接确认，要加就按「加一行」写上名目和金额。"}</p>
+    <p className="product-cargo-headline">{textOf(step.headline) || (folded
+      ? "一行都没有就是 ¥0.00，那也是一次明确的声明；不用加钱就不用管这一块，要加就按「加一行」写上名目和金额。"
+      : "一行都没有就是 ¥0.00，那也是一次明确的声明；不用加钱就直接确认，要加就按「加一行」写上名目和金额。")}</p>
     {declared || step.status === "total_only" ? null : <p className="product-profit-note">
       {"在你确认之前，上面那些利润是暂按 ¥0.00 算的——这个数还没签过字。"}
     </p>}
@@ -1173,22 +1333,28 @@ export function ExtraHandlingFeesBlock({ step, dataRevision, saving, onDeclare }
     </div> : null}
 
     <div className="product-actions">
-      <button type="button" className={declared ? "button secondary" : "button primary"} disabled={saving || invalid}
-        onClick={() => onDeclare?.(extraHandlingFeesPayload(rows, dataRevision))}>
+      {/* 空清单在「确认这套供货」那一下一起记下，这里不用单独点；加了钱才要先在这里确认，利润按它重算。 */}
+      {folded && rows.length === 0 ? null : <button type="button" className={declared ? "button secondary" : "button primary"}
+        disabled={saving || invalid} onClick={() => onDeclare?.(extraHandlingFeesPayload(rows, dataRevision))}>
         {rows.length === 0 ? "确认：这件不用加钱（¥0.00）" : `确认这 ${rows.length} 笔，合计 ${money(total) ?? "¥0.00"}`}
-      </button>
+      </button>}
       <button type="button" className="button secondary" disabled={saving || rows.length >= maxItems}
         onClick={() => { setEditing(true); setRows(current => [...current, { name: "", amountRmb: "" }]); }}>加一行</button>
       <span className="product-actions-note">
-        {"确认只是记下这件商品每单要另外花多少钱，不会下单、不会联系供应商、也不会向 Ozon 写任何东西。"}
+        {folded && rows.length === 0
+          ? "不用单独点：在下面点「确认这套供货，往下做」时，按 ¥0.00 一起记下。要加钱就按「加一行」，加完在这里确认，利润按它重算。"
+          : "确认只是记下这件商品每单要另外花多少钱，不会下单、不会联系供应商、也不会向 Ozon 写任何东西。"}
       </span>
     </div>
   </div>;
 }
 
-function CargoFactsBlock({ step, dataRevision, saving, onDeclare }) {
-  const [form, setForm] = useState(() => cargoFactsFormState(step));
+function CargoFactsBlock({ step, dataRevision, saving, onDeclare, form: heldForm = null, onFormChange = null, folded = false }) {
+  const [ownForm, setOwnForm] = useState(() => cargoFactsFormState(step));
   const [editing, setEditing] = useState(false);
+  const held = isObject(heldForm) && typeof onFormChange === "function";
+  const form = held ? heldForm : ownForm;
+  const setForm = held ? update => onFormChange(typeof update === "function" ? update(heldForm) : update) : setOwnForm;
   const undecided = Array.isArray(step?.undecided) ? step.undecided : [];
   const basis = Array.isArray(step?.basis) ? step.basis : [];
   const fields = Array.isArray(step?.fields) ? step.fields : [];
@@ -1263,12 +1429,15 @@ function CargoFactsBlock({ step, dataRevision, saving, onDeclare }) {
     {energyField}
 
     <div className="product-actions">
-      <button type="button" className={declared ? "button secondary" : "button primary"} disabled={saving}
-        onClick={() => onDeclare(cargoFactsPayload(form, dataRevision))}>{declared ? "改成这样" : "确认"}</button>
+      {/* 还没确认过的，在「确认这套供货」那一下一起记下，这里不用单独点。 */}
+      {folded && !declared ? null : <button type="button" className={declared ? "button secondary" : "button primary"} disabled={saving}
+        onClick={() => onDeclare(cargoFactsPayload(form, dataRevision))}>{declared ? "改成这样" : "确认"}</button>}
       <button type="button" className="button secondary" disabled={saving}
         onClick={() => setEditing(value => !value)}>{editing ? "收起逐项修改" : "逐项修改"}</button>
       <span className="product-actions-note">
-        {"确认只是记下你对这件货的说法，不会下单、不会联系供应商、也不会向 Ozon 写任何东西。"}
+        {folded && !declared
+          ? "不用单独点：在下面点「确认这套供货，往下做」时，照这里现在的说法一起记下。只记下你对这件货的说法，不会下单、不联系供应商、不向 Ozon 写任何东西。"
+          : "确认只是记下你对这件货的说法，不会下单、不会联系供应商、也不会向 Ozon 写任何东西。"}
       </span>
     </div>
   </div>;
@@ -1397,35 +1566,52 @@ export function CommissionEstimateBlock({ estimate, authorized, saving, onAuthor
  * with no declaration cannot be confirmed here — the button is disabled and says why, instead of letting the owner
  * click and collect the server's 422.
  */
-function ProfitStepSection({ review, cargoStep, categoryStep, extraHandlingStep = null, commissionEstimate = null,
-  dataRevision, saving, onConfirm, onDeclareCargoFacts, onDeclareExtraHandlingFees, onReadOzonPage }) {
+function ProfitStepSection({ review, cargoStep, categoryStep, extraHandlingStep = null, commissionEstimate = null, gate1Pick = null,
+  dataRevision, saving, onConfirm, onDeclareCargoFacts, onDeclareExtraHandlingFees, onReadOzonPage,
+  onReviseDraftDimensions = null, noticeAt = null, error = null, notice = null, bossOnly = false }) {
   const [firstPick, setFirstPick] = useState(null);
-  const [comparabilityConfirmed, setComparability] = useState(false);
-  const [supplyConfirmed, setSupply] = useState(false);
+  const [comparabilityTicked, setComparability] = useState(false);
   const [commissionEstimateTicked, setCommissionEstimateTicked] = useState(false);
+  // 每单额外操作费和运输属性的表单由这张卡握着：还没确认过的，在「确认这套供货」那一下和供货一起记下。
+  const [feeRows, setFeeRows] = useState(() => extraHandlingFeesFormState(extraHandlingStep));
+  const [cargoForm, setCargoForm] = useState(() => cargoFactsFormState(cargoStep));
+  // 对标就是主人在「做这件」卡上认的那个 Ozon 同款时，可比不可比主人已经在那张卡上说过了，这里不再问第二遍。
+  const comparabilityBound = profitStepComparabilityBound(review, gate1Pick);
+  const comparabilityConfirmed = comparabilityBound || comparabilityTicked;
+  const feesFolded = extraHandlingFeesFoldable(extraHandlingStep, feeRows);
+  const cargoFolded = isObject(cargoStep) && cargoStep.gate?.ready !== true;
   // 提议不在场（这一次没撞上，或者软件不敢提议）时，之前勾过的那一下不能留着替主人签字。
   const commissionProposal = isObject(commissionEstimate?.proposal) ? commissionEstimate.proposal : null;
   const commissionEstimateAuthorized = commissionProposal !== null && commissionEstimateTicked;
   const firstSkuId = profitStepFirstSkuId(review, firstPick);
   const spec = review.specifications.find(item => item.sourceSkuId === firstSkuId) ?? null;
-  const gaps = [...profitStepGaps(review, firstSkuId ?? ""), ...cargoFactsStepGaps(cargoStep),
-    ...ozonCategoryStepGaps(categoryStep), ...extraHandlingFeesStepGaps(extraHandlingStep)];
-  const state = profitStepSubmitState({ review, firstSkuId, comparabilityConfirmed, supplyConfirmed, gaps });
+  const gaps = [...profitStepGaps(review, firstSkuId ?? ""), ...(cargoFolded ? cargoFactsFormGaps(cargoForm) : cargoFactsStepGaps(cargoStep)),
+    ...ozonCategoryStepGaps(categoryStep), ...(feesFolded ? [] : extraHandlingFeesStepGaps(extraHandlingStep))];
+  // 供货那一句不再单独打勾：「确认这套供货」这一下就是主人对这一整套的确认（AGENTS.md §4.4 不让连着确认两遍同样的内容）。
+  const state = profitStepSubmitState({ review, firstSkuId, comparabilityConfirmed, supplyConfirmed: true, gaps });
   const benchmark = review.benchmark ?? {};
   const supply = review.supply ?? {};
   const breakdown = spec?.breakdown ?? null;
   const queued = (finite(review.passCount) ?? 0) - (spec === null ? 0 : 1);
-  const deltaLine = profitStepPriceDeltaLine(spec);
+  // 找货方案里的数是谁给的：「做这件」存下的大多是软件读的，下面每一处都照实说，只有主人给的才说「你填的」。
+  const origins = supply.origins ?? null;
+  const priceOrigin = draftOrigin(origins, "goodsPriceRmb");
+  const weightOrigin = draftOrigin(origins, "packedWeightKg");
+  const shippingOrigin = draftOrigin(origins, "domesticShippingRmb");
+  const dimensionsOrigin = draftOrigin(origins, "dimensionsCm");
+  const softwareRead = profitStepSoftwareReadItems(review, spec);
+  const deltaLine = profitStepPriceDeltaLine(spec, priceOrigin);
   const breakLine = extraHandlingFeeBreakLine(spec);
   const appliedLine = extraHandlingFeeAppliedLine(review);
   const dimensions = supply.dimensionsCm ?? {};
   const size = [dimensions.length, dimensions.width, dimensions.height].every(value => finite(value) !== null)
-    ? `${dimensions.length}×${dimensions.width}×${dimensions.height} 厘米` : "未取得";
+    ? `${dimensions.length}×${dimensions.width}×${dimensions.height} 厘米${dimensionsOrigin.owner ? "" : `（${dimensionsOrigin.label}）`}`
+    : "未取得";
 
   return <section className="product-section product-profit" aria-label="算利润">
     <h3>算利润</h3>
     <p className="product-section-hint">
-      {`规格已经选定了 ${review.total} 个。这一步不再让你挑哪个最赚——它把整套一起核一遍利润，让你确认两件只有你能判断的事，然后指定一个变体先上架跑通，其余排队等同一张卡追加。`}
+      {`规格已经选定了 ${review.total} 个。这一步不再让你挑哪个最赚——它把整套一起核一遍利润，指定一个变体先上架跑通，其余排队等同一张卡追加。看完点最下面「确认这套供货，往下做」，额外操作费和运输属性也一起记下。`}
     </p>
 
     {/* 一、整套一起核线 */}
@@ -1521,8 +1707,8 @@ function ProfitStepSection({ review, cargoStep, categoryStep, extraHandlingStep 
                   {index === 0 && isFirst ? <b>{" · 先上"}</b> : null}
                 </td>)
                 : <td>{row.label}{isFirst ? <b>{" · 先上"}</b> : null}</td>}
-              <td>{yuanOr(row.priceCny)}{declaredMark(row.priceBasis)}</td>
-              <td>{finite(row.chargeableKg) === null ? PENDING : `${row.chargeableKg} 公斤`}{declaredMark(row.weightBasis)}</td>
+              <td>{yuanOr(row.priceCny)}{declaredMark(row.priceBasis, priceOrigin)}</td>
+              <td>{finite(row.chargeableKg) === null ? PENDING : `${row.chargeableKg} 公斤`}{declaredMark(row.weightBasis, weightOrigin)}</td>
               <td>{yuanOr(row.freightRmb)}</td>
               <td>{finite(row.breakEvenRub) === null ? PENDING : RUB(row.breakEvenRub)}</td>
               <td>{finite(row.thresholdRub) === null ? PENDING : RUB(row.thresholdRub)}</td>
@@ -1542,48 +1728,57 @@ function ProfitStepSection({ review, cargoStep, categoryStep, extraHandlingStep 
 
     {/* 四、这一单要另外花多少钱 — 也在确认按钮之前：没声明过这笔钱，B 那边的成本政策就凑不齐，这一步的确认服务端不收。 */}
     <ExtraHandlingFeesBlock step={extraHandlingStep} dataRevision={dataRevision} saving={saving}
-      onDeclare={onDeclareExtraHandlingFees} />
+      onDeclare={onDeclareExtraHandlingFees} rows={feeRows} onRowsChange={setFeeRows} folded={isObject(extraHandlingStep) && extraHandlingStep.gate?.ready !== true} />
 
-    {/* 五、只有主人能确认的两件事 */}
+    {/* 五、你点下去确认的是什么 */}
     <div className="product-profit-judge">
-      <div className="product-sku-table-head"><h4>只有你能确认的两件事</h4>
+      <div className="product-sku-table-head"><h4>你点下去确认的是这一套</h4>
         <span>软件不替你判断，也不替你签字</span></div>
-      <label className="product-profit-check" htmlFor="profit-comparable">
-        <input type="checkbox" id="profit-comparable" checked={comparabilityConfirmed} disabled={saving}
+      {comparabilityBound ? <div className="product-profit-check product-profit-bound">
+        <span>
+          <b>对标就是你在「做这件」卡上认的那个 Ozon 同款</b>
+          <p>
+            {`Ozon ${textOf(benchmark.productNumber) || "编号未取得"}「${textOf(benchmark.title) || "标题未取得"}」`}
+            {finite(benchmark.currentPrice) === null ? "" : ` ${priceWithUnit(benchmark.currentPrice, benchmark.currency)}`}
+            {textOf(benchmark.collectedOn) ? `，页面读于 ${benchmark.collectedOn}` : ""}。可比不可比你在那张卡上已经说过了，这里不再问。
+          </p>
+        </span>
+      </div> : <label className="product-profit-check" htmlFor="profit-comparable">
+        <input type="checkbox" id="profit-comparable" checked={comparabilityTicked} disabled={saving}
           onChange={event => setComparability(event.target.checked)} />
         <span>
           <b>这两件商品是可比的同类</b>
           <p>
             {`对标：Ozon ${textOf(benchmark.productNumber) || "编号未取得"}「${textOf(benchmark.title) || "标题未取得"}」`}
-            {finite(benchmark.currentPrice) === null ? "" : ` ${benchmark.currentPrice} ${benchmark.currency === "RUB" ? "卢布" : benchmark.currency ?? ""}`}
+            {finite(benchmark.currentPrice) === null ? "" : ` ${priceWithUnit(benchmark.currentPrice, benchmark.currency)}`}
             {textOf(benchmark.collectedOn) ? `，快照采于 ${benchmark.collectedOn}` : ""}。
           </p>
-          <p>{`你的货：1688 ${textOf(supply.offerId) || "编号未取得"}`}
-            {spec === null ? "，还没指定变体" : ` ${spec.label}，货价 ${money(spec.priceCny) ?? PENDING}${declaredText(spec.priceBasis)}` +
-              `，打包 ${spec.weightKg} 公斤${declaredText(spec.weightBasis)} · ${size}`}。</p>
+          <p>{`你的货：${supplySiteName(supply.productUrl)} ${textOf(supply.offerId) || "编号未取得"}`}
+            {spec === null ? "，还没指定变体" : ` ${spec.label}，货价 ${money(spec.priceCny) ?? PENDING}${declaredText(spec.priceBasis, priceOrigin)}` +
+              `，打包 ${spec.weightKg} 公斤${declaredText(spec.weightBasis, weightOrigin)} · ${size}`}。</p>
         </span>
-      </label>
-      <label className="product-profit-check" htmlFor="profit-supply">
-        <input type="checkbox" id="profit-supply" checked={supplyConfirmed} disabled={saving}
-          onChange={event => setSupply(event.target.checked)} />
+      </label>}
+      <div className="product-profit-check product-profit-supply">
         <span>
           <b>链接、规格、成本、包装是同一套采购方案</b>
           <p>{textOf(supply.productUrl) || "1688 链接未取得"}</p>
           <p>
-            {`货价 ${spec === null ? PENDING : money(spec.priceCny)}${profitStepPriceOriginText(spec?.priceBasis)}`}
-            {` ＋ 国内运费 ${money(supply.unitDomesticFreight) ?? PENDING}（你填的）`}
+            {`货价 ${spec === null ? PENDING : money(spec.priceCny)}${profitStepPriceOriginText(spec?.priceBasis, priceOrigin)}`}
+            {` ＋ 国内运费 ${money(supply.unitDomesticFreight) ?? PENDING}（${shippingOrigin.label}）`}
             {` ＋ 其他采购费用 ${money(supply.otherPurchaseCosts) ?? PENDING}`}
             {` ＝ 到手 ${spec === null ? PENDING : money(spec.actualPurchaseCost)}`}
-            {`；打包 ${spec === null ? PENDING : `${spec.weightKg} 公斤${declaredText(spec.weightBasis)}`} · ${size}。`}
+            {`；打包 ${spec === null ? PENDING : `${spec.weightKg} 公斤${declaredText(spec.weightBasis, weightOrigin)}`} · ${size}。`}
           </p>
           {/* 这句话说的是软件替你报了 ¥0；报不出来的时候它就不能说，缺什么由下面那张缺项单说。 */}
           {supply.otherPurchaseCosts !== 0 ? null
-            : <p className="product-profit-note">{"其他采购费用按 ¥0.00 算：你在「找货」里只填了货价和国内运费，到手就是这两项相加。"}</p>}
+            : <p className="product-profit-note">{priceOrigin.owner && shippingOrigin.owner
+              ? "其他采购费用按 ¥0.00 算：你在「找货」里只填了货价和国内运费，到手就是这两项相加。"
+              : "其他采购费用按 ¥0.00 算：「找货」方案里只有货价和国内运费，到手就是这两项相加；还有别的采购花费的话，先问清楚再确认。"}</p>}
           {deltaLine === null ? null : <p className="product-profit-delta">{deltaLine}</p>}
           {spec === null || textOf(spec.quantityOneEvidenceSourceNote) === "" ? null
             : <p className="product-profit-note">{`会一起记下来的核对说明：${spec.quantityOneEvidenceSourceNote}`}</p>}
         </span>
-      </label>
+      </div>
     </div>
 
     {/* 六、这条类目是哪儿来的 — 也在确认按钮之前：类目不是从 Ozon 页面上读来的，这一步的确认服务端就不收。 */}
@@ -1591,11 +1786,26 @@ function ProfitStepSection({ review, cargoStep, categoryStep, extraHandlingStep 
 
     {/* 七、这件货运输上是什么 — 这一块在确认按钮之前，因为不先说清楚，B 那边的线路核验就判不出适用性。 */}
     {cargoStep === null || cargoStep === undefined ? null : <CargoFactsBlock step={cargoStep}
-      dataRevision={dataRevision} saving={saving} onDeclare={onDeclareCargoFacts} />}
+      dataRevision={dataRevision} saving={saving} onDeclare={onDeclareCargoFacts} form={cargoForm} onFormChange={setCargoForm}
+      folded={cargoFolded} />}
 
     {/* 八、精确佣金读不到时的那一条出路。只有服务端真的这么回过才出现，别的时候这一块根本不存在。 */}
     <CommissionEstimateBlock estimate={commissionEstimate} authorized={commissionEstimateAuthorized}
       saving={saving} onAuthorize={setCommissionEstimateTicked} />
+
+    {/* 点确认之前说清楚：这一套里哪几个数是软件读的，不是主人填的。点下去就是他认了这些数（AGENTS.md §4.4）。
+        尺寸是 Seerfar 记录的同类商品尺寸时，给一个改成实际尺寸的地方：运费和利润按改过的重算，确认的就是实际的。 */}
+    {softwareRead.length === 0 ? null : <div className="product-profit-software-read" role="note" aria-label="软件读来的数">
+      <h4>这几个数是软件读来的，不是你填的</h4>
+      <ul>{softwareRead.map(item => <li key={item.field}><b>{item.name}</b>：{item.label}</li>)}</ul>
+      <p>{softwareRead.some(item => item.field === "dimensionsCm")
+        ? "点「确认这套供货」就是你认了这些数。包装尺寸决定国际运费：手上有这件货实际的包装尺寸（量过或问过供应商），先点「改成实际尺寸」改掉，运费和利润会按它重算。"
+        : "点「确认这套供货」就是你认了这些数；拿不准的先问一下供应商再确认。"}</p>
+      {softwareRead.some(item => item.field === "dimensionsCm")
+        ? <DraftDimensionsControl dimensions={dimensions} dataRevision={dataRevision} saving={saving}
+          onRevise={onReviseDraftDimensions} idPrefix="profit-draft-dimensions" /> : null}
+      <StepResult at="dimensions" noticeAt={noticeAt} error={error} notice={notice} />
+    </div>}
 
     {/* 凑不齐的东西如实列出来，按钮就不给点；软件不会替主人补一个像样的数字上去。 */}
     {state.gaps.length === 0 ? null : <div className="product-profit-gaps" role="alert">
@@ -1604,52 +1814,23 @@ function ProfitStepSection({ review, cargoStep, categoryStep, extraHandlingStep 
     </div>}
 
     <div className="product-actions">
-      <button type="button" className="button primary" disabled={saving || !state.ready}
-        onClick={() => onConfirm(firstSkuId, { comparabilityConfirmed, supplyConfirmed,
+      <button type="button" className="button primary" disabled={saving || !state.ready || bossOnly}
+        onClick={() => onConfirm(firstSkuId, { comparabilityConfirmed, supplyConfirmed: true,
           commissionEstimateAuthorized,
-          commissionEstimateRate: commissionEstimateAuthorized ? commissionProposal.commissionRate : null })}>确认，进入文案素材</button>
-      <span className="product-actions-note">{state.hint}</span>
+          commissionEstimateRate: commissionEstimateAuthorized ? commissionProposal.commissionRate : null,
+          declare: { fees: feesFolded ? extraHandlingFeesPayload(feeRows, dataRevision) : null,
+            cargo: cargoFolded ? cargoFactsPayload(cargoForm, dataRevision) : null } })}>确认这套供货，往下做</button>
+      <span className="product-actions-note">{bossOnly ? BOSS_ONLY_NOTE : state.hint}</span>
     </div>
 
     <p className="product-sku-foot">
-      <strong>确认之后会发生什么：</strong>{"软件把这一套的利润核算冻结下来，商品进入「文案素材」——生成俄文标题、卖点和图片方案给你过目。"}
+      <strong>确认之后会发生什么：</strong>{"还没记下的额外操作费（¥0.00）和运输属性先照上面记下，然后软件把这一套的利润核算冻结下来，商品进入「文案素材」，之后不花钱的几步软件自己往下做。"}
       <strong>不会</strong>{"下单、不会联系供应商、也不会向 Ozon 写任何东西；真正上架是后面「上架」那一步，另需你批准。"}
     </p>
     <p className="product-result-provenance">
       {"这一步的每个数字都能追到来源：货价与重量来自这次采到的 1688 页面，运费按各规格自己的重量查国欧资费表，佣金与档位分界线取自 Ozon 官方表，汇率取自央行，门槛与预留取自本店成本规则。"}
     </p>
   </section>;
-}
-
-const NUMBER_PATTERN = /^\d+(?:\.\d+)?$/;
-const positiveInput = value => NUMBER_PATTERN.test(String(value).trim()) && Number(value) > 0;
-const nonNegativeInput = value => NUMBER_PATTERN.test(String(value).trim()) && Number(value) >= 0;
-const supplyUrlInput = value => /^https:\/\/(?:detail\.1688\.com\/offer\/\d+\.html(?:[?#].*)?|qr\.1688\.com\/s\/[A-Za-z0-9_-]{1,160}\/?)$/i.test(String(value).trim());
-
-export function supplierDraftFormErrors(form) {
-  const errors = {};
-  if (!supplyUrlInput(form.sourceUrl)) errors.sourceUrl = "请粘贴1688商品详情链接或分享短链";
-  if (!positiveInput(form.goodsPriceRmb)) errors.goodsPriceRmb = "请填写大于0的货价";
-  if (!nonNegativeInput(form.domesticShippingRmb)) errors.domesticShippingRmb = "请填写国内运费，包邮填0";
-  if (!positiveInput(form.packedWeightKg)) errors.packedWeightKg = "请填写大于0的打包重量";
-  for (const key of ["length", "width", "height"]) {
-    if (!positiveInput(form[key])) errors[key] = "请填写大于0的厘米数";
-  }
-  if (!positiveInput(form.targetSalePriceRub)) errors.targetSalePriceRub = "请填写大于0的卢布成交价";
-  return errors;
-}
-
-export function supplierDraftPayload(form, dataRevision) {
-  return {
-    dataRevision,
-    sourceUrl: String(form.sourceUrl).trim(),
-    goodsPriceRmb: Number(form.goodsPriceRmb),
-    domesticShippingRmb: Number(form.domesticShippingRmb),
-    packedWeightKg: Number(form.packedWeightKg),
-    dimensionsCm: { length: Number(form.length), width: Number(form.width), height: Number(form.height) },
-    targetSalePriceRub: Number(form.targetSalePriceRub),
-    ...(textOf(form.note) === "" ? {} : { note: textOf(form.note) })
-  };
 }
 
 /**
@@ -1692,15 +1873,6 @@ function RecaptureControl({ candidate, disabled = false, onRecapture }) {
   </span>;
 }
 
-function Field({ id, label, hint, value, error, onChange, type = "text", placeholder = "" }) {
-  return <label className="product-field" htmlFor={id}>
-    <span className="product-field-label">{label}</span>
-    <input id={id} name={id} type={type} value={value} placeholder={placeholder} inputMode={type === "text" ? undefined : "decimal"}
-      onChange={event => onChange(event.target.value)} />
-    {error ? <span className="product-field-error" role="alert">{error}</span> : hint ? <span className="product-field-hint">{hint}</span> : null}
-  </label>;
-}
-
 /**
  * 「算利润」停在条件测算之后，这件商品唯一的出路就摆在这一步里。
  *
@@ -1710,7 +1882,7 @@ function Field({ id, label, hint, value, error, onChange, type = "text", placeho
  *
  * 它不探测、不读平台：显示什么全部来自服务端已经保存的 bExactCommissionRuntimeView。
  */
-function BetterCommissionEvidenceSection({ candidate, saving, onRecalculate, onOpenLegacyCard }) {
+function BetterCommissionEvidenceSection({ candidate, saving, onRecalculate }) {
   const recalculation = candidate.bExactCommissionRuntimeView;
   const rate = finite(recalculation.commissionRate) === null ? null
     : `${Number((recalculation.commissionRate * 100).toFixed(2))}%`;
@@ -1732,8 +1904,7 @@ function BetterCommissionEvidenceSection({ candidate, saving, onRecalculate, onO
       </button>
       <p className="product-actions-note">重算只用已经保存下来的证据，不会打开平台，也不会产生任何费用。</p>
     </> : <p className="product-actions-note">
-      {"现在还没有可用的更好证据，软件不会自己重试，也不会替你把估算当成实收。"}
-      {typeof onOpenLegacyCard === "function" ? "这一步的其余细节在「打开旧版A卡」里。" : ""}
+      现在还没有可用的更好证据，软件不会自己重试，也不会替你把估算当成实收。
     </p>}
   </section>;
 }
@@ -1766,8 +1937,9 @@ function RefreshFeeEvidenceSection({ candidate, saving, onRefresh }) {
     <button type="button" className="button secondary" disabled={saving} onClick={onRefresh}>
       {saving ? "正在重新读取费用证据…" : "重新读一次费用证据"}
     </button>
-    <p className="product-actions-note">
-      读完之后利润不会自己变。要用新读到的证据把利润换掉，请再点一次上面的「用更好的费用证据重算」——那是第二个决定，由主人自己按。
+    <p className="product-actions-note">{candidate.gate1AutopilotView?.granted
+      ? "你点「做这件」时已经让软件接着做：读到店里的实收费率，软件会自己用它重算利润；只读到官方费率表的，要不要按它重算还是你来定。"
+      : "读完之后利润不会自己变。要用新读到的证据把利润换掉，请再点一次上面的「用更好的费用证据重算」——那是第二个决定，由主人自己按。"}
     </p>
   </section>;
 }
@@ -1791,16 +1963,20 @@ function SavedC2Assets({ skuPackage }) {
 export default function ProductPage({
   preparationSaveState,
   candidate, view = null, titleZh = null, extensionStatus = null,
-  onSaveDraft, onChooseSkus, onCreateSiblingSku = null, onConfirmSiblingBatchA = null, onConfirmSiblingBatchC1 = null,
+  onAcceptGate1 = null, onSkipGate1 = null, onResolveGate1Shortfall = null, onChooseSkus, onCreateSiblingSku = null, onConfirmSiblingBatchA = null, onConfirmSiblingBatchC1 = null,
   onPreviewSiblingBatchC1 = null,
-  onReadSiblingBatchColorDictionary = null,
+  onReadSiblingBatchColorDictionary = null, onPrepareSiblingC1CategorySchema = null,
   onAuthorizeSiblingProductionBatch = null, onUploadSiblingC2Asset = null, onLinkSiblingC2Asset = null,
   onConfirmSiblingBatchC2 = null,
   onSaveSiblingBatchStockDrafts = null, siblingBatchExecutionView = null, siblingBatchExecutionError = null,
-  siblingBatchExecutionLoading = false,
-  onRefreshSiblingBatchExecution = null, onResumeSiblingBatchStock = null,
+  siblingBatchExecutionPreparation = null, siblingBatchExecutionLoading = false,
+  onRefreshSiblingBatchExecution = null, onResumeSiblingBatchStock = null, onConfirmSiblingBatchMedia = null,
+  onAuthorizeSiblingAccountRead = null, onContinueSiblingAccountRead = null,
   siblingSkuIds = [], siblingCandidates = [], onRequestCapture, onReviewCaptureAndRequest, onRecaptureSource,
-  onConfirmProfitStep, onDeclareCargoFacts, onDeclareExtraHandlingFees, onDeclareUniformSupply, onReadOzonPage, onOpenLegacyCard,
+  onConfirmProfitStep, onDeclareCargoFacts, onDeclareExtraHandlingFees, onDeclareUniformSupply, onReadOzonPage,
+  onReviseDraftDimensions = null,
+  onStartImageMatch = null, onCompareImageMatch = null, onJudgeImageMatch = null,
+  onStartOzonMatch = null, onCompareOzonMatch = null, onJudgeOzonMatch = null,
   onBack, onEliminateCandidate,
   productionIdentity = null, onPrepareC1Local = null,
   onAuthorizeC1PaidDraft = null, onContinueSavedC1Draft = null, onReadOriginalC1DraftResult = null, onConfirmC1Content = null,
@@ -1812,9 +1988,14 @@ export default function ProductPage({
   onProposeC1OzonAttributes = null, onLoadC1OzonAttributes = null,
   onReadC1ColorDictionary = null,
   onRecalculateBWithExactCommission = null, onRefreshBFeeEvidence = null,
+  onContinueSavedDE = null, onDispatchDProductionRound = null, onRollbackProductionAuthorization = null,
+  onRecoverDInitialImport = null, onReobserveDUnknownOutcome = null, onReconcileDFromPlatformState = null,
+  onAuthorizeAccountRead = null, onContinueAccountRead = null, onContinueGate1Autopilot = null, onLoadGate2Preview = null, onListGate2 = null,
   loadingLabel = "正在读取这件商品的找货资料…"
 }) {
   const draft = view?.supplierDraftV1 ?? null;
+  // 方案里每个数是谁给的（服务端算好）。只有主人给的数才说「你填的」。
+  const draftOrigins = view?.supplierDraftOriginsV1 ?? null;
   const marketSnapshot = view?.marketSnapshot ?? null;
   const skuTable = view?.skuChoiceTableV1 ?? null;
   const profitReview = view?.profitStepV1 ?? null;
@@ -1827,22 +2008,19 @@ export default function ProductPage({
   // 「精确佣金读不到」是服务端在上一次确认里真的这么停过一次才知道的事。页面不记它，也不在加载时去探测——
   // 探测会对主人的 Ozon 账户产生一次真实读取。服务端把那一次停在哪存成了记录，这里读的就是那份记录。
   const commissionStep = view?.commissionEstimateStepV1 ?? null;
-  // The form follows the saved draft: when the server returns a newer declaration, the fields show that declaration.
+  // The ticks follow the saved choice: a newer revision shows what the server actually holds.
   const prefillKey = `${candidate?.id ?? ""}:${candidate?.dataRevision ?? ""}:${draft?.declaredAt ?? "none"}`;
-  const [form, setForm] = useState(() => draftFormState({ draft, candidate, marketSnapshot }));
-  // The ticks follow the saved choice the same way: a newer revision shows what the server actually holds.
   const [chosen, setChosen] = useState(() => (skuTable?.selectedSkuIds ?? []).map(String));
   const [prefilled, setPrefilled] = useState(prefillKey);
   if (prefilled !== prefillKey) {
     setPrefilled(prefillKey);
-    setForm(draftFormState({ draft, candidate, marketSnapshot }));
     setChosen((skuTable?.selectedSkuIds ?? []).map(String));
   }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
-  const errors = useMemo(() => supplierDraftFormErrors(form), [form]);
-  const invalid = Object.keys(errors).length > 0;
+  // 结果显示在主人刚点的那个按钮旁边。找货和采集都在长页面的中段，结果只出现在顶部时，主人以为点了没反应（2026-10-09）。
+  const [noticeAt, setNoticeAt] = useState(null);
   const step = currentProductStep(candidate);
   const next = nextProductAction(view);
   const choosing = showsSkuChoice(candidate);
@@ -1851,7 +2029,9 @@ export default function ProductPage({
   // 页面不自己判断状态，也不去探测——有这份记录才有这一块。
   const recalculationOpen = !profitOpen && isObject(candidate?.bExactCommissionRuntimeView) &&
     typeof onRecalculateBWithExactCommission === "function";
-  const estimate = estimateLines(view?.supplierDraftEstimateV1 ?? null);
+  const estimate = estimateLines(view?.supplierDraftEstimateV1 ?? null, draftOrigins);
+  const originsLine = draftOriginsLine(draft, draftOrigins);
+  const dimensionsSoftwareRead = draft !== null && !draftOrigin(draftOrigins, "dimensionsCm").owner;
   const reviewRequired = captureNeedsOwnerReview(candidate);
   const recapturable = captureRecaptureReady(candidate);
   // 采到之后该看的地方是上面那张规格表，所以重读的入口跟着它走；规格表不在场时它才留在「1688 采集」块里。
@@ -1863,18 +2043,35 @@ export default function ProductPage({
       ? "下一步：先确认下面那条「结果未知」的采集记录，才能重新申请采集。"
       : next.hint;
   const snapshotLine = marketSnapshotLine(marketSnapshot);
-  const change = key => value => { setForm(current => ({ ...current, [key]: value })); setNotice(null); };
 
-  async function run(action, payload, successNotice) {
+  async function run(action, payload, successNotice, at = null) {
     if (saving || typeof action !== "function") return;
-    setSaving(true); setError(null); setNotice(null);
+    setSaving(true); setError(null); setNotice(null); setNoticeAt(at);
     try { setNotice(stepNotice(await action(payload), successNotice)); }
     catch (cause) { setError(errorMessage(cause)); }
     finally { setSaving(false); }
   }
+  /**
+   * 做这件：服务端存下方案后连同找货视图一起回，这里紧接着用同一条「申请插件采集」去采这家货源的规格。
+   * 采集申请失败不抹掉已经存下的方案，只照实说没申请成，按钮还在下面「找货」里。
+   */
+  const acceptGate1 = typeof onAcceptGate1 !== "function" ? null : async payload => {
+    const next = await onAcceptGate1(payload);
+    const capture = isObject(next?.candidate) && isObject(next?.supplierDraftV1)
+      ? captureSubmissionFromDraft({ candidate: next.candidate, draft: next.supplierDraftV1, marketSnapshot: next.marketSnapshot ?? null }) : null;
+    if (capture === null || typeof onRequestCapture !== "function") {
+      return "已做这件，方案存下了。下面「找货」里点「申请插件采集」去采这家货源的规格。";
+    }
+    try {
+      const said = await onRequestCapture(capture);
+      return `已做这件，方案存下了。${typeof said === "string" && said.trim() ? said : "已申请插件采集这家货源的规格。"}`;
+    } catch (cause) {
+      return `已做这件，方案存下了；但这次没能申请采集：${errorMessage(cause)}。可以在下面「找货」里再点「申请插件采集」。`;
+    }
+  };
   /** 同一次重读，无论从规格表旁边点还是从「1688 采集」块里点，走的都是这一条路。 */
   const recapture = reason => run(onRecaptureSource, captureRecapturePayload(candidate, reason),
-    "已经让软件重新去读一次这个1688页面，读完这里会显示结果。");
+    `已经让软件重新去读一次这个${supplySiteName(candidate.sourceCapture?.sourceUrl)}页面，读完这里会显示结果。`, "capture");
   /**
    * 算利润 的确认。提交的东西整份由已保存的记录组装，主人只补那两个判断；组装不出完整的一份就返回 null，这里也就不发。
    * 回来之后说的是服务端实际保存成什么样，不是「已提交」——同一个 200 底下有四种结果。服务端说不行的时候，原样显示
@@ -1896,24 +2093,60 @@ export default function ProductPage({
    * 同重同价声明。它只记下主人对这一次采集说的那句话：缺的重量和货价按他在「找货」里填的算。采到了真实数字的规格
    * 仍然按采到的算，重新采集之后这句话自动失效。不下单、不联系供应商、不碰平台。
    */
+  const uniformTyped = draftOrigin(draftOrigins, "packedWeightKg").owner && draftOrigin(draftOrigins, "goodsPriceRmb").owner;
   const declareUniformSupply = payload => run(onDeclareUniformSupply, payload, payload?.uniform === true
-    ? "已记下你的声明：没采到重量和货价的规格按你在「找货」里填的算，表里标着「你填的」；采到了真实数字的规格不受影响。"
-    : "已撤回这个声明：没采到重量和货价的规格回到「待补」，不再按你填的数算。");
+    ? uniformTyped
+      ? "已记下你的声明：没采到重量和货价的规格按你在「找货」里填的算，表里标着「你填的」；采到了真实数字的规格不受影响。"
+      : "已记下你的声明：没采到重量和货价的规格按「找货」方案里的数算，表里标着「按找货方案」；采到了真实数字的规格不受影响。"
+    : uniformTyped ? "已撤回这个声明：没采到重量和货价的规格回到「待补」，不再按你填的数算。"
+      : "已撤回这个声明：没采到重量和货价的规格回到「待补」，不再按找货方案的数算。");
+  /**
+   * 包装尺寸改成实际的。只换找货方案里的长宽高，这一项记成主人填的；服务端按新尺寸重算估算、规格表和利润。
+   * 结果显示在那个按钮旁边。不下单、不联系供应商、不碰平台。
+   */
+  const reviseDraftDimensions = payload => run(onReviseDraftDimensions, payload,
+    "已把包装尺寸改成你填的实际尺寸，运费和利润已按新尺寸重算；没有下单、没有联系供应商、也没有向 Ozon 写任何东西。", "dimensions");
   /**
    * 读一次这个 Ozon 商品页。目标地址不从这里传：服务端只认这件商品自己已经保存的那个地址。回来的那句话是服务端
    * 和插件实际说的（含插件自己的拒绝码），页面原样显示，不改写、不概括，也不承诺重试。
    */
   const readOzonPage = () => run(onReadOzonPage, { dataRevision: candidate.dataRevision },
     "已经让软件去读一次这个 Ozon 商品页；读完这里会显示读到了什么。");
-  function confirmProfitStep(firstSkuId, judgments) {
-    const payload = profitStepSubmission(profitReview, firstSkuId, judgments);
-    if (payload === null) { setError("这一份确认还凑不齐，没有提交；请看上面列出的缺项。"); return undefined; }
-    // 失败时这里不记任何东西：服务端已经把这一次停在哪存进了记录，页面重读资料时那一块自己就回来了。
-    return run(async input => profitStepOutcomeLine(await onConfirmProfitStep(input)), payload,
-      "已提交这一步的确认；下面显示的是服务端现在保存的状态。");
+  function confirmProfitStep(firstSkuId, { declare = null, ...judgments } = {}) {
+    setNoticeAt(null);
+    const declarations = [["fees", declare?.fees, onDeclareExtraHandlingFees], ["cargo", declare?.cargo, onDeclareCargoFacts]]
+      .filter(([, payload]) => isObject(payload));
+    if (declarations.length === 0) {
+      const payload = profitStepSubmission(profitReview, firstSkuId, judgments);
+      if (payload === null) { setError("这一份确认还凑不齐，没有提交；请看上面列出的缺项。"); return undefined; }
+      // 失败时这里不记任何东西：服务端已经把这一次停在哪存进了记录，页面重读资料时那一块自己就回来了。
+      return run(async input => profitStepOutcomeLine(await onConfirmProfitStep(input)), payload,
+        "已提交这一步的确认；下面显示的是服务端现在保存的状态。");
+    }
+    if (declarations.some(([, , action]) => typeof action !== "function")) {
+      setError("这一份确认还凑不齐，没有提交；请看上面列出的缺项。");
+      return undefined;
+    }
+    /**
+     * 「确认这套供货」这一下：先把卡上还没记下的额外操作费（¥0.00）和运输属性照卡上的说法记下，每记一样服务端都回一份
+     * 重算过的视图（修订号也跟着走），再拿最后那一份组装确认。重算之后凑不齐，就停在那儿照实说，不硬交。
+     */
+    return run(async () => {
+      let latest = null;
+      for (const [, payload, action] of declarations) {
+        latest = await action({ ...payload, dataRevision: latest?.dataRevision ?? payload.dataRevision });
+      }
+      const review = isObject(latest?.profitStepV1) ? latest.profitStepV1 : null;
+      const payload = review === null ? null : profitStepSubmission(review, firstSkuId, judgments);
+      if (payload === null) return "额外操作费和运输属性已经记下了，但重算之后这一份确认还凑不齐，这次没有确认供货；请看上面列出的缺项。";
+      return profitStepOutcomeLine(await onConfirmProfitStep(payload));
+    }, null, "已提交这一步的确认；下面显示的是服务端现在保存的状态。");
   }
 
   if (!candidate) return <div className="page-panel"><p role="status">{loadingLabel}</p></div>;
+
+  // The tester's account prepares everything; confirming supply and profit and authorizing listing are the bosses'.
+  const bossOnly = productionIdentity?.canConfirmSupplyAndProfit === false;
 
   const extensionCode = extensionStatus?.code ?? "disconnected";
   const extensionConnected = extensionCode === "connected";
@@ -1924,27 +2157,18 @@ export default function ProductPage({
    * below 选规格, still complete, because changing the target price or the packing size changes every row of that table.
    */
   const findBody = <>
-    <p className="product-section-hint">把1688上找到的这件货填进来。下面每个数字都算你自己填的，软件只按它们算钱，不会替你猜。</p>
-    <div className={`product-form${highlight === "form" ? " product-next" : ""}`}>
-      <Field id="supply-source-url" label="1688 商品链接" value={form.sourceUrl} error={errors.sourceUrl}
-        hint="详情页链接或分享短链都可以" placeholder="https://detail.1688.com/offer/…" onChange={change("sourceUrl")} />
-      <Field id="supply-goods-price" label="货价（元）" value={form.goodsPriceRmb} error={errors.goodsPriceRmb} type="number" onChange={change("goodsPriceRmb")} />
-      <Field id="supply-domestic-shipping" label="国内运费（元）" value={form.domesticShippingRmb} error={errors.domesticShippingRmb}
-        hint="包邮填 0" type="number" onChange={change("domesticShippingRmb")} />
-      <Field id="supply-weight" label="打包重量（公斤）" value={form.packedWeightKg} error={errors.packedWeightKg} type="number" onChange={change("packedWeightKg")} />
-      <Field id="supply-length" label="包装长（厘米）" value={form.length} error={errors.length} type="number" onChange={change("length")} />
-      <Field id="supply-width" label="包装宽（厘米）" value={form.width} error={errors.width} type="number" onChange={change("width")} />
-      <Field id="supply-height" label="包装高（厘米）" value={form.height} error={errors.height} type="number" onChange={change("height")} />
-      <Field id="supply-target-price" label="目标成交价（卢布）" value={form.targetSalePriceRub} error={errors.targetSalePriceRub}
-        hint="默认就是同款现在的市场价；它也是以后上架时的起价，保存后下面会给出保本价和达标价"
-        type="number" onChange={change("targetSalePriceRub")} />
-      <Field id="supply-note" label="备注（可不填）" value={form.note} onChange={change("note")} />
-    </div>
-    <div className="product-actions">
-      <button type="button" className="button primary" disabled={saving || invalid}
-        onClick={() => run(onSaveDraft, supplierDraftPayload(form, candidate.dataRevision), "已保存你填的找货方案，下面的数字按它重新算过了。")}>保存</button>
-      <span className="product-actions-note">保存只记录你填的方案，不会确认供货，也不会开始采购。</span>
-    </div>
+    <p className="product-section-hint">{draft === null
+      ? "找货方案由上面的「做这件」卡存下：软件先选好同款和货源，你在卡上点「做这件」。"
+      : "这是你在「做这件」卡上认下的方案。下面的数字按它算；要换货源或改售价，等正式利润算完，没过线时卡会回来。"}</p>
+    <StepResult at="find" noticeAt={noticeAt} error={error} notice={notice} />
+    {/* 方案里哪几个数是软件读的：「做这件」存下的方案逐项说清楚，主人才知道哪几个要自己核对。手填的方案不出这一句。 */}
+    {originsLine === null ? null : <p className="product-result-provenance">{originsLine}</p>}
+    {dimensionsSoftwareRead && typeof onReviseDraftDimensions === "function" ? <div className="product-draft-dimensions-row">
+      <span className="product-actions-note">包装尺寸不是这件货量过的；手上有实际尺寸（量过或问过供应商）就改成实际的，运费和利润会按它重算。</span>
+      <DraftDimensionsControl dimensions={draft.dimensionsCm} dataRevision={candidate.dataRevision} saving={saving}
+        onRevise={reviseDraftDimensions} idPrefix="find-draft-dimensions" />
+      <StepResult at="dimensions" noticeAt={noticeAt} error={error} notice={notice} />
+    </div> : null}
 
     <div className="product-result" aria-label="找货结果">
       <p className="product-result-market">{snapshotLine ?? "市场快照：还没有本商品的查询结果快照。"}</p>
@@ -1957,10 +2181,11 @@ export default function ProductPage({
       {nextHint ? <p className="product-next-hint">{nextHint}</p> : null}
     </div>
 
-    {draft === null ? null : <PricingGuidance guidance={view?.supplierDraftEstimateV1?.pricingGuidance ?? null} />}
+    {draft === null ? null : <PricingGuidance guidance={view?.supplierDraftEstimateV1?.pricingGuidance ?? null}
+      purchaseLabel={draftPurchaseLabel(draftOrigins)} />}
 
     <div className={`product-capture${highlight === "capture" ? " product-next" : ""}`} aria-label="插件采集">
-      <h4>1688 采集</h4>
+      <h4>{supplySiteName(candidate.sourceCapture?.sourceUrl || draft?.sourceUrl)} 采集</h4>
       <p className="product-capture-extension">插件状态：{extensionStatus?.label ?? "插件未安装或未连接"}</p>
       {extensionConnected ? null : <p className="product-capture-hint">还没连上插件：打开 Chrome 的 chrome://extensions，开启开发者模式，点「加载已解压的扩展程序」，选择本项目的 extension/1688-capture 目录。</p>}
       <p className="product-capture-status">{captureStatusLine(candidate)}</p>
@@ -1968,16 +2193,18 @@ export default function ProductPage({
       {reviewRequired ? <p className="product-capture-blocked" role="alert">{CAPTURE_REVIEW_BLOCKED_MESSAGE}</p> : null}
       <button type="button" className={`button ${highlight === "capture" && !reviewRequired ? "primary" : "secondary"}`}
         disabled={saving || draft === null || reviewRequired}
-        onClick={() => run(onRequestCapture, captureSubmissionFromDraft({ candidate, draft, marketSnapshot }), "已申请插件采集，采到后这里会显示结果。")}>申请插件采集</button>
+        onClick={() => run(onRequestCapture, captureSubmissionFromDraft({ candidate, draft, marketSnapshot }), "已申请插件采集，采到后这里会显示结果。", "capture")}>
+        {saving && noticeAt === "capture" ? "正在申请…" : "申请插件采集"}</button>
       {reviewRequired ? <button type="button" className="button primary" disabled={saving || draft === null}
         onClick={() => run(onReviewCaptureAndRequest, {
           review: captureReviewPayload(candidate),
           capture: captureSubmissionFromDraft({ candidate, draft, marketSnapshot })
-        }, "已记下你的确认，并重新申请了一次采集。")}>{CAPTURE_REVIEW_ACTION_LABEL}</button> : null}
+        }, "已记下你的确认，并重新申请了一次采集。", "capture")}>{CAPTURE_REVIEW_ACTION_LABEL}</button> : null}
+      <StepResult at="capture" noticeAt={noticeAt} error={error} notice={notice} />
       {/* 采到了之后「申请插件采集」不会再建新的采集，所以重读这个页面必须自己有一个入口，否则这件商品就钉死在那一次读到的内容上。
           规格表在场时那个入口在规格表旁边（那里才是主人看着这些规格的地方），这里就不再重复一个同名按钮。 */}
       {recapturable && !recaptureInChoice ? <RecaptureControl candidate={candidate} disabled={saving} onRecapture={recapture} /> : null}
-      {draft === null ? <span className="product-actions-note">先保存上面的找货方案，才能申请采集。</span> : null}
+      {draft === null ? <span className="product-actions-note">先在上面「做这件」卡上点「做这件」，才能申请采集。</span> : null}
       {recapturable && !recaptureInChoice ? <span className="product-actions-note">
         上面这些规格是上一次读到的。页面改了、规格不对，或者这次没采到重量，就点「重新采集」让软件把这个1688页面再读一遍。
       </span> : null}
@@ -2012,8 +2239,6 @@ export default function ProductPage({
       </div>
       <div className="product-header-actions">
         {typeof onBack === "function" ? <button type="button" className="button secondary" onClick={onBack}>返回</button> : null}
-        {typeof onOpenLegacyCard === "function"
-          ? <button type="button" className="button secondary" onClick={onOpenLegacyCard}>打开旧版A卡</button> : null}
         {/* The same 淘汰 as every list, so a product can be dropped from the page the owner is already looking at. */}
         {candidate.workflowStatus === "eliminated"
           ? <span className="product-eliminated-note">已淘汰 · 在选品台的「已淘汰」里可以恢复</span>
@@ -2029,8 +2254,20 @@ export default function ProductPage({
       </li>)}
     </ol>
 
-    {error ? <p role="alert">{error}</p> : null}
-    {notice ? <p role="status" className="product-notice">{notice}</p> : null}
+    {error && noticeAt === null ? <p role="alert" className="product-page-alert">{error}</p> : null}
+    {notice && noticeAt === null ? <p role="status" className="product-notice">{notice}</p> : null}
+
+    {/* 关口 1「做这件」：软件先选好同款和货源，主人只改不对的；两个找同款区块在卡里面。正式利润没过线时卡回来。 */}
+    <Gate1Card key={`${candidate.id}:gate1`} candidate={candidate} gate1={view?.gate1V1 ?? null} storeName={storeLabel(candidate.targetStore)}
+      saving={saving} noticeAt={noticeAt} error={error} notice={notice} run={run}
+      onAccept={acceptGate1} onSkip={onSkipGate1} onShortfall={onResolveGate1Shortfall}
+      onStartImageMatch={onStartImageMatch} onCompareImageMatch={onCompareImageMatch} onJudgeImageMatch={onJudgeImageMatch}
+      onStartOzonMatch={onStartOzonMatch} onCompareOzonMatch={onCompareOzonMatch} onJudgeOzonMatch={onJudgeOzonMatch} />
+
+    {/* 做这件之后，不花钱的几步软件自己往下走；这里说它做到了哪儿、停在哪儿等你。 */}
+    <Gate1AutopilotSection candidate={candidate} saving={saving}
+      onContinue={typeof onContinueGate1Autopilot === "function" ? payload => run(onContinueGate1Autopilot, payload,
+        "软件接着做了能做的几步，停在了要你看的地方；没有打开平台，也没有花钱。") : null} />
 
     {typeof onCreateSiblingSku === 'function' &&
       candidate.sourceCapture?.mode === 'a_supplier_capture' &&
@@ -2044,12 +2281,16 @@ export default function ProductPage({
       typeof onConfirmSiblingBatchA === 'function' && typeof onAuthorizeSiblingProductionBatch === 'function'
       ? <SiblingBatchPreparation key={`${candidate.id}:batch`} parent={candidate} siblings={siblingCandidates}
           preparationSaveState={preparationSaveState}
-          onConfirmA={onConfirmSiblingBatchA} onAuthorize={onAuthorizeSiblingProductionBatch}
+          onConfirmA={onConfirmSiblingBatchA} onAuthorize={onAuthorizeSiblingProductionBatch} bossOnly={bossOnly}
           onSaveStockDrafts={onSaveSiblingBatchStockDrafts} executionView={siblingBatchExecutionView}
+          executionPreparation={siblingBatchExecutionPreparation}
           executionError={siblingBatchExecutionError} executionLoading={siblingBatchExecutionLoading}
           onRefreshExecution={onRefreshSiblingBatchExecution}
           onResumeStock={onResumeSiblingBatchStock}
+          onConfirmMedia={onConfirmSiblingBatchMedia}
+          onAuthorizeAccountRead={onAuthorizeSiblingAccountRead} onContinueAccountRead={onContinueSiblingAccountRead}
           onConfirmC1={onConfirmSiblingBatchC1} onReadColorDictionary={onReadSiblingBatchColorDictionary}
+          onPrepareSchema={onPrepareSiblingC1CategorySchema}
           onPreviewC1={onPreviewSiblingBatchC1}
           onUploadAsset={onUploadSiblingC2Asset} onLinkAsset={onLinkSiblingC2Asset}
           onConfirmC2={onConfirmSiblingBatchC2} /> : null}
@@ -2060,7 +2301,7 @@ export default function ProductPage({
         <h3>选哪个规格上架</h3>
         <p className="product-section-hint">{`插件已经把这件1688货源的 ${candidate.sourceCapture.skuChoices.length} 个规格采回来了，但现在还算不出每个规格的运费和利润：${
           draft === null
-            ? "先把下面「找货」里的资料填好保存一次，这里就会按每个规格自己的重量算给你看。"
+            ? "先在上面「做这件」卡上点「做这件」，这里就会按每个规格自己的重量算给你看。"
             : "汇率、佣金、资费表或本店成本规则里还缺东西，补齐之后这里就会按每个规格自己的重量算给你看。"}`}</p>
         {recapturable ? <div className="product-sku-recapture">
           <span>如果是这一次采集本身采得不对，就重新读一遍这个1688页面。</span>
@@ -2069,7 +2310,7 @@ export default function ProductPage({
       </section>
       : <SkuChoiceSection candidate={candidate} table={skuTable} chosen={chosen} saving={saving}
         recapturable={recapturable} onRecapture={recapture}
-        uniformStep={uniformStep} onDeclareUniformSupply={declareUniformSupply}
+        uniformStep={uniformStep} onDeclareUniformSupply={declareUniformSupply} origins={draftOrigins}
         onToggle={(id, checked) => { setChosen(current => toggleLocalSupplierSkuSelection(current, id, checked)); setNotice(null); }}
         onToggleAll={checked => { setChosen(checked ? skuTable.rows.map(row => String(row.sourceSkuId)) : []); setNotice(null); }}
         onSubmit={() => run(onChooseSkus, skuChoicePayload(skuTable, chosen, candidate.dataRevision),
@@ -2079,6 +2320,7 @@ export default function ProductPage({
     {/* 算利润：整套一起核线、指定先上的那一个、其余排队，这件货运输上是什么，最后那两个只有主人能做的判断。 */}
     {profitOpen ? <ProfitStepSection key={`${candidate.id}:${candidate.dataRevision}`}
       review={profitReview} cargoStep={cargoStep} categoryStep={categoryStep} extraHandlingStep={extraHandlingStep}
+      gate1Pick={view?.gate1V1?.decision?.decision === "accept" ? view.gate1V1.decision.picks?.ozon ?? null : null}
       commissionEstimate={commissionStep?.present !== true ? null : {
         // 费率、档位和来源引用每次渲染都从当前这份解析结果里取；跨了档位分界线它自己就是另一档。
         // 提议从来不进记录，所以这里取的永远是现在这份解析结果，不是失败那一刻的旧数。
@@ -2094,11 +2336,12 @@ export default function ProductPage({
       }}
       dataRevision={candidate.dataRevision} saving={saving}
       onConfirm={confirmProfitStep} onDeclareCargoFacts={declareCargoFacts}
-      onDeclareExtraHandlingFees={declareExtraHandlingFees} onReadOzonPage={readOzonPage} /> : null}
+      onDeclareExtraHandlingFees={declareExtraHandlingFees} onReadOzonPage={readOzonPage}
+      onReviseDraftDimensions={typeof onReviseDraftDimensions === "function" ? reviseDraftDimensions : null}
+      noticeAt={noticeAt} error={error} notice={notice} bossOnly={bossOnly} /> : null}
 
-    {/* 算利润停在条件测算之后，这一步就只剩这一件事可做；它的按钮不能只长在旧版页面上。 */}
+    {/* 算利润停在条件测算之后，这一步就只剩这一件事可做，按钮就在这一页上。 */}
     {recalculationOpen ? <BetterCommissionEvidenceSection candidate={candidate} saving={saving}
-      onOpenLegacyCard={onOpenLegacyCard}
       onRecalculate={() => {
         // 这份记录和眼前这一版资料对不上时，buildBExactCommissionInput 自己会拒绝。
         // 拒绝要变成页面上那句话，不是一个没人接的异常——旧资料绝不会被提交出去。
@@ -2120,7 +2363,8 @@ export default function ProductPage({
             "已经重新读了一次费用证据；已经定下来的规格、成本、线路和运费都没有动，利润结论也没有变。");
         }} /> : null}
 
-    {step === "find" ? <section className="product-section" aria-label="找货">
+    {/* 「做这件」卡还开着时，找货方案还没有，这一节没东西可看。 */}
+    {step === "find" && (draft !== null || view?.gate1V1?.open !== true) ? <section className="product-section" aria-label="找货">
       <h3>找货</h3>
       {findBody}
     </section> : null}
@@ -2149,15 +2393,26 @@ export default function ProductPage({
       {candidate.lifecycleV11.skuPackage.c2FinalAssets?.softwareState &&
         candidate.lifecycleV11.skuPackage.c2FinalAssets.status === "awaiting_final_uploads" ?
         <C2FinalAssetsPanel key={candidate.id} candidate={candidate} onUpload={onUploadLifecycleFinalAsset}
-          onSave={onSaveC2UploadDraft} onConfirm={onConfirmLifecycleFinalAssets} /> : null}
+          onSave={onSaveC2UploadDraft} onConfirm={onConfirmLifecycleFinalAssets}
+          confirmAtListing={candidate.gate2ListingView != null} /> : null}
       {candidate.lifecycleV11.skuPackage.c2FinalAssets?.status === "completed" ?
         <SavedC2Assets skuPackage={candidate.lifecycleV11.skuPackage} /> : null}
     </> : null}
-    <FinalProductPlanCard candidate={candidate} identity={productionIdentity}
-      onSaveProductionOwnerDecision={onSaveProductionOwnerDecision} onSaveFinalPricingReview={onSaveFinalPricingReview}
-      onReviseC1FinalPlan={onReviseC1FinalPlan} />
+    {/* 单件商品图排好之后，在这一张上架卡上看完点一次「上架」；同款各色和已经授权的照旧。 */}
+    {["preview", "card"].includes(candidate.gate2ListingView?.stage) ?
+      <Gate2ListingCard candidate={candidate} identity={productionIdentity} onLoadPreview={onLoadGate2Preview}
+        onList={onListGate2} onSaveFinalPricingReview={onSaveFinalPricingReview} onReviseC1FinalPlan={onReviseC1FinalPlan} /> :
+      <FinalProductPlanCard candidate={candidate} identity={productionIdentity}
+        onSaveProductionOwnerDecision={onSaveProductionOwnerDecision} onSaveFinalPricingReview={onSaveFinalPricingReview}
+        onReviseC1FinalPlan={onReviseC1FinalPlan} />}
+    <ProductPublishSection candidate={candidate}
+      onContinueSavedDE={onContinueSavedDE} onDispatchDProductionRound={onDispatchDProductionRound}
+      onRollbackProductionAuthorization={onRollbackProductionAuthorization} onRecoverDInitialImport={onRecoverDInitialImport}
+      onReobserveDUnknownOutcome={onReobserveDUnknownOutcome} onReconcileDFromPlatformState={onReconcileDFromPlatformState}
+      onAuthorizeAccountRead={onAuthorizeAccountRead} onContinueAccountRead={onContinueAccountRead} />
     {PRODUCT_STEPS.filter(item => item.key !== "find" && !(showsC1LocalPreparation(candidate) && item.key === "copy") && !(choosing && item.key === "select") &&
-      !((profitOpen || recalculationOpen) && item.key === "profit"))
+      !((profitOpen || recalculationOpen) && item.key === "profit") &&
+      !(showsProductPublish(candidate) && (item.key === "publish" || item.key === "readback")))
       .map(item => <details key={item.key} className="product-folded">
         <summary>{item.title}<span className="product-folded-state">{foldedStepState(item.key, step, candidate)}</span></summary>
         <p>{foldedStepLine(item.key, step, candidate)}</p>

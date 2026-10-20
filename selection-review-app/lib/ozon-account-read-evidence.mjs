@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { assertBusinessStateRepositoryBoundary } from './business-state-repository.mjs';
 import { fingerprintCanonicalRecord } from './production-contract-primitives.mjs';
 import { assertOzonAccountReadAuthorization, assertOzonAccountReadCredential, assertOzonAccountReadReceipt,
-  readOzonAccountReadTerminal, OzonAccountReadError } from './ozon-account-read-contract.mjs';
+  readOzonAccountReadTerminal, completedOzonAccountReadEvidenceExpiresAt, OzonAccountReadError } from './ozon-account-read-contract.mjs';
 import { assertOzonDEPreflightEvidence, assertOzonDEPreflightEvidenceScope, OzonDEPreflightEvidenceError } from './ozon-de-preflight-provider.mjs';
 import { sameAccountReadRouting, currentOzonAccountReadJobs, validOzonAccountReadRevisions } from './ozon-account-read-preparation.mjs';
 import { createSoftwareJobResultEnvelope } from './software-job-contract.mjs';
@@ -43,14 +43,11 @@ const WRITABLE_PRICE_CURRENCIES = Object.freeze(['CNY', 'RUB']);
 // (1) + (2) => this key belongs to that store. Not circular: (1) comes from the owner's login, not from configuration.
 const STORE_IDENTITY_VIA_WAREHOUSE = 'scoped_warehouse';
 
-function readAccountSource(document, jobId, scope, loadCurrentReadBinding, requireLatestJob = true) {
-  assertOzonDEPreflightEvidenceScope(scope);
-  const candidate = document.candidates.find(value => value.id === scope.candidateId);
-  const sku = candidate?.lifecycleV11?.skuPackage, authorization = sku?.productionAuthorization;
-  requireValue(authorization?.authorizationId === scope.authorizationId && sku.skuPackageId === scope.skuPackageId &&
-    sku.supplierSkuId === scope.supplierSkuId && authorization.sourceCandidateRevision === scope.sourceCandidateRevision, 'ACCOUNT_SOURCE_SCOPE_MISMATCH');
-  requireValue(Array.isArray(document.runtime.softwareJobs) && Array.isArray(document.runtime.softwareJobAuthorizationRecords) &&
-    Array.isArray(document.runtime.softwareJobCredentialBindings), 'ACCOUNT_SOURCE_REPOSITORY_INVALID');
+/** Reconstruct a completed read from its consumed permission, worker binding and exact result envelope. */
+export function readCompletedOzonAccountReadSource(document, jobId) {
+  requireValue(object(document.runtime) && Array.isArray(document.runtime.softwareJobs) && Array.isArray(document.runtime.softwareJobAuthorizationRecords) &&
+    Array.isArray(document.runtime.softwareJobCredentialBindings) && object(document.runtime.ozonAccountReadReceipts) &&
+    ['softwareJobs', 'softwareJobAuthorizationRecords', 'softwareJobCredentialBindings'].every(key => document.runtime[key].every(object)), 'ACCOUNT_SOURCE_REPOSITORY_INVALID');
   const matches = document.runtime.softwareJobs.filter(value => value.jobId === jobId);
   requireValue(matches.length === 1 && matches[0].jobType === 'ozon_account_read', 'ACCOUNT_SOURCE_JOB_INVALID');
   const job = matches[0], receipt = document.runtime.ozonAccountReadReceipts?.[jobId];
@@ -61,22 +58,34 @@ function readAccountSource(document, jobId, scope, loadCurrentReadBinding, requi
     payload: { schemaVersion: 'ozon-account-read-job-result-v1', receiptRef: receipt.receiptId, scopeFingerprint: source.inputFingerprint },
     recordedAt: receipt.completedAt });
   requireValue(terminal.status === 'completed' && terminal.externalRequestState === 'succeeded' && job.status === 'completed' &&
-    job.externalRequestState === 'succeeded' && job.resultRef === receipt.receiptId && isDeepStrictEqual(job.resultEnvelope, expectedResult) &&
-    source.candidateId === scope.candidateId && source.skuPackageId === scope.skuPackageId &&
-    source.supplierSkuId === scope.supplierSkuId && validOzonAccountReadRevisions({ document, candidate }).includes(source.sourceRevision) &&
-    ['storeRef', 'warehouseRef', 'warehouseId', 'credentialAlias', 'bindingId', 'configurationVersion'].every(field => isDeepStrictEqual(source[field], scope[field])), 'ACCOUNT_SOURCE_SCOPE_MISMATCH');
+    job.externalRequestState === 'succeeded' && job.completedAt === receipt.completedAt &&
+    job.resultRef === receipt.receiptId && isDeepStrictEqual(job.resultEnvelope, expectedResult), 'ACCOUNT_SOURCE_SCOPE_MISMATCH');
   const permissions = document.runtime.softwareJobAuthorizationRecords.filter(value => value.authorizationId === source.authorizationRef);
   requireValue(permissions.length === 1, 'ACCOUNT_SOURCE_AUTHORIZATION_INVALID');
   const permission = assertOzonAccountReadAuthorization(permissions[0]);
   requireValue(permission.useCount === 1 && permission.consumedByJobId === job.jobId && isDeepStrictEqual(permission.scopeBinding, source) &&
     permission.authorizedByUserId === job.ownerUserId && permission.authorizedByUserId === job.requestedByUserId &&
-    Date.parse(permission.authorizedAt) <= Date.parse(receipt.startedAt) && Date.parse(receipt.completedAt) < Date.parse(permission.expiresAt), 'ACCOUNT_SOURCE_AUTHORIZATION_INVALID');
+    Date.parse(permission.authorizedAt) <= Date.parse(permission.consumedAt) &&
+    Date.parse(permission.consumedAt) <= Date.parse(receipt.startedAt) && Date.parse(receipt.completedAt) < Date.parse(permission.expiresAt), 'ACCOUNT_SOURCE_AUTHORIZATION_INVALID');
   const credentials = document.runtime.softwareJobCredentialBindings.filter(value => value.sideEffectScope === 'ozon_account_read' &&
     value.scopeBinding?.authorizationRef === source.authorizationRef);
   requireValue(credentials.length === 1, 'ACCOUNT_SOURCE_CREDENTIAL_INVALID');
   const credential = assertOzonAccountReadCredential(credentials[0]);
   requireValue(isDeepStrictEqual(credential.scopeBinding, source) && credential.allowedWorkerIds.includes(job.workerId) &&
     Date.parse(credential.boundAt) <= Date.parse(receipt.startedAt) && Date.parse(receipt.completedAt) < Date.parse(credential.expiresAt), 'ACCOUNT_SOURCE_CREDENTIAL_INVALID');
+  return { job, receipt };
+}
+
+function readAccountSource(document, jobId, scope, loadCurrentReadBinding, requireLatestJob = true) {
+  assertOzonDEPreflightEvidenceScope(scope);
+  const candidate = document.candidates.find(value => value.id === scope.candidateId);
+  const sku = candidate?.lifecycleV11?.skuPackage, authorization = sku?.productionAuthorization;
+  requireValue(authorization?.authorizationId === scope.authorizationId && sku.skuPackageId === scope.skuPackageId &&
+    sku.supplierSkuId === scope.supplierSkuId && authorization.sourceCandidateRevision === scope.sourceCandidateRevision, 'ACCOUNT_SOURCE_SCOPE_MISMATCH');
+  const { job, receipt } = readCompletedOzonAccountReadSource(document, jobId), source = receipt.scope;
+  requireValue(source.candidateId === scope.candidateId && source.skuPackageId === scope.skuPackageId &&
+    source.supplierSkuId === scope.supplierSkuId && validOzonAccountReadRevisions({ document, candidate }).includes(source.sourceRevision) &&
+    ['storeRef', 'warehouseRef', 'warehouseId', 'credentialAlias', 'bindingId', 'configurationVersion'].every(field => isDeepStrictEqual(source[field], scope[field])), 'ACCOUNT_SOURCE_SCOPE_MISMATCH');
   const currentBinding = loadCurrentReadBinding({ document, candidateId: candidate.id, skuPackageId: sku.skuPackageId,
     bindingId: source.bindingId, configurationVersion: source.configurationVersion, checkedAt: receipt.completedAt });
   requireValue(currentBinding !== null && sameAccountReadRouting(source, currentBinding), 'ACCOUNT_SOURCE_CONFIGURATION_CHANGED');
@@ -114,7 +123,7 @@ export function composeOzonAccountPreflightEvidence({ scope, receipt, authorizat
     : [...new Set([OZON_PRODUCT_IMPORT_ENDPOINT,OZON_PRODUCT_IMPORT_INFO_ENDPOINT,OZON_INVENTORY_WRITE_ENDPOINT,...Object.values(OZON_DE_READBACK_ENDPOINTS)])];
   const missingMethod = neededMethods.some(method => !availableMethods.has(method));
   const evidenceRef = receipt.receiptId;
-  const expiresAt = Date.parse(roles.expiresAt) < Date.parse(receipt.scope.expiresAt) ? roles.expiresAt : receipt.scope.expiresAt;
+  const expiresAt = completedOzonAccountReadEvidenceExpiresAt(receipt);
   const body = {
     schemaVersion,
     scope: structuredClone(scope), collectedAt: receipt.steps.at(-1).result.observedAt, expiresAt,
@@ -203,6 +212,23 @@ export function createOzonAccountReadEvidenceSource({ repository, loadCurrentRea
     prospective,
     verifySnapshot(document, record, scope) { return verifyRecord(document, record, scope, true); },
     verifyHistoricalSnapshot(document, record, scope) { return verifyRecord(document, record, scope, false); },
+    async verifyInSaleListPermission({record,scope,checkedAt}) {
+      const document=await repository.readSnapshot();
+      const rebuilt=verifyRecord(document,record,scope,true);
+      requireValue(typeof checkedAt==='string'&&Number.isFinite(Date.parse(checkedAt))&&
+        Date.parse(checkedAt)>=Date.parse(rebuilt.collectedAt)&&
+        Date.parse(checkedAt)<Date.parse(rebuilt.expiresAt),'IN_SALE_PERMISSION_NOT_CURRENT');
+      const {receipt}=readAccountSource(document,rebuilt.provenance.softwareJobRef,
+        scope,loadCurrentReadBinding,true);
+      const roles=receipt.steps[0].result.facts.roles;
+      requireValue(Array.isArray(roles)&&roles.some(role=>Array.isArray(role.methods)&&
+        role.methods.includes('/v3/product/list')),'IN_SALE_METHOD_NOT_GRANTED');
+      // This proves the method grant only. The batch owner scope separately authorizes
+      // the bounded store-wide query; old four-endpoint evidence remains unchanged.
+      return Object.freeze({status:'verified',protocolVersion:'ozon-in-sale-list-v1',
+        endpoint:'/v3/product/list',evidenceRef:`${receipt.receiptId}:roles:in-sale-list`,
+        officialEvidenceRef:'official:ozon-in-sale-list:20261018'});
+    },
     async verifySourceReceipt(record, scope) {
       const document = await repository.readSnapshot();
       const rebuilt = verifyRecord(document, record, scope, true);

@@ -707,7 +707,8 @@ export function normalizeC2FinalUploads({
 function c1SourceSnapshot(plan) {
   return {
     c1PlanId: plan.c1PlanId,
-    ...(plan.sourceFactsRevision === undefined ? {} : { sourceFactsRevision: structuredClone(plan.sourceFactsRevision), supersedes: structuredClone(plan.supersedes) }),
+    ...(plan.sourceFactsRevision === undefined ? {} : { sourceFactsRevision: structuredClone(plan.sourceFactsRevision),
+      ...(plan.supersedes === undefined ? {} : { supersedes: structuredClone(plan.supersedes) }) }),
     status: plan.status,
     contractVersion: plan.contractVersion,
     revisionRefs: structuredClone(plan.revisionRefs),

@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "ozon-in-sale-list-official-observation-v1",
+  "evidenceRef": "official:ozon-in-sale-list:20261018",
+  "observedAt": "2026-10-18T13:14:14.542Z",
+  "sourceUrl": "https://docs.ozon.ru/api/seller/#operation/ProductAPI_GetProductList",
+  "operationId": "ProductAPI_GetProductList",
+  "endpoint": "/v3/product/list",
+  "requestFilter": { "visibility": "IN_SALE" },
+  "identifierFilterVisibility": "offer_id_or_product_id_filter_ignores_visibility",
+  "combinedSkuVisibilitySemanticsConfirmed": false,
+  "pageSizeRange": { "minimum": 1, "maximum": 1000 },
+  "firstLastId": "",
+  "nextLastId": "exact_previous_response_last_id",
+  "endSentinelConfirmed": false,
+  "totalFieldUsed": false,
+  "positiveMatchRule": "offer_id_and_product_id_must_match_the_same_response_item",
+  "unmatchedInterpretation": "not_verified",
+  "inSaleDoesNotProve": ["price", "warehouse_stock", "moderation", "validation", "approved_media_identity"],
+  "accountReadAuthorizedByThisFact": false,
+  "engineeringPolicy": {
+    "approvalLocation": "versioned_batch_final_confirmation",
+    "pageSize": 1000,
+    "maxPages": 3,
+    "requestTimeoutMs": 30000,
+    "durationMs": 90000,
+    "officiallyMandatedBudget": false
+  }
+}

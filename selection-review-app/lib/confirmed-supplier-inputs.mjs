@@ -6,6 +6,7 @@ import { derivedVariantKey } from "./supplier-option.mjs";
 import { readAProductDetailSupplierEvidence } from "./a-product-detail-evidence.mjs";
 import { validateC1SkuRightsReview } from "./c1-sku-rights-review.mjs";
 import { readOwnerProductFacts, OWNER_PRODUCT_FACT_LABELS } from "./owner-product-facts.mjs";
+import { C1_SIBLING_SHARED_FACTS_VERSION, C1SiblingSharedFactsError, resolveC1SiblingSharedFactRevision } from "./c1-sibling-shared-facts.mjs";
 
 const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const text = value => typeof value === "string" && value.trim().length > 0;
@@ -81,8 +82,10 @@ export function readConfirmedSupplierTextReferences(candidate) {
   if (selection === null) fail("CONFIRMED_SUPPLIER_TEXT_SOURCE_MISMATCH");
   const { capture } = selection;
   const option = supply.supplierOption;
-  if (option.sourcePlatform !== "1688" || capture.offerId !== option.offerId ||
-      capture.sourceUrl !== option.productUrl || option.productUrl !== `https://detail.1688.com/offer/${option.offerId}.html` ||
+  const canonicalProductUrl = { "1688": `https://detail.1688.com/offer/${option.offerId}.html`,
+    pinduoduo: `https://mobile.yangkeduo.com/goods.html?goods_id=${option.offerId}` }[option.sourcePlatform];
+  if (!canonicalProductUrl || capture.offerId !== option.offerId ||
+      capture.sourceUrl !== option.productUrl || option.productUrl !== canonicalProductUrl ||
       supply.ownerSupplyConfirmation.supplierOptionId !== option.supplierOptionId) fail("CONFIRMED_SUPPLIER_TEXT_SOURCE_MISMATCH");
   const result = [];
   if (selection.apiEvidence) {
@@ -213,6 +216,13 @@ export function resolveC1SupplierFactRevision({ plan, sourceIdentity }) {
   const supply = plan.inputSnapshots?.confirmedSupplierSkuSnapshot;
   if (!object(supply) || !object(supply.supplierSku)) fail("C1_SUPPLIER_FACT_REVISION_SOURCE_CHANGED");
   if (revision === undefined) return { supplierSku: supply.supplierSku, attributeSources: {}, powerSourceRef: null };
+  if (object(revision) && revision.schemaVersion === C1_SIBLING_SHARED_FACTS_VERSION) {
+    try { return resolveC1SiblingSharedFactRevision({ plan, sourceIdentity }); }
+    catch (error) {
+      if (!(error instanceof C1SiblingSharedFactsError)) throw error;
+      throw new ConfirmedSupplierInputError(error.code);
+    }
+  }
   const keys = ["schemaVersion", "revisionId", "targetC1PlanId", "preparedAt", "sourceCandidateRevision", "sourceSkuRevision",
     "sourceC1PlanId", "sourceSupplySnapshotId", "sourceIdentity", "records", "sourceCandidate"];
   if (!object(revision) || Object.keys(revision).length !== keys.length || keys.some(key => !Object.hasOwn(revision, key)) ||
@@ -261,7 +271,7 @@ export function resolveC1SupplierFactRevision({ plan, sourceIdentity }) {
 
 export function assertC1SupplierFactRevisionProjection({ plan, sourceIdentity }) {
   if (plan.productAttributes && Object.hasOwn(plan.productAttributes, "ownerDeclaredFacts") &&
-      plan.sourceFactsRevision?.schemaVersion !== "c1-supplier-fact-revision-v2") fail("C1_SUPPLIER_FACT_REVISION_OWNER_SOURCE_MISMATCH");
+      !["c1-supplier-fact-revision-v2", C1_SIBLING_SHARED_FACTS_VERSION].includes(plan.sourceFactsRevision?.schemaVersion)) fail("C1_SUPPLIER_FACT_REVISION_OWNER_SOURCE_MISMATCH");
   const projected = resolveC1SupplierFactRevision({ plan, sourceIdentity });
   if (plan.sourceFactsRevision === undefined || plan.status === "inputs_ready") return projected;
   if (projected.ownerFacts !== undefined && !isDeepStrictEqual(plan.productAttributes?.ownerDeclaredFacts, projected.ownerFacts)) {

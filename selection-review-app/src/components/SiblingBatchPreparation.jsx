@@ -1,13 +1,19 @@
 import {c1CopyFields,siblingPreparationFinalGaps} from '../../lib/sibling-preparation-consistency.mjs';
 import SiblingPreparationWorkspace from './SiblingPreparationWorkspace.jsx';
+import SiblingBatchEvidencePreparation from './SiblingBatchEvidencePreparation.jsx';
+import OzonAccountReadCard from './OzonAccountReadCard.jsx';
+import BatchMediaReview from './BatchMediaReview.jsx';
 import { api } from '../api.js';
 import { effectivePreparationValue, requiredPreparationNumber, preparationWorkflowAvailable, preparationDraftScopeCurrent } from '../siblingPreparationState.js';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { errorMessage, optionalNumber } from '../formState.js';
+import { BOSS_ONLY_NOTE } from '../ownerAccess.js';
 import { siblingBatchReview } from '../siblingBatchReview.js';
-import { siblingBatchAuthorizationInput } from '../siblingBatchAuthorizationInput.js';
+import { siblingBatchSchemaPreparation } from '../siblingBatchSchemaPreparation.js';
+import { siblingBatchAuthorizationInput, siblingBatchAccountReadBlocker } from '../siblingBatchAuthorizationInput.js';
 import { siblingMerchantSkuSuggestions, siblingBatchMemberDefaults } from '../siblingBatchFormDefaults.js';
 import { inForceSkuUniformSupply, capturedSkuWeightKg } from '../../lib/sku-choice-estimate.mjs';
+import { siblingFamilySalesSnapshot } from '../../lib/sibling-sales-snapshot.mjs';
 
 const numberOrNull = optionalNumber;
 const executionStatusNames = Object.freeze({ not_started: '未开始', not_sent: '未发送', intent: '已记录发送意图',
@@ -16,8 +22,18 @@ const executionStatusNames = Object.freeze({ not_started: '未开始', not_sent:
   ready_to_write: '已核验，库存尚未发送', stock_intent: '库存请求结果待观察',
   stock_accepted: '库存请求已受理', inventory_deferred: '按授权暂不写库存',
   needs_owner: '需要主人处理', precheck_failed: '前置核验失败', prewrite_blocked: '已确认未发送，写入前停止',
-  succeeded: '已完成', verified: '已独立核验' });
+  succeeded: '已完成', verified: '已独立核验', queued: '等待回读', read_in_flight: '正在独立回读',
+  observed_pending: '已记录差异，等待下一次只读核验', verification_pending: '已记录差异，等待下一次只读核验',
+  card_observed_pending_inventory: '商品卡已核对，库存未授权写入',
+  card_and_stock_observed: '商品卡和库存已核对，在售状态仍待验证',
+  not_verified: '尚未验证通过', read_failed: '独立回读失败，已停止',
+  awaiting_owner_media_review:'等待主人并排核图',listed_verified:'E 已独立核验通过',
+  observation_stopped: '只读核验已停止，请查看原因' });
 const executionStatusLabel = status => executionStatusNames[status] ?? `未识别状态（${status}）`;
+const observationStopNames=Object.freeze({query_limit:'只读核验次数已用尽',
+  policy_expired:'只读核验许可已到期'});
+const assetStatusNames=Object.freeze({not_started:'尚无传送回执',in_flight:'传送请求处理中',
+  verified:'图片已传送并核验',failed:'传送明确失败，已停止',unknown_outcome:'传送结果未知，待对账'});
 
 function initialInputs(parent, review, merchantSkus) {
   const draft = parent.supplierDraftV1 ?? {};
@@ -43,9 +59,10 @@ export default function SiblingBatchPreparation(props) {
   return <SiblingBatchPreparationBody key={props.parent.id} {...props}/>;
 }
 
-function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, onConfirmA, onConfirmC1, onPreviewC1, onReadColorDictionary,
-  onAuthorize, onSaveStockDrafts, executionView, executionError, executionLoading = false,
-  onRefreshExecution, onResumeStock,
+function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, onConfirmA, onConfirmC1, onPreviewC1, onReadColorDictionary, onPrepareSchema,
+  onAuthorize, bossOnly = false, onSaveStockDrafts, executionView, executionPreparation, executionError, executionLoading = false,
+  onRefreshExecution, onResumeStock,onConfirmMedia,
+  onAuthorizeAccountRead, onContinueAccountRead,
   onUploadAsset, onLinkAsset, onConfirmC2 }) {
   const review = siblingBatchReview(parent, siblings);
   let merchantSkuSuggestions;
@@ -64,11 +81,15 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
   const [workspacePage,setWorkspacePage]=useState(0);
   const [workspaceDirty,setWorkspaceDirty]=useState(false);
   const [workspaceSaved,setWorkspaceSaved]=useState(null);
+  const [evidenceReadiness,setEvidenceReadiness]=useState(null);
   const [formalCopyAdoption,setFormalCopyAdoption]=useState(null);
   const [sharedStock, setSharedStock] = useState('');
   const [stockEdits, setStockEdits] = useState({});
   const [finalConfirmed, setFinalConfirmed] = useState('');
   const [saving, setSaving] = useState(false);
+  const accountReadActions = useRef(new Set());
+  const [accountReadActionCount, setAccountReadActionCount] = useState(0);
+  const finalSubmission = useRef(false);
   const [sharedAssetId, setSharedAssetId] = useState('');
   const [c2Confirmed, setC2Confirmed] = useState(false);
   const [c1Confirmed, setC1Confirmed] = useState(false);
@@ -77,13 +98,32 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
   const [c1Preview, setC1Preview] = useState(null);
   const [error, setError] = useState('');
   if (!review?.rows.length) return null;
+  const persistedAccountReadBlocker = siblingBatchAccountReadBlocker(review.rows.map(row => siblings.find(child => child.id === row.candidateId)));
+  const accountReadBusy = accountReadActionCount > 0 || persistedAccountReadBlocker !== null;
+  const accountReadNotice = persistedAccountReadBlocker ?? '本批账户核验尚未结束，请等待已授权读取完成后再核对最终上架。';
+  async function runAccountRead(action, input) {
+    if (finalSubmission.current || saving) throw new Error('整批最终确认正在保存，请等待完成。');
+    if (accountReadActions.current.has(input.candidateId)) throw new Error('本规格账户读取正在执行。');
+    accountReadActions.current.add(input.candidateId);
+    setAccountReadActionCount(accountReadActions.current.size);
+    setFinalConfirmed('');
+    try { return await action(input); }
+    finally {
+      accountReadActions.current.delete(input.candidateId);
+      setAccountReadActionCount(accountReadActions.current.size);
+    }
+  }
   const allCreated = review.rows.every(row => row.candidateId !== null);
   const workflowAvailable = preparationWorkflowAvailable(workspaceStatus);
   const allAtA = allCreated && review.rows.every(row => !siblings.find(child => child.id === row.candidateId)?.lifecycleV11?.skuPackage);
+  const evidenceScopeKey=JSON.stringify({parentId:parent.id,parentRevision:parent.dataRevision,
+    draftRevision:workspaceSaved?.draftRevision,members:siblings.map(child=>[child.id,child.dataRevision])});
+  const evidenceReady=evidenceReadiness?.scopeKey===evidenceScopeKey && evidenceReadiness.ready===true;
   const first = siblings.find(child => child.id === review.rows[0].candidateId);
-  const sales = first?.realAConfirmationCard?.salesReview;
+  const sales = siblingFamilySalesSnapshot(parent) ?? first?.realAConfirmationCard?.salesReview;
   const bindings = review.executionBindings;
-  const finalInput = siblingBatchAuthorizationInput(parent, siblings, bindingId, { inventoryAction });
+  const finalInput = siblingBatchAuthorizationInput(parent, siblings, bindingId,
+    { inventoryAction,eVerificationMode:'owner_media_review_in_sale' });
   const effectiveStock = row => stockEdits[row.sourceSkuId] ?? (row.stock ?? '');
   const stockDirty = review.rows.some(row => String(effectiveStock(row)) !== String(row.stock ?? ''));
   const validStock = review.rows.every(row => effectiveStock(row) !== '' &&
@@ -91,6 +131,7 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
   const allPricesRub = [...new Set(review.rows.map(row => row.buyerPriceRub))];
   const allPricesCny = [...new Set(review.rows.map(row => row.writePriceCny))];
   const confirmationKey = JSON.stringify({ parentRevision: parent.dataRevision,
+    importLimitUse:finalInput.input?.importLimitUse,postImportScope:finalInput.input?.postImportScope,
     members: review.rows.map(row => { const child = siblings.find(candidate => candidate.id === row.candidateId);
       return [row.sourceSkuId, row.candidateId, child?.dataRevision, child?.lifecycleV11?.skuPackage?.dataRevision,
         row.merchantSku, row.buyerPriceRub, row.writePriceCny, row.stock]; }),
@@ -101,8 +142,11 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
   const allAtC1 = c2Rows.length > 0 && c2Rows.every(({ child }) =>
     child?.lifecycleV11?.skuPackage?.businessPhase === 'C1' &&
     child.lifecycleV11.skuPackage.c1ProductPlan?.status === 'inputs_ready');
+  const schemaPreparation = siblingBatchSchemaPreparation(c2Rows.map(({ child }) => child).filter(Boolean));
   const dictionarySource = c2Rows.map(({ child }) => child).find(child =>
-    child?.lifecycleV11?.c1ColorDictionaryReadsV1?.['10096']?.status === 'succeeded') ?? null;
+    child?.lifecycleV11?.c1ColorDictionaryReadsV1?.['10096']?.status === 'succeeded' &&
+    child.lifecycleV11.c1ColorDictionaryReadsV1['10096'].schemaEvidenceId ===
+      child.lifecycleV11.skuPackage.c1ProductPlan?.inputSnapshots?.platformSchemaRules?.evidenceId) ?? null;
   const officialColors = dictionarySource?.lifecycleV11?.c1ColorDictionaryReadsV1?.['10096']?.evidence?.values ?? [];
   const c1InputKey = JSON.stringify({ parentRevision: parent.dataRevision, dictionarySourceId: dictionarySource?.id,
     members: c2Rows.map(({ child }) => [child?.id, child?.dataRevision]), colorMappings, rightsExpiresAt,
@@ -158,6 +202,7 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
     event.preventDefault(); setError(''); setSaving(true);
     let preparationRequest;
     try {
+      if (bossOnly) throw new Error(BOSS_ONLY_NOTE);
       if(preparationSaveState.status!=='idle')throw new Error('草稿提交尚未核实，不能确认供货；请先只读核对保存版本');
       if (!workflowAvailable) throw new Error('整批资料尚未读取成功，不能确认供货。');
       if (workspaceSaving) throw new Error('整批草稿正在保存；完成后可确认供货。');
@@ -165,6 +210,7 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
         throw new Error('整批供应身份、销售快照或主人确认缺失');
       }
       if (workspaceValues && (!workspaceSupply || workspaceSupply.gaps.length)) throw new Error(workspaceSupply?.gaps.map(g=>g.message).join('；') || '本批供货依据未读取成功');
+      if (workspaceValues && (workspaceDirty || !evidenceReady)) throw new Error('请先保存本批草稿并完成费用证据核对，再确认供货。');
       if (merchantSkuError) throw new Error(merchantSkuError);
       [draft.shared.targetSalePriceRub,draft.shared.unitDomesticFreight,draft.shared.otherPurchaseCosts,draft.shared.packagingCostRmb,...Object.values(draft.shared.dimensionsCm),...Object.values(draft.members).flatMap(m=>[m.unitProductPrice,m.weightKg,m.stock])].forEach(requiredPreparationNumber);
       const payload = { parentCandidateId: parent.id, parentRevision: parent.dataRevision,
@@ -204,8 +250,13 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
     finally { setSaving(false); }
   }
   async function submitFinal(event) {
-    event.preventDefault(); setError(''); setSaving(true);
+    event.preventDefault();
+    if (finalSubmission.current) return;
+    finalSubmission.current = true;
+    setError(''); setSaving(true);
     try {
+      if (bossOnly) throw new Error(BOSS_ONLY_NOTE);
+      if (accountReadActions.current.size > 0 || persistedAccountReadBlocker !== null) throw new Error(accountReadNotice);
       if (!workflowAvailable) throw new Error('整批资料尚未读取成功，不能确认上架。');
       if (workspaceSaving) throw new Error('整批草稿正在保存；完成后可核对上架方案。');
       if (workspaceGaps.length) throw new Error(workspaceGaps.map(g=>g.message).join('；'));
@@ -216,7 +267,7 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
       if (!isFinalConfirmed || !finalInput.ready) throw new Error(finalInput.reason || '请核对整批最终内容');
       await onAuthorize(finalInput.input);
     } catch (cause) { setError(errorMessage(cause)); }
-    finally { setSaving(false); }
+    finally { finalSubmission.current = false; setSaving(false); }
   }
   async function saveBatchStock() {
     setError(''); setSaving(true);
@@ -235,9 +286,16 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
     finally { setSaving(false); }
   }
   async function readBatchColors() {
-    if (!onReadColorDictionary || !allAtC1 || dictionarySource) return;
+    if (!onReadColorDictionary || !allAtC1 || !schemaPreparation.ready || dictionarySource) return;
     setError(''); setSaving(true);
     try { await onReadColorDictionary(c2Rows[0].child); }
+    catch (cause) { setError(errorMessage(cause)); }
+    finally { setSaving(false); }
+  }
+  async function prepareSchema(child, action) {
+    if (!onPrepareSchema || saving || !allAtC1 || !['read', 'adopt'].includes(action)) return;
+    setError(''); setSaving(true);
+    try { await onPrepareSchema(child, action === 'adopt' ? schemaPreparation.evidencePackId : null); }
     catch (cause) { setError(errorMessage(cause)); }
     finally { setSaving(false); }
   }
@@ -308,7 +366,7 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
     finally { setSaving(false); }
   }
   async function confirmBatchC2() {
-    if (!allAtC2 || !c2Confirmed || !onConfirmC2) return;
+    if (!allAtC2 || workspaceSaving || !c2Confirmed || !onConfirmC2) return;
     setError(''); setSaving(true);
     try {
       const savedDrafts=await Promise.all(c2Rows.map(({child})=>api.getC2UploadDraft(child.id)));
@@ -322,8 +380,10 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
   return <section className="product-section" aria-label="同款规格批量准备与确认">
     <SiblingPreparationWorkspace parent={parent} siblings={siblings} saveState={preparationSaveState} onCatalog={setWorkspaceCatalog} onValues={workspaceChanged} onPage={setWorkspacePage} onDirty={setWorkspaceDirty} onStageAssets={stageWorkspaceAssets} onSaved={setWorkspaceSaved} onStatus={setWorkspaceStatus} onSupplyPreparation={setWorkspaceSupply} onSaving={setWorkspaceSaving} confirmingSupply={saving} supplyConfirmationReceipt={supplyConfirmationReceipt} formalCopyAdoption={formalCopyAdoption}/>
     <h3>当前正式流程与缺项</h3>
+    {workflowAvailable && allAtA && workspaceValues ? <SiblingBatchEvidencePreparation parent={parent}
+      draft={workspaceSaved} dirty={workspaceDirty} scopeKey={evidenceScopeKey} onReadiness={setEvidenceReadiness}/> : null}
     {workflowAvailable && allAtA && (!workspaceValues || workspacePage===0) ? <form onSubmit={submitA}>
-      <p>当前销售快照：{sales?.title || '缺少有效快照'}。确认前逐行核对数量 1 单价、打包重量、颜色和商家货号；本批不重读供应页。</p>
+      <p>定价用的销售快照（和原商品同一份）：{sales ? `${sales.title}${Number.isFinite(sales.currentPrice) ? `，${sales.currentPrice} ${sales.currency ?? ''}`.trimEnd() : ''}` : '缺少有效快照'}。确认前逐行核对数量 1 单价、打包重量、颜色和商家货号；本批不重读供应页。</p>
       {!workspaceValues ? <><div className="product-batch-common">
         <label>共用目标成交价 RUB<input required type="number" min="0.01" step="0.01" value={draft.shared.targetSalePriceRub}
           onChange={event => sharedField('targetSalePriceRub', event.target.value)} /></label>
@@ -365,15 +425,27 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
         onChange={event => sharedField('confirmSalesReview', event.target.checked)} />
         我已核对共用销售快照仍适用且商品可比；它只作为各规格的市场证据。</label>
       </> : <p>一次确认沿用上方资料并保存当前草稿，随后分别计算正式利润；未修改额外费用即无新增费用。缺项不会作为零放行。</p>}
-      <button className="button secondary" type="submit" disabled={saving || workspaceSaving || !sales || Boolean(merchantSkuError) ||
-        (workspaceValues ? !workspaceSupply || workspaceSupply.gaps.length>0 || draft.shared.otherPurchaseCosts==='' : workspaceDirty || !draft.shared.confirmExactSkuSupply || !draft.shared.confirmSalesReview)}>
+      <button className="button secondary" type="submit" disabled={saving || workspaceSaving || !sales || Boolean(merchantSkuError) || bossOnly ||
+        (workspaceValues ? workspaceDirty || !evidenceReady || !workspaceSupply || workspaceSupply.gaps.length>0 || draft.shared.otherPurchaseCosts==='' : workspaceDirty || !draft.shared.confirmExactSkuSupply || !draft.shared.confirmSalesReview)}>
         {saving ? '正在保存…' : '整批确认供货并分别计算正式利润'}</button>
+      {bossOnly ? <p role="status">{BOSS_ONLY_NOTE}</p> : null}
     </form> : null}
     {workflowAvailable && allAtC1 && (!workspaceValues || workspacePage===1) ? <form onSubmit={submitC1} aria-label="整批 C1 事实与颜色确认">
       <h4>同页核对官方颜色和共用上架文字</h4>
+      {!schemaPreparation.ready ? <section aria-label="本批类目资料准备">
+        <p>先读取一份当前类目资料，再让其他规格采用同一份已保存证据。外部读取每次最多 2 个只读请求；采用已保存证据没有外部请求。</p>
+        {schemaPreparation.rows.map(item => {
+          const { child, row } = c2Rows.find(entry => entry.child.id === item.candidateId);
+          return <p key={item.candidateId}>{row.color}：{item.action === 'ready' ? '类目资料已就绪' :
+            item.action === 'reconcile' ? '前次读取结果待核对，禁止重复读取' :
+            item.action === 'evidence_missing' ? '平台回读仍缺颜色数量上限，需要补充官方证据' :
+            <button type="button" disabled={saving || !onPrepareSchema}
+              onClick={() => prepareSchema(child, item.action)}>{item.action === 'adopt' ? '采用本批已保存类目资料' : '授权并读取当前类目资料'}</button>}</p>;
+        })}
+      </section> : null}
       <p>先读取一次本批当前类目的官方颜色候选，再按行选择。共用文字只在本行采用的事实完全相同时复用；不一致会整批停下并保留原记录。</p>
       {dictionarySource ? <p role="status">已保存官方颜色候选：{officialColors.length} 个，来源规格 {dictionarySource.id}</p>
-        : <button className="button secondary" type="button" disabled={saving || !onReadColorDictionary}
+        : <button className="button secondary" type="button" disabled={saving || !onReadColorDictionary || !schemaPreparation.ready}
           onClick={readBatchColors}>读取本批官方颜色候选</button>}
       <table><thead><tr><th>供应规格</th><th>官方颜色</th><th>准确颜色名称</th><th>当前缺项</th></tr></thead>
         <tbody>{c2Rows.map(({ row, child }) => {
@@ -450,25 +522,56 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
         <option value="">请选择本批共同仓库</option>
         {bindings.map(item => <option key={`${item.bindingId}:${item.configurationVersion}`} value={item.bindingId}>{item.warehouseName}</option>)}
       </select></label>
-      <p>本次最终确认范围：创建本批商品、允许上架审核提交，并写入每款下表确认的库存；不再追加库存动作确认。卡其及历史首件排除。</p>
+      <p>本次最终确认范围：传送已确认的最终图片、创建本批商品、允许上架审核提交，并写入每款下表确认的库存；不再追加库存动作确认。卡其及历史首件排除。</p>
       <p>全成员 E 独立回读范围：{review.rows.map(row => row.merchantSku ?? `${row.color} 货号缺失`).join('、')}。首件历史导入不在本批范围。</p>
-      <label><input type="checkbox" checked={isFinalConfirmed} disabled={!workflowAvailable || workspaceSaving || !finalInput.ready || workspaceGaps.length>0 || workspaceDirty || stockDirty || Boolean(executionError) || executionLoading}
+      <p>本批采用 2026-10-18 官方观察到的单次导入最多 100 件限制，仅供本批一次生产准入。另授权一次同店在售名单读取：最多 3 页、每页 1000 项、共 90 秒、单请求 30 秒。名单会经过其他在售商品，只保存本批货号与商品编号同时命中的结果；未命中保持未验证。</p>
+      <p>平台回读完成后，请在本页并排核对批准原图与平台图片的内容、首图和顺序。人工核图与官方在售、价格、仓库库存核验全部通过后，才会记录本批 E 验证通过。</p>
+      <label><input type="checkbox" checked={isFinalConfirmed} disabled={accountReadBusy || !workflowAvailable || workspaceSaving || !finalInput.ready || workspaceGaps.length>0 || workspaceDirty || stockDirty || Boolean(executionError) || executionLoading}
         onChange={event => setFinalConfirmed(event.target.checked ? confirmationKey : '')} />我已核对本批全部规格的商品、RUB 买家价、CNY 写入价、库存、共同仓库、最终图、创建、上架审核提交和各款库存，一次确认全部成员。</label>
-      <button className="button primary" type="submit" disabled={!workflowAvailable || workspaceSaving || saving || workspaceGaps.length>0 || workspaceDirty || stockDirty || Boolean(executionError) || executionLoading || !isFinalConfirmed || !finalInput.ready}>
+      <button className="button primary" type="submit" disabled={accountReadBusy || !workflowAvailable || workspaceSaving || saving || workspaceGaps.length>0 || workspaceDirty || stockDirty || Boolean(executionError) || executionLoading || !isFinalConfirmed || !finalInput.ready || bossOnly}>
         {saving ? '正在保存整批授权…' : '确认上架（含创建和库存）'}</button>
+      {bossOnly ? <p role="status">{BOSS_ONLY_NOTE}</p> : null}
       {!finalInput.ready ? <p role="status">{finalInput.reason}</p> : null}
       {executionLoading ? <p role="status">正在核对本批是否已有生产记录。</p> : null}
+      {accountReadBusy ? <p role="status">{accountReadNotice}</p> : null}
     </form> : null}
+    {review.rows.some(row => siblings.find(child => child.id === row.candidateId)?.ozonAccountReadPreparation) ?
+      <section aria-label="本批账户只读核验">
+        <h4>本批账户只读核验</h4>
+        <p>各颜色分别使用自己的读取许可和回执。每款仅核验方法权限、公司币种和指定仓库，最多三次请求；全批齐备后软件才继续已授权的上架流程。读取许可不代替商品生产授权。</p>
+        {review.rows.map(row => {
+          const child = siblings.find(candidate => candidate.id === row.candidateId);
+          return child?.ozonAccountReadPreparation ? <article key={child.id}>
+            <h5>{row.color} · {row.sourceSkuId}</h5>
+            <OzonAccountReadCard preparation={child.ozonAccountReadPreparation}
+              disabled={saving}
+              onAuthorize={typeof onAuthorizeAccountRead === 'function' ? input => runAccountRead(onAuthorizeAccountRead, input) : undefined}
+              onContinue={typeof onContinueAccountRead === 'function' ? input => runAccountRead(onContinueAccountRead, input) : undefined}/>
+          </article> : null;
+        })}
+      </section> : null}
     {executionView ? <section aria-label="本批逐项执行结果">
       <h4>本批逐项执行结果</h4><p>批次：{executionView.batchId} · 请求状态：{executionStatusLabel(executionView.externalRequestState)}。以下为软件记录，是否上架以 E 独立回读为准。</p>
       <p>本批排除的历史首件：{executionView.excludedOfferIds?.join('、') || '无'}</p>
-      <table><thead><tr><th>商家货号</th><th>建卡导入</th><th>库存</th><th>E 回读</th><th>结果与卡点</th></tr></thead>
+      {executionPreparation?.executionStage === 'asset_transport' ? <p role="status">
+        图片准备状态：{assetStatusNames[executionPreparation.status] ?? '准备已停止'}。
+        {executionPreparation.reasonCode ? `卡点：${executionPreparation.reasonCode}` : ''}
+      </p> : null}
+      <table><thead><tr><th>商家货号</th><th>最终图传送</th><th>建卡导入</th><th>库存</th><th>E 回读</th><th>结果与卡点</th></tr></thead>
         <tbody>{executionView.members.map(member => <tr key={member.candidateId}>
-          <td>{member.offerId}</td><td>{executionStatusLabel(member.importStatus)}</td><td>{executionStatusLabel(member.inventoryStatus)}</td>
-          <td>{executionStatusLabel(member.eStatus)}</td><td>{member.importGapCode || member.inventoryReason || member.eGaps?.map(gap =>
+          <td>{member.offerId}</td><td>{assetStatusNames[member.assetStatus ?? 'not_started'] ?? '传送状态需核对'}</td>
+          <td>{executionStatusLabel(member.importStatus)}</td><td>{executionStatusLabel(member.inventoryStatus)}</td>
+          <td>{executionStatusLabel(member.eStatus)}</td><td>{member.importGapCode || member.assetReason || member.inventoryReason ||
+            (member.eStopReason ? observationStopNames[member.eStopReason] ?? `核验停止：${member.eStopReason}` : null) || member.eGaps?.map(gap =>
             typeof gap === 'string' ? gap : gap.message || gap.code).join('；') ||
             (member.listedVerified ? 'E 已独立核验上架' : '尚未独立确认上架')}</td>
         </tr>)}</tbody></table>
+      {executionView.inSaleList?.maxRequests>0?<p>在售名单读取：已使用 {executionView.inSaleList.requestCount} / {executionView.inSaleList.maxRequests} 次。
+        {executionView.inSaleList.status==='matched'?'本批目标已在官方在售名单中命中。':'尚需结合逐款证据完成验证。'}
+        {executionView.inSaleList.stopReason?`停止原因：${executionView.inSaleList.stopReason}`:''}</p>:null}
+      {executionView.members.filter(member=>member.mediaReview).map(member=><BatchMediaReview
+        key={JSON.stringify(member.mediaReview.scope??{candidateId:member.candidateId,status:member.mediaReview.status})}
+        review={member.mediaReview} onConfirm={onConfirmMedia}/>)}
       <button type="button" className="button secondary" disabled={saving || !onRefreshExecution}
         onClick={async () => { setError(''); setSaving(true); try { await onRefreshExecution(executionView.batchId); }
           catch (cause) { setError(errorMessage(cause)); } finally { setSaving(false); } }}>刷新逐项结果</button>
@@ -500,7 +603,7 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
       </> : <p>上方选择保留为草稿；准备后按每个SKU独立登记原始文件、顺序和明确主图，再确认来源权利及冻结版本。</p>}
       <label><input type="checkbox" checked={c2Confirmed} onChange={event => setC2Confirmed(event.target.checked)} />
         我已核对每个规格的最终素材来源权利、图片顺序和本色主图。</label>
-      <button type="button" className="button primary" disabled={saving || workspaceDirty || !c2Confirmed ||
+      <button type="button" className="button primary" disabled={saving || workspaceSaving || workspaceDirty || !c2Confirmed ||
         (!workspaceValues && c2Rows.some(({ child }) => !child.lifecycleV11?.c2UploadDraft?.selection?.length))} onClick={confirmBatchC2}>
         一次确认整批最终素材并生成各自方案卡</button>
     </div> : null}

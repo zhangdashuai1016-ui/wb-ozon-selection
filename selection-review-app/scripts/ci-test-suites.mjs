@@ -5,6 +5,7 @@ export const API_PROCESS_TESTS = Object.freeze([
   "c1-editorial-review-api.test.mjs",
   "c1-draft-result-read-api.test.mjs",
   "c1-local-content-flow-api.test.mjs",
+  "c1-forward-to-listing-api.test.mjs",
   "c1-local-preparation-api.test.mjs",
   "sibling-c1-color-api.test.mjs",
   "sibling-batch-c1-preview-api.test.mjs",
@@ -23,10 +24,14 @@ export const API_PROCESS_TESTS = Object.freeze([
   "ozon-account-preparation-api-boundary.test.mjs",
   "d-e-saved-continuation-api.test.mjs",
   "d-batch-import-api.test.mjs",
+  "d-batch-media-review-api.test.mjs",
   "final-pricing-review-api.test.mjs",
   "runtime-package-api.test.mjs",
   "store-binding-api.test.mjs",
   "supplier-draft-api.test.mjs",
+  "gate1-api.test.mjs",
+  "gate1-autopilot-api.test.mjs",
+  "gate2-listing-api.test.mjs",
   "c2-upload-api.test.mjs",
   "collaboration-api.test.mjs",
   "dispatch-api.test.mjs",
@@ -45,6 +50,8 @@ export const API_PROCESS_TESTS = Object.freeze([
   "source-capture-restart-reconciliation.test.mjs",
   "source-capture-review-api.test.mjs",
   "structured-dispatch-integration.test.mjs",
+  "supplier-image-match-api.test.mjs",
+  "intake-api.test.mjs",
 ]);
 
 export const SOURCE_CONTRACT_TESTS = Object.freeze([
@@ -62,6 +69,8 @@ export const SOURCE_CONTRACT_TESTS = Object.freeze([
   "phase5b-c2-ui-deployment-boundary.test.mjs",
   "runtime-configuration.test.mjs",
   "seerfar-software-server-integration.test.mjs",
+  "store-registry-api.test.mjs",
+  "wb-rough-profit-api.test.mjs",
   "three-store-map-api.test.mjs",
   "three-store-map-ui-contract.test.mjs",
   "three-store-map.test.mjs"
@@ -74,7 +83,28 @@ export const SUBPROCESS_TESTS = Object.freeze([
   "launch-command-script.test.mjs"
 ]);
 
-export const ISOLATED_TESTS = Object.freeze([...API_PROCESS_TESTS, ...SOURCE_CONTRACT_TESTS, ...SUBPROCESS_TESTS]);
+// These tests instrument network clients to prove that local domain work never uses them.
+// They make no requests and start no servers, but still run inside the isolated runner.
+export const OFFLINE_NETWORK_BOUNDARY_TESTS = Object.freeze([
+  "d-batch-account-evidence.test.mjs",
+  "d-batch-asset-send-expiry.test.mjs",
+  "sibling-local-evidence-provider.test.mjs",
+  "owner-target-price-flow.test.mjs",
+  "sibling-owner-target-price.test.mjs",
+]);
+
+export const ISOLATED_TESTS = Object.freeze([
+  ...API_PROCESS_TESTS, ...SOURCE_CONTRACT_TESTS, ...SUBPROCESS_TESTS, ...OFFLINE_NETWORK_BOUNDARY_TESTS,
+]);
+
+// Need a disposable Postgres (SELECTION_REVIEW_TEST_DATABASE_URL); run by scripts/run-ci-database-tests.mjs only.
+export const DATABASE_TESTS = Object.freeze([
+  "central-runtime-boot-db.test.mjs",
+  "postgres-business-state-db.test.mjs",
+  "process-handoff-db.test.mjs",
+  "team-accounts-db.test.mjs",
+  "workstations-db.test.mjs"
+]);
 
 export const BUILT_RUNTIME_TESTS = Object.freeze([
   "runtime-package-api.test.mjs", "runtime-preflight-api.test.mjs", "aliyun-oss-runtime-deployment-boundary.test.mjs"

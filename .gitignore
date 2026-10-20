@@ -42,7 +42,8 @@ id_ed25519
 /上架测试交接模板.md
 /只读候选池-*.md
 /蛋蛋鼠选品-*.md
-/selection-review-app/docs/
+/selection-review-app/docs/*
+!/selection-review-app/docs/contracts/
 
 # One-off scripts that mutate historical candidate records
 /selection-review-app/scripts/accept-*.mjs

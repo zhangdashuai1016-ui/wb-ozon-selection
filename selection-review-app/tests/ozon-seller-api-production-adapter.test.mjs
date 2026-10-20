@@ -6,7 +6,8 @@ import {
   createOzonSellerApiProductionAdapter
 } from "../lib/ozon-seller-api-production-adapter.mjs";
 import { fingerprintAuthorizedMedia } from "../lib/production-authorization-preparation.mjs";
-import { loadOzonProductImportBatchLimitEvidence } from '../lib/ozon-product-import-batch-limit.mjs';
+import { loadOzonProductImportBatchLimitEvidence, loadOzonProductImportBatchLimitFact,
+  createOzonProductImportBatchLimitUse } from '../lib/ozon-product-import-batch-limit.mjs';
 
 // 本轮不许真发请求：可达性探针一律打桩。
 const reachable = async () => ({ reachable: true, statusCode: 200 });
@@ -103,6 +104,37 @@ test('official per-request limit keeps 31 in one task and splits 101 into 100 pl
       productImportCapability:{...productImportCapability,...change},checkedAt}),
     /OZON_BATCH_LIMIT_EVIDENCE_REQUIRED/);
   }
+});
+
+test('one-batch official fact permits only the exact frozen store and SKU list without fabricating TTL',async()=>{
+  const fact=await loadOzonProductImportBatchLimitFact(),checkedAt='2026-10-18T13:15:00.000Z';
+  const members=Array.from({length:101},(_,index)=>{
+    const member=batchMember(`offer-${index+2}`,'black','https://assets.example/black.jpg');
+    member.payload.skuPackageId=`sku:${index+2}`;
+    return member;
+  });
+  const batch={schemaVersion:'d-batch-production-authorization-v3',batchId:'d-batch:adapter-limit',
+    storeRef:structuredClone(members[0].payload.storeRef),ownerActorId:'synthetic-owner',confirmedAt:checkedAt,
+    members:members.map((member,index)=>({candidateId:`candidate:${index+2}`,skuPackageId:member.payload.skuPackageId,
+      offerId:member.payload.merchantSku,sourceRevision:2,resultRevision:3,authorizationId:`pa:${index+2}`,
+      authorizationFingerprint:'a'.repeat(64)}))};
+  const limitUse=createOzonProductImportBatchLimitUse({batch,input:{schemaVersion:'ozon-product-import-batch-limit-use-input-v1',
+    evidenceRef:fact.evidenceRef,decision:'use_for_this_batch_once'}});
+  const productImportCapability={status:'verified',endpoint:'/v3/product/import',evidenceRef:'synthetic:method-grant',
+    maxItemsPerRequest:100,limitEvidenceRef:fact.evidenceRef,limitObservedAt:fact.observedAt,limitUse};
+  const options={members,productImportCapability,checkedAt};
+  const chunks=buildOzonSellerBatchImportRequests(options);
+  assert.deepEqual(chunks.map(chunk=>chunk.batchSize),[100,1]);
+  assert.equal(chunks.some(chunk=>Object.hasOwn(chunk,'limitValidUntil')),false);
+  assert.deepEqual(buildOzonSellerBatchImportRequests(options),chunks);
+  for(const change of [values=>{values.reverse();},values=>{values[0].payload.skuPackageId='sku:other';},
+    values=>{values[0].payload.storeRef.platformStoreId='other-store';}]){
+    const changed=structuredClone(members);change(changed);
+    assert.throws(()=>buildOzonSellerBatchImportRequests({...options,members:changed}),/LIMIT_USE_MEMBER_SCOPE_MISMATCH/);
+  }
+  assert.throws(()=>buildOzonSellerBatchImportRequests({...options,members:members.slice(0,100)}),/LIMIT_USE_MEMBER_SCOPE_MISMATCH/);
+  assert.throws(()=>buildOzonSellerBatchImportRequests({...options,
+    productImportCapability:{...productImportCapability,validUntil:'2099-01-01T00:00:00.000Z'}}),/LIMIT_EVIDENCE_REQUIRED/);
 });
 
 function payload(overrides = {}) {
@@ -205,6 +237,50 @@ test("rejects draft-only, local assets, unknown attributes and wrong currency be
   const missingDictionaryId = payload();
   missingDictionaryId.attributes.requiredPlatformFields[0].fact.value = "Нет бренда";
   assert.throws(() => buildOzonSellerImportRequest(missingDictionaryId), /DICTIONARY_VALUE_REQUIRED/);
+});
+
+function collectionPayload() {
+  const value = payload();
+  value.attributes.requiredPlatformFields[0].fact.value = [
+    { value: 'synthetic first value', dictionaryValueId: 1001 },
+    { value: 'synthetic second value', dictionaryValueId: 1002 }
+  ];
+  Object.assign(value.schemaWriteBindings.requiredAttributes[0], { isCollection: true, maxValueCount: 2 });
+  return value;
+}
+
+test('required dictionary collections keep their exact locked order and values at the current bound', () => {
+  const value = collectionPayload(), before = structuredClone(value);
+  const request = buildOzonSellerImportRequest(value);
+  assert.deepEqual(request.body.items[0].attributes.find(attribute => attribute.id === 85), {
+    id: 85, complex_id: 0, values: [
+      { dictionary_value_id: 1001, value: 'synthetic first value' },
+      { dictionary_value_id: 1002, value: 'synthetic second value' }
+    ]
+  });
+  assert.deepEqual(value, before);
+});
+
+test('required collection validation rejects malformed or out-of-bound frozen values before any transport', () => {
+  for (const change of [
+    value => { value.attributes.requiredPlatformFields[0].fact.value = []; },
+    value => { value.attributes.requiredPlatformFields[0].fact.value = ['synthetic unmapped']; },
+    value => { value.attributes.requiredPlatformFields[0].fact.value[0] = null; },
+    value => { value.attributes.requiredPlatformFields[0].fact.value[1].dictionaryValueId = 1001; },
+    value => { delete value.attributes.requiredPlatformFields[0].fact.value[0].dictionaryValueId; },
+    value => { value.attributes.requiredPlatformFields[0].fact.value[0].dictionaryValueId = 0; },
+    value => { value.attributes.requiredPlatformFields[0].fact.value[0].dictionaryValueId = Number.MAX_SAFE_INTEGER + 1; },
+    value => { value.attributes.requiredPlatformFields[0].fact.value[0].value = ' '; },
+    value => { value.schemaWriteBindings.requiredAttributes[0].isCollection = false; },
+    value => { value.schemaWriteBindings.requiredAttributes[0].dictionaryId = 0; },
+    value => { delete value.schemaWriteBindings.requiredAttributes[0].maxValueCount; },
+    ...[0, 1, -1, 2.5, '2', Number.MAX_SAFE_INTEGER + 1].map(maximum => value => { value.schemaWriteBindings.requiredAttributes[0].maxValueCount = maximum; })
+  ]) {
+    const value = collectionPayload(); change(value);
+    const before = structuredClone(value);
+    assert.throws(() => buildOzonSellerImportRequest(value), { message: 'OZON_ADAPTER_COLLECTION_VALUE_INVALID' });
+    assert.deepEqual(value, before);
+  }
 });
 
 test("uses one import call, one terminal-status call and independent readback without inventory write", async () => {

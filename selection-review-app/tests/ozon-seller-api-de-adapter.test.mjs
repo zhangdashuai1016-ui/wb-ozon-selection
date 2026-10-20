@@ -178,6 +178,21 @@ test('batch adapter sends one multi-item task and classifies each offer without 
       assert.deepEqual([outcome.writeOccurred,outcome.requestTransmission,outcome.reasonCode],
         [false,'not_attempted','OZON_DE_CREDENTIAL_READ_FAILED']);
   }
+  for (const failure of [new TypeError('synthetic invalid guard state'), new Error('synthetic guard dependency failed')]) {
+    let sent = 0;
+    const guarded = createStoreIsolatedOzonSellerApiDEAdapter({ adapterCapabilities: capability,
+      requestJson: async (_request, options) => {
+        await options.beforeRequestSend();
+        sent++;
+        return { result: { task_id: 503 } };
+      } });
+    await assert.rejects(() => guarded.executeBatchImport(scope, {
+      persistCheckpoint: async () => {}, beforeRequestSend: async () => { throw failure; }
+    }), error => error instanceof OzonDEHttpTransportError && error.cause === failure &&
+      error.code === 'OZON_DE_HTTP_BEFORE_SEND_REJECTED' &&
+      error.externalRequestState === 'not_sent' && error.requestTransmission === 'not_attempted');
+    assert.equal(sent, 0);
+  }
 });
 
 function executableRequest({ store, warehouseId, offerId } = {}) {
@@ -977,6 +992,8 @@ test('inventory prerequisite policy no longer blocks product import, and still b
   assert.equal(blocked.status, 'blocked');
   assert.equal(blocked.code, 'inventory_prerequisite_policy_not_verified');
   assert.equal(blocked.inventoryWriteState, 'not_sent');
+  assert.equal(blocked.writeOccurred, false);
+  assert.equal(blocked.requestTransmission, 'not_attempted');
   assert.equal(policyless.checkpoints.some(event => event.kind === 'stock_intent'), false);
   assert.equal(policyless.calls.some(call => call.endpoint === '/v2/products/stocks'), false);
 });
@@ -986,7 +1003,10 @@ test('continuation authorization is required and checked again after stock inten
     const f = phasedAdapter(), observation = await prerequisiteObservations(f); f.calls.length = 0; let guards = 0;
     const failure = new Error('D_EXECUTION_CONTINUATION_BLOCKED');
     await assert.rejects(() => f.adapter.executeRemainingInventory(executableRequest(), { observation, persistCheckpoint: f.persistCheckpoint,
-      assertRemainingInventoryAuthorization: async () => { if (++guards === failAt) throw failure; } }), error => error === failure);
+      assertRemainingInventoryAuthorization: async () => { if (++guards === failAt) throw failure; } }),
+    error => failAt === 1 ? error === failure : error instanceof OzonDEHttpTransportError &&
+      error.cause === failure && error.externalRequestState === 'not_sent' &&
+      error.requestTransmission === 'not_attempted');
     assert.equal(f.calls.length, 0); assert.equal(f.checkpoints.length, failAt - 1);
   }
 });
