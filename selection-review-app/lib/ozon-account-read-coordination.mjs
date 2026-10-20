@@ -1,5 +1,6 @@
 import { assertOzonAccountReadScope, assertOzonAccountReadReceipt, readOzonAccountReadTerminal,
   completedOzonAccountReadEvidenceExpiresAt, OzonAccountReadError } from './ozon-account-read-contract.mjs';
+import { classifyArchivedDProductionJobs } from './production-authorization-rollback-contract.mjs';
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const text = value => typeof value === 'string' && value.length > 0;
@@ -54,6 +55,8 @@ export function ozonAccountReadRefreshProductionBusy({ document, candidateId }) 
   const ids = new Set(batch ? batch.members.map(member => member.candidateId) : [candidateId]);
   const candidates = document.candidates.filter(candidate => ids.has(candidate.id));
   if (candidates.length !== ids.size || new Set(candidates.map(candidate => candidate.id)).size !== ids.size) fail();
+  const jobs = collection(document, 'softwareJobs');
+  const productionJobs = jobs.filter(job => job.jobType === 'd_production_execution');
   let busy = false;
   for (const candidate of candidates) {
     const sku = candidate.lifecycleV11?.skuPackage;
@@ -61,9 +64,10 @@ export function ozonAccountReadRefreshProductionBusy({ document, candidateId }) 
     if (Object.hasOwn(sku, 'readbackHistory') && !Array.isArray(sku.readbackHistory)) fail();
     if (['dAssetTransport', 'dSoftwareExecution', 'productionRecord', 'externalListingRecord', 'eVerificationRecord']
       .some(field => sku[field] !== undefined && sku[field] !== null) || sku.readbackHistory?.length > 0) busy = true;
+    const archived = classifyArchivedDProductionJobs({ candidate, jobs });
+    if (!archived.valid || productionJobs.some(job => job.candidateId === candidate.id &&
+        !untouchedDJob(job) && !archived.archivedJobIds.has(job.jobId))) busy = true;
   }
-  if (collection(document, 'softwareJobs').some(job => job.jobType === 'd_production_execution' &&
-      ids.has(job.candidateId) && !untouchedDJob(job))) busy = true;
   for (const key of ['dBatchAssetTransports', 'dBatchImportJobs', 'dBatchStockJobs', 'dBatchOfferRecords', 'dBatchEJobs']) {
     const records = collection(document, key);
     if (batch && records.some(record => record.batchId === batch.batchId)) busy = true;

@@ -8,7 +8,8 @@ import { assertDProductionJobReference, assertEReadbackJobReference, currentDPro
 import { assertDEJobAdmissionDecision, createDEJobAdmissionDecision, DESoftwareJobAdmissionError } from "./d-e-software-job-admission.mjs";
 import { assertDProductionRecordSource, assertDProductionReceiptChain, DEJobScopeError } from "./d-e-software-job-scope.mjs";
 import { DProductionJobCursorError } from "./d-production-job-cursor.mjs";
-import { productionAuthorizationRollbackEligible, PRODUCTION_AUTHORIZATION_ROLLBACK_FIELD } from "./production-authorization-rollback.mjs";
+import { productionAuthorizationRollbackEligible } from "./production-authorization-rollback.mjs";
+import { classifyArchivedDProductionJobs } from "./production-authorization-rollback-contract.mjs";
 import { assertEReadbackAttempt } from "./e-readback-attempt.mjs";
 import { validateSystemCreatedVerificationRecord } from "./e-stage-readback.mjs";
 import { normalizeDEServiceBindings, isRuntimeConfigurationTimestamp } from "./runtime-configuration.mjs";
@@ -293,19 +294,12 @@ function continuationConfiguration({ stage, job, candidate, runtime, serviceBind
  *       并且都停在「失败、且证明一个请求都没发出去」。
  * 来路不明的外来作业照旧判冲突。
  */
-function dJobsHaveSingleTraceableSource(candidate, relevant, job) {
+function dJobsHaveSingleTraceableSource(candidate, relevant, job, allJobs) {
   const currentRef = job?.scopeBinding?.authorizationRef;
   if (!job || !currentRef) return false;
-  const archivedRefs = new Set((candidate.lifecycleV11?.[PRODUCTION_AUTHORIZATION_ROLLBACK_FIELD] ?? [])
-    .map(entry => entry.productionAuthorizationRef?.authorizationId)
-    .filter(value => typeof value === "string" && value.length > 0));
-  return relevant.every(entry => {
-    const entryRef = entry.scopeBinding?.authorizationRef;
-    if (entryRef === currentRef) return true;
-    return archivedRefs.has(entryRef) && entry.status === "failed" &&
-      entry.externalRequestState === "not_sent" && entry.externalRequestRef === null &&
-      entry.resultEnvelope === null;
-  });
+  const archived = classifyArchivedDProductionJobs({ candidate, jobs: allJobs });
+  return archived.valid && relevant.every(entry =>
+    entry.scopeBinding?.authorizationRef === currentRef || archived.archivedJobIds.has(entry.jobId));
 }
 
 export function buildDESavedJobRuntimeView({ candidate, runtime, serviceBindings = [], productionBindings = [], dependencyView = {}, observedAt }) {
@@ -318,7 +312,8 @@ export function buildDESavedJobRuntimeView({ candidate, runtime, serviceBindings
   const lifecycle = candidate.lifecycleV11, sku = lifecycle?.skuPackage;
   if (!sku) return null;
   const refs = { D: sku.dHandoff?.softwareJobRef, E: lifecycle.eIndependentReadbackJobRefV1 };
-  const jobs = (runtime.softwareJobs ?? []).filter(job => job.candidateId === candidate.id || job.jobId === refs.D?.jobId || job.jobId === refs.E?.jobId);
+  const allJobs = runtime.softwareJobs ?? [];
+  const jobs = allJobs.filter(job => job.candidateId === candidate.id || job.jobId === refs.D?.jobId || job.jobId === refs.E?.jobId);
   if (sku.dHandoff?.schemaVersion !== "c2-d-handoff-v2" && !refs.D && !refs.E &&
       !jobs.some(job => Object.values(TYPES).includes(job.jobType))) return null;
   const document = { candidates: [candidate], runtime: { softwareJobs: jobs } };
@@ -334,7 +329,7 @@ export function buildDESavedJobRuntimeView({ candidate, runtime, serviceBindings
         authorizationFingerprint: sku.productionAuthorization ? fingerprintCanonicalRecord(sku.productionAuthorization) : null })
       : relevant.find(entry => entry.jobId === refs[stage]?.jobId) ?? relevant[0];
     let view = stageBase(stage, job);
-    const sameSource = stage === "D" ? dJobsHaveSingleTraceableSource(candidate, relevant, job) : relevant.length === 1;
+    const sameSource = stage === "D" ? dJobsHaveSingleTraceableSource(candidate, relevant, job, allJobs) : relevant.length === 1;
     if (!job || !sameSource || !refs[stage]) { stages[stage.toLowerCase()] = conflict(view, "DE_SAVED_JOB_REFERENCE_CONFLICT"); continue; }
     try {
       view = savedMaterial(stage, job, candidate, view, observedAt);

@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-10-20T04:22:33.674Z",
+  "frozenAt": "2026-10-20T05:51:41.674Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 1084,
-      "sha256": "536e078cc7fe027015d2fd850b66134b8fa09bb572c463f6b1b33803b48e1c51",
+      "artifactCount": 1086,
+      "sha256": "c7242f0812db28363cf7bacac7f24afc338bec14b6cb0d11eddbc234fad8b160",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -464,7 +464,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "6f3abba4ffd98e153d00d0ae829217ebff1cb49c5003eb5d179b4dcc7c0e2583"
+        "sha256": "dc57d8d48b1e9bbdd38eb938662499bc0b550f30f1c6c93a623d72573fd733dc"
       },
       {
         "path": "lib/capture-assignment.mjs",
@@ -564,7 +564,7 @@
       },
       {
         "path": "lib/d-e-runtime-view.mjs",
-        "sha256": "cee8e9f276cf2cd3c95b3c32329cfd80a110d144e21196c69d363014c6423e99"
+        "sha256": "56ec0276d5ebcb624a0cc3f4423e4374a854d69b87000c86ca0bb3467c231f88"
       },
       {
         "path": "lib/d-e-software-closure.mjs",
@@ -900,7 +900,7 @@
       },
       {
         "path": "lib/ozon-account-read-coordination.mjs",
-        "sha256": "824ddfc22ad44f2bbeaa4961c06081d4fa15a3c6fa9dd5acdc6683a3d33b7541"
+        "sha256": "1a2557db49480edfb800cb60b9d7837389a084dbbc860dc9d859bb76304001e1"
       },
       {
         "path": "lib/ozon-account-read-evidence.mjs",
@@ -1095,12 +1095,16 @@
         "sha256": "f0de07c6988b8dda3a9fd9bfb59bf6374b85798c2e0040289f73b876850ac936"
       },
       {
+        "path": "lib/production-authorization-rollback-contract.mjs",
+        "sha256": "79fca53b1b1eaa00c9a3b3f439d58453d8cddd3e279753c9695236c20f79b643"
+      },
+      {
         "path": "lib/production-authorization-rollback-use-case.mjs",
         "sha256": "c586c0d4bae610bcbb51fb518439ed5c821328ba2c603b181bcd866cdf6a7452"
       },
       {
         "path": "lib/production-authorization-rollback.mjs",
-        "sha256": "d8931a50bbd554ac04ed77257fc6948837962905180435d11e27e33c5f414b52"
+        "sha256": "bb15970c27772b12ce24e0e88ac138c7b032e3d55d36d8f75efac4da760aa46b"
       },
       {
         "path": "lib/production-authorization-snapshot.mjs",
@@ -3725,6 +3729,10 @@
       {
         "path": "tests/ozon-account-read-integration.test.mjs",
         "sha256": "b5f6eea19b1989462f7cb0f7d9396133954da98f2fea0a95834286ef929c28e7"
+      },
+      {
+        "path": "tests/ozon-account-read-rollback-coordination.test.mjs",
+        "sha256": "b652697c53160520dfeec3bec0df9ce2c64836c0f0e10750f6d20b75b76af2e1"
       },
       {
         "path": "tests/ozon-account-read-runtime.test.mjs",
@@ -7566,6 +7574,7 @@
         "tests/ozon-account-preparation-api-boundary.test.mjs",
         "tests/ozon-account-read-api.test.mjs",
         "tests/ozon-account-read-runtime.test.mjs",
+        "tests/ozon-account-read-rollback-coordination.test.mjs",
         "tests/ozon-account-read-integration.test.mjs",
         "tests/ozon-account-read-api-boundary.test.mjs",
         "tests/ozon-account-read-ui.test.mjs",
@@ -7576,6 +7585,7 @@
         "lib/d-production-preparation-contract.mjs",
         "lib/d-production-round-use-case.mjs",
         "lib/production-authorization-rollback.mjs",
+        "lib/production-authorization-rollback-contract.mjs",
         "lib/production-authorization-rollback-use-case.mjs",
         "tests/production-authorization-rollback.test.mjs",
         "tests/production-authorization-rollback-acceptance.test.mjs",
