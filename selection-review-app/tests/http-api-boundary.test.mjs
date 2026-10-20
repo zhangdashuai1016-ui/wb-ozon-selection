@@ -4,6 +4,8 @@ import test from "node:test";
 
 import {
   assertTrustedApiRequest,
+  isChromeExtensionOrigin,
+  isExtensionEndpoint,
   isTrustedInternalApiRequest,
   normalizeAllowedChromeExtensionOrigins,
   normalizeHttpErrorResponse,
@@ -229,4 +231,47 @@ test("扩展API默认不信任任意chrome-extension来源，只接受显式白�
       "content-type": "application/json"
     }
   }), /已配置的本机Chrome扩展来源/);
+});
+
+test("插件回传的每条路由都按插件来源核对，Seerfar 一轮的结果也在里面", () => {
+  const extension = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const request = (pathname, origin) => assertTrustedApiRequest({
+    method: "POST",
+    pathname,
+    trustedServiceOrigins: ["http://127.0.0.1:4317"],
+    allowedReviewOrigins: ["http://127.0.0.1:4317"],
+    allowedExtensionOrigins: [extension],
+    headers: { host: "127.0.0.1:4317", origin, "content-type": "application/json", "sec-fetch-site": "same-origin" }
+  });
+  const pluginRoutes = ["/api/extension/heartbeat", "/api/extension/capture-jobs/job-1/claim", "/api/extension/capture-jobs/job-1/search-image",
+    "/api/candidates/C-1/source-capture/result", "/api/candidates/C-1/sales-capture/result", "/api/candidates/C-1/image-match/result",
+    "/api/candidates/C-1/ozon-match/result", "/api/seerfar-selection/rounds/round-1/result"];
+  for (const pathname of pluginRoutes) {
+    assert.equal(isExtensionEndpoint(pathname), true, pathname);
+    assert.equal(request(pathname, extension), true, pathname);
+    assert.throws(() => request(pathname, "http://127.0.0.1:4317"), /已配置的本机Chrome扩展来源/u, pathname);
+  }
+  // Starting a round stays the review page's.
+  assert.equal(isExtensionEndpoint("/api/seerfar-selection/rounds"), false);
+  assert.equal(request("/api/seerfar-selection/rounds", "http://127.0.0.1:4317"), true);
+});
+
+test("团队账号下插件路由收任何插件来源（钥匙在后面核），网页路由和不像插件的来源照旧不收", () => {
+  const request = ({ pathname, origin, anyChromeExtensionOrigin }) => assertTrustedApiRequest({
+    method: "POST", pathname, anyChromeExtensionOrigin,
+    trustedServiceOrigins: ["https://ozon.example.com"], allowedReviewOrigins: ["https://ozon.example.com"], allowedExtensionOrigins: [],
+    headers: { host: "ozon.example.com", origin, "content-type": "application/json", "sec-fetch-site": "same-origin" }
+  });
+  const someComputer = "chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  assert.equal(isChromeExtensionOrigin(someComputer), true);
+  assert.equal(request({ pathname: "/api/extension/heartbeat", origin: someComputer, anyChromeExtensionOrigin: true }), true);
+  assert.equal(request({ pathname: "/api/seerfar-selection/rounds/round-1/result", origin: someComputer, anyChromeExtensionOrigin: true }), true);
+  // Without team accounts only the configured plugin counts, as before.
+  assert.throws(() => request({ pathname: "/api/extension/heartbeat", origin: someComputer, anyChromeExtensionOrigin: false }), /已配置的本机Chrome扩展来源/u);
+  for (const origin of ["chrome-extension://not-an-id", "chrome-extension://BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", "https://ozon.example.com", "https://evil.example"]) {
+    assert.equal(isChromeExtensionOrigin(origin), false, origin);
+    assert.throws(() => request({ pathname: "/api/extension/heartbeat", origin, anyChromeExtensionOrigin: true }), /已配置的本机Chrome扩展来源/u, origin);
+  }
+  // A page route never takes a plugin's origin.
+  assert.throws(() => request({ pathname: "/api/workstations/add", origin: someComputer, anyChromeExtensionOrigin: true }), /非评审台页面来源/u);
 });

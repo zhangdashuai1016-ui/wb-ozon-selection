@@ -109,10 +109,12 @@ export function parseHttpRequestTarget(rawTarget, hostHeader, { fallbackHost = "
   return Object.freeze({ requestUrl, pathname });
 }
 
-function isExtensionEndpoint(pathname) {
+/** Every route the plugin calls. A Seerfar round's result was left out, so the plugin could never hand one in (403). */
+export function isExtensionEndpoint(pathname) {
   return pathname === "/api/extension/heartbeat" ||
-    /^\/api\/extension\/capture-jobs\/[A-Za-z0-9_-]{1,160}\/claim$/.test(String(pathname || "")) ||
-    /^\/api\/candidates\/[^/]+\/(?:source-capture|sales-capture)\/result$/.test(String(pathname || ""));
+    /^\/api\/extension\/capture-jobs\/[A-Za-z0-9_-]{1,160}\/(?:claim|search-image)$/.test(String(pathname || "")) ||
+    /^\/api\/candidates\/[^/]+\/(?:source-capture|sales-capture|image-match|ozon-match)\/result$/.test(String(pathname || "")) ||
+    /^\/api\/seerfar-selection\/rounds\/[^/]+\/result$/.test(String(pathname || ""));
 }
 
 function isBinaryBodyEndpoint(pathname) {
@@ -124,6 +126,11 @@ function assertJsonContentType(headers) {
   if (!JSON_CONTENT_TYPE_PATTERN.test(contentType)) {
     throw boundaryError(415, "写请求必须使用application/json", "json_content_type_required");
   }
+}
+
+/** A plugin's origin as Chrome writes it: chrome-extension:// and the 32-letter id. */
+export function isChromeExtensionOrigin(value) {
+  return CHROME_EXTENSION_ORIGIN_PATTERN.test(String(value || ""));
 }
 
 export function isTrustedInternalApiRequest(headers, expectedToken) {
@@ -143,6 +150,9 @@ export function assertTrustedApiRequest({
   trustedServiceOrigins = [],
   allowedReviewOrigins = [],
   allowedExtensionOrigins = [],
+  // Under team accounts every computer loads the plugin with its own id, and the computer's key (checked after this) says
+  // which computer a call is from; any plugin origin may then knock, and only a key lets it in.
+  anyChromeExtensionOrigin = false,
   internalRequestToken = ""
 }) {
   const host = normalizeHost(headers.host);
@@ -167,7 +177,7 @@ export function assertTrustedApiRequest({
 
   if (isExtensionEndpoint(pathname)) {
     const allowed = new Set(allowedExtensionOrigins.map((entry) => normalizeChromeExtensionOrigin(entry)));
-    if (!origin || !allowed.has(origin)) {
+    if (!origin || !(allowed.has(origin) || (anyChromeExtensionOrigin === true && CHROME_EXTENSION_ORIGIN_PATTERN.test(origin)))) {
       throw boundaryError(403, "只接受已配置的本机Chrome扩展来源", "extension_origin_forbidden");
     }
     return true;

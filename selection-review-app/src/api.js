@@ -1,7 +1,18 @@
+/** Sent with each request under team accounts, so the service knows which computer's plugin a job started here is for. */
+export const PAGE_WORKSTATION_HEADER = "X-Selection-Review-Workstation";
+const WORKSTATION_ID = /^workstation:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+let pageWorkstation = "";
+
+/** The computer this page's plugin said it is (empty when it has none, or no plugin answered). */
+export function setPageWorkstation(workstationId) {
+  pageWorkstation = typeof workstationId === "string" && WORKSTATION_ID.test(workstationId) ? workstationId : "";
+}
+
 async function request(path, options = {}) {
   const response = await fetch(path, {
     ...options,
-    headers: { "Content-Type": "application/json", ...options.headers }
+    headers: { "Content-Type": "application/json", ...(pageWorkstation ? { [PAGE_WORKSTATION_HEADER]: pageWorkstation } : {}),
+      ...options.headers }
   });
   let body;
   try { body = await response.json(); }
@@ -42,9 +53,23 @@ async function uploadFile(path, file) {
 }
 
 export const api = {
+  // 录入页（piece B）：平台和店铺名单、店铺档案。贴链接、找货队列和重跑用下面录入流水线那几个。
+  // 平台和店铺登记表：{ registryVersion, platforms: [{ platform, label, storeIds }], stores: [{ storeId, platform, label, labelConfirmed, identityConfigured }] }
+  getStores: signal => request('/api/stores', { signal }),
+  // WB 粗算：这件放到 WB 卖每件大概赚多少、保本价和过线价。priceRub 换售价，wbSubject 指定 WB 类目号；都可不传。只读。
+  getWbRoughProfit: (candidateId, { priceRub = null, wbSubject = null } = {}, signal) => {
+    const query = new URLSearchParams(Object.entries({ priceRub, wbSubject }).filter(([, value]) => value !== null && value !== ''));
+    return request(`/api/candidates/${encodeURIComponent(candidateId)}/wb-rough-profit${query.size ? `?${query}` : ''}`, { signal });
+  },
+  getStoreProfiles: signal => request('/api/store-profiles', { signal }),
+  saveStoreProfile: ({ store, baseVersion, values }) => request(`/api/store-profiles/${encodeURIComponent(store)}`, {
+    method: 'POST', body: JSON.stringify({ baseVersion, values })
+  }),
   getC2UploadDraft: id => request(`/api/candidates/${encodeURIComponent(id)}/lifecycle/c2/upload-draft`),
   getSiblingPreparation: id => request(`/api/sibling-batches/${encodeURIComponent(id)}/preparation`),
   saveSiblingPreparation: (id,payload) => request(`/api/sibling-batches/${encodeURIComponent(id)}/preparation-draft`, {method:'POST',body:JSON.stringify(payload)}),
+  getSiblingPreparationEvidence: (id,payload) => request(`/api/sibling-batches/${encodeURIComponent(id)}/preparation-evidence?${new URLSearchParams({parentRevision:payload.parentRevision,draftRevision:payload.draftRevision})}`),
+  prepareSiblingLocalEvidence: (id,payload) => request(`/api/sibling-batches/${encodeURIComponent(id)}/preparation-evidence`, {method:'POST',body:JSON.stringify(payload)}),
   getSiblingCatalogFile: async (id,assetId) => {
     const response=await fetch(`/api/sibling-batches/${encodeURIComponent(id)}/preparation-assets/${encodeURIComponent(assetId)}`);
     if(!response.ok)throw new Error('本批原始素材读取失败，已停止暂存');
@@ -73,6 +98,9 @@ export const api = {
   declineProductDiscovery: payload => request('/api/product-discovery/decline',{method:'POST',body:JSON.stringify(payload)}),
   translateProductDiscovery: payload => request('/api/product-discovery/translate',{method:'POST',body:JSON.stringify(payload)}),
   estimateProductDiscovery: payload => request('/api/product-discovery/estimate',{method:'POST',body:JSON.stringify(payload)}),
+  getSeerfarSelection: signal => request('/api/seerfar-selection',{signal}),
+  startSeerfarRound: payload => request('/api/seerfar-selection/rounds',{method:'POST',body:JSON.stringify(payload)}),
+  readStoreSales: payload => request('/api/seerfar-selection/store-sales',{method:'POST',body:JSON.stringify(payload)}),
   recalculateBWithExactCommission: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/b/exact-commission/recalculate`, {
     method: "POST", body: JSON.stringify(payload)
   }),
@@ -96,6 +124,9 @@ export const api = {
   getC1OzonAttributes: (candidateId, signal) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/ozon-attributes`, { signal }),
   // 重读这个类目的 Schema，把计划里冻结的那一份换成新的（只读、免费）。
   refreshC1CategorySchema: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/refresh-category-schema`, {
+    method: "POST", body: JSON.stringify(payload)
+  }),
+  adoptSavedC1CategorySchema: (candidateId, payload) => request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/c1/adopt-saved-category-schema`, {
     method: "POST", body: JSON.stringify(payload)
   }),
   // 让软件把属性表填好（会花一次 AI 调用的钱，所以是主人主动点）。
@@ -134,8 +165,20 @@ export const api = {
   }),
   getOwnerAccess: signal => request("/api/owner-access", { signal }),
   setupOwnerAccess: ({ password }) => request("/api/owner-access/setup", { method: "POST", body: JSON.stringify({ password }) }),
-  loginOwnerAccess: ({ password }) => request("/api/owner-access/login", { method: "POST", body: JSON.stringify({ password }) }),
+  // A team account also sends its login name; the local owner only the password.
+  loginOwnerAccess: ({ password, loginName }) => request("/api/owner-access/login", { method: "POST",
+    body: JSON.stringify(typeof loginName === "string" ? { loginName, password } : { password }) }),
   logoutOwnerAccess: () => request("/api/owner-access/logout", { method: "POST", body: JSON.stringify({}) }),
+  // Team accounts: anyone changes their own password; a boss lists the accounts and sets a new password for another one.
+  changeOwnPassword: ({ currentPassword, newPassword }) => request("/api/owner-access/password", { method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword }) }),
+  listTeamAccounts: signal => request("/api/team-accounts", { signal }),
+  resetTeamPassword: ({ userId, newPassword }) => request("/api/team-accounts/reset-password", { method: "POST",
+    body: JSON.stringify({ userId, newPassword }) }),
+  // Team accounts: the computers whose plugin works for the team. Adding one answers with its key, once.
+  listWorkstations: signal => request("/api/workstations", { signal }),
+  addWorkstation: ({ name }) => request("/api/workstations/add", { method: "POST", body: JSON.stringify({ name }) }),
+  removeWorkstation: ({ workstationId }) => request("/api/workstations/remove", { method: "POST", body: JSON.stringify({ workstationId }) }),
   getSeerfarRuntimeStatus: () => request("/api/integrations/seerfar/runtime-status"),
   getPhase2ASimulation: () => request("/api/simulations/phase-2a"),
   confirmPhase2ASimulation: (payload) =>
@@ -164,6 +207,12 @@ export const api = {
     request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/supplier-draft`, { signal }),
   saveSupplierDraft: (candidateId, payload) =>
     request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/supplier-draft`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  // 包装尺寸改成实际的：只换找货方案里的长宽高，这一项记成主人填的，估算按新尺寸重算。不派任务、不联系供应商、不碰平台。
+  reviseSupplierDraftDimensions: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/supplier-draft-dimensions`, {
       method: "POST",
       body: JSON.stringify(payload)
     }),
@@ -260,6 +309,10 @@ export const api = {
     request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/d/unknown-outcome-reobservation`, {
       method: "POST", body: JSON.stringify({ candidateId, confirmPlatformAlreadyCreatedProduct: true, ...payload })
     }),
+  reconcileDFromPlatformState: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/d/platform-state-reconciliation`, {
+      method: "POST", body: JSON.stringify({ candidateId, confirmPlatformStateMatchesThisRound: true, ...payload })
+    }),
   recoverDInitialImport: (candidateId, payload) =>
     request(`/api/candidates/${encodeURIComponent(candidateId)}/lifecycle/d/initial-import-recovery`, {
       method: "POST", body: JSON.stringify({ candidateId, confirmImportAlreadyAcceptedByPlatform: true, ...payload })
@@ -288,6 +341,40 @@ export const api = {
     }),
   // 读一次这个 Ozon 商品页。只送当前数据修订号：要读哪个页面由服务端从这件商品自己已经保存的地址里取，
   // 页面不传目标。回执与 1688 申请采集一模一样，所以接着走 captureStart.js 里同一条开始信号。
+  // 用首图在 1688 找一次同款（拼多多、1688 货源首图或 Ozon 主图）。回执与申请采集同形，接着走 captureStart.js 里同一条开始信号（换成找同款那一条）。
+  startSupplierImageMatch: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/image-match/start`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  // 把这次找同款的结果重新比对一次首图；结果和主人的判断都不动。
+  compareSupplierImageMatch: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/image-match/compare`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  // 主人对其中一条的判断：是同款 / 近似款 / 不是，或撤回。只是同款判断，不是供货确认。
+  judgeSupplierImageMatch: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/image-match/judgement`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  // 在 Ozon 找同款：带上这次搜的俄文词。回执与申请采集同形，接着走 captureStart.js 里同一条开始信号（换成 Ozon 找同款那一条）。
+  startOzonImageMatch: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/ozon-match/start`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  compareOzonImageMatch: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/ozon-match/compare`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  judgeOzonImageMatch: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/ozon-match/judgement`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   startOzonSalesCapture: (candidateId, payload) =>
     request(`/api/candidates/${encodeURIComponent(candidateId)}/sales-capture/start`, {
       method: "POST",
@@ -367,5 +454,30 @@ export const api = {
     request(`/api/candidates/${id}/listing-readback`, {
       method: "POST",
       body: JSON.stringify(payload)
-    })
+    }),
+  // 录入页：贴链接、看「找货中」、对一件点「重跑」、整页提示上点「接着找」，以及开始信号桥的回执。
+  submitIntakeLinks: (links, targetStore) => request("/api/intake/links", { method: "POST",
+    body: JSON.stringify(targetStore ? { links, targetStore } : { links }) }),
+  // 需要你处理的「贴货源链接」：一条链接接到那件没有货源的商品上，不另建一件（attachTo，见 流程改造-分工与接口.md）。
+  attachIntakeSourceLink: (link, { candidateId, dataRevision }) => request("/api/intake/links", { method: "POST",
+    body: JSON.stringify({ links: [link], attachTo: { candidateId, dataRevision } }) }),
+  getIntakeQueue: ({ bridge = false, signal } = {}) => request(`/api/intake/queue${bridge ? "?bridge=1" : ""}`, { signal }),
+  retryIntake: (candidateId, dataRevision) =>
+    request(`/api/intake/${encodeURIComponent(candidateId)}/retry`, { method: "POST", body: JSON.stringify({ dataRevision }) }),
+  resumeIntake: () => request("/api/intake/resume", { method: "POST", body: "{}" }),
+  reportIntakeStart: (ack, { signal } = {}) => request("/api/intake/start-ack", { method: "POST", body: JSON.stringify(ack), signal }),
+  // 「做这件」确认卡：做 / 不做 / 正式利润没过线之后选换货源、改售价或不做。都只写本地记录，不派任务、不碰平台。
+  acceptGate1: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/gate1/accept`, { method: "POST", body: JSON.stringify(payload) }),
+  skipGate1: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/gate1/skip`, { method: "POST", body: JSON.stringify(payload) }),
+  resolveGate1Shortfall: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/gate1/shortfall`, { method: "POST", body: JSON.stringify(payload) }),
+  // 做这件之后：老商品点一下让软件接着做不花钱的几步，出过错的点一下再试一次。只做本地资料整理，不付费、不碰平台。
+  continueGate1Autopilot: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/gate1/autopilot/continue`, { method: "POST", body: JSON.stringify(payload) }),
+  // 「上架」卡：按已保存资料预演的那张卡（只读），和点一次「上架」（图片确认、生产授权、写入前的一次只读核验许可）。
+  getGate2Preview: (candidateId, signal) => request(`/api/candidates/${encodeURIComponent(candidateId)}/gate2/preview`, { signal }),
+  listGate2: (candidateId, payload) =>
+    request(`/api/candidates/${encodeURIComponent(candidateId)}/gate2/list`, { method: "POST", body: JSON.stringify(payload) })
 };

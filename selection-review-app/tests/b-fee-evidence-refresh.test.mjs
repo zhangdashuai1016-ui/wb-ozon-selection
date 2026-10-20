@@ -50,11 +50,17 @@ const FIXTURE_OTHER_COSTS = Object.freeze({
 });
 
 /** 本机只读来源的桩：读回来的就是官方费率表上那条类目的公开费率，不碰任何外部接口。 */
-function stubProviders({ requests = [] } = {}) {
+function stubProviders(candidate, { requests = [] } = {}) {
   const otherCosts = structuredClone(FIXTURE_OTHER_COSTS);
+  const frozenPrice = candidate.lifecycleV11.opportunityPackage.marketAssessment.recommendedSalePrice;
+  assert.equal(frozenPrice.currency, "RUB");
+  assert.ok(Number.isFinite(frozenPrice.amount) && frozenPrice.amount > 0);
   return createLifecycleBEvidenceProviderRegistry({
     commission: async (request) => {
       requests.push(structuredClone(request));
+      assert.equal(request.candidateId, candidate.id);
+      assert.equal(request.candidateRevision, candidate.dataRevision);
+      assert.equal(request.commissionReferenceScope?.priceRub, frozenPrice.amount, "费用重读必须使用该候选已冻结的成交价");
       return {
         current: true,
         scope: structuredClone(request.scope),
@@ -69,7 +75,7 @@ function stubProviders({ requests = [] } = {}) {
           commissionRate: 0.12,
           commissionEvidenceMode: "official_reference",
           officialCommissionBinding: { schemaVersion: "ozon-official-commission-binding-v1",
-            candidateId: request.candidateId, candidateRevision: request.candidateRevision, priceRub: 1455 },
+            candidateId: request.candidateId, candidateRevision: request.candidateRevision, priceRub: request.commissionReferenceScope.priceRub },
           estimateAuthorized: false,
           exactCommissionRequiredAtC: true,
           descriptionCategoryId: 17028966,
@@ -129,7 +135,7 @@ test("孤儿证据的已冻结商品能重读一次费用证据，新证据和�
   assert.equal(recalculationReadiness(document), "B_EXACT_RECALCULATION_EVIDENCE_UNAVAILABLE");
 
   const requests = [];
-  const { run, committed } = await refreshFeeEvidence(document, { providers: stubProviders({ requests }) });
+  const { run, committed } = await refreshFeeEvidence(document, { providers: stubProviders(candidate, { requests }) });
 
   // 只读了该读的那两样：佣金和 Schema。线路资费和汇率还是当期的，原样复用，没有重新读过。
   assert.deepEqual(run.plan.actions.filter(a => a.action === "prepare_once").map(a => a.kind).sort(), ["commission", "schema"]);
@@ -163,7 +169,7 @@ test("重读不改动任何已冻结的东西：SKU包、供货确认、线路�
   const before = JSON.parse(JSON.stringify(document.candidates[0]));
   const frozenBytes = JSON.stringify(before);
 
-  await refreshFeeEvidence(document, { providers: stubProviders() });
+  await refreshFeeEvidence(document, { providers: stubProviders(document.candidates[0]) });
 
   const after = document.candidates[0];
   assert.equal(JSON.stringify(after), frozenBytes, "整条候选记录逐字节不变");
@@ -185,7 +191,7 @@ test("重读不改利润结论：仍然是那份估算佣金算出来的条件�
   const candidate = document.candidates[0];
   const before = structuredClone(candidate.lifecycleV11.skuPackage.profitModels);
 
-  await refreshFeeEvidence(document, { providers: stubProviders() });
+  await refreshFeeEvidence(document, { providers: stubProviders(candidate) });
 
   assert.deepEqual(candidate.lifecycleV11.skuPackage.profitModels, before, "利润记录不许多一份，也不许改一份");
   const active = candidate.lifecycleV11.skuPackage.profitModels.at(-1);
@@ -211,7 +217,7 @@ test("重读之后复算是 ready；把版本顶高一格，刚读回来的证�
   const candidate = document.candidates[0];
   const revision = candidate.dataRevision;
 
-  await refreshFeeEvidence(document, { providers: stubProviders() });
+  await refreshFeeEvidence(document, { providers: stubProviders(candidate) });
 
   assert.equal(candidate.dataRevision, revision, "重读这一步原地不涨版本");
   assert.equal(recalculationReadiness(document), "ready", "重读完了，复算这一步必须当场可用");
@@ -233,7 +239,7 @@ test("重读之后复算是 ready；把版本顶高一格，刚读回来的证�
 test("重读之后真的复算得动：正式B通过，进C1，用的是官方费率表那条公开费率", async () => {
   const { document } = await strandedScenario();
   const candidate = document.candidates[0];
-  await refreshFeeEvidence(document, { providers: stubProviders() });
+  await refreshFeeEvidence(document, { providers: stubProviders(candidate) });
 
   const prepared = prepareSavedConditionalBExactInputs({ candidate, evidencePacks: document.evidencePacks,
     otherCosts: currentOtherCosts(candidate), processedAt: REFRESHED_AT });
@@ -327,7 +333,7 @@ test("落盘只写证据：候选记录和版本号原地不动，落盘失败�
   const candidate = document.candidates[0];
   const run = await runLifecycleBEvidencePreparation({
     candidate, evidencePacks: document.evidencePacks, currentCommissionCatalogs: [],
-    providers: stubProviders(), plannedAt: REFRESHED_AT, preparedAt: REFRESHED_AT });
+    providers: stubProviders(candidate), plannedAt: REFRESHED_AT, preparedAt: REFRESHED_AT });
   assert.equal(run.status, "completed");
   const options = { createdAt: REFRESHED_AT, currentCommissionCatalogs: [], createdBy: "owner_b_evidence_refresh" };
   const packs = () => run.evidencePacksToCommit.map(pack => structuredClone(pack));

@@ -5,6 +5,7 @@ import { sameStoreRef } from "./store-binding.mjs";
 import { buildLifecycleBExplicitOtherCosts, resolveLifecycleBProfitRule } from "./lifecycle-b-evidence-runtime.mjs";
 import { createLifecycleBInputBundle, validateLifecycleBInputBundle } from "./lifecycle-b-input-bundle.mjs";
 import { runSkuProfitModel } from "./profit-model.mjs";
+import { COST_POLICY_PROFIT_CALCULATION_VERSIONS } from "./profit-model-calculation.mjs";
 import { createSoftwareExecutionRuntime, waitForOwner } from "./software-execution-state.mjs";
 import { createC1ProductPlan } from "./c1-product-plan.mjs";
 import { validateOwnerSupplyConfirmation } from "./supplier-selection-flow.mjs";
@@ -20,7 +21,7 @@ const DOWNSTREAM = ["productionAuthorization", "productionRecord", "dHandoff", "
 function currentCostsMatchProfit(model, bundle, supplier) {
   const fees = bundle.platformFeeEvidence;
   const expectedIds = [fees.evidenceId, bundle.logisticsEvidence.evidenceId, bundle.exchangeRateEvidence.evidenceId];
-  return model.calculation?.version === "profit-calculation-v3-cost-policy-snapshot" &&
+  return COST_POLICY_PROFIT_CALCULATION_VERSIONS.includes(model.calculation?.version) &&
     isDeepStrictEqual(model.inputSnapshotRefs.slice(2), expectedIds) && model.commissionRate === fees.commissionRate &&
     model.actualPurchaseCost.amount === supplier.actualPurchaseCost &&
     model.internationalFreight.amount === bundle.logisticsEvidence.amountRmb && model.internationalFreight.route === bundle.logisticsEvidence.route &&
@@ -69,7 +70,8 @@ export function prepareFinalPricingRevision({ candidate, assessment, assessmentI
       !isDeepStrictEqual({ length: supplier.dimensions.length, width: supplier.dimensions.width, height: supplier.dimensions.height }, packaging.dimensionsCm)) reject("FINAL_PRICING_SOURCE_CONFLICT");
   const otherCosts = buildLifecycleBExplicitOtherCosts(candidate, resolveLifecycleBProfitRule(candidate, rules), { asOf: observedAt });
   const bundle = createLifecycleBInputBundle({ candidate, evidencePacks, currentCommissionCatalogs, otherCosts, createdAt: observedAt,
-    normalizedSubmission: { supplierConfirmation: { weightKg: packaging.weightKg, dimensionsCm: packaging.dimensionsCm } } });
+    normalizedSubmission: { targetSalePriceRub: assessment.selectedPriceRub,
+      supplierConfirmation: { weightKg: packaging.weightKg, dimensionsCm: packaging.dimensionsCm } } });
   if (bundle.platformFeeEvidence.commissionEvidenceMode !== "exact") reject("FINAL_PRICING_EXACT_COMMISSION_REQUIRED");
   const next = structuredClone(candidate);
   if (!rejectedReview && assessment.selectedPriceRub === active.recommendedSalePriceRub && currentCostsMatchProfit(active, bundle, supplier) &&
@@ -98,8 +100,12 @@ export function prepareFinalPricingRevision({ candidate, assessment, assessmentI
   }]));
   opportunity.marketAssessment = structuredClone(assessAStageMarket({ opportunityPackage: { ...opportunity, salesSnapshots: opportunity.salesSnapshots.filter(snapshot => selectedIds.includes(snapshot.snapshotId)) }, sampleReviews,
     assessedAt: observedAt, assessmentId: `final-market:${assessment.assessmentId}` }));
-  opportunity.marketAssessment.recommendedSalePrice = { amount: assessment.selectedPriceRub, currency: "RUB",
-    method: "owner_selected_final_price_v1", evidenceRefs: assessment.samples.filter(item => selectedIds.includes(item.snapshotId)).map(item => item.evidenceRef) };
+  const ownerTargetPrice = { amountRub: assessment.selectedPriceRub, candidateId: candidate.id,
+    sourceRevision: assessment.target.sourceRevision, evidenceRef: assessment.assessmentId, confirmedAt: assessment.assessedAt };
+  opportunity.audit.history.push({ event: "final_pricing_owner_price_selected", at: assessment.assessedAt,
+    sourceCandidateId: candidate.id, sourceCandidateRevision: assessment.target.sourceRevision,
+    assessmentRef: assessment.assessmentId, ownerTargetPrice: structuredClone(ownerTargetPrice) });
+  opportunity.audit.updatedAt = observedAt;
   const work = structuredClone(sku);
   for (const key of ["c1ProductPlan", "c2FinalAssets", "productionConfirmationCard"]) work[key] = null;
   delete work.c1RightsReviewRecord;
@@ -107,7 +113,7 @@ export function prepareFinalPricingRevision({ candidate, assessment, assessmentI
   work.businessPhase = "B";
   work.inheritedSalesSnapshotRefs = [...new Set([...work.inheritedSalesSnapshotRefs, ...selectedIds])];
   const calculated = runSkuProfitModel({ opportunityPackage: opportunity, supplySourceOpportunity, skuPackage: work,
-    salesSelection: { salesSnapshotId: selectedIds[0] }, platformFeeEvidence: bundle.platformFeeEvidence,
+    salesSelection: { salesSnapshotId: selectedIds[0], ownerTargetPrice }, platformFeeEvidence: bundle.platformFeeEvidence,
     logisticsEvidence: bundle.logisticsEvidence, exchangeRateEvidence: bundle.exchangeRateEvidence, calculatedAt: observedAt });
   const passed = calculated.profitModel.result === "passed";
   const revised = passed ? createC1ProductPlan({ opportunityPackage: opportunity, skuPackage: calculated.skuPackage,

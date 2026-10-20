@@ -5,7 +5,8 @@ import { createSelectionReviewRuntimeConfiguration } from '../lib/runtime-config
 import { createMemoryBusinessStateRepository } from '../lib/business-state-repository.mjs';
 import { createLocalDevelopmentWorkerRegistry } from '../lib/worker-registry.mjs';
 import { createOzonDEHttpTransport, OzonDEHttpTransportError } from '../lib/ozon-de-http-transport.mjs';
-import { createOzonAccountReadBindingResolver, accountReadBindingForProduction } from '../lib/ozon-account-read-preparation.mjs';
+import { createOzonAccountReadBindingResolver, accountReadBindingForProduction, buildOzonAccountReadPreparation } from '../lib/ozon-account-read-preparation.mjs';
+import { OzonAccountReadError } from '../lib/ozon-account-read-contract.mjs';
 import { createOzonAccountReadEvidenceSource, composeOzonAccountPreflightEvidence } from '../lib/ozon-account-read-evidence.mjs';
 import { createRepositoryBackedOzonDEPreflightEvidenceReader } from '../lib/ozon-de-preflight-evidence-reader.mjs';
 import { loadOzonDEProtocolCatalog } from '../lib/ozon-de-protocol-catalog.mjs';
@@ -26,6 +27,74 @@ import { productionOwnerDecisionFixture } from './fixtures/production-owner-deci
 import { commitSiblingBatchC2Final } from '../lib/sibling-batch-c2-final.mjs';
 import { commitBatchOwnerProductionAuthorization } from '../lib/d-batch-production-authorization.mjs';
 import { enqueueDProductionHandoffInDocument } from '../lib/d-e-software-job-handoff.mjs';
+
+function accountRoutingFixture() {
+  const storeRef = { stableStoreId: 'miska', platformStoreId: 'synthetic-routing-store', mappingVersion: 'synthetic:1' };
+  const binding = { bindingId: 'binding:synthetic-routing', configurationVersion: 'version:1', platform: 'ozon',
+    storeRef, warehouseRef: 'warehouse:synthetic-routing', warehouseId: '10001', credentialAlias: 'credential-alias:synthetic-routing',
+    storeName: '合成店铺', warehouseName: '合成仓库' };
+  const candidate = { id: 'candidate:synthetic-routing', dataRevision: 11, targetPlatform: 'ozon', targetStore: 'miska', storeRef,
+    lifecycleV11: { skuPackage: { skuPackageId: 'sku:synthetic-routing', targetPlatform: 'ozon', targetStore: 'miska' } } };
+  const configuration = { productionBindings: [binding],
+    ozonDECredentialBindings: [{ credentialAlias: binding.credentialAlias, clientId: '700123' }],
+    ozonAccountReadServiceBindings: [{ productionBindingId: binding.bindingId, productionConfigurationVersion: binding.configurationVersion }] };
+  const authorization = { executionBinding: { bindingId: binding.bindingId,
+    configurationVersion: binding.configurationVersion, warehouseId: binding.warehouseId },
+    lockedScope: { warehouseRef: binding.warehouseRef, credentialAlias: binding.credentialAlias },
+    sourceCandidateRevision: 2, resultCandidateRevision: 3 };
+  return { candidate, configuration, binding, authorization };
+}
+
+test('invalid historical production routing blocks account preparation and command resolution without mutating or selecting a new route', () => {
+  const f = accountRoutingFixture();
+  const malformed = [false, 0, [], { lockedScope: { merchantSku: 'HISTORICAL-PARENT' } },
+    { ...f.authorization, executionBinding: null },
+    { ...f.authorization, executionBinding: { ...f.authorization.executionBinding, warehouseId: 10001 } },
+    { ...f.authorization, lockedScope: null },
+    { ...f.authorization, lockedScope: { warehouseRef: 'unknown', credentialAlias: f.binding.credentialAlias } },
+    { ...f.authorization, lockedScope: { warehouseRef: f.binding.warehouseRef, credentialAlias: '' } }];
+  for (const authorization of malformed) {
+    const candidate = structuredClone(f.candidate);
+    candidate.lifecycleV11.skuPackage.productionAuthorization = authorization;
+    const document = { candidates: [candidate] }, before = structuredClone({ document, configuration: f.configuration });
+    const runtimeView = [{ jobId: 'job:historical-routing', status: 'unknown_outcome' }];
+    const view = buildOzonAccountReadPreparation({ candidate, configuration: f.configuration, runtimeView });
+    assert.equal(view.status, 'blocked');
+    assert.equal(view.blocker.code, 'OZON_ACCOUNT_READ_PRODUCTION_ROUTING_INVALID');
+    assert.match(view.blocker.reason, /历史生产授权.*账户或仓库路由.*阻塞/u);
+    assert.equal(view.message, view.blocker.reason);
+    assert.deepEqual(view.options, []);
+    assert.strictEqual(view.runtime, runtimeView);
+    assert.equal(view.platformWrites, 0);
+    assert.throws(() => createOzonAccountReadBindingResolver(f.configuration)({ document, candidateId: candidate.id,
+      skuPackageId: candidate.lifecycleV11.skuPackage.skuPackageId, bindingId: f.binding.bindingId,
+      configurationVersion: f.binding.configurationVersion }),
+    error => error instanceof OzonAccountReadError && error.code === 'OZON_ACCOUNT_READ_PRODUCTION_ROUTING_INVALID');
+    assert.deepEqual({ document, configuration: f.configuration }, before);
+  }
+});
+
+test('account routing stays available without production authorization and with legal routing after technical revision progress', () => {
+  const f = accountRoutingFixture();
+  for (const authorization of [undefined, null, f.authorization]) {
+    const candidate = structuredClone(f.candidate);
+    if (authorization !== undefined) candidate.lifecycleV11.skuPackage.productionAuthorization = structuredClone(authorization);
+    const document = { candidates: [candidate] }, before = structuredClone({ document, configuration: f.configuration });
+    const view = buildOzonAccountReadPreparation({ candidate, configuration: f.configuration, runtimeView: [] });
+    assert.notEqual(view.status, 'blocked');
+    assert.equal(view.expectedRevision, 11);
+    assert.equal(view.options.length, 1);
+    const binding = createOzonAccountReadBindingResolver(f.configuration)({ document, candidateId: candidate.id,
+      skuPackageId: candidate.lifecycleV11.skuPackage.skuPackageId, bindingId: f.binding.bindingId,
+      configurationVersion: f.binding.configurationVersion });
+    assert.equal(binding.scopeRef, view.options[0].scopeRef);
+    assert.deepEqual({ document, configuration: f.configuration }, before);
+  }
+  const ambiguous = { ...f.configuration, ozonDECredentialBindings: [...f.configuration.ozonDECredentialBindings,
+    { ...f.configuration.ozonDECredentialBindings[0] }] };
+  assert.throws(() => buildOzonAccountReadPreparation({ candidate: f.candidate, configuration: ambiguous, runtimeView: [] }),
+    error => error instanceof OzonAccountReadError && error.code === 'OZON_ACCOUNT_READ_CREDENTIAL_CONFIGURATION_AMBIGUOUS');
+});
 
 async function fixture({ clockOffsetMs = 0, deRuntimeServices = null, accountRequestJson = null } = {}) {
   const base = await productionOwnerDecisionHttpFixture(), clock = () => new Date(Date.parse(base.owner.formal.at) + clockOffsetMs).toISOString();
@@ -948,6 +1017,48 @@ test('saved account receipts remain visible and explicit corrupt receipt entries
   }
   assert.equal(f.requests.length, 3);
   assert.equal(f.secretReads, 3);
+});
+
+test('invalid historical production routing keeps saved account jobs visible but never current or continuable', async () => {
+  for (const status of ['completed', 'queued']) {
+    const f = await fixture();
+    let jobId;
+    if (status === 'completed') {
+      jobId = (await f.services.authorizeAndRun({ actor: f.base.owner.args.actor, input: f.input })).jobId;
+    } else {
+      const serverClock = () => f.base.owner.formal.at;
+      const configured = f.configuration.ozonAccountReadServiceBindings[0];
+      const runtime = createOzonAccountReadRuntime({ repository: f.repository, serverClock,
+        workerRegistry: createLocalDevelopmentWorkerRegistry({ clock: serverClock }),
+        worker: { workerId: configured.workerId, version: configured.workerVersion, leaseDurationMs: configured.leaseDurationMs },
+        loadCurrentReadBinding: createOzonAccountReadBindingResolver(f.configuration),
+        requestJson: async () => { throw new Error('queued history made a request'); } });
+      jobId = (await runtime.authorizeAndEnqueue({ actor: f.base.owner.args.actor, input: f.input })).job.jobId;
+    }
+    const original = await f.repository.readSnapshot(), document = structuredClone(original), candidate = document.candidates[0];
+    candidate.lifecycleV11.skuPackage.productionAuthorization = { lockedScope: { merchantSku: 'HISTORICAL-PARENT' } };
+    const before = structuredClone(document);
+    const view = f.services.preparation({ candidate, document });
+    assert.equal(view.status, 'blocked');
+    assert.equal(view.blocker.code, 'OZON_ACCOUNT_READ_PRODUCTION_ROUTING_INVALID');
+    assert.deepEqual(view.options, []);
+    assert.deepEqual(view.runtime.map(job => [job.jobId, job.status]), [[jobId, status]]);
+    assert.equal(view.runtime[0].isCurrent, false);
+    assert.equal(view.runtime[0].canContinue, false);
+    assert.equal(view.runtime[0].admissionBlocker, view.blocker.code);
+    assert.equal(view.runtime[0].requestsSent, status === 'completed' ? 3 : 0);
+    assert.deepEqual(view.runtime[0].observedMethods, status === 'completed' ? ['roles', 'seller_info', 'warehouse_list'] : []);
+    assert.deepEqual(document, before);
+    if (status === 'completed') {
+      document.runtime.ozonAccountReadReceipts[jobId] = null;
+      const corrupted = structuredClone(document);
+      assert.throws(() => f.services.preparation({ candidate, document }), error => error instanceof OzonAccountReadError);
+      assert.deepEqual(document, corrupted);
+    }
+    assert.deepEqual(await f.repository.readSnapshot(), original);
+    assert.equal(f.requests.length, status === 'completed' ? 3 : 0);
+    assert.equal(f.secretReads, status === 'completed' ? 3 : 0);
+  }
 });
 
 

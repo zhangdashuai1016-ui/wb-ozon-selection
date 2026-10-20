@@ -192,3 +192,21 @@ test('an existing partial batch cannot capture a selected sibling, while exact h
     input:historical.input}),batch);
   assert.deepEqual(await historical.source.repository.readSnapshot(),saved);
 });
+
+test('a batch that could not be sent now is not created at all, and a saved batch replays without being asked again', async () => {
+  const { source, input, args } = await fixture();
+  const before = await source.repository.readSnapshot();
+  const stop = Object.assign(new Error('D_BATCH_IMPORT_LIMIT_NOT_CURRENT'), { code: 'D_BATCH_IMPORT_LIMIT_NOT_CURRENT' });
+  const asked = [];
+  await assert.rejects(() => commitBatchOwnerProductionAuthorization({ ...args, input,
+    newBatchGate: time => { asked.push(time); throw stop; } }), /D_BATCH_IMPORT_LIMIT_NOT_CURRENT/);
+  assert.deepEqual(asked, [at]);
+  assert.deepEqual(await source.repository.readSnapshot(), before, 'nothing saved and no product held by a batch');
+  const saved = await commitBatchOwnerProductionAuthorization({ ...args, input, newBatchGate: time => { asked.push(time); } });
+  assert.equal(saved.status, 'authorized');
+  assert.equal(asked.length, 2);
+  assert.deepEqual(await commitBatchOwnerProductionAuthorization({ ...args, input, newBatchGate: () => { throw stop; } }), saved,
+    'replaying a saved batch reads it back; the gate is only for creating one');
+  await assert.rejects(() => commitBatchOwnerProductionAuthorization({ ...args, input, newBatchGate: 'yes' }),
+    /D_BATCH_AUTHORIZATION_CONTEXT_INVALID/);
+});

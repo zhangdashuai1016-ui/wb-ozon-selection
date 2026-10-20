@@ -1,9 +1,10 @@
-import { authorizeOperation } from './runtime-identity.mjs';
+import { authorizeOperation, sameTeamUser, teamOperationRoles } from './runtime-identity.mjs';
 import { ADiscoveryError, assertADiscoveryBatch } from './a-discovery-contract.mjs';
 import { isCanonicalFrozenRef } from './production-contract-primitives.mjs';
 import { resolveLifecycleBProfitRule } from './lifecycle-b-evidence-runtime.mjs';
 import { readADiscoveryBatchMarketProducts } from './discovery-title-translation-store.mjs';
 import { estimateDiscoveredProduct, describeEstimate, estimateOutcomeForPool } from './a-discovery-estimate.mjs';
+import { platformOfStore } from './store-registry.mjs';
 
 export const A_DISCOVERY_ESTIMATE_SCHEMA_VERSION = 'a-discovery-estimate-record-v1';
 export const A_DISCOVERY_ESTIMATE_COLLECTION = 'aDiscoveryEstimates';
@@ -94,6 +95,10 @@ const commissionTiersGap = (code, field) => ({ tiers: [], sourceRef: null, gaps:
 
 /** Store cost rules saved by the owner win; the injected defaults only fill fields a saved rule never carried. */
 function storeRuleFor(document, targetStore, fallbackRules) {
+  // The commission and freight resolved here are Ozon's (official table + GUOO). A WB store is estimated by
+  // lib/wb-rough-estimate.mjs with WB's commission and CEL freight; it must never borrow Ozon's numbers.
+  const platform = platformOfStore(targetStore);
+  requireValue(platform === null || platform === 'ozon', 'ESTIMATE_PLATFORM_UNSUPPORTED');
   const saved = isObject(document?.rules) ? document.rules : {};
   const rules = { ...fallbackRules, ...saved,
     ozonMiska: { ...fallbackRules?.ozonMiska, ...saved.ozonMiska },
@@ -211,7 +216,7 @@ export function createADiscoveryEstimateUseCase({ repository, serverClock, rules
 
   return Object.freeze({
     async estimateBatch({ actor, input }) {
-      authorizeOperation({ actor, requiredRoles: ['owner'] });
+      authorizeOperation({ actor, requiredRoles: teamOperationRoles(actor) });
       requireValue(actor.actorType === 'human' && actor.source === 'authenticated_identity_provider', 'AUTHENTICATED_OWNER_REQUIRED');
       requireValue(closed(input, ['batchId', 'expectedRevision']) && isCanonicalFrozenRef(input.batchId) &&
         Number.isSafeInteger(input.expectedRevision) && input.expectedRevision >= 0, 'INPUT_INVALID');
@@ -219,7 +224,7 @@ export function createADiscoveryEstimateUseCase({ repository, serverClock, rules
       const batches = isObject(document?.runtime?.aDiscoveryBatches) ? document.runtime.aDiscoveryBatches : {};
       requireValue(Object.hasOwn(batches, input.batchId), 'BATCH_REQUIRED');
       const batch = assertADiscoveryBatch(batches[input.batchId]);
-      requireValue(batch.ownerUserId === actor.userId, 'OWNER_CONFLICT');
+      requireValue(sameTeamUser(batch.ownerUserId, actor.userId), 'OWNER_CONFLICT');
       requireValue(batch.revision === input.expectedRevision, 'BATCH_CHANGED');
       const at = serverClock();
       requireValue(instant(at), 'ESTIMATE_CLOCK_INVALID');

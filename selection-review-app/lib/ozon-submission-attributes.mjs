@@ -2,6 +2,25 @@ const object = value => value !== null && typeof value === "object" && !Array.is
 const text = value => typeof value === "string" && value.trim().length > 0;
 const fail = code => { throw new Error(code); };
 
+/** The same bounded dictionary collection contract is used by C1, optional fields and required production fields. */
+export function isOzonDictionaryCollectionValue(raw, schema) {
+  return Array.isArray(raw) && object(schema) && schema.dictionaryId > 0 && schema.isCollection === true &&
+    Number.isSafeInteger(schema.maxValueCount) && raw.length >= 1 && raw.length <= schema.maxValueCount &&
+    raw.every(item => object(item) && text(item.value) && Number.isSafeInteger(item.dictionaryValueId) && item.dictionaryValueId > 0) &&
+    new Set(raw.map(item => item.dictionaryValueId)).size === raw.length;
+}
+
+/** Scalar values keep the existing free-text or positive dictionary-ID contract. */
+export function isOzonScalarAttributeValue(raw, schema) {
+  if (Array.isArray(raw) || !object(schema)) return false;
+  if (schema.dictionaryId === 0) {
+    const value = object(raw) ? raw.value : raw;
+    return text(value) || typeof value === "number" && Number.isFinite(value);
+  }
+  return schema.dictionaryId > 0 && object(raw) && text(raw.value) &&
+    Number.isSafeInteger(raw.dictionaryValueId) && raw.dictionaryValueId > 0;
+}
+
 /** Build only explicitly confirmed optional attributes against the locked category schema. */
 export function buildOzonOptionalAttributes({ attributes, platformSchemaAttributes }) {
   if (!object(attributes) || !Array.isArray(attributes.requiredPlatformFields)) fail("OZON_OPTIONAL_ATTRIBUTES_INPUT_INVALID");
@@ -26,18 +45,17 @@ export function buildOzonOptionalAttributes({ attributes, platformSchemaAttribut
         !Number.isSafeInteger(schema.dictionaryId) || schema.dictionaryId < 0 || schema.required !== false) fail("OZON_OPTIONAL_ATTRIBUTE_SCHEMA_INVALID");
     const raw = field.fact.value;
     if (Array.isArray(raw)) {
-      if (schema.dictionaryId <= 0 || schema.isCollection !== true || !Number.isSafeInteger(schema.maxValueCount) || raw.length < 1 || raw.length > schema.maxValueCount ||
-          raw.some(item => !object(item) || !text(item.value) || !Number.isSafeInteger(item.dictionaryValueId) || item.dictionaryValueId <= 0) || new Set(raw.map(item=>item.dictionaryValueId)).size !== raw.length) fail('OZON_OPTIONAL_ATTRIBUTE_COLLECTION_INVALID');
+      if (!isOzonDictionaryCollectionValue(raw, schema)) fail('OZON_OPTIONAL_ATTRIBUTE_COLLECTION_INVALID');
       output.push({ id, complex_id: schema.complexId, values: raw.map(item=>({dictionary_value_id:item.dictionaryValueId,value:item.value})) });
       continue;
     }
     let value, dictionaryValueId;
     if (schema.dictionaryId === 0) {
       value = object(raw) ? raw.value : raw;
-      if (!text(value) && !(typeof value === "number" && Number.isFinite(value))) fail("OZON_OPTIONAL_ATTRIBUTE_VALUE_INVALID");
+      if (!isOzonScalarAttributeValue(raw, schema)) fail("OZON_OPTIONAL_ATTRIBUTE_VALUE_INVALID");
       dictionaryValueId = 0;
     } else {
-      if (!object(raw) || !text(raw.value) || !Number.isSafeInteger(raw.dictionaryValueId) || raw.dictionaryValueId <= 0) {
+      if (!isOzonScalarAttributeValue(raw, schema)) {
         fail("OZON_OPTIONAL_ATTRIBUTE_DICTIONARY_REQUIRED");
       }
       value = raw.value; dictionaryValueId = raw.dictionaryValueId;

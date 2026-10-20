@@ -1,4 +1,5 @@
 import { runtimeArchitectureView } from "./runtimeArchitectureView.js";
+import { intakeExtensionIssues } from "./intakeView.js";
 
 /**
  * 顶栏那一个状态指示器。
@@ -20,7 +21,11 @@ const EXTENSION_ISSUES = Object.freeze({
   disconnected: { tone: "error", sentence: "插件没连上，现在没法采集1688页面" },
   page_refresh_required: { tone: "warning", sentence: "插件装好了，但这一页还没接上它；刷新这一页才能采集1688页面" },
   reload_required: { tone: "warning", sentence: "插件是旧版本，要在浏览器里重新加载一次，否则采集1688页面会失败" },
-  background_unavailable: { tone: "warning", sentence: "插件后台没有响应，现在发不出采集任务" }
+  background_unavailable: { tone: "warning", sentence: "插件后台没有响应，现在发不出采集任务" },
+  tab_left_open: { tone: "warning", sentence: "插件上次打开的一个页面没能自动关上；把它关掉（或重新加载插件）之前发不出新的采集任务" },
+  tab_unconfirmed: { tone: "warning", sentence: "插件上次开页面时 Chrome 没回话；重新加载插件之前发不出新的采集任务" },
+  other_service: { tone: "warning", sentence: "插件连的是别的服务地址，这一页的采集任务它收不到；点浏览器右上角的插件图标，改成这个网址" },
+  workstation_not_added: { tone: "warning", sentence: "这台电脑还没加进团队，插件领不了采集作业；到「维护」里的「干活的电脑」加一下" }
 });
 const EXTENSION_UNKNOWN = { tone: "error", sentence: "插件状态没取到，现在说不准能不能采集1688页面" };
 
@@ -46,11 +51,17 @@ function captureIssue(control) {
   const candidateId = textOf(control?.candidateId);
   const platform = textOf(control?.platform);
   const who = candidateId === "" ? "另一件商品" : candidateId;
+  const where = platform === "" ? "" : `（${platform}）`;
+  // 团队账号下每台电脑各管各的：这里只说这台电脑，别的电脑不受它影响。
+  if (control?.scope === "this_computer") {
+    return { source: "capture", code: "busy", tone: "busy",
+      sentence: `这台电脑的采集通道已由 ${who}${where} 占用，这台电脑上别的商品要等它结束；别的电脑照常能用` };
+  }
   return {
     source: "capture",
     code: "busy",
     tone: "busy",
-    sentence: `${who} 正在采集${platform === "" ? "" : `（${platform}）`}，这会儿别的商品要等它结束`
+    sentence: `采集通道已由 ${who}${where} 占用，这会儿别的商品要等它结束`
   };
 }
 
@@ -64,9 +75,15 @@ function runtimeIssue(view) {
  * 返回的 issues 是全部不正常的条目（顶栏逐条显示），label 是其中最要紧的那一句，detail 永远带着三条各自的原话，
  * 所以就算收成一个圆点，鼠标停上去仍然能看到「本地开发模式」这类被收起来的正常状态。
  */
-export function headerStatusIndicator({ extensionStatus = null, captureControl = null, runtimeArchitecture = null } = {}) {
+export function headerStatusIndicator({ extensionStatus = null, captureControl = null, runtimeArchitecture = null,
+  intakeQueue = null } = {}) {
   const runtime = runtimeArchitectureView(runtimeArchitecture);
-  const issues = [extensionIssue(extensionStatus), captureIssue(captureControl), runtimeIssue(runtime)]
+  // 录入队列回报的插件在线和 1688 登录：插件已经没连上时，那一条已经说了，不再重复。
+  const extensionDown = extensionIssue(extensionStatus)?.code === "disconnected";
+  const intake = intakeExtensionIssues(intakeQueue)
+    .filter(issue => !(extensionDown && issue.code === "plugin_offline"))
+    .map(issue => ({ source: "intake", ...issue }));
+  const issues = [extensionIssue(extensionStatus), captureIssue(captureControl), runtimeIssue(runtime), ...intake]
     .filter(issue => issue !== null)
     .sort((left, right) => TONE_RANK[right.tone] - TONE_RANK[left.tone]);
   const tone = issues.reduce((worst, issue) => (TONE_RANK[issue.tone] > TONE_RANK[worst] ? issue.tone : worst), "ok");

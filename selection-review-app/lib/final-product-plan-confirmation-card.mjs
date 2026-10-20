@@ -115,6 +115,7 @@ export function validateFinalProductPlanConfirmationCard(card) {
   }
   if (isObject(card.profitResult)) {
     for (const field of ["recommendedSalePrice", "unitProfitRmb", "profitMargin"]) validateSourceValue(card.profitResult[field], `profitResult.${field}`, errors);
+    if (Object.hasOwn(card.profitResult, "priceInputs")) validateSourceValue(card.profitResult.priceInputs, "profitResult.priceInputs", errors);
   }
   if (isObject(card.c2Assets)) {
     if (card.c2Assets.sourceArea !== "assets.finalUploads") push(errors, "c2Assets.sourceArea", "确认卡只能读取assets.finalUploads");
@@ -231,6 +232,8 @@ export function createFinalProductPlanConfirmationCard({ skuPackage, createdAt }
         insufficientSamples: skuPackage.finalPricingReview.assessment.insufficientSamples,
         priceBand: skuPackage.finalPricingReview.assessment.priceBand }, [skuPackage.finalPricingReview.assessment.assessmentId]) : null,
       profitModelVersion: profit.profitModelVersion,
+      ...(profit.priceInputs ? { priceInputs: sourceValue(profit.priceInputs,
+        [profit.profitModelVersion, ...profit.marketSampleRefs, profit.priceInputs.ownerTargetPrice.evidenceRef]) } : {}),
       recommendedSalePrice: sourceValue({ rub: profit.recommendedSalePriceRub ?? null, cny: profit.recommendedSalePriceCny ?? null }, [profit.profitModelVersion]),
       unitProfitRmb: sourceValue(profit.unitProfitRmb, [profit.profitModelVersion]),
       profitMargin: sourceValue(profit.profitMargin, [profit.profitModelVersion]),

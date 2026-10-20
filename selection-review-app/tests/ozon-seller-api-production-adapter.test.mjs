@@ -239,6 +239,50 @@ test("rejects draft-only, local assets, unknown attributes and wrong currency be
   assert.throws(() => buildOzonSellerImportRequest(missingDictionaryId), /DICTIONARY_VALUE_REQUIRED/);
 });
 
+function collectionPayload() {
+  const value = payload();
+  value.attributes.requiredPlatformFields[0].fact.value = [
+    { value: 'synthetic first value', dictionaryValueId: 1001 },
+    { value: 'synthetic second value', dictionaryValueId: 1002 }
+  ];
+  Object.assign(value.schemaWriteBindings.requiredAttributes[0], { isCollection: true, maxValueCount: 2 });
+  return value;
+}
+
+test('required dictionary collections keep their exact locked order and values at the current bound', () => {
+  const value = collectionPayload(), before = structuredClone(value);
+  const request = buildOzonSellerImportRequest(value);
+  assert.deepEqual(request.body.items[0].attributes.find(attribute => attribute.id === 85), {
+    id: 85, complex_id: 0, values: [
+      { dictionary_value_id: 1001, value: 'synthetic first value' },
+      { dictionary_value_id: 1002, value: 'synthetic second value' }
+    ]
+  });
+  assert.deepEqual(value, before);
+});
+
+test('required collection validation rejects malformed or out-of-bound frozen values before any transport', () => {
+  for (const change of [
+    value => { value.attributes.requiredPlatformFields[0].fact.value = []; },
+    value => { value.attributes.requiredPlatformFields[0].fact.value = ['synthetic unmapped']; },
+    value => { value.attributes.requiredPlatformFields[0].fact.value[0] = null; },
+    value => { value.attributes.requiredPlatformFields[0].fact.value[1].dictionaryValueId = 1001; },
+    value => { delete value.attributes.requiredPlatformFields[0].fact.value[0].dictionaryValueId; },
+    value => { value.attributes.requiredPlatformFields[0].fact.value[0].dictionaryValueId = 0; },
+    value => { value.attributes.requiredPlatformFields[0].fact.value[0].dictionaryValueId = Number.MAX_SAFE_INTEGER + 1; },
+    value => { value.attributes.requiredPlatformFields[0].fact.value[0].value = ' '; },
+    value => { value.schemaWriteBindings.requiredAttributes[0].isCollection = false; },
+    value => { value.schemaWriteBindings.requiredAttributes[0].dictionaryId = 0; },
+    value => { delete value.schemaWriteBindings.requiredAttributes[0].maxValueCount; },
+    ...[0, 1, -1, 2.5, '2', Number.MAX_SAFE_INTEGER + 1].map(maximum => value => { value.schemaWriteBindings.requiredAttributes[0].maxValueCount = maximum; })
+  ]) {
+    const value = collectionPayload(); change(value);
+    const before = structuredClone(value);
+    assert.throws(() => buildOzonSellerImportRequest(value), { message: 'OZON_ADAPTER_COLLECTION_VALUE_INVALID' });
+    assert.deepEqual(value, before);
+  }
+});
+
 test("uses one import call, one terminal-status call and independent readback without inventory write", async () => {
   const calls = [];
   const adapter = createOzonSellerApiProductionAdapter({

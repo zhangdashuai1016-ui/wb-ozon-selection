@@ -23,8 +23,8 @@ function validateSavedState(state) {
   assert.ok(["d-software-execution-state-v1", "d-software-execution-state-v2"].includes(state.schemaVersion));
   const valid=validate(state);validateSavedState.errors=validate.errors;return valid;
 }
-async function persistenceFixture(createRepository = createMemoryBusinessStateRepository) {
-  const { fixture, plan, preflight, prepared, currentProductionBinding } = await preparedFixture();
+async function persistenceFixture(createRepository = createMemoryBusinessStateRepository, fixtureOptions = {}) {
+  const { fixture, plan, preflight, prepared, currentProductionBinding } = await preparedFixture(fixtureOptions);
   const candidate = { id: fixture.candidateId, dataRevision: fixture.candidateRevision, lifecycleV11: { skuPackage: structuredClone(fixture.skuPackage) } };
   const document = initialBusinessStateDocument({ now: NOW }); document.candidates = [candidate];
   const memory = createRepository(document);
@@ -265,6 +265,27 @@ test("a fresh committed D run persists every checkpoint and terminal record; con
   assert.equal(saved.lifecycleV11.skuPackage.eVerificationRecord, null);
   assert.equal((await runPersistedDExecution({ ...fixture.input, createAdapter })).status, "idempotent_replay");
   assert.equal(factories.length, 1);
+});
+
+test("a D run for an owner-locked stock of 37 writes, checkpoints and records 37 under the published schemas (review P0-5)", async () => {
+  const fixture = await persistenceFixture(undefined, { stock: 37 });
+  assert.equal(fixture.request.stock, 37);
+  const before = await fixture.repository.readSnapshot();
+  // The old fixed count is no longer implied: an owner decision for 100 does not match a 37 authorization.
+  await assert.rejects(() => commitDExecutionIntent({ ...fixture.input,
+    ownerExecutionDecision: { ...fixture.input.ownerExecutionDecision, stock: 100 } }), /D_EXECUTION_OWNER_SCOPE_MISMATCH/);
+  assert.deepEqual(await fixture.repository.readSnapshot(), before);
+  const calls = []; const factories = [];
+  // Every saved state passes the published d-software-execution-state-v2 schema inside the repository wrapper.
+  const result = await runPersistedDExecution({ ...fixture.input, createAdapter: syntheticCheckpointFactory({ ...fixture, calls, factories }) });
+  assert.equal(result.status, "succeeded");
+  assert.deepEqual(calls, ["/v3/product/import", "/v1/product/import/info", "/v2/products/stocks"]);
+  const sku = (await savedCandidate(fixture.repository)).lifecycleV11.skuPackage;
+  assert.equal(sku.dSoftwareExecution.checkpoints.find(event => event.kind === "stock_intent").stock, 37);
+  assert.equal(sku.productionRecord.stockWritten, 37);
+  assert.equal(sku.productionRecord.expectedStock, 37);
+  const validateRecord = schemaValidator.getSchema("production-record-v1.1");
+  assert.equal(validateRecord(sku.productionRecord), true, JSON.stringify(validateRecord.errors));
 });
 
 test("rights expiry after a durable write intent records zero only when no import was sent", async () => {
@@ -592,14 +613,17 @@ test("admission, replay read and terminal persistence failures expose only safe 
       code: "ATOMIC_JSON_DURABILITY_UNCONFIRMED", replaced: true, targetFile: "/private/local/state.json",
       cause: new Error("token=private-value")
     });
+    const failing = mutator => async document => {
+      const result = await mutator(document);
+      const state = result.document?.candidates[0].lifecycleV11.skuPackage.dSoftwareExecution;
+      if (result.changed && ((stage === "admission" && state?.step === "intent_persisted") || (stage === "terminal" && state?.status === "succeeded"))) throw failure;
+      return result;
+    };
     const repository = { ...original,
       readSnapshot: async () => { if (stage === "replay_read") throw failure; return original.readSnapshot(); },
-      transact: mutator => original.transact(async document => {
-        const result = await mutator(document);
-        const state = result.document?.candidates[0].lifecycleV11.skuPackage.dSoftwareExecution;
-        if (result.changed && ((stage === "admission" && state?.step === "intent_persisted") || (stage === "terminal" && state?.status === "succeeded"))) throw failure;
-        return result;
-      })
+      readCandidates: async candidateIds => { if (stage === "replay_read") throw failure; return original.readCandidates(candidateIds); },
+      transact: mutator => original.transact(failing(mutator)),
+      transactCandidates: (candidateIds, mutator) => original.transactCandidates(candidateIds, failing(mutator))
     };
     await assert.rejects(() => runPersistedDExecution({ ...fixture.input, repository,
       createAdapter: syntheticCheckpointFactory({ ...fixture, calls, factories }) }), error => {
@@ -629,9 +653,9 @@ test("durability uncertainty after replacement preserves saved states and never 
   for (const stage of ["admission", "checkpoint", "terminal"]) {
     const fixture = await persistenceFixture(); const calls = []; const factories = [];
     const backing = fixture.repository;
-    const repository = { ...backing, transact: async mutator => {
+    const replacing = run => async mutator => {
       let replaced = false;
-      const result = await backing.transact(async document => {
+      const result = await run(async document => {
         const outcome = await mutator(document);
         const state = outcome.document?.candidates[0].lifecycleV11.skuPackage.dSoftwareExecution;
         replaced = outcome.changed && (stage === "admission" ? state?.step === "intent_persisted"
@@ -641,7 +665,9 @@ test("durability uncertainty after replacement preserves saved states and never 
       if (replaced) throw Object.assign(new Error("durability failure with cookie=synthetic-private-value"), {
         code: "ATOMIC_JSON_DURABILITY_UNCONFIRMED", replaced: true, cause: new Error("synthetic-private-value") });
       return result;
-    } };
+    };
+    const repository = { ...backing, transact: replacing(mutator => backing.transact(mutator)),
+      transactCandidates: (candidateIds, mutator) => replacing(next => backing.transactCandidates(candidateIds, next))(mutator) };
     await assert.rejects(() => runPersistedDExecution({ ...fixture.input, repository,
       createAdapter: syntheticCheckpointFactory({ ...fixture, calls, factories }) }), error => {
       assert.equal(error.code, stage === "checkpoint" ? "D_CHECKPOINT_PERSISTENCE_FAILED" : "D_EXECUTION_PERSISTENCE_FAILED");

@@ -40,6 +40,47 @@ export function assertCurrentC2UploadDraft(candidate, { dataRevision, draftRevis
   return { source, draft };
 }
 
+/** Read the current registration without initializing it or exposing file/storage metadata. */
+export function readCurrentC2UploadDraft(candidate) {
+  const draft = candidate?.lifecycleV11?.c2UploadDraft;
+  const absent = draft === undefined || draft === null;
+  const invalid = () => c2DraftError("c2_upload_draft_invalid", "已保存的素材清单结构无效，请核对原登记；未修改素材或商品资料");
+  if (!absent && (typeof draft !== "object" || Array.isArray(draft) ||
+      !Number.isSafeInteger(draft.revision) || draft.revision < 0)) throw invalid();
+  const { source } = assertCurrentC2UploadDraft(candidate, {
+    dataRevision: candidate?.dataRevision, draftRevision: absent ? 0 : draft.revision
+  });
+  const result = { candidateId: source.candidateId, dataRevision: source.sourceCandidateRevision,
+    draft: null, businessPhaseChanged: false, platformWrites: 0 };
+  if (absent) return result;
+  if (!Array.isArray(draft.uploads) || draft.uploads.length > MAX_UPLOAD_RECORDS ||
+      !Array.isArray(draft.selection) || draft.selection.length > MAX_UPLOAD_RECORDS) throw invalid();
+  const uploads = [], identities = new Set(), readyIds = new Set();
+  for (const upload of draft.uploads) {
+    if (!upload || typeof upload !== "object" || Array.isArray(upload) ||
+        typeof upload.assetId !== "string" ||
+        !/^c2-local:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(upload.assetId) ||
+        identities.has(upload.assetId) || !["uploading", "ready", "failed"].includes(upload.status)) throw invalid();
+    identities.add(upload.assetId);
+    const projected = { assetId: upload.assetId, status: upload.status };
+    if (upload.status === "ready") {
+      if (typeof upload.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(upload.sha256)) throw invalid();
+      projected.sha256 = upload.sha256;
+      readyIds.add(upload.assetId);
+    }
+    uploads.push(projected);
+  }
+  const selection = [], selectedIds = new Set();
+  for (const [index, item] of draft.selection.entries()) {
+    if (!item || typeof item !== "object" || Array.isArray(item) || !readyIds.has(item.assetId) ||
+        selectedIds.has(item.assetId) || item.order !== index + 1) throw invalid();
+    selectedIds.add(item.assetId);
+    selection.push({ assetId: item.assetId, order: item.order });
+  }
+  result.draft = { revision: draft.revision, uploads, selection };
+  return result;
+}
+
 // 槽位合同已废止：平台从没给过槽位或张数上限，选几张、按什么顺序由主人自己定，第一张就是主图。
 
 export function reserveC2Upload(candidate, { dataRevision, draftRevision, uploadId, fileName, mediaType, contentType, startedAt }) {

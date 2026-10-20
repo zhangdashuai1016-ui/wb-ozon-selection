@@ -328,7 +328,8 @@
               "enum": [
                 "profit-calculation-v1-unrounded",
                 "profit-calculation-v2-formal-commission",
-                "profit-calculation-v3-cost-policy-snapshot"
+                "profit-calculation-v3-cost-policy-snapshot",
+                "profit-calculation-v4-owner-target-price"
               ]
             },
             "recommendedSalePriceCny": {
@@ -347,7 +348,8 @@
         "commissionMode": {
           "enum": [
             "exact",
-            "estimated"
+            "estimated",
+            "official_reference"
           ]
         },
         "calculationType": {
@@ -370,6 +372,13 @@
         }
       },
       "allOf": [
+        {
+          "if": { "required": ["priceInputs"], "properties": { "priceInputs": { "type": "object" } } },
+          "then": {
+            "required": ["calculation"],
+            "properties": { "calculation": { "type": "object", "properties": { "version": { "const": "profit-calculation-v4-owner-target-price" } } } }
+          }
+        },
         {
           "if": {
             "required": [
@@ -441,7 +450,7 @@
                 "type": "object",
                 "properties": {
                   "version": {
-                    "const": "profit-calculation-v3-cost-policy-snapshot"
+                    "enum": ["profit-calculation-v3-cost-policy-snapshot", "profit-calculation-v4-owner-target-price"]
                   }
                 }
               }

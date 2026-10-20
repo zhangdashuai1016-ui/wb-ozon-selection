@@ -123,6 +123,7 @@ function roundUp(value, increment) {
  */
 export function calculateProjectSourceMarketFit({
   marketReferencePriceCny,
+  targetSalePriceCny,
   actualPurchaseCostCny,
   packagingCostCny,
   internationalFreightPerOrderCny,
@@ -138,6 +139,7 @@ export function calculateProjectSourceMarketFit({
   resolvedCostPolicy,
 }) {
   positive(marketReferencePriceCny, "A阶段市场目标成交价");
+  if (targetSalePriceCny !== undefined) positive(targetSalePriceCny, "主人确认目标成交价");
   positive(quantity, "定价数量");
   if (!Number.isInteger(quantity)) throw new Error("PRICING_INPUT_GAP: 定价数量必须是整数");
   const purchase = finiteNonNegative(actualPurchaseCostCny, "采购到手成本");
@@ -186,12 +188,16 @@ export function calculateProjectSourceMarketFit({
   const minimumProfitFloorCny = (equivalentFixedCostPerUnitCny + minimumProfit) / netRate;
   const qualifyingFloorBeforeRoundingCny = Math.min(marginFloorCny, minimumProfitFloorCny);
   const qualifyingFloorCny = roundUp(qualifyingFloorBeforeRoundingCny, increment);
-  const evaluatedUnitProfitCny = marketReferencePriceCny * netRate - equivalentFixedCostPerUnitCny;
-  const evaluatedProfitMargin = evaluatedUnitProfitCny / marketReferencePriceCny;
-  const thresholdPassed = evaluatedUnitProfitCny >= minimumProfit || evaluatedProfitMargin >= targetMargin;
+  const evaluatePrice = price => {
+    const profit = price * netRate - equivalentFixedCostPerUnitCny;
+    const margin = profit / price;
+    return { unroundedUnitProfitCny: profit, unitProfitCny: roundMoney(profit), profitMargin: roundRate(margin),
+      thresholdPassed: profit >= minimumProfit || margin >= targetMargin };
+  };
+  const marketEvaluation = evaluatePrice(marketReferencePriceCny);
   const marketHeadroomCny = marketReferencePriceCny - qualifyingFloorCny;
   const premiumRate = marketReferencePriceCny > 0 ? qualifyingFloorCny / marketReferencePriceCny - 1 : null;
-  const marketFitStatus = thresholdPassed
+  const marketFitStatus = marketEvaluation.thresholdPassed
     ? "fits_market"
     : premiumRate <= 0.1
       ? "above_market_needs_review"
@@ -225,13 +231,17 @@ export function calculateProjectSourceMarketFit({
       marketSampleCount: Number.isInteger(marketSampleCount) && marketSampleCount >= 0 ? marketSampleCount : 0,
       preferredComparableCount: 5,
       comparableCountIsHardGate: false,
+      ...(targetSalePriceCny === undefined ? {} : { feePriceBasis: {
+        kind: "owner_target_price", targetSalePriceCny, commissionRate: commission, marketComparison: "reference_only"
+      } }),
     },
     evaluatedAtMarketPrice: {
       unroundedMarketReferencePriceCny: marketReferencePriceCny,
-      unroundedUnitProfitCny: evaluatedUnitProfitCny,
-      unitProfitCny: roundMoney(evaluatedUnitProfitCny),
-      profitMargin: roundRate(evaluatedProfitMargin),
-      thresholdPassed,
+      ...marketEvaluation,
     },
+    ...(targetSalePriceCny === undefined ? {} : { evaluatedAtTargetPrice: {
+      unroundedTargetSalePriceCny: targetSalePriceCny,
+      ...evaluatePrice(targetSalePriceCny),
+    } }),
   });
 }

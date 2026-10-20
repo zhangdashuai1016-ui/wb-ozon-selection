@@ -9,6 +9,10 @@ import { api } from "../src/api.js";
 import { createC1CompletedEditorialFixture } from "./fixtures/c1-completed-editorial-fixture.mjs";
 import { buildC1EditorialReviewView } from "../lib/c1-editorial-review-use-case.mjs";
 import { buildC1ContentReviewView } from "../lib/c1-content-review-use-case.mjs";
+import { finalPricingC1ReuseFixture } from "./fixtures/final-pricing-c1-reuse-fixture.mjs";
+import { prepareC2FinalUploadManifest, confirmC2SoftwareFinalUploads } from "../lib/c2-software-orchestrator.mjs";
+import { finalAssets, ownerDecision } from "./helpers/c2-software-fixture.mjs";
+import { createFinalProductPlanConfirmationCard } from "../lib/final-product-plan-confirmation-card.mjs";
 
 let renderer;
 async function render(props) {
@@ -43,6 +47,34 @@ async function render(props) {
 }
 
 const forbidden = () => { throw new Error("VIEWING_SAVED_CARD_MUST_NOT_START_WORK"); };
+
+test('真实v4最终卡分别展示市场参考和主人目标，查看不改变价格决定或生产授权', async () => {
+  const source = finalPricingC1ReuseFixture();
+  source.input.selectedPriceRub = 2400;
+  await source.usecase.review({ actor: source.actor, input: source.input });
+  const saved = await source.repository.readSnapshot();
+  const candidate = structuredClone(saved.candidates[0]);
+  const sku = candidate.lifecycleV11.skuPackage;
+  const manifest = prepareC2FinalUploadManifest({ skuPackage: sku, expectedDataRevision: sku.dataRevision,
+    finalUploadAssets: finalAssets(), preparedAt: source.observedAt });
+  const confirmed = confirmC2SoftwareFinalUploads({ skuPackage: sku, expectedDataRevision: sku.dataRevision,
+    finalManifest: manifest, ownerDecision: ownerDecision(manifest), confirmedAt: source.observedAt });
+  const result = createFinalProductPlanConfirmationCard({ skuPackage: confirmed.skuPackage, createdAt: source.observedAt });
+  candidate.lifecycleV11.skuPackage = result.skuPackage;
+  const model = result.skuPackage.profitModels.at(-1);
+  assert.equal(model.calculation.version, 'profit-calculation-v4-owner-target-price');
+  assert.equal(model.priceInputs.marketReferencePriceRub, 2000);
+  assert.equal(model.priceInputs.ownerTargetPrice.amountRub, 2400);
+  const before = structuredClone(candidate);
+  const html = await render({ candidate, identity: { authenticated: true, roles: ['owner'], canSaveProductionOwnerDecision: false },
+    onSaveProductionOwnerDecision: forbidden, onSaveFinalPricingReview: forbidden });
+  assert.match(html, /<dt>买家目标成交价<\/dt><dd>2400 RUB<\/dd>/u);
+  assert.match(html, /<dt>已保存竞品参考价<\/dt><dd>2000 RUB<\/dd>/u);
+  assert.match(html, /主人本轮确认：2400 RUB；利润按该目标价计算/u);
+  assert.equal(candidate.lifecycleV11.skuPackage.productionAuthorization, null);
+  assert.deepEqual(candidate, before);
+  assert.deepEqual(await source.repository.readSnapshot(), saved);
+});
 
 test('editorial copy is shown only in a bound read-only card and leaves original card content intact', async () => {
   const props = fixture(); props.provisional = true;
@@ -360,4 +392,30 @@ test('revision API uses the normal endpoint and preserves explicit service error
     });
     assert.equal(calls.length, 2);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test('上架卡：同一张卡，底部换成一次「上架」，三件事写明；预演阶段不能准备新版方案，也没有分步的生产授权表单', async () => {
+  const props = fixture();
+  props.identity = { authenticated: true, roles: ['owner'], canSaveProductionOwnerDecision: true };
+  props.onReviseC1FinalPlan = forbidden;
+  const before = structuredClone(props.candidate);
+  const listing = { stage: 'preview', previewFingerprint: 'f'.repeat(64), accountReadHours: 24, onList: forbidden, candidate: props.candidate };
+  const html = await render({ ...props, listing });
+  assert.match(html, /<h3>上架前看一眼<\/h3>/);
+  assert.match(html, /点「上架」之前什么都不会保存/);
+  assert.match(html, /<button type="submit" class="button primary" disabled="">上架<\/button>/);
+  assert.match(html, /我看过这张卡。按上面的图片、文案和价格，在[^<]+上架这件商品。/);
+  assert.match(html, /这些图片作为上架素材；按这张卡写入[^<]+的授权；写入前读一次店铺后台（只读，最多三次请求，\s*24 小时内有效）/);
+  assert.match(html, /售价 \d+(\.\d+)? ₽（后台写入 \d+(\.\d+)? 元）· 库存 100 件/);
+  assert.match(html, /value="MERCHANT-OWNER"|本店商品货号/);
+  assert.doesNotMatch(html, /通过进入生产授权|用现有资料准备新版方案/);
+  // 卡已经生成、还没授权（上次停在授权那一步）：照样是「上架」，可以准备新版方案。
+  const cardStage = await render({ ...props, listing: { ...listing, stage: 'card' } });
+  assert.match(cardStage, />上架<\/button>/);
+  assert.match(cardStage, /用现有资料准备新版方案/);
+  // 文案由软件按「做这件」的许可直接送进传图的：这一下连同文案一起确认，写明。
+  const forwarded = { ...props.candidate, c1ContentReviewView: { status: 'awaiting_listing', canConfirm: false } };
+  const copyAtListing = await render({ ...props, candidate: forwarded, listing: { ...listing, candidate: forwarded } });
+  assert.match(copyAtListing, /点一下依次保存三件事：这份文案和这些图片作为上架内容；按这张卡写入/);
+  assert.deepEqual(props.candidate, before);
 });

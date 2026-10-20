@@ -13,6 +13,8 @@ export function createLocalSiblingCatalogReader({ directory }) {
       if (catalog.schemaVersion !== 'sibling-preparation-catalog-v1' || !catalog.catalogId || !Number.isSafeInteger(catalog.version) || catalog.version<1 || !Array.isArray(catalog.supplierSkuIds) || !Array.isArray(catalog.excludedSupplierSkuIds) || !catalog.defaults || !catalog.colors || !Array.isArray(catalog.assets) ||
           catalog.assets.length > 100 || new Set(catalog.assets.map(a=>a.assetId)).size !== catalog.assets.length ||
           catalog.assets.some(a=>typeof a.assetId!=='string' || !/^[A-Za-z0-9:-]{1,160}$/.test(a.assetId) || !['image/png','image/jpeg'].includes(a.contentType) || !['finished','owner_color_exception'].includes(a.kind) || !/^[a-f0-9]{64}$/.test(a.sha256) ||
+            typeof a.fileName !== 'string' || !a.fileName || a.fileName.length > 180 || a.fileName !== path.basename(a.fileName) || /[\\/\u0000-\u001f\u007f]/.test(a.fileName) ||
+            (a.contentType === 'image/png' ? path.extname(a.fileName).toLowerCase() !== '.png' : !['.jpg','.jpeg'].includes(path.extname(a.fileName).toLowerCase())) ||
             !/^[a-zA-Z0-9.-]+$/.test(a.storageKey) || !Number.isSafeInteger(a.byteSize) || a.byteSize <= 0 || a.byteSize > 100*1024*1024 ||
             a.kind === 'owner_color_exception' && !catalog.supplierSkuIds.includes(a.onlySourceSkuId))) throw new Error('SIBLING_CATALOG_INVALID');
       return catalog;

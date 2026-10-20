@@ -1,11 +1,13 @@
-import { createInternalEvidenceValidity, createSourceDeclaredEvidenceValidity, isLifecycleEvidenceValidityMetadataValid } from "./lifecycle-evidence-validity.mjs";
+import { createInternalEvidenceValidity, createSourceDeclaredEvidenceValidity, isLifecycleEvidenceValidityMetadataValid, inspectLifecycleEvidenceValidity } from "./lifecycle-evidence-validity.mjs";
 import { readWbCommissionReference } from './wb-commission-reference-reader.mjs';
 import { readOzonCommissionReference } from './ozon-commission-reference-reader.mjs';
 import { normalizeEvidenceScope, normalizeRelatedSchemaScope, evidenceScopeMatches, evidenceScopeKey } from "./lifecycle-evidence-scope.mjs";
 import { readCurrentGuooTariff } from "./guoo-tariff-reader.mjs";
+import { validateLifecycleEvidenceData, isLifecycleEvidenceTraceValid } from "./lifecycle-b-input-bundle.mjs";
 import { createLifecycleBEvidenceProviderRegistry } from "./lifecycle-b-evidence-providers.mjs";
 import { readCurrentCbrExchangeRate } from "./official-fx-reader.mjs";
 import { OZON_EVIDENCE_COMMISSION_UNAVAILABLE, remoteEvidenceReasonCode } from "./commission-estimate-authorization.mjs";
+import { ozonEvidenceServiceOrigin } from "./runtime-configuration.mjs";
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -104,11 +106,9 @@ function officialReferenceQuery(request, scope, reference) {
 }
 
 function assertLocalOzonService(value) {
-  const url = new URL(value);
-  if (url.username || url.password || url.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(url.hostname)) {
-    throw new Error("B_EVIDENCE_OZON_SERVICE_NOT_LOCAL: Ozon凭证服务只允许本机地址");
-  }
-  return url.origin;
+  const origin = ozonEvidenceServiceOrigin(value);
+  if (!origin) throw new Error("B_EVIDENCE_OZON_SERVICE_NOT_LOCAL: Ozon凭证服务只允许本机或同一私有网络里的地址");
+  return origin;
 }
 
 /**
@@ -162,44 +162,8 @@ async function postOzonEvidence({ request, kind, fetchImpl, ozonServiceUrl }) {
   return payload.evidence;
 }
 
-export function createLifecycleBRealEvidenceReaders({
-  fetchImpl = globalThis.fetch,
-  ozonServiceUrl,
-  guooFilePath,
-  cbrSourceUrl,
-  commissionEstimate,
-  wbCommissionReference,
-  ozonCommissionReference,
-  readOzonCommissionReferenceImpl = readOzonCommissionReference,
-  now = () => new Date(),
-  ...remainingOptions
-} = {}) {
-  if (Object.hasOwn(remainingOptions, "otherCosts")) {
-    throw new Error("B_EVIDENCE_COST_POLICY_MISPLACED: 商品成本必须在当前SKU输入包中冻结，不能传入可复用佣金reader");
-  }
-  const authorizedEstimate = normalizeCommissionEstimate(commissionEstimate);
-  const officialReference = normalizeOzonCommissionReferenceOption(ozonCommissionReference);
-  if (!ozonServiceUrl) throw new Error("B_EVIDENCE_OZON_SERVICE_URL_REQUIRED: Ozon证据连接器地址必须由运行配置提供");
-  const schemaCache = new Map();
-  const readSchema = async (request) => {
-    const scope = (request.kind === "commission" ? normalizeRelatedSchemaScope(request.scope, request.relatedSchemaScope) : normalizeEvidenceScope("schema", request.scope));
-    const key = evidenceScopeKey("schema", scope);
-    if (!schemaCache.has(key)) {
-      if (schemaCache.size >= 32) throw new Error("B_EVIDENCE_SCHEMA_CACHE_LIMIT");
-      schemaCache.set(key, postOzonEvidence({ request: { scope }, kind: "schema", fetchImpl, ozonServiceUrl }));
-    }
-    const result = await schemaCache.get(key);
-    // This connector currently generates its own 24-hour cache hint. Only its
-    // reviewed DTO shape can acquire that meaning at this adapter boundary.
-    if (Object.hasOwn(result, "validity")) throw new Error("B_EVIDENCE_SCHEMA_REMOTE_VALIDITY_UNSUPPORTED");
-    const declared = { ...result, kind: "schema", validity: createInternalEvidenceValidity("schema") };
-    return isLifecycleEvidenceValidityMetadataValid(declared) ? { ...result, validity: declared.validity } : result;
-  };
-  /**
-   * 店铺自身没有同类目在售商品时，改读主人保存的官方佣金表版本；
-   * 只要有一个阻断缺口就返回缺口清单，由调用处退回原有主人授权估算路径。
-   */
-  const readOfficialCommission = async (request, scope) => {
+function createOfficialCommissionReader({ officialReference, readOzonCommissionReferenceImpl, readSchema, now }) {
+  return async (request, scope) => {
     const { gaps, query } = officialReferenceQuery(request, scope, officialReference);
     if (!query) return { pack: null, gaps };
     let read;
@@ -262,6 +226,46 @@ export function createLifecycleBRealEvidenceReaders({
       },
     };
   };
+}
+
+export function createLifecycleBRealEvidenceReaders({
+  fetchImpl = globalThis.fetch,
+  ozonServiceUrl,
+  guooFilePath,
+  cbrSourceUrl,
+  commissionEstimate,
+  wbCommissionReference,
+  ozonCommissionReference,
+  readOzonCommissionReferenceImpl = readOzonCommissionReference,
+  now = () => new Date(),
+  ...remainingOptions
+} = {}) {
+  if (Object.hasOwn(remainingOptions, "otherCosts")) {
+    throw new Error("B_EVIDENCE_COST_POLICY_MISPLACED: 商品成本必须在当前SKU输入包中冻结，不能传入可复用佣金reader");
+  }
+  const authorizedEstimate = normalizeCommissionEstimate(commissionEstimate);
+  const officialReference = normalizeOzonCommissionReferenceOption(ozonCommissionReference);
+  if (!ozonServiceUrl) throw new Error("B_EVIDENCE_OZON_SERVICE_URL_REQUIRED: Ozon证据连接器地址必须由运行配置提供");
+  const schemaCache = new Map();
+  const readSchema = async (request) => {
+    const scope = (request.kind === "commission" ? normalizeRelatedSchemaScope(request.scope, request.relatedSchemaScope) : normalizeEvidenceScope("schema", request.scope));
+    const key = evidenceScopeKey("schema", scope);
+    if (!schemaCache.has(key)) {
+      if (schemaCache.size >= 32) throw new Error("B_EVIDENCE_SCHEMA_CACHE_LIMIT");
+      schemaCache.set(key, postOzonEvidence({ request: { scope }, kind: "schema", fetchImpl, ozonServiceUrl }));
+    }
+    const result = await schemaCache.get(key);
+    // This connector currently generates its own 24-hour cache hint. Only its
+    // reviewed DTO shape can acquire that meaning at this adapter boundary.
+    if (Object.hasOwn(result, "validity")) throw new Error("B_EVIDENCE_SCHEMA_REMOTE_VALIDITY_UNSUPPORTED");
+    const declared = { ...result, kind: "schema", validity: createInternalEvidenceValidity("schema") };
+    return isLifecycleEvidenceValidityMetadataValid(declared) ? { ...result, validity: declared.validity } : result;
+  };
+  /**
+   * 店铺自身没有同类目在售商品时，改读主人保存的官方佣金表版本；
+   * 只要有一个阻断缺口就返回缺口清单，由调用处退回原有主人授权估算路径。
+   */
+  const readOfficialCommission = createOfficialCommissionReader({ officialReference, readOzonCommissionReferenceImpl, readSchema, now });
   return {
     commission: async (request) => {
       const scope = normalizeEvidenceScope('commission', request.scope);
@@ -363,4 +367,40 @@ export function createLifecycleBRealEvidenceReaders({
 
 export function createLifecycleBRealEvidenceProviderRegistry(options) {
   return createLifecycleBEvidenceProviderRegistry(createLifecycleBRealEvidenceReaders(options));
+}
+
+/** Local official-table preparation has no network dependency or alternate source. */
+export function createLocalOzonCommissionEvidenceProvider({ ozonCommissionReference, schemaPacks,
+  readOzonCommissionReferenceImpl = readOzonCommissionReference, now = () => new Date() }) {
+  const officialReference = normalizeOzonCommissionReferenceOption(ozonCommissionReference);
+  if (!officialReference || !Array.isArray(schemaPacks) || schemaPacks.length < 1 || schemaPacks.length > 100 ||
+      typeof now !== 'function' || typeof readOzonCommissionReferenceImpl !== 'function') {
+    throw new Error('B_EVIDENCE_LOCAL_COMMISSION_CONFIGURATION_REQUIRED');
+  }
+  const saved = structuredClone(schemaPacks);
+  const readSchema = async request => {
+    const scope = normalizeRelatedSchemaScope(request.scope, request.relatedSchemaScope);
+    const matches = saved.filter(pack => evidenceScopeMatches('schema', pack.scope, scope));
+    if (matches.length !== 1) throw new Error('B_EVIDENCE_LOCAL_SCHEMA_AMBIGUOUS_OR_MISSING');
+    const pack = matches[0];
+    const data = pack.evidenceData;
+    if (pack.kind !== 'schema' || !isLifecycleEvidenceTraceValid(pack) ||
+        !validateLifecycleEvidenceData('schema', data).valid ||
+        inspectLifecycleEvidenceValidity(pack, { asOf: now().toISOString() }).usable !== true ||
+        !Number.isSafeInteger(data.descriptionCategoryId) || !Number.isSafeInteger(data.typeId) ||
+        scope.category !== `ozon:${data.descriptionCategoryId}:${data.typeId}`) {
+      throw new Error('B_EVIDENCE_LOCAL_SCHEMA_INVALID');
+    }
+    return pack;
+  };
+  const read = createOfficialCommissionReader({ officialReference, readOzonCommissionReferenceImpl, readSchema, now });
+  return createLifecycleBEvidenceProviderRegistry({ commission: async request => {
+    const scope = normalizeEvidenceScope('commission', request.scope);
+    if (scope.platform !== 'ozon') throw new Error('B_EVIDENCE_LOCAL_COMMISSION_PLATFORM_INVALID');
+    // Validate the saved dependency before touching even the local reference file.
+    await readSchema(request);
+    const result = await read(request, scope);
+    if (!result.pack) throw new Error(`B_EVIDENCE_LOCAL_COMMISSION_UNAVAILABLE: ${result.gaps.join('、')}`);
+    return result.pack;
+  } }).commission;
 }

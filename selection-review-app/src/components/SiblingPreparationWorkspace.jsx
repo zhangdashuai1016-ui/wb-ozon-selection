@@ -42,8 +42,15 @@ export default function SiblingPreparationWorkspace({parent,siblings,onValues,on
       });
     }catch(cause){if(session.current.unchanged(token)){setError(cause.message);status('error');}}
   }
-  useEffect(()=>{session.current.select(parent.id);void reload();return()=>session.current.dispose();},[parent.id]);
-  function change(next){session.current.edited();publishValues(next);onPage(next.page);onDirty(saveState.status==='unknown' || !preparationValuesEqual(next,saved?.values));if(loadStatus==='loading')status('configured');setNotice(saveState.status==='unknown'?'当前修改已保留；上次保存结果仍未知，请只读核对保存版本。':'有未保存修改；保存草稿不会产生生产授权。');}
+  useEffect(()=>{session.current.select(parent.id);void reload();return()=>{session.current.dispose();onSaving?.(false);};},[parent.id]);
+  function change(next){
+    session.current.edited();publishValues(next);onPage(next.page);
+    const dirty=!preparationValuesEqual(next,saved?.values);
+    onDirty(saveState.status==='unknown' || dirty);
+    if(loadStatus==='loading')status('configured');
+    setNotice(saveState.status==='unknown'?'当前修改已保留；上次保存结果仍未知，请只读核对保存版本。':
+      dirty?'有未保存修改；保存草稿不会产生生产授权。':`已保存草稿版本 ${saved.draftRevision}；未推进阶段或写入店铺。`);
+  }
   useEffect(()=>{if(formalCopyAdoption && values){change(adoptPreparationCopy(values,formalCopyAdoption.map(c=>({candidateId:c.candidateId,fields:c1CopyFields(c.content)}))));}},[formalCopyAdoption]);
   useEffect(()=>{
     if(!supplyConfirmationReceipt || supplyConfirmationReceipt.draft.parentCandidateId!==parent.id)return;
@@ -71,6 +78,17 @@ export default function SiblingPreparationWorkspace({parent,siblings,onValues,on
       const unchanged=preparationValuesEqual(currentValues.current,response.draft.values);onDirty(!unchanged);
       setNotice(unchanged?`已保存草稿版本 ${response.draft.draftRevision}；未推进阶段或写入店铺。`:'提交时的草稿已保存；随后输入的修改仍未保存，已保留。');}
     catch(cause){const outcome=request?saveState.fail(request,cause):'idle';if(session.current.current(token)){status('configured');onDirty(true);setError(cause.message+(outcome==='unknown'?'。保存结果未知；当前输入和原请求已保留，请只读核对保存版本。':'。本次未保存；当前输入保留，请核对版本或修正输入后再保存。'));}}
+    finally{if(session.current.current(token)){setSaving(false);onSaving?.(false);}}
+  }
+  async function stageAssets(){
+    if(saving)return;
+    const token=session.current.capture();
+    setSaving(true);onSaving?.(true);setError('');
+    try{
+      if(saveState.status!=='idle')throw new Error('草稿提交尚未核实，不能暂存素材');
+      await onStageAssets(values,catalog);
+      if(session.current.unchanged(token))setNotice('所选素材已暂存为各SKU独立登记；仍需核对来源权利并冻结。');
+    }catch(cause){if(session.current.current(token))setError(cause.message);}
     finally{if(session.current.current(token)){setSaving(false);onSaving?.(false);}}
   }
   if(loadStatus==='unconfigured')return null;
@@ -105,7 +123,7 @@ export default function SiblingPreparationWorkspace({parent,siblings,onValues,on
           <button type="button" disabled={m.hero===id} onClick={()=>imageAction(()=>setPreparationHero(values,m.sourceSkuId,id))}>设为主图</button><button type="button" disabled={pos===0} onClick={()=>imageAction(()=>movePreparationImage(values,m.sourceSkuId,id,-1))}>上移</button><button type="button" disabled={pos===m.order.length-1} onClick={()=>imageAction(()=>movePreparationImage(values,m.sourceSkuId,id,1))}>下移</button><button type="button" onClick={()=>imageAction(()=>changePreparationImage(values,catalog,m.sourceSkuId,id,false))}>取消选中</button></div>)}</article>)}</div>
       <h4>可选图片 · 15张成品＋3张本色白底图</h4><p>不确定适用性的成品仍可由你选择颜色；尺寸、标签和使用权疑点保留。三张用户确认保留本色图仅归对应颜色；其他供应原图排除。</p><div className="sibling-workspace-gallery">{[...catalog.assets].sort((a,b)=>(a.onlySourceSkuId?0:1)-(b.onlySourceSkuId?0:1)).map(a=><article key={a.assetId}><img src={a.previewSrc} alt={a.name}/><h5>{a.name}</h5><p>{a.kind==='owner_color_exception'?'用户确认保留本色图':'用户成品图'}</p><p>{a.note}</p>{values.members.filter(m=>!a.onlySourceSkuId || a.onlySourceSkuId===m.sourceSkuId).map(m=><label key={m.sourceSkuId}><input type="checkbox" aria-label={`${a.name} 用于 ${catalog.colors[m.sourceSkuId].name}`} checked={m.order.includes(a.assetId)} onChange={e=>imageAction(()=>changePreparationImage(values,catalog,m.sourceSkuId,a.assetId,e.target.checked))}/>{catalog.colors[m.sourceSkuId].name}</label>)}
         {!a.onlySourceSkuId?<button type="button" onClick={()=>imageAction(()=>values.members.reduce((v,m)=>changePreparationImage(v,catalog,m.sourceSkuId,a.assetId,!values.members.every(x=>x.order.includes(a.assetId))),values))}>{values.members.every(m=>m.order.includes(a.assetId))?'取消全部颜色':'用于全部颜色'}</button>:null}
-      </article>)}</div><button type="button" disabled={saving || saveState.status!=='idle' || loadStatus!=='configured' || !saved || values.members.some(m=>m.hero===null) || sourceChanged} onClick={async()=>{setSaving(true);setError('');try{if(saveState.status!=='idle')throw new Error('草稿提交尚未核实，不能暂存素材');await onStageAssets(values,catalog);onDirty(true);setNotice('所选素材已暂存为各SKU独立登记；仍需核对来源权利并冻结。');}catch(cause){setError(cause.message);}finally{setSaving(false);}}}>准备当前选中素材（本地暂存，不写店铺）</button>
+      </article>)}</div><button type="button" disabled={saving || saveState.status!=='idle' || loadStatus!=='configured' || !saved || values.members.some(m=>m.hero===null) || sourceChanged} onClick={stageAssets}>准备当前选中素材（本地暂存，不写店铺）</button>
     </section>:null}
     {values.page===3?<section aria-label={tabs[3]}><div className="sibling-workspace-colors">{values.members.map(m=>{const child=siblings.find(c=>c.id===m.candidateId),prep=child.productionOwnerPreparation;return <article key={m.sourceSkuId}><h4>{catalog.colors[m.sourceSkuId].name}</h4><p>供应SKU {m.sourceSkuId} · 商家货号 {m.merchantSku}</p><p>俄语颜色：{m.colorRu}</p><p>标题草稿：{effective(values,m,'titleRu')}</p><p>正式C1标题：{child.lifecycleV11?.skuPackage?.c1ProductPlan?.seoTitleDraft?.text??'待核验'}</p><p>描述草稿：{effective(values,m,'descriptionRu')}</p><p>库存草稿：{effective(values,m,'stock')} · 买家目标价草稿：{effective(values,m,'price')} RUB</p><p>正式利润：{child.lifecycleV11?.skuPackage?.profitModels?.find(p=>p.profitModelVersion===child.lifecycleV11.skuPackage.activeProfitModelVersion)?.result??'待完成'} · 后台CNY价格：{prep?.scope?.platformWritePrice?.amount??'待核对'} · 仓库：{prep?.executionBindings?.map(b=>b.warehouseName).join('、')||'待核对'}</p><p>主图：{m.hero===null?'待选择（附图第1张不代表主图）':assets.get(m.hero).name} · {m.order.length}张</p>{selectedImages(m)}<details><summary>已选图片的具体疑点</summary>{m.order.map(id=><p key={id}>{assets.get(id).name}：{assets.get(id).note}</p>)}</details></article>;})}</div>
       <p>正式最终授权范围包含本批商品创建、上架审核提交与逐款库存；以服务端当前最终卡锁定的价格、仓库、素材和库存为准。以下正式门禁有缺项时不能授权。卡其及历史首件不在范围内。</p>

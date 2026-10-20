@@ -56,6 +56,7 @@ export function syntheticCatalog(document) {
     const body = syntheticImage(assetId, index + 1), exceptionIndex = whiteAssetIds.indexOf(assetId);
     return { assetId, kind: exceptionIndex < 0 ? 'finished' : 'owner_color_exception',
       name: exceptionIndex < 0 ? `合成测试图 ${assetId}` : `合成本色例外 ${assetId}`,
+      fileName: `合成素材 ${assetId}.png`,
       contentType: 'image/png', storageKey: `synthetic-${assetId}.png`, byteSize: body.length,
       sha256: createHash('sha256').update(body).digest('hex'),
       onlySourceSkuId: exceptionIndex < 0 ? null : exceptionSkuIds[exceptionIndex],

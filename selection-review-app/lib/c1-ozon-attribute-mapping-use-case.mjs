@@ -1,6 +1,6 @@
 import { executeBusinessMutation } from "./business-mutation-transaction.mjs";
 import { assertBusinessStateRepositoryBoundary, assertCentralPersistenceBoundary } from "./business-state-repository.mjs";
-import { authorizeOperation } from "./runtime-identity.mjs";
+import { authorizeOperation, teamOperationRoles } from "./runtime-identity.mjs";
 import { fingerprintCanonicalRecord } from "./production-contract-primitives.mjs";
 import { resolveC1SkuRightsReviewForFacts } from "./c1-sku-rights-review.mjs";
 import { applyPreparedC1OzonAttributeMapping, assertValidC1ProductPlan, verifyC1ProductFacts } from "./c1-product-plan.mjs";
@@ -44,7 +44,7 @@ export function applySavedDictionaryMappingToPreparedRevision({ candidate, input
       prep.historyRef !== plan.supersedes?.historyRef || prep.sourceC1PlanId !== plan.supersedes?.c1PlanId ||
       prep.supplierSkuId !== sku.supplierSkuId || prep.variantKey !== sku.variantKey ||
       prep.resultCandidateRevision > candidate.dataRevision ||
-      ["c1AiDraftRequestV1", "c1AiDraftJobRefV1", "c1LocalDraftSourceV1", "c1ContentReviewV1", "c1EditorialContentReviewV1", "c1FinalPlanRevisionCompletion"]
+      ["c1AiDraftRequestV1", "c1AiDraftJobRefV1", "c1LocalDraftSourceV1", "c1ContentReviewV1", "c1ContentForwardV1", "c1EditorialContentReviewV1", "c1FinalPlanRevisionCompletion"]
         .some(key => life[key] !== undefined && life[key] !== null) ||
       sku.productionAuthorization || sku.productionRecord || sku.c2FinalAssets || sku.productionConfirmationCard) {
     throw new C1OzonAttributeMappingError("C1_PREPARED_MAPPING_LINEAGE_REJECTED");
@@ -181,11 +181,11 @@ export function createC1OzonAttributeMappingUseCase({ repository, runtimeMode, s
           ["attributeId", "value", "sourceFactPath"].some(key => !nonEmpty(input.mapping[key]))) {
         throw new C1OzonAttributeMappingError("C1_OZON_ATTRIBUTE_MAPPING_INPUT_INVALID");
       }
-      authorizeOperation({ actor, requiredRoles: ["owner"] });
+      authorizeOperation({ actor, requiredRoles: teamOperationRoles(actor) });
       if (actor.actorType !== "human" || actor.source !== "authenticated_identity_provider") {
         throw new C1OzonAttributeMappingError("C1_OZON_ATTRIBUTE_MAPPING_AUTHENTICATED_OWNER_REQUIRED");
       }
-      return executeBusinessMutation({ repository, runtimeMode, actor, requiredRoles: ["owner"],
+      return executeBusinessMutation({ repository, runtimeMode, actor, requiredRoles: teamOperationRoles(actor),
         action: "c1_prepared_revision_ozon_attribute_mapping", candidateId: input.candidateId,
         skuPackageId: input.skuPackageId, expectedRevision: input.expectedRevision, idempotencyKey: input.idempotencyKey,
         inputFingerprint: fingerprintCanonicalRecord(input), auditEventId: input.auditEventId, serverClock,
@@ -201,7 +201,7 @@ export function createC1OzonAttributeMappingUseCase({ repository, runtimeMode, s
      * 不改任何数据，也不查字典——字典查询只在主人真的要映射某个值时才发。
      */
     async propose({ actor, input }) {
-      authorizeOperation({ actor, requiredRoles: ["owner"] });
+      authorizeOperation({ actor, requiredRoles: teamOperationRoles(actor) });
       if (!isObject(input) || !nonEmpty(input.candidateId) || !nonEmpty(input.skuPackageId) ||
           !Number.isSafeInteger(input.expectedRevision)) {
         throw new C1OzonAttributeMappingError("C1_OZON_ATTRIBUTE_MAPPING_INPUT_INVALID");
@@ -253,7 +253,7 @@ export function createC1OzonAttributeMappingUseCase({ repository, runtimeMode, s
       if (new Set(attributeIds).size !== attributeIds.length) {
         throw new C1OzonAttributeMappingError("C1_OZON_ATTRIBUTE_MAPPING_DUPLICATE_ATTRIBUTE");
       }
-      authorizeOperation({ actor, requiredRoles: ["owner"] });
+      authorizeOperation({ actor, requiredRoles: teamOperationRoles(actor) });
       if (actor.actorType !== "human" || actor.source !== "authenticated_identity_provider") {
         throw new C1OzonAttributeMappingError("C1_OZON_ATTRIBUTE_MAPPING_AUTHENTICATED_OWNER_REQUIRED");
       }
@@ -321,7 +321,7 @@ export function createC1OzonAttributeMappingUseCase({ repository, runtimeMode, s
         });
       }
 
-      return executeBusinessMutation({ repository, runtimeMode, actor, requiredRoles: ["owner"],
+      return executeBusinessMutation({ repository, runtimeMode, actor, requiredRoles: teamOperationRoles(actor),
         action: "c1_ozon_attribute_mapping", candidateId: input.candidateId, skuPackageId: input.skuPackageId,
         expectedRevision: input.expectedRevision, idempotencyKey: input.idempotencyKey,
         inputFingerprint: fingerprintCanonicalRecord(input), auditEventId: input.auditEventId,

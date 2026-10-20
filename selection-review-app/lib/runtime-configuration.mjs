@@ -85,11 +85,12 @@ export function isRuntimeConfigurationTimestamp(value) {
   return new Date(`${value.slice(0, 10)}T00:00:00.000Z`).toISOString().slice(0, 10) === value.slice(0, 10);
 }
 
+const pathContains = (parent, child) => { const relative = path.relative(parent, child); return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative)); };
+
 /** Both lexical configuration and resolved filesystem paths use this isolation rule. */
 export function isOwnerCredentialPathIsolated(credentialFile, protectedPaths) {
-  const contains = (parent, child) => { const relative = path.relative(parent, child); return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative)); };
   const privateDirectory = path.dirname(credentialFile);
-  return !protectedPaths.some(protectedPath => contains(protectedPath, credentialFile) || contains(privateDirectory, protectedPath));
+  return !protectedPaths.some(protectedPath => pathContains(protectedPath, credentialFile) || pathContains(privateDirectory, protectedPath));
 }
 
 export function isConfiguredProductionReference(value) {
@@ -195,7 +196,7 @@ export function normalizeC1DraftServiceBindings(bindings, deploymentMode) {
         !["credentialAlias", "workerId", "workerVersion", "configurationVersion"].every(field => isConfiguredProductionReference(binding[field])) ||
         !Number.isInteger(binding.leaseDurationMs) || binding.leaseDurationMs < 90_000 || binding.leaseDurationMs > 1_800_000 ||
         providers.has(binding.provider) || workers.has(binding.workerId)) throw invalid();
-    const gatewayOrigin = normalizeServiceOrigin(binding.gatewayOrigin, { deploymentMode, label: "c1DraftGatewayOrigin" });
+    const gatewayOrigin = normalizeServiceOrigin(binding.gatewayOrigin, { deploymentMode, label: "c1DraftGatewayOrigin", privateNetwork: true });
     if (binding.gatewayOrigin !== gatewayOrigin && binding.gatewayOrigin !== `${gatewayOrigin}/`) throw invalid();
     providers.add(binding.provider); workers.add(binding.workerId);
     return Object.freeze({ ...binding, gatewayOrigin });
@@ -375,7 +376,28 @@ function isLoopback(hostname) {
   return ["127.0.0.1", "localhost", "::1", "[::1]"].includes(String(hostname).toLowerCase());
 }
 
-export function normalizeServiceOrigin(value, { deploymentMode, label = "serviceOrigin" } = {}) {
+/**
+ * A neighbour on the host's private network: a one-label name with a port, over HTTP (a Render private service is
+ * `http://ai-gateway:10000`). Such a name resolves only inside that network, so it never crosses the internet.
+ */
+export function isPrivateNetworkServiceUrl(parsed) {
+  return parsed.protocol === "http:" && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(parsed.hostname) &&
+    !isLoopback(parsed.hostname) && parsed.port !== "";
+}
+
+/**
+ * The Ozon evidence service holds the stores' keys and answers whoever reaches it, so it is this computer's (local
+ * development) or a neighbour on the private network (central), never an internet address. Null for anything else.
+ */
+export function ozonEvidenceServiceOrigin(value) {
+  let parsed;
+  try { parsed = new URL(value); } catch { return null; }
+  if (parsed.username || parsed.password || parsed.protocol !== "http:") return null;
+  return isLoopback(parsed.hostname) || isPrivateNetworkServiceUrl(parsed) ? parsed.origin : null;
+}
+
+/** `privateNetwork`: a service this server calls (the AI gateway, the Ozon evidence service), never a page's address. */
+export function normalizeServiceOrigin(value, { deploymentMode, label = "serviceOrigin", privateNetwork = false } = {}) {
   const parsed = url(value, label);
   const mode = nonEmpty(deploymentMode, "deploymentMode");
   if (!RUNTIME_MODES.includes(mode)) throw new Error("RUNTIME_CONFIGURATION_INVALID: deploymentMode无效");
@@ -383,8 +405,12 @@ export function normalizeServiceOrigin(value, { deploymentMode, label = "service
     if (!(parsed.protocol === "http:" && isLoopback(parsed.hostname)) && parsed.protocol !== "https:") {
       throw new Error(`RUNTIME_CONFIGURATION_INVALID: ${label}在本地模式只能使用回环HTTP或显式HTTPS`);
     }
+  } else if (privateNetwork && isPrivateNetworkServiceUrl(parsed)) {
+    // A neighbour on the private network; see isPrivateNetworkServiceUrl.
   } else if (parsed.protocol !== "https:" || isLoopback(parsed.hostname)) {
-    throw new Error(`RUNTIME_CONFIGURATION_INVALID: ${label}在中央模式必须使用非本机HTTPS`);
+    throw new Error(privateNetwork
+      ? `RUNTIME_CONFIGURATION_INVALID: ${label}在中央模式必须使用非本机HTTPS，或同一私有网络里的服务（一段名字加端口）`
+      : `RUNTIME_CONFIGURATION_INVALID: ${label}在中央模式必须使用非本机HTTPS`);
   }
   parsed.pathname = "";
   parsed.search = "";
@@ -551,8 +577,10 @@ export function createSelectionReviewRuntimeConfiguration({ env = process.env, a
   if (deploymentMode === "local_development" && !isLoopback(bindHost)) {
     throw new Error("RUNTIME_CONFIGURATION_INVALID: 本地开发模式只能绑定回环地址");
   }
+  // A host such as Render says in PORT which port to listen on; a central mode takes it unless one is set here.
+  const hostPort = deploymentMode === "local_development" ? undefined : env.PORT;
   const listenPort = port(
-    apiOnly ? env.SELECTION_REVIEW_API_PORT || 4319 : env.SELECTION_REVIEW_PORT || 4317,
+    apiOnly ? env.SELECTION_REVIEW_API_PORT || hostPort || 4319 : env.SELECTION_REVIEW_PORT || hostPort || 4317,
     "port"
   );
   const stateAdapter = String(env.SELECTION_REVIEW_STATE_ADAPTER || "json").trim();
@@ -561,6 +589,10 @@ export function createSelectionReviewRuntimeConfiguration({ env = process.env, a
 
   const defaultUserId = String(env.SELECTION_REVIEW_DEFAULT_USER_ID || "local-development-owner").trim();
   const identityProvider = String(env.SELECTION_REVIEW_IDENTITY_PROVIDER || "development_default").trim();
+  // Team accounts are kept in the database next to the business state.
+  if (identityProvider === "team_accounts" && stateAdapter !== "postgres") {
+    throw new Error("RUNTIME_CONFIGURATION_INVALID: 团队账号登录必须使用 Postgres 存储");
+  }
   if (deploymentMode !== "local_development") {
     if (isLoopback(bindHost)) throw new Error("RUNTIME_CONFIGURATION_INVALID: 中央模式不得隐式绑定本机回环地址");
     if (["json", "memory"].includes(stateAdapter)) throw new Error("RUNTIME_CONFIGURATION_INVALID: 中央模式必须使用并发安全的中央存储适配器");
@@ -578,12 +610,17 @@ export function createSelectionReviewRuntimeConfiguration({ env = process.env, a
   });
   const aiGatewayUrl = normalizeServiceOrigin(env.SELECTION_REVIEW_AI_GATEWAY_URL || "http://127.0.0.1:4318", {
     deploymentMode,
-    label: "aiGatewayUrl"
+    label: "aiGatewayUrl",
+    privateNetwork: true
   });
   const ozonEvidenceServiceUrl = normalizeServiceOrigin(env.SELECTION_REVIEW_OZON_EVIDENCE_SERVICE_URL || "http://127.0.0.1:4173", {
     deploymentMode,
-    label: "ozonEvidenceServiceUrl"
+    label: "ozonEvidenceServiceUrl",
+    privateNetwork: true
   });
+  if (deploymentMode !== "local_development" && !ozonEvidenceServiceOrigin(ozonEvidenceServiceUrl)) {
+    throw new Error("RUNTIME_CONFIGURATION_INVALID: ozonEvidenceServiceUrl在中央模式必须是同一私有网络里的服务（一段名字加端口）；证据服务拿着店铺密钥又不认来人，不能开在公网上");
+  }
   const legacyFireTrainAssetRoot = String(env.SELECTION_REVIEW_LEGACY_FIRE_TRAIN_ASSET_ROOT || "").trim();
   if (deploymentMode !== "local_development" && legacyFireTrainAssetRoot) {
     throw new Error("RUNTIME_CONFIGURATION_INVALID: 中央模式不得启用本机火车历史素材目录");
@@ -591,6 +628,11 @@ export function createSelectionReviewRuntimeConfiguration({ env = process.env, a
   const allowedOrigins = String(env.SELECTION_REVIEW_ALLOWED_ORIGINS || publicOrigin)
     .split(",")
     .map((item) => normalizeServiceOrigin(item.trim(), { deploymentMode, label: "allowedOrigin" }));
+  // How many proxies in front of this service add the address they saw to X-Forwarded-For (on Render, set it when
+  // deploying and check it there). 0: whoever connects is the caller. Sign-in failures are counted by that address.
+  const trustedProxyHopsText = String(env.SELECTION_REVIEW_TRUSTED_PROXY_HOPS || "0").trim();
+  if (!/^[0-3]$/u.test(trustedProxyHopsText)) throw new Error("RUNTIME_CONFIGURATION_INVALID: 代理层数只能是0到3");
+  const trustedProxyHops = Number(trustedProxyHopsText);
   const allowedExtensionOrigins = String(env.SELECTION_REVIEW_ALLOWED_EXTENSION_ORIGINS || "")
     .split(",")
     .map((item) => item.trim())
@@ -600,6 +642,22 @@ export function createSelectionReviewRuntimeConfiguration({ env = process.env, a
   const dataFile = path.resolve(env.SELECTION_REVIEW_DATA_FILE || path.join(resolvedAppDir, "data", "candidates.json"));
   const workflowMapFile = path.resolve(env.SELECTION_REVIEW_WORKFLOW_MAP_FILE || path.join(resolvedAppDir, "data", "workflow-map.json"));
   const c2FinalUploadsDir = path.resolve(env.SELECTION_REVIEW_C2_UPLOAD_DIR || path.join(resolvedAppDir, "data", "c2-final-uploads"));
+  const productImagesDir = path.resolve(env.SELECTION_REVIEW_PRODUCT_IMAGES_DIR || path.join(resolvedAppDir, "product-images"));
+  // Uploaded listing pictures and the older product pictures are files, not database rows. A host replaces the code folder on
+  // every deploy, so a central mode names both on a disk that outlives deploys (on Render, the service's persistent disk);
+  // the defaults inside the code folder are for the owner's own computer.
+  if (deploymentMode !== "local_development") {
+    for (const [variable, label] of [["SELECTION_REVIEW_C2_UPLOAD_DIR", "上传的素材"], ["SELECTION_REVIEW_PRODUCT_IMAGES_DIR", "商品图片"]]) {
+      const configured = env[variable];
+      if (typeof configured !== "string" || !configured || configured !== configured.trim() || !path.isAbsolute(configured) ||
+          configured.includes("\0") || pathContains(resolvedAppDir, path.resolve(configured))) {
+        throw new Error(`RUNTIME_CONFIGURATION_INVALID: 中央模式要用 ${variable} 写明${label}放在哪：代码目录外、部署后还在的磁盘上的绝对路径（Render 上是挂上的磁盘里的一个目录）；代码目录每次部署都会换掉`);
+      }
+    }
+    if (pathContains(c2FinalUploadsDir, productImagesDir) || pathContains(productImagesDir, c2FinalUploadsDir)) {
+      throw new Error("RUNTIME_CONFIGURATION_INVALID: 上传的素材和商品图片要放在两个互不包含的目录里");
+    }
+  }
   const c1ImageTextExecutable = env.SELECTION_REVIEW_C1_IMAGE_TEXT_EXECUTABLE || null;
   if (c1ImageTextExecutable !== null && (deploymentMode !== "local_development" || typeof c1ImageTextExecutable !== "string" || !path.isAbsolute(c1ImageTextExecutable))) {
     throw new Error("C1_IMAGE_TEXT_LOCAL_EXECUTABLE_CONFIGURATION_INVALID");
@@ -652,6 +710,7 @@ export function createSelectionReviewRuntimeConfiguration({ env = process.env, a
     publicOrigin,
     allowedOrigins: Object.freeze([...new Set(allowedOrigins)]),
     allowedExtensionOrigins: Object.freeze([...new Set(allowedExtensionOrigins)]),
+    trustedProxyHops,
     aiGatewayUrl,
     ozonEvidenceServiceUrl,
     stateAdapter,
@@ -661,6 +720,7 @@ export function createSelectionReviewRuntimeConfiguration({ env = process.env, a
     guooTariffFile,
     guooTariffRuleVersion,
     c2FinalUploadsDir,
+    productImagesDir,
     legacyFireTrainAssetRoot: legacyFireTrainAssetRoot ? path.resolve(legacyFireTrainAssetRoot) : null,
     identityProvider,
     localOwnerIdentity,

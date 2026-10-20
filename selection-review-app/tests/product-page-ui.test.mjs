@@ -17,6 +17,7 @@ async function pageModule() {
       resolveId: id => id === entry ? entry : null,
       load: id => id === entry ? `import React from 'react';import {renderToStaticMarkup} from 'react-dom/server';
       import {createPreparationSaveState} from ${JSON.stringify(fileURLToPath(new URL('../src/siblingPreparationState.js',import.meta.url)))};
+      import PublishSection, {showsProductPublish} from ${JSON.stringify(fileURLToPath(new URL('../src/components/ProductPublishSection.jsx', import.meta.url)))};
       import Page, {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload,
         captureRecaptureReady, captureRecaptureConfirmLine, captureRecapturePayload, CAPTURE_RECAPTURE_REASONS,
         currentProductStep, skuChoiceReady, skuChoiceSaved, showsSkuChoice, skuChoiceHeadline, skuChoiceSwing,
@@ -27,7 +28,8 @@ async function pageModule() {
         profitStepOutcomeLine, cargoFactsFormState, cargoFactsPayload, cargoFactsStepGaps, cargoFactsHeadline,
         ozonCategoryStepGaps, ozonPageReadOutcomeLine, productStepPassed, extraHandlingFeesFormState,
         extraHandlingFeesPayload, extraHandlingFeesFormErrors, extraHandlingFeesFormTotal, extraHandlingFeesStepGaps,
-        extraHandlingFeeBreakLine, extraHandlingFeeAppliedLine, CommissionEstimateBlock} from ${JSON.stringify(component)};
+        extraHandlingFeeBreakLine, extraHandlingFeeAppliedLine, CommissionEstimateBlock, ExtraHandlingFeesBlock,
+        cargoFactsFormGaps, extraHandlingFeesFoldable, profitStepComparabilityBound} from ${JSON.stringify(component)};
       export {stepNotice, thresholdBasisLine, captureStatusLine, captureNeedsOwnerReview, captureReviewPayload,
         captureRecaptureReady, captureRecaptureConfirmLine, captureRecapturePayload, CAPTURE_RECAPTURE_REASONS,
         currentProductStep, skuChoiceReady, skuChoiceSaved, showsSkuChoice, skuChoiceHeadline, skuChoiceSwing,
@@ -38,9 +40,12 @@ async function pageModule() {
         profitStepOutcomeLine, cargoFactsFormState, cargoFactsPayload, cargoFactsStepGaps, cargoFactsHeadline,
         ozonCategoryStepGaps, ozonPageReadOutcomeLine, productStepPassed, extraHandlingFeesFormState,
         extraHandlingFeesPayload, extraHandlingFeesFormErrors, extraHandlingFeesFormTotal, extraHandlingFeesStepGaps,
-        extraHandlingFeeBreakLine, extraHandlingFeeAppliedLine};
+        extraHandlingFeeBreakLine, extraHandlingFeeAppliedLine, cargoFactsFormGaps, extraHandlingFeesFoldable,
+        profitStepComparabilityBound};
+      export {PublishSection, showsProductPublish};
       export const render=props=>renderToStaticMarkup(<Page preparationSaveState={createPreparationSaveState()} {...props}/>);
-      export const renderCommissionEstimate=props=>renderToStaticMarkup(<CommissionEstimateBlock {...props}/>);` : null }],
+      export const renderCommissionEstimate=props=>renderToStaticMarkup(<CommissionEstimateBlock {...props}/>);
+      export const renderExtraHandlingFees=props=>renderToStaticMarkup(<ExtraHandlingFeesBlock {...props}/>);` : null }],
       ssr: { noExternal: true }, build: { ssr: true, write: false, rollupOptions: { input: entry, output: { format: 'es' } } } });
     const chunk = output.output.find(value => value.type === 'chunk' && value.isEntry);
     assert.ok(chunk);
@@ -90,7 +95,7 @@ const okEstimate = {
   routeBlock: null
 };
 const props = (extra = {}) => ({ candidate: candidate(), view: null, extensionStatus: { code: 'disconnected', label: '插件未安装或未连接' },
-  onSaveDraft: forbidden, onRequestCapture: forbidden, onOpenLegacyCard: forbidden, onBack: forbidden, ...extra });
+  onSaveDraft: forbidden, onRequestCapture: forbidden, onBack: forbidden, ...extra });
 
 test('追加已采集颜色只需选规格，内部候选名称由软件生成', async () => {
   const parent = candidate({ sourceCapture: { mode: 'a_supplier_capture', status: 'captured_waiting_owner_selection',
@@ -159,6 +164,8 @@ test('batch page keeps each account read separate and does not label card and st
   const html = await render(props({candidate:parent,siblingCandidates:children,
     onConfirmSiblingBatchA:forbidden,onAuthorizeSiblingProductionBatch:forbidden,
     onAuthorizeSiblingAccountRead:forbidden,onContinueSiblingAccountRead:forbidden,
+    siblingBatchExecutionPreparation:{executionStage:'asset_transport',status:'unknown_outcome',
+      reasonCode:'SYNTHETIC_ASSET_RECEIPT_UNKNOWN'},
     siblingBatchExecutionView:{batchId:'d-batch:synthetic-account-ui',externalRequestState:'succeeded',
       excludedOfferIds:['HISTORICAL-KHAKI'],members:children.map((child,index)=>({
         candidateId:child.id,offerId:`SYNTHETIC-${index}`,importStatus:'imported',inventoryStatus:'stock_accepted',
@@ -174,7 +181,31 @@ test('batch page keeps each account read separate and does not label card and st
   assert.match(html,/传送明确失败，已停止/u);
   assert.match(html,/只读核验次数已用尽/u);
   assert.match(html,/只读核验许可已到期/u);
+  assert.match(html,/图片准备状态：传送结果未知，待对账/u);
+  assert.match(html,/卡点：SYNTHETIC_ASSET_RECEIPT_UNKNOWN/u);
   assert.doesNotMatch(html,/E 已独立核验上架/u);
+});
+
+test('batch preparation keeps the tester role visible and blocks commercial confirmation without changing its saved inputs', async () => {
+  const parent = candidate({sourceCapture:{mode:'a_supplier_capture',status:'captured_waiting_owner_selection',
+    selectedSkuIds:['historical','synthetic-black'],
+    skuChoices:[{sourceSkuId:'historical',attributes:{颜色:'卡其'}},
+      {sourceSkuId:'synthetic-black',attributes:{颜色:'黑色'}}]},
+    lifecycleV11:{skuPackage:{supplierSkuId:'historical',technicalStatus:'unknown_outcome'}}});
+  const child = {id:'candidate:synthetic-batch-black',dataRevision:3,
+    siblingSourceV1:{parentCandidateId:parent.id,supplierSkuId:'synthetic-black'},
+    lifecycleV11:{skuPackage:{businessPhase:'C2'}}};
+  const before = structuredClone({parent,child});
+  const base = props({candidate:parent,siblingCandidates:[child],
+    onConfirmSiblingBatchA:forbidden,onAuthorizeSiblingProductionBatch:forbidden});
+  const tester = await render({...base,productionIdentity:{authenticated:true,roles:['operator'],canConfirmSupplyAndProfit:false}});
+  assert.match(tester,/这一步要老板来做：确认供货、确认利润和许可上架只有老板能做。/u);
+  assert.match(tester,/disabled=""[^>]*>确认上架（含创建和库存）<\/button>/u);
+  assert.match(tester,/首件历史导入不在本批范围/u);
+  assert.doesNotMatch(tester,/<td>卡其 · historical<\/td>/u);
+  const owner = await render({...base,productionIdentity:{authenticated:true,roles:['owner'],canConfirmSupplyAndProfit:true}});
+  assert.doesNotMatch(owner,/这一步要老板来做/u);
+  assert.deepEqual({parent,child},before);
 });
 
 test('C2 keeps the final decision disabled until the workspace is read and never falls back to legacy uploads while loading', async () => {
@@ -225,6 +256,18 @@ test('sibling product page shows frozen revision recovery and editable 10096/100
   assert.match(choicesHtml, /填写你确认的准确文字/);
 });
 
+test('单件商品的卡还没授权时，商品页放的是「上架」卡：先按已保存资料取预演，不再出现分步的生产授权表单', async () => {
+  const source = productionOwnerDecisionFixture();
+  const candidate = { ...structuredClone(source.candidate), productionOwnerPreparation: source.preparedView,
+    gate2ListingView: { schemaVersion: 'gate2-listing-view-v1', stage: 'card' } };
+  const html = await render(props({ candidate, onLoadGate2Preview: () => new Promise(() => {}), onListGate2: forbidden }));
+  assert.match(html, /aria-label="上架"><h3>上架<\/h3><p role="status">正在按已保存的资料准备上架卡…<\/p>/u);
+  assert.doesNotMatch(html, /通过进入生产授权|<h3>最终商品方案确认卡<\/h3>/u);
+  // 同款各色或已经授权的不走这张卡（服务端不给 gate2ListingView），照旧显示原来的方案卡。
+  const old = await render(props({ candidate: { ...candidate, gate2ListingView: null } }));
+  assert.match(old, /<h3>最终商品方案确认卡<\/h3>/u);
+});
+
 test('C2 确认后从保存数据显示素材顺序和方案卡，缺少卡片不可宣称生成成功', async () => {
   const finalUploadAssets = finalAssets().map((asset, index) => ({ ...asset,
     fileName: index === 0 ? '首图.png' : '<script>详情.png' }));
@@ -257,25 +300,36 @@ test('商品页显示中文标题、店铺和六步导航，当前停在找货',
   assert.doesNotMatch(html, /保存A卡并等待插件自动采集/);
 });
 
-test('找货表单先按已保存的逐项资料预填，有找货方案后按方案预填', async () => {
-  const prefilledFromFields = await render(props());
-  assert.match(prefilledFromFields, /1688 商品链接/);
-  assert.match(prefilledFromFields, /id="supply-source-url"[^>]*value=""/);
-  // The all-in purchase price minus the saved domestic shipping is the goods price the owner had declared.
-  assert.match(prefilledFromFields, /id="supply-goods-price"[^>]*value="15\.9"/);
-  assert.match(prefilledFromFields, /id="supply-domestic-shipping"[^>]*value="2\.96"/);
-  assert.match(prefilledFromFields, /id="supply-weight"[^>]*value="1\.3"/);
-  assert.match(prefilledFromFields, /id="supply-length"[^>]*value="75"/);
-  assert.match(prefilledFromFields, /id="supply-width"[^>]*value="21"/);
-  assert.match(prefilledFromFields, /id="supply-height"[^>]*value="4"/);
-  assert.match(prefilledFromFields, /请粘贴1688商品详情链接或分享短链/);
+test('找货不再有手填表：没有方案时这一节让位给「做这件」卡，有方案后只显示方案算出来的数', async () => {
+  const fresh = await render(props({ view: { supplierDraftV1: null, supplierDraftEstimateV1: null, marketSnapshot,
+    gate1V1: { open: true, preselection: {}, ozonOptions: [], supplierOptions: [] } } }));
+  assert.doesNotMatch(fresh, /id="supply-source-url"|id="supply-goods-price"|1688 \/ 拼多多 商品链接/u, '找货手填表已经拿掉');
+  assert.doesNotMatch(fresh, /<section class="product-section" aria-label="找货">/u, '「做这件」卡开着时找货这一节不出现');
+  assert.match(fresh, /aria-label="做这件"/u);
   const saved = await render(props({ view: { supplierDraftV1: draft, supplierDraftEstimateV1: okEstimate, marketSnapshot } }));
-  assert.match(saved, /id="supply-source-url"[^>]*value="https:\/\/detail\.1688\.com\/offer\/876240928352\.html"/);
-  assert.match(saved, /id="supply-target-price"[^>]*value="1850"/);
-  assert.doesNotMatch(saved, /请粘贴1688商品详情链接或分享短链/);
+  assert.doesNotMatch(saved, /id="supply-source-url"|id="supply-target-price"/u);
+  assert.match(saved, /这是你在「做这件」卡上认下的方案/u);
   assert.match(saved, /市场快照：Seerfar 2026-09-10 · 售价 1850 卢布 · 30 天销量 330 · 评价 371/);
   assert.match(saved, /按你填的到手总价 ¥18\.86：单件利润 ¥41\.26 · 利润率 28% · 达到本店利润门槛/);
   assert.match(saved, /采购上限 ¥60\.12 · GUOO Economy Small · 计费 1\.3 公斤 · 运费 ¥54\.50 · 佣金 14%/);
+});
+
+test('Seerfar 的售价没有币种：市场快照和对标都照实写「币种未知」，不写成卢布；算利润那里说清为什么不能确认', async () => {
+  const unknown = { ...marketSnapshot, currency: 'unknown', priceCurrencySource: 'provider_unreported' };
+  const saved = await render(props({ view: { supplierDraftV1: draft, supplierDraftEstimateV1: okEstimate, marketSnapshot: unknown } }));
+  assert.match(saved, /市场快照：Seerfar 2026-09-10 · 售价 1850（币种未知） · 30 天销量 330 · 评价 371/u);
+  assert.doesNotMatch(saved, /1850 卢布/u);
+
+  const why = '这个售价来自 Seerfar 的查询结果，Seerfar 没有说明它是卢布还是别的币种，软件不拿它算正式利润。先读一次这个 Ozon 商品页，用页面上的售价。';
+  const benchmark = { ...profitReview().benchmark, currency: 'unknown', currencyEvidenced: false };
+  const html = await render(profitProps({ benchmark, submissionBase: null,
+    baseGaps: [{ field: 'salesReview.currency', label: '对标售价的币种', why }] }));
+  assert.match(html, /1457（币种未知）/u);
+  assert.match(html, /标题里写着 8XL，售价 1457（币种未知），所以先上同规格的这一个/u);
+  assert.doesNotMatch(html, /1457 卢布/u);
+  assert.ok(html.includes(`<b>对标售价的币种</b>：${why}`), '缺的那一项和原因照实列出来');
+  assert.match(html, /<button type="button" class="button primary" disabled[^>]*>确认这套供货，往下做<\/button>/u);
+  assert.doesNotMatch(html, /RENDER_MUST_NOT_START_WORK/u);
 });
 
 test('没有可走线路时按资费表原话给出折叠或按大件的提示', async () => {
@@ -303,11 +357,10 @@ test('插件没连上时给一句安装提示，连上后不再显示', async ()
 test('没有找货方案时不能申请采集，也不显示假的市场快照或利润', async () => {
   const html = await render(props());
   assert.match(html, /市场快照：还没有本商品的查询结果快照。/);
-  assert.match(html, /填好上面的资料并保存后，这里显示采购上限和利润。/);
-  assert.match(html, /先保存上面的找货方案，才能申请采集。/);
-  assert.match(html, /申请插件采集<\/button>/);
+  assert.match(html, /找货方案由上面的「做这件」卡存下/u);
+  assert.match(html, /先在上面「做这件」卡上点「做这件」，才能申请采集。/);
   assert.match(html, /<button[^>]*disabled[^>]*>申请插件采集<\/button>/);
-  assert.match(html, /保存只记录你填的方案，不会确认供货，也不会开始采购。/);
+  assert.doesNotMatch(html, /保存只记录你填的方案/u);
 });
 
 test('商品页顶上写明自己在哪一层，选品台和我选的商品都能点回去，返回按钮还在', async () => {
@@ -325,23 +378,20 @@ test('商品页顶上写明自己在哪一层，选品台和我选的商品都�
   assert.doesNotMatch(noBack, />返回<\/button>/u);
 });
 
-test('保存之后留在本页，并且只强调下一步：过线强调申请采集，没过线或缺资料强调表单', async () => {
+test('有了方案之后下一步总是申请采集；粗算缺资料或没过线时照实说，不再让主人回去改表', async () => {
   const passing = await render(props({ view: { supplierDraftV1: draft, supplierDraftEstimateV1: okEstimate, marketSnapshot } }));
   assert.match(passing, /<div class="product-capture product-next" aria-label="插件采集">/u);
   assert.match(passing, /下一步：点下面的「申请插件采集」，让插件去读这个1688页面。/u);
   assert.match(passing, /<button[^>]*class="button primary"[^>]*>申请插件采集<\/button>/u);
-  assert.doesNotMatch(passing, /<div class="product-form product-next">/u);
   const blocked = await render(props({ view: { supplierDraftV1: draft, supplierDraftEstimateV1: blockedEstimate, marketSnapshot } }));
-  assert.match(blocked, /<div class="product-form product-next">/u);
-  assert.match(blocked, /下一步：把上面缺的资料补齐，再保存一次。/u);
-  assert.doesNotMatch(blocked, /product-capture product-next/u);
+  assert.match(blocked, /product-capture product-next/u);
+  assert.match(blocked, /粗算还缺的几项，采回来或正式算利润时再补/u);
   const thin = await render(props({ view: { supplierDraftV1: draft, marketSnapshot,
     supplierDraftEstimateV1: { ...okEstimate, profitAtDeclaredPurchase: { ...okEstimate.profitAtDeclaredPurchase, passes: false } } } }));
-  assert.match(thin, /<div class="product-form product-next">/u);
-  assert.match(thin, /下一步：这件没到本店利润门槛，改上面的货价或目标成交价再保存一次。/u);
-  // Before anything is saved there is no "next step" to shout about, only the form itself.
+  assert.match(thin, /粗算没到本店利润门槛，仍可以采回真实规格价再看；正式利润没过线时会回到「需要你处理」/u);
+  for (const html of [passing, blocked, thin]) assert.doesNotMatch(html, /product-form product-next|再保存一次/u);
+  // Before anything is saved there is no "next step" to shout about; the 做这件 card is the next thing.
   const fresh = await render(props());
-  assert.match(fresh, /<div class="product-form product-next">/u);
   assert.doesNotMatch(fresh, /下一步：/u);
 });
 
@@ -375,7 +425,7 @@ test('商品页的申请插件采集走专用处理：写操作不经读取守�
   // 旧 A 卡仍然自己调用同一个信号与同一套文案映射，没有被改成另一条路径。
   assert.match(app, /const captureStart = await startQueuedSupplierCapture\(result\);/u);
   assert.match(app, /\$\{captureStart\.message\}/u);
-  assert.match(app, /import \{ OZON_PAGE_READ_CHANNEL, startQueuedSupplierCapture \} from "\.\/captureStart\.js";/u);
+  assert.match(app, /import \{ IMAGE_MATCH_CHANNEL, OZON_IMAGE_MATCH_CHANNEL, OZON_PAGE_READ_CHANNEL, SEERFAR_WEB_CHANNEL, captureStartMessage, requestSupplierCaptureStart, startQueuedSupplierCapture \} from "\.\/captureStart\.js";/u);
 });
 
 // 定价指引 (owner question 2026-09-11). Synthetic guidance only: the page shows what the saved estimate carries.
@@ -407,12 +457,8 @@ test('保存找货资料后，商品页自己把保本价、达标价、市场�
   assert.match(html, /超过档位分界线会换一档费率/u);
   assert.match(html, /1 元 ≈ 12\.5637 卢布/u);
   assert.match(html, /你填的到手总价 ¥45\.00/u);
-  // 目标成交价 starts at the market price and says so; the owner no longer types a number out of thin air.
-  assert.match(html, /id="supply-target-price"[^>]*value="1850"/u, '已经填过找货方案时按方案里的价预填');
   const fresh = await render(props({ view: { supplierDraftV1: null, marketSnapshot, supplierDraftEstimateV1: null } }));
-  assert.match(fresh, /id="supply-target-price"[^>]*value="1850"/u, '还没填过时默认就是同款市场价');
-  assert.match(fresh, /默认就是同款现在的市场价；它也是以后上架时的起价/u);
-  assert.doesNotMatch(fresh, /定价指引/u, '还没保存找货方案时不显示定价指引');
+  assert.doesNotMatch(fresh, /定价指引/u, '还没有找货方案时不显示定价指引');
 });
 
 test('算不出定价指引时直说缺什么，不给一个猜出来的价', async () => {
@@ -567,7 +613,6 @@ test('插件采回来之后，商品页停在「选定」，这一步展开成�
   assert.match(html, /货源 1688 \/ 943009939489 · 目标售价 1600 卢布 · 2026-09-13 采到/u);
   // 找货 folds away below it, complete, because those inputs still drive every row.
   assert.match(html, /<details class="product-folded" aria-label="找货"><summary>找货<span class="product-folded-state">已保存<\/span><\/summary>/u);
-  assert.match(html, /id="supply-target-price"[^>]*value="1850"/u);
   // 选定 is no longer one of the folded "未开始" steps.
   assert.doesNotMatch(html, /<summary>选定/u);
   assert.equal((html.match(/未开始/gu) ?? []).length, 4);
@@ -687,7 +732,7 @@ test('选定之后进度条走到「算利润」，选定这一步记成已完�
   assert.equal(foldedStepLine('select', 'profit', chosen), '已选定 2 个规格，已经锁进这件商品的供货方案。');
   assert.equal(foldedStepState('copy', 'profit', chosen), '未开始');
   assert.equal(foldedStepLine('copy', 'profit', chosen), '等前面的步骤完成后再开始。');
-  assert.equal(foldedStepLine('profit', 'profit', chosen), '这一步的详细界面还在旧版页面里，先用「打开旧版A卡」查看。');
+  assert.equal(foldedStepLine('profit', 'profit', chosen), '这一步现在没有要你在这里点的东西；需要你处理的事会出现在「需要你处理」里。');
 
   const html = await render(choosingProps({ candidate: chosen }, {}, { selectedSkuIds: ['sku-xl-yellow', 'sku-8xl-yellow'] }));
   assert.match(html, /aria-current="step"[^>]*>[^<]*<span class="product-step-index">3<\/span>算利润/u);
@@ -707,14 +752,34 @@ test('还没保存找货资料就采回来了：直说算不出来该先做什�
     view: { supplierDraftV1: null, supplierDraftEstimateV1: null, marketSnapshot, skuChoiceTableV1: null } }));
   assert.match(html, /<h3>选哪个规格上架<\/h3>/u);
   assert.match(html, /但现在还算不出每个规格的运费和利润：/u);
-  assert.match(html, /先把下面「找货」里的资料填好保存一次，这里就会按每个规格自己的重量算给你看。/u);
+  assert.match(html, /先在上面「做这件」卡上点「做这件」，这里就会按每个规格自己的重量算给你看。/u);
   assert.doesNotMatch(html, /按单件利润从高到低/u);
   assert.doesNotMatch(html, /选定这些规格/u);
   // 找货已经填过、但官方输入还缺一样：说的是缺哪一类，不是让主人再填一次表。
   const saved = await render(props({ candidate: candidate({ sourceCapture: waitingCapture() }),
     view: { supplierDraftV1: draft, supplierDraftEstimateV1: okEstimate, marketSnapshot, skuChoiceTableV1: null } }));
   assert.match(saved, /汇率、佣金、资费表或本店成本规则里还缺东西/u);
-  assert.doesNotMatch(saved, /先把下面「找货」里的资料填好保存一次/u);
+  assert.doesNotMatch(saved, /先在上面「做这件」卡上点「做这件」/u);
+});
+
+test('冻结 SKU 的 B/C1/C2 阶段优先于旧执行记录，不要求重新选择已经确认的供货规格', async () => {
+  const { currentProductStep, showsSkuChoice } = await pageModule();
+  for (const [businessPhase, expectedStep] of [['B', 'profit'], ['C1', 'copy'], ['C2', 'copy']]) {
+    const saved = candidate({
+      sourceCapture: waitingCapture({ selectedSkuIds: ['sku-xl-yellow'] }),
+      executionRuntime: { businessPhase: 'A' },
+      lifecycleV11: { skuPackage: { businessPhase, selectedSupplySnapshot: {
+        ownerSupplyConfirmation: { status: 'confirmed' }
+      } } }
+    });
+    const before = structuredClone(saved);
+    assert.equal(currentProductStep(saved), expectedStep);
+    assert.equal(showsSkuChoice(saved), false);
+    const html = await render(choosingProps({ candidate: saved }));
+    assert.doesNotMatch(html, /选哪个规格上架|先在上面「做这件」卡上点「做这件」/u);
+    if (businessPhase.startsWith('C')) assert.match(html, /aria-current="step"[^>]*>[^<]*<span class="product-step-index">4<\/span>文案素材/u);
+    assert.deepEqual(saved, before);
+  }
 });
 
 test('采集刚刚回来时商品页会自己重读这一步，不停在「还没有规格」上', async () => {
@@ -1233,7 +1298,7 @@ test('先上这一个：默认建议同尺码那一个，算式摊开，其余�
   assert.match(html, /<b> · 先上<\/b>/u);
 });
 
-test('两个勾选都勾上才能提交，页面价与找货价的差额就写在勾选旁边', async () => {
+test('可比同类勾上才能提交，供货那一套摆出来由最后那个按钮一起确认，页面价与找货价的差额就写在旁边', async () => {
   const { profitStepPriceDeltaLine, profitStepSubmitState } = await pageModule();
   const review = profitReview();
   const spec = review.specifications.find(item => item.sourceSkuId === 'sku-8xl-yellow');
@@ -1248,8 +1313,8 @@ test('两个勾选都勾上才能提交，页面价与找货价的差额就写�
   assert.equal(profitStepSubmitState({ ...base, comparabilityConfirmed: false, supplyConfirmed: false }).ready, false);
   assert.equal(profitStepSubmitState({ ...base, comparabilityConfirmed: true, supplyConfirmed: false }).ready, false);
   assert.equal(profitStepSubmitState({ ...base, comparabilityConfirmed: false, supplyConfirmed: true }).ready, false);
-  assert.equal(profitStepSubmitState({ ...base, comparabilityConfirmed: true, supplyConfirmed: false }).hint,
-    '两件都确认后才能进入下一步。');
+  assert.equal(profitStepSubmitState({ ...base, comparabilityConfirmed: false, supplyConfirmed: true }).hint,
+    '先勾上「这两件商品是可比的同类」，才能确认这套供货。');
   const ready = profitStepSubmitState({ ...base, comparabilityConfirmed: true, supplyConfirmed: true });
   assert.equal(ready.ready, true);
   assert.equal(ready.hint, '8XL · 黄色 先上，其余 1 个变体排队等同一张卡追加。');
@@ -1257,7 +1322,7 @@ test('两个勾选都勾上才能提交，页面价与找货价的差额就写�
   assert.equal(profitStepSubmitState({ review, firstSkuId: null, gaps: [], comparabilityConfirmed: true, supplyConfirmed: true }).ready, false);
 
   const html = await render(profitProps());
-  assert.match(html, /<h4>只有你能确认的两件事<\/h4>/u);
+  assert.match(html, /<h4>你点下去确认的是这一套<\/h4>/u);
   assert.match(html, /<b>这两件商品是可比的同类<\/b>/u);
   assert.match(html, /Ozon 3605840795/u);
   assert.match(html, /Водонепроницаемый дождевик для собак, светоотражающий -8XL/u);
@@ -1269,9 +1334,13 @@ test('两个勾选都勾上才能提交，页面价与找货价的差额就写�
   assert.match(html, /打包 0\.24 公斤 · 25×22×2\.5 厘米/u);
   assert.match(html, /<p class="product-profit-delta">你在「找货」里填的货价是 ¥20\.50；/u);
   assert.match(html, /其他采购费用按 ¥0\.00 算：你在「找货」里只填了货价和国内运费/u);
-  // 两个勾选都还没勾，按钮就是不可点的。
-  assert.match(html, /<button type="button" class="button primary" disabled[^>]*>确认，进入文案素材<\/button>/u);
-  assert.match(html, /两件都确认后才能进入下一步。/u);
+  // 供货那一句不再单独打勾：最后那个按钮就是对这一整套的确认（AGENTS.md §4.4 不连着确认两遍同样的内容）。
+  assert.doesNotMatch(html, /id="profit-supply"/u);
+  assert.match(html, /<div class="product-profit-check product-profit-supply">/u);
+  assert.match(html, /<input type="checkbox" id="profit-comparable"/u);
+  // 可比同类还没勾，按钮就是不可点的。
+  assert.match(html, /<button type="button" class="button primary" disabled[^>]*>确认这套供货，往下做<\/button>/u);
+  assert.match(html, /先勾上「这两件商品是可比的同类」，才能确认这套供货。/u);
   // 渲染这一步不会向服务端发任何东西。
   assert.doesNotMatch(html, /RENDER_MUST_NOT_START_WORK/u);
 
@@ -1289,6 +1358,99 @@ test('两个勾选都勾上才能提交，页面价与找货价的差额就写�
   assert.doesNotMatch(declared, /¥20\.50（这个规格在 1688 页面上自己的价）/u);
   // 页面从没给过这个规格一个价，所以也没有「页面价比你填的差多少」这句话。
   assert.doesNotMatch(declared, /<p class="product-profit-delta">/u);
+});
+
+/* 「做这件」卡把软件读到的数（1688 搜图卡片价、价格说明里的运费、Seerfar 的尺寸……）存进找货方案。2026-10-12 审查：
+ * 页面原来一律说「你填的」，主人在「确认这套供货」时以为这些数是自己核过的。现在逐项照实说，确认前列出来。 */
+const gate1Origins = (overrides = {}) => Object.fromEntries(Object.entries({
+  goodsPriceRmb: ['1688_image_search', '1688 搜图卡片上的价'], domesticShippingRmb: ['1688_price_note', '1688 价格说明里写的运费'],
+  packedWeightKg: ['seerfar', 'Seerfar 记录的同类商品重量'], dimensionsCm: ['seerfar_volume', 'Seerfar 记录的同类商品尺寸'],
+  targetSalePriceRub: ['ozon_match', 'Ozon 同款现价'], ...overrides
+}).map(([field, [source, label]]) => [field, { field, source, owner: source === 'owner', label }]));
+
+test('「做这件」存下的方案：软件读的数不说成「你填的」，确认前列出来，Seerfar 的尺寸当场能改成实际的', async () => {
+  const { profitStepPriceDeltaLine } = await pageModule();
+  const origins = gate1Origins();
+  const supply = { ...profitReview().supply, origins };
+  const html = await render(profitProps({ supply }, { onReviseDraftDimensions: forbidden }));
+  assert.match(html, /货价 ¥41\.50（这个规格在 1688 页面上自己的价） ＋ 国内运费 ¥3\.50（1688 价格说明里写的运费）/u);
+  assert.match(html, /打包 0\.24 公斤 · 25×22×2\.5 厘米（Seerfar 记录的同类商品尺寸）/u);
+  assert.match(html, /其他采购费用按 ¥0\.00 算：「找货」方案里只有货价和国内运费/u);
+  assert.match(html, /<p class="product-profit-delta">「找货」方案里的货价是 ¥20\.50（1688 搜图卡片上的价）；/u);
+  assert.doesNotMatch(html, /（你填的）|你在「找货」里填的货价/u);
+  // 确认按钮之前把软件读的几项列出来：采到的规格价和重量不算，方案里的运费、尺寸、售价算。
+  assert.match(html, /<h4>这几个数是软件读来的，不是你填的<\/h4>/u);
+  assert.match(html, /<li><b>国内运费<\/b>：1688 价格说明里写的运费<\/li>/u);
+  assert.match(html, /<li><b>包装尺寸<\/b>：Seerfar 记录的同类商品尺寸<\/li>/u);
+  assert.match(html, /<li><b>目标成交价<\/b>：Ozon 同款现价<\/li>/u);
+  assert.doesNotMatch(html, /<li><b>货价<\/b>/u);
+  assert.match(html, /先点「改成实际尺寸」改掉，运费和利润会按它重算/u);
+  assert.match(html, /<button type="button" class="button secondary">改成实际尺寸<\/button>/u);
+  assert.equal(profitStepPriceDeltaLine({ priceDelta: { pageRmb: 20.2, declaredRmb: 20.5, deltaRmb: -0.3 } }, origins.goodsPriceRmb),
+    '「找货」方案里的货价是 ¥20.50（1688 搜图卡片上的价）；这一步按这个规格自己的页面价 ¥20.20 算，页面价比方案里的便宜 ¥0.30。');
+
+  // 同重同价补进来的货价和重量是方案里的数：方案里是软件读的，就标「按找货方案」，并列进确认前那几项。
+  const declared = await render(profitProps({ supply, specifications: profitReview().specifications.map(item =>
+    item.sourceSkuId === 'sku-8xl-yellow' ? { ...item, priceCny: 20.5, unitProductPrice: 20.5, actualPurchaseCost: 24, priceDelta: null,
+      priceBasis: 'owner_declared', weightBasis: 'owner_declared' } : item) }, { onReviseDraftDimensions: forbidden }));
+  assert.match(declared, /货价 ¥20\.50（页面没有按规格分列价格，这是「找货」方案里的货价：1688 搜图卡片上的价）/u);
+  assert.match(declared, /打包 0\.24 公斤（按找货方案） · 25×22×2\.5 厘米（Seerfar 记录的同类商品尺寸）/u);
+  assert.match(declared, /<li><b>货价<\/b>：1688 搜图卡片上的价<\/li>/u);
+  assert.match(declared, /<li><b>打包重量<\/b>：Seerfar 记录的同类商品重量<\/li>/u);
+
+  // 主人自己改过尺寸、补过运费：那两项是他的，不再列，也不再给改尺寸的按钮。
+  const typed = await render(profitProps({ supply: { ...supply, origins: gate1Origins({ dimensionsCm: ['owner', '你填的'],
+    domesticShippingRmb: ['owner', '你填的'] }) } }, { onReviseDraftDimensions: forbidden }));
+  assert.match(typed, /国内运费 ¥3\.50（你填的）/u);
+  assert.match(typed, /打包 0\.24 公斤 · 25×22×2\.5 厘米。/u);
+  assert.doesNotMatch(typed, /<li><b>包装尺寸<\/b>/u);
+  assert.doesNotMatch(typed, /改成实际尺寸/u);
+  // 手填的方案（服务端没给来源）一个字都不变：这一块整块不出现。
+  assert.doesNotMatch(await render(profitProps()), /这几个数是软件读来的/u);
+});
+
+test('找货、选规格和同重同价按方案里每个数的来源说话；改尺寸只交修订号和长宽高', async () => {
+  const { skuUniformSupplyNotice } = await pageModule();
+  const origins = gate1Origins();
+  const gate1Draft = { ...draft, fieldSources: Object.fromEntries(Object.entries(origins).map(([key, value]) => [key, value.source])),
+    provenance: 'owner_accepted_software_read' };
+  const html = await render(props({
+    candidate: candidate({ sourceCapture: waitingCapture() }),
+    view: { supplierDraftV1: gate1Draft, supplierDraftOriginsV1: origins, supplierDraftEstimateV1: okEstimate, marketSnapshot,
+      skuChoiceTableV1: choiceTable() },
+    onChooseSkus: forbidden, onReviseDraftDimensions: forbidden
+  }));
+  assert.match(html, /按找货方案的到手总价 ¥18\.86：单件利润/u);
+  assert.match(html, /方案里的数：货价 ¥15\.90（1688 搜图卡片上的价） · 国内运费 ¥2\.96（1688 价格说明里写的运费）/u);
+  assert.match(html, /包装 75×21×4 厘米（Seerfar 记录的同类商品尺寸）/u);
+  assert.match(html, /包装尺寸不是这件货量过的；手上有实际尺寸/u);
+  assert.match(html, /<dt>目标售价<\/dt><dd>1600 卢布 · Ozon 同款现价<\/dd>/u);
+  assert.match(html, /<dt>Ozon 官方佣金<\/dt><dd>14% · 按目标售价所在档<\/dd>/u);
+  assert.match(html, /<dt>国内运费<\/dt><dd>¥3\.50 · 1688 价格说明里写的运费<\/dd>/u);
+  assert.doesNotMatch(html, /按你填的到手总价|· 你填的</u);
+
+  const step = { declared: false, offered: true, total: 3, weightGapCount: 3, priceGapCount: 0, lapsedReason: '',
+    basis: { packedWeightKg: 0.2, goodsPriceRmb: 18 }, dataRevision: 4 };
+  const offer = skuUniformSupplyNotice(step, origins);
+  assert.match(offer.message, /按「找货」方案里的 0\.2 公斤（Seerfar 记录的同类商品重量）\/ ¥18\.00（1688 搜图卡片上的价） 算/u);
+  assert.match(offer.message, /是你点「做这件」时认下的，表里会照实标成「按找货方案」/u);
+  assert.equal(offer.buttonLabel, '这些规格同重同价，按找货方案算');
+  const declared = skuUniformSupplyNotice({ ...step, declared: true, appliedWeightCount: 3, appliedPriceCount: 0 }, origins);
+  assert.equal(declared.heading, '这些规格按找货方案算');
+  assert.doesNotMatch(declared.message, /你填的/u);
+  // 来源都是主人的（手填的方案），说法和以前一字不差。
+  assert.equal(skuUniformSupplyNotice(step).buttonLabel, '这些规格同重同价，按我填的算');
+
+  const { readFile } = await import('node:fs/promises');
+  const page = await readFile(fileURLToPath(new URL('../src/components/ProductPage.jsx', import.meta.url)), 'utf8');
+  assert.match(page, /export function draftDimensionsPayload\(form, dataRevision\)/u);
+  const app = await readFile(fileURLToPath(new URL('../src/App.jsx', import.meta.url)), 'utf8');
+  assert.match(app, /onReviseDraftDimensions=\{payload => runProductStep\(api\.reviseSupplierDraftDimensions, payload\)\}/u);
+  // 商品页上的写走 runMutation，不走读防抖：第二次写的回执不会被页面刷新作废成 null（审查 P0-10）。
+  const runProductStep = app.match(/async function runProductStep\(action,payload\)\{[\s\S]*?\n  \}/u);
+  assert.ok(runProductStep);
+  assert.match(runProductStep[0], /runMutation\(\(\)=>action\(candidateId,payload\)/u);
+  assert.doesNotMatch(runProductStep[0], /productDraftReads\.current\.run\(/u);
 });
 
 test('资料凑不齐就如实列出来并禁用提交，页面不替主人补一个像样的数字', async () => {
@@ -1315,7 +1477,7 @@ test('资料凑不齐就如实列出来并禁用提交，页面不替主人补�
   }));
   assert.doesNotMatch(noFreight, /其他采购费用按 ¥0\.00 算/u);
   assert.match(html, /其他采购费用按 ¥0\.00 算/u, '能报出来时这句话要在，主人才知道这个 0 是哪来的');
-  assert.match(html, /<button type="button" class="button primary" disabled[^>]*>确认，进入文案素材<\/button>/u);
+  assert.match(html, /<button type="button" class="button primary" disabled[^>]*>确认这套供货，往下做<\/button>/u);
   assert.match(html, /资料还缺东西，先补齐下面列出的这几项才能确认。/u);
 
   // 采集里缺「一件可买」的凭据时，缺的是那一条，说的也是那一条。
@@ -1326,10 +1488,10 @@ test('资料凑不齐就如实列出来并禁用提交，页面不替主人补�
       : item)
   }));
   assert.match(missingEvidence, /<b>一件可买的凭据<\/b>：这一次采集没有读到「一件起订」的报价/u);
-  assert.match(missingEvidence, /<button type="button" class="button primary" disabled[^>]*>确认，进入文案素材<\/button>/u);
+  assert.match(missingEvidence, /<button type="button" class="button primary" disabled[^>]*>确认这套供货，往下做<\/button>/u);
 });
 
-test('运输属性：一行结论、一句依据、一个确认按钮，就摆在「确认，进入文案素材」之前', async () => {
+test('运输属性：一行结论、一句依据，就摆在「确认这套供货，往下做」之前，还没确认过的跟着那一下一起记下', async () => {
   const { cargoFactsHeadline, cargoFactsFormState, cargoFactsPayload } = await pageModule();
 
   assert.equal(cargoFactsHeadline(cargoStep()), CARGO_HEADLINE);
@@ -1357,9 +1519,11 @@ test('运输属性：一行结论、一句依据、一个确认按钮，就摆�
   assert.match(html, /软件只按它真看到的东西提议，判断不了的让你选/u);
   assert.match(html, new RegExp(`<p class="product-cargo-headline">${CARGO_HEADLINE}</p>`, 'u'));
   assert.match(html, /依据采到的类别「雨衣」、全部 3 项属性、商品标题里没有出现电池／锂电／充电／发热／USB／电动／遥控这类字样。/u);
-  assert.match(html, /确认只是记下你对这件货的说法，不会下单、不会联系供应商、也不会向 Ozon 写任何东西。/u);
   // 这一块在确认按钮之前。
-  assert.ok(html.indexOf('product-profit-cargo') < html.indexOf('确认，进入文案素材'));
+  assert.ok(html.indexOf('product-profit-cargo') < html.search(/>确认这套供货，往下做<\/button>/u));
+  // 还没确认过的，这一块自己不摆「确认」：照这里现在的说法，跟着「确认这套供货」那一下一起记下。
+  assert.doesNotMatch(html, /<button type="button" class="button primary"[^>]*>确认<\/button>/u);
+  assert.match(html, /不用单独点：在下面点「确认这套供货，往下做」时，照这里现在的说法一起记下。/u);
   // 四项全提议得出来时不摆四个下拉，只有「逐项修改」。
   assert.doesNotMatch(html, /<div class="product-cargo-ask">/u);
   assert.match(html, /逐项修改<\/button>/u);
@@ -1400,7 +1564,7 @@ test('判不定的那几项才变成选择，并且说清楚软件为什么不�
   assert.match(declared, /改成这样<\/button>/u);
 });
 
-test('运输属性没确认，「算利润」的确认按钮就不可点，并把原因说在缺项单里', async () => {
+test('运输属性还有说不准的项，「算利润」的确认按钮就不可点，并把原因说在缺项单里', async () => {
   const { cargoFactsStepGaps } = await pageModule();
   const gap = { field: 'cargoFacts', label: '运输属性',
     why: '还没有确认这件商品的运输属性。软件要先知道它带不带电、是不是普货，才能核验线路收不收这件货。' };
@@ -1414,11 +1578,97 @@ test('运输属性没确认，「算利润」的确认按钮就不可点，并�
     reason: '运输属性里还有「带不带电」你标着说不准；线路核验用不了说不准的值，补一下再确认。' } })),
     [{ ...gap, why: '运输属性里还有「带不带电」你标着说不准；线路核验用不了说不准的值，补一下再确认。' }]);
 
-  const html = await render(profitProps({}, {}, cargoStep()));
+  // 还没确认过、软件四项都提议得出来：照提议跟着最后那一下记下，缺项单里没有它，挡着的只剩可比同类那个勾。
+  const proposed = await render(profitProps({}, {}, cargoStep()));
+  assert.doesNotMatch(proposed, /product-profit-gaps/u);
+  assert.match(proposed, /先勾上「这两件商品是可比的同类」，才能确认这套供货。/u);
+  // 软件判断不了的那几项还没选：缺项单里点名是哪几项，按钮不亮。
+  const html = await render(profitProps({}, {}, cargoStep({
+    proposal: { batteryType: null, batteryEnergyWh: null, generalCargo: null, personalUse: true, irregularShape: false } })));
   assert.match(html, /<div class="product-profit-gaps" role="alert">/u);
-  assert.match(html, /<b>运输属性<\/b>：还没有确认这件商品的运输属性。软件要先知道它带不带电、是不是普货，才能核验线路收不收这件货。/u);
-  assert.match(html, /<button type="button" class="button primary" disabled[^>]*>确认，进入文案素材<\/button>/u);
+  assert.match(html, /<b>运输属性<\/b>：运输属性里还有「带不带电」「是不是普货」没定；线路核验用不了说不准的值，在下面那一块选好。/u);
+  assert.match(html, /<button type="button" class="button primary" disabled[^>]*>确认这套供货，往下做<\/button>/u);
   assert.match(html, /资料还缺东西，先补齐下面列出的这几项才能确认。/u);
+});
+
+test('运输属性跟着最后那一下记下之前，页面判的「还缺什么」和服务端收不收是同一套规则', async () => {
+  const { cargoFactsFormGaps, cargoFactsPayload } = await pageModule();
+  const { validateOwnerCargoFactsDeclaration, cargoFactsGate } = await import('../lib/cargo-facts-declaration.mjs');
+  const forms = [];
+  for (const batteryType of ['none', 'installed', 'standalone', 'unknown', null, 'bogus']) {
+    for (const batteryEnergyWh of ['', '96', '0', 'abc']) {
+      for (const generalCargo of [true, false, null]) {
+        for (const personalUse of [true, null]) {
+          for (const irregularShape of [false, null]) forms.push({ batteryType, batteryEnergyWh, generalCargo, personalUse, irregularShape });
+        }
+      }
+    }
+  }
+  for (const form of forms) {
+    const { dataRevision, ...facts } = cargoFactsPayload(form, 7);
+    assert.equal(dataRevision, 7);
+    const serverAccepts = validateOwnerCargoFactsDeclaration(facts).valid && cargoFactsGate({ facts }).ready;
+    assert.equal(cargoFactsFormGaps(form).length === 0, serverAccepts, JSON.stringify(form));
+  }
+  assert.deepEqual(cargoFactsFormGaps({ ...CARGO_FULL_FACTS, batteryEnergyWh: '' }), []);
+  assert.match(cargoFactsFormGaps({ ...CARGO_FULL_FACTS, batteryType: 'installed', batteryEnergyWh: '50' })[0].why,
+    /普货和带电不能同时成立/u);
+});
+
+test('对标就是主人在「做这件」卡上认的那个 Ozon 同款时，可比同类不再问第二遍，按钮只等最后那一下', async () => {
+  const { profitStepComparabilityBound, extraHandlingFeesFoldable } = await pageModule();
+  const review = profitReview();
+  assert.equal(profitStepComparabilityBound(review, { id: '3605840795' }), true);
+  assert.equal(profitStepComparabilityBound(review, { id: 3605840795 }), true);
+  // 对标换成了别的商品，或者卡上没认过同款，就照旧让主人勾。
+  assert.equal(profitStepComparabilityBound(review, { id: '1111111111' }), false);
+  assert.equal(profitStepComparabilityBound(review, null), false);
+  assert.equal(profitStepComparabilityBound(profitReview({ benchmark: { productNumber: '' } }), { id: '' }), false);
+
+  // 只有空清单（¥0.00）才能跟着确认供货一起记下；加了钱利润要按它重算，得先在那一块确认。
+  assert.equal(extraHandlingFeesFoldable(extraHandlingNotDeclared(), []), true);
+  assert.equal(extraHandlingFeesFoldable(extraHandlingNotDeclared(), [{ name: '包材', amountRmb: '1.5' }]), false);
+  assert.equal(extraHandlingFeesFoldable(extraHandlingStep(), []), false, '已经声明过的不再替主人记一遍');
+  assert.equal(extraHandlingFeesFoldable(null, []), false);
+
+  const base = profitProps({}, {}, cargoStep(), categoryReadStep(), null, extraHandlingNotDeclared());
+  const bound = await render({ ...base, view: { ...base.view,
+    gate1V1: { decision: { decision: 'accept', picks: { ozon: { id: '3605840795' } } } } } });
+  assert.match(bound, /<b>对标就是你在「做这件」卡上认的那个 Ozon 同款<\/b>/u);
+  assert.match(bound, /可比不可比你在那张卡上已经说过了，这里不再问。/u);
+  assert.doesNotMatch(bound, /id="profit-comparable"/u);
+  // 额外操作费 ¥0.00、运输属性照提议、可比同类都不用另外点：只剩一个按钮，可以点。
+  assert.doesNotMatch(bound, /product-profit-gaps/u);
+  assert.match(bound, /<button type="button" class="button primary">确认这套供货，往下做<\/button>/u);
+  assert.match(bound, /8XL · 黄色 先上，其余 1 个变体排队等同一张卡追加。/u);
+  assert.match(bound, /还没记下的额外操作费（¥0\.00）和运输属性先照上面记下/u);
+  assert.doesNotMatch(bound, /RENDER_MUST_NOT_START_WORK/u);
+  assert.doesNotMatch(bound, /要老板来做/u);
+  // 测试账号看得到同一张卡，但确认供货是老板的：按钮不给点，旁边说清楚为什么。
+  const tester = await render({ ...base, productionIdentity: { authenticated: true, roles: ['operator'], canConfirmSupplyAndProfit: false },
+    view: { ...base.view, gate1V1: { decision: { decision: 'accept', picks: { ozon: { id: '3605840795' } } } } } });
+  assert.match(tester, /<button type="button" class="button primary" disabled[^>]*>确认这套供货，往下做<\/button>/u);
+  assert.match(tester, /这一步要老板来做：确认供货、确认利润和许可上架只有老板能做。/u);
+
+  // 主人在卡上没点「做这件」（或者认的是别的同款），可比同类那个勾照旧在。
+  const unbound = await render({ ...base, view: { ...base.view,
+    gate1V1: { decision: { decision: 'accept', picks: { ozon: { id: '1111111111' } } } } } });
+  assert.match(unbound, /<input type="checkbox" id="profit-comparable"/u);
+  assert.match(unbound, /<button type="button" class="button primary" disabled[^>]*>确认这套供货，往下做<\/button>/u);
+});
+
+test('「确认这套供货」那一下：先记额外操作费和运输属性，修订号跟着服务端回来的那一份走，再用重算后的那份确认', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const page = await readFile(fileURLToPath(new URL('../src/components/ProductPage.jsx', import.meta.url)), 'utf8');
+  const start = page.indexOf('function confirmProfitStep(');
+  const body = page.slice(start, page.indexOf('\n  }\n', start));
+  assert.ok(start > 0 && body.length > 0);
+  assert.match(body, /\["fees", declare\?\.fees, onDeclareExtraHandlingFees\], \["cargo", declare\?\.cargo, onDeclareCargoFacts\]/u);
+  assert.match(body, /dataRevision: latest\?\.dataRevision \?\? payload\.dataRevision/u);
+  assert.match(body, /latest\.profitStepV1/u);
+  assert.ok(body.indexOf('await action(') < body.lastIndexOf('await onConfirmProfitStep(payload)'), '先记下，再确认');
+  // 重算之后凑不齐就停下来照实说，不硬交。
+  assert.match(body, /这次没有确认供货/u);
 });
 
 // 2026-09-14：类目来自 Seerfar 接口，服务端只认真实读过的页面，主人点了确认才吃到那句 B_EVIDENCE_CONTEXT_INCOMPLETE。
@@ -1446,14 +1696,14 @@ test('类目还不是真实页面读来的，「算利润」的确认按钮就�
   assert.match(html, /要读的页面：https:\/\/www\.ozon\.ru\/product\/3605840795\//u);
   assert.match(html, /<button type="button" class="button primary">读一次这个 Ozon 页面<\/button>/u);
   assert.match(html, /<b>当前类目<\/b>：算利润要用的类目，必须来自真实打开过的 Ozon 商品页。/u);
-  assert.match(html, /<button type="button" class="button primary" disabled[^>]*>确认，进入文案素材<\/button>/u);
+  assert.match(html, /<button type="button" class="button primary" disabled[^>]*>确认这套供货，往下做<\/button>/u);
 
   // 类目已经是真实读过的页面给的，这一小块就不出现——没有事要主人做，缺项单里也不再有「当前类目」。
   const ready = await render(profitProps());
   assert.doesNotMatch(ready, /product-profit-category/u);
   assert.doesNotMatch(ready, /读一次这个 Ozon 页面/u);
   assert.doesNotMatch(ready, /product-profit-gaps/u);
-  assert.match(ready, /两件都确认后才能进入下一步。/u, '这时候挡着的只剩主人自己那两个勾');
+  assert.match(ready, /先勾上「这两件商品是可比的同类」，才能确认这套供货。/u, '这时候挡着的只剩主人自己那个勾');
 
   // 上一次读页面的结局原样说出来；等插件的时候按钮不给点，也不承诺重试。
   assert.equal(ozonPageReadOutcomeLine(categoryReadStep()), null);
@@ -1725,7 +1975,7 @@ const readyRecalculationView = (mode) => ({
 
 test('条件测算停下来之后，这一页自己就有重算入口，并说明这一次用的是哪一种费用证据', async () => {
   const official = await render({ candidate: recalculationCandidate(readyRecalculationView('official_reference')),
-    view: null, onRecalculateBWithExactCommission: forbidden, onOpenLegacyCard: forbidden });
+    view: null, onRecalculateBWithExactCommission: forbidden });
   assert.match(official, /已经有更好的费用证据，可以重算利润/u);
   assert.match(official, /<button[^>]*>用更好的费用证据重算<\/button>/u);
   assert.match(official, /这一次会用：Ozon 官方费率表上这条类目的公开费率 12%。/u);
@@ -1736,7 +1986,7 @@ test('条件测算停下来之后，这一页自己就有重算入口，并说�
   assert.doesNotMatch(official, /算利润<span class="product-folded-state">/u);
 
   const exact = await render({ candidate: recalculationCandidate(readyRecalculationView('exact')),
-    view: null, onRecalculateBWithExactCommission: forbidden, onOpenLegacyCard: forbidden });
+    view: null, onRecalculateBWithExactCommission: forbidden });
   assert.match(exact, /这一次会用：店里同类目在售商品的实收费率 12%。/u);
   assert.match(exact, /重算通过之后这件商品可以继续往上架走/u);
   assert.doesNotMatch(exact, /上架那道闸门只认店里的实收费率/u);
@@ -1747,7 +1997,7 @@ test('还没有更好的证据时，这一页照实说，不给按钮也不自�
     ...readyRecalculationView('exact'), canRecalculate: false, status: 'evidence_required',
     commissionEvidenceMode: null, commissionEvidenceLabel: null, commissionRate: null,
     blockReason: 'B_EXACT_RECALCULATION_EVIDENCE_UNAVAILABLE', message: '服务端原话：还读不到。'
-  }), view: null, onRecalculateBWithExactCommission: forbidden, onOpenLegacyCard: forbidden });
+  }), view: null, onRecalculateBWithExactCommission: forbidden });
   assert.match(blocked, /条件测算已保存，等更好的费用证据/u);
   assert.match(blocked, /服务端原话：还读不到。/u);
   assert.match(blocked, /软件不会自己重试，也不会替你把估算当成实收/u);
@@ -1763,7 +2013,7 @@ test('读不到更好的证据时，这一页给出重读入口，并说清它�
     ...readyRecalculationView('exact'), canRecalculate: false, status: 'evidence_required',
     commissionEvidenceMode: null, commissionEvidenceLabel: null, commissionRate: null,
     blockReason: 'B_EXACT_RECALCULATION_EVIDENCE_UNAVAILABLE', message: '服务端原话：还读不到。'
-  }), view: null, onRecalculateBWithExactCommission: forbidden, onOpenLegacyCard: forbidden,
+  }), view: null, onRecalculateBWithExactCommission: forbidden,
     onRefreshBFeeEvidence: forbidden });
 
   assert.match(stranded, /<button[^>]*>重新读一次费用证据<\/button>/u);
@@ -1783,7 +2033,7 @@ test('读不到更好的证据时，这一页给出重读入口，并说清它�
 
 test('已经有可用证据时这一块还在，但说清它不是必须的；服务端没给重读入口就整块不出现', async () => {
   const ready = await render({ candidate: recalculationCandidate(readyRecalculationView('official_reference')),
-    view: null, onRecalculateBWithExactCommission: forbidden, onOpenLegacyCard: forbidden,
+    view: null, onRecalculateBWithExactCommission: forbidden,
     onRefreshBFeeEvidence: forbidden });
   assert.match(ready, /也可以重新读一次费用证据/u);
   assert.match(ready, /这一步不是必须的/u);
@@ -1791,7 +2041,7 @@ test('已经有可用证据时这一块还在，但说清它不是必须的；�
 
   // 页面不自己造这条路：没有接上重读处理时，这一块一个字都不出现。
   const withoutHandler = await render({ candidate: recalculationCandidate(readyRecalculationView('exact')),
-    view: null, onRecalculateBWithExactCommission: forbidden, onOpenLegacyCard: forbidden });
+    view: null, onRecalculateBWithExactCommission: forbidden });
   assert.doesNotMatch(withoutHandler, /重新读一次费用证据/u);
 });
 
@@ -1800,7 +2050,7 @@ test('已经有可用证据时这一块还在，但说清它不是必须的；�
  * Seerfar 发现进来的候选一律没有它，而新版商品页没有任何地方能填。这一组用例钉住的是那个入口本身、它说的那几句话，
  * 以及「没声明」必须在「算利润」这一步就报出来。
  */
-test('没声明每单额外操作费，「算利润」这一步就报缺项，按钮不给点，并且当场就能一键确认 ¥0.00', async () => {
+test('没声明每单额外操作费，「算利润」这一步说清楚，¥0.00 跟着「确认这套供货」一起记下；加了钱才要先在这里确认', async () => {
   const { extraHandlingFeesStepGaps } = await pageModule();
   const missing = extraHandlingFeesStepGaps(extraHandlingNotDeclared());
   assert.deepEqual(missing, [{ field: 'extraHandlingFees', label: '每单额外操作费', why: EXTRA_HANDLING_NOT_DECLARED_WHY }]);
@@ -1813,13 +2063,20 @@ test('没声明每单额外操作费，「算利润」这一步就报缺项，�
   assert.match(html, /<div class="product-profit-extra-handling" role="group" aria-label="每单额外操作费">/u);
   assert.match(html, /<h4>这件商品还没声明每单额外操作费<\/h4>/u);
   assert.match(html, /包材 \/ 拆单费 \/ 合包费 \/ 额外材料费这一类，每单要另外花的钱/u);
-  // 缺项单里点名说的就是这笔钱，不是一句「成本规则不完整」。
-  assert.match(html, /<b>每单额外操作费<\/b>：这件商品还没声明每单额外操作费/u);
-  assert.match(html, /<button type="button" class="button primary" disabled[^>]*>确认，进入文案素材<\/button>/u);
-  // 出路就在缺项旁边：一键确认 ¥0.00，不用打字。
-  assert.match(html, /<button type="button" class="button primary"[^>]*>确认：这件不用加钱（¥0\.00）<\/button>/u);
+  assert.match(html, /在你确认之前，上面那些利润是暂按 ¥0\.00 算的——这个数还没签过字。/u);
+  // 清单是空的（¥0.00）：不单独点，最后那一下一起记下，所以缺项单里没有它，这一块也不摆自己的确认按钮。
+  assert.doesNotMatch(html, /<b>每单额外操作费<\/b>：/u);
+  assert.doesNotMatch(html, /确认：这件不用加钱（¥0\.00）/u);
+  assert.match(html, /不用单独点：在下面点「确认这套供货，往下做」时，按 ¥0\.00 一起记下。/u);
+  assert.match(html, /不用加钱就不用管这一块，要加就按「加一行」写上名目和金额。/u);
   assert.match(html, /<button type="button" class="button secondary"[^>]*>加一行<\/button>/u);
-  assert.match(html, /确认只是记下这件商品每单要另外花多少钱，不会下单、不会联系供应商、也不会向 Ozon 写任何东西。/u);
+  assert.match(html, /<button type="button" class="button primary" disabled[^>]*>确认这套供货，往下做<\/button>/u);
+
+  // 单独摆出来（不在「算利润」卡里）时还是那个一键确认 ¥0.00。
+  const alone = (await pageModule()).renderExtraHandlingFees({ step: extraHandlingNotDeclared(),
+    dataRevision: 3, saving: false, onDeclare: forbidden });
+  assert.match(alone, /<button type="button" class="button primary"[^>]*>确认：这件不用加钱（¥0\.00）<\/button>/u);
+  assert.match(alone, /确认只是记下这件商品每单要另外花多少钱，不会下单、不会联系供应商、也不会向 Ozon 写任何东西。/u);
 
   // 声明过了，这一块说的是那份声明本身，缺项单里也不再有它。
   const declaredHtml = await render(profitProps());
@@ -1882,7 +2139,7 @@ test('已经走过去的那几步显示成已完成，不再说「等前面的�
   assert.equal(foldedStepState('select', 'copy', passedB), '已完成');
   assert.equal(foldedStepState('copy', 'copy', passedB), '进行中');
   assert.equal(foldedStepState('publish', 'copy', passedB), '未开始');
-  assert.equal(foldedStepLine('profit', 'copy', passedB), '这一步已经做完了；详细内容还在旧版页面里，用「打开旧版A卡」可以回看。');
+  assert.equal(foldedStepLine('profit', 'copy', passedB), '这一步已经做完了。');
   assert.equal(foldedStepLine('publish', 'copy', passedB), '等前面的步骤完成后再开始。');
 
   // 先后按这件商品上真实发生的顺序，不按进度条的排版顺序——「选定」排在最前面，但真正先做的是「找货」。
@@ -1914,6 +2171,12 @@ test('新版商品页显示实际文案，内容确认前不出现上传入口',
   assert.doesNotMatch(html, /\[object Object\]|type="file"|准备文案请求/u);
   const viewer = await render(props({ candidate: record, productionIdentity: { roles: ['viewer'] }, onConfirmC1Content: forbidden }));
   assert.match(viewer, /disabled=""[^>]*>确认商品内容，进入图片/u);
+  // 软件按「做这件」的许可把文案送进了传图：照样摆出实际文案，但不再要单独确认，说清楚在上架卡上一起确认。
+  const forwarded = await render(props({ candidate: { ...record, c1ContentReviewView: { ...record.c1ContentReviewView,
+    status: 'awaiting_listing', canConfirm: false } }, productionIdentity: { roles: ['owner'] }, onConfirmC1Content: forbidden }));
+  assert.ok(forwarded.includes('Одежда для кошек'));
+  assert.match(forwarded, /你在上架卡上和图片一起看、一起确认，不用在这里单独确认/u);
+  assert.doesNotMatch(forwarded, /确认商品内容，进入图片|尚无新版内容确认记录|与原确认不一致/u);
 });
 
 test('修订稿与原稿明确区分，确认前隐藏付费与图片入口，来源失配不可确认', async () => {
@@ -1935,4 +2198,115 @@ test('修订稿与原稿明确区分，确认前隐藏付费与图片入口，�
     productionIdentity: { roles: ['owner'] }, onConfirmC1EditorialContent: forbidden }));
   assert.match(blocked, /文案修订需要重新核对/u);
   assert.doesNotMatch(blocked, /确认修订文案，进入图片/u);
+});
+
+/**
+ * 2026-10-11 主人问「进行中」那一页是新版还是旧版：单件商品走到上架以后，「继续已保存任务」和回读结果只长在旧版 A 卡上，
+ * 商品页头上还挂着一个「打开旧版A卡」。现在上架与回读就在商品自己的页面上，旧版那个按钮和那几句话都拿掉了。
+ */
+const savedDJob = (extra = {}) => ({ status: 'failed', currentVerified: false, canContinueSaved: true, continueJobId: 'job:synthetic-d',
+  expectedRevision: 4, d: { stage: 'D', status: 'failed', receiptStatus: 'progress_saved', blockers: [] }, ...extra });
+const accountRead = { schemaVersion: 'ozon-account-read-preparation-v1', candidateId: 'candidate:synthetic-product-page',
+  skuPackageId: 'sku-package:synthetic', expectedRevision: 4, options: [], runtime: [], maxRequests: 3, platformWrites: 0,
+  message: '尚未配置本件商品的准确账户、仓库及读取服务。配置齐备后才能显示读取确认。' };
+const deRuntime = { available: true, status: 'waiting_for_production_authorization', gaps: [{ code: 'synthetic', field: 'productionAuthorization', message: '合成缺口：还没有生产授权' }] };
+
+test('写文案的商品不摆上架与回读，那两步仍是折叠的「未开始」', async () => {
+  const { showsProductPublish } = await pageModule();
+  const writing = candidate({ workflowStatus: 'listing_preparation', executionRuntime: { businessPhase: 'C1' },
+    dESoftwareRuntimeView: deRuntime, ozonAccountReadPreparation: accountRead,
+    lifecycleV11: { aConfirmationReceipt: { decision: 'confirm' }, skuPackage: { businessPhase: 'C1' } } });
+  assert.equal(showsProductPublish(writing), false);
+  const html = await render(props({ candidate: writing, onContinueSavedDE: forbidden }));
+  assert.doesNotMatch(html, /aria-label="上架与回读"/u);
+  assert.doesNotMatch(html, /合成缺口/u);
+  assert.match(html, /<summary>上架<span class="product-folded-state">未开始<\/span><\/summary>/u);
+  assert.doesNotMatch(html, /旧版/u);
+});
+
+test('走到上架的商品：上架与回读就在商品页上，按钮和旧版 A 卡上是同一个，页头不再有「打开旧版A卡」', async () => {
+  const { currentProductStep, showsProductPublish } = await pageModule();
+  const publishing = candidate({ workflowStatus: 'listing_preparation', executionRuntime: { businessPhase: 'C2' },
+    dESoftwareRuntimeView: deRuntime, dESavedJobRuntimeView: savedDJob(), ozonAccountReadPreparation: accountRead,
+    lifecycleV11: { aConfirmationReceipt: { decision: 'confirm' }, skuPackage: { businessPhase: 'D' } } });
+  assert.equal(currentProductStep(publishing), 'publish');
+  assert.equal(showsProductPublish(publishing), true);
+  const html = await render(props({ candidate: publishing, onContinueSavedDE: forbidden, onAuthorizeAccountRead: forbidden }));
+  assert.match(html, /<section class="product-section product-publish" aria-label="上架与回读"><h3>上架与回读<\/h3>/u);
+  assert.match(html, /aria-label="Ozon账户只读核验"/u);
+  assert.match(html, /<button type="button">继续已保存任务<\/button>/u);
+  assert.match(html, /aria-current="step"[^>]*>[^<]*<span class="product-step-index">5<\/span>上架/u);
+  // 有了这一节，上架和回读就不再折叠成一句话。
+  assert.doesNotMatch(html, /<summary>上架<span/u);
+  assert.doesNotMatch(html, /<summary>回读<span/u);
+  assert.doesNotMatch(html, /打开旧版A卡|旧版/u);
+});
+
+test('已在售的商品停在「回读」，回读结果也在这一页', async () => {
+  const { currentProductStep } = await pageModule();
+  const listed = candidate({ workflowStatus: 'listed', dESavedJobRuntimeView: savedDJob({ canContinueSaved: false, currentVerified: true,
+    e: { stage: 'E', status: 'completed', currentVerified: true, receiptStatus: 'readback_saved', blockers: [] } }),
+    lifecycleV11: { aConfirmationReceipt: { decision: 'confirm' }, skuPackage: { businessPhase: 'E' } } });
+  assert.equal(currentProductStep(listed), 'readback');
+  const html = await render(props({ candidate: listed }));
+  assert.match(html, /当前商品已完成独立验证/u);
+  assert.match(html, /平台独立回读：当前商品已独立验证/u);
+  assert.doesNotMatch(html, /继续已保存任务/u);
+});
+
+test('上架与回读的每个按钮都带上这件商品自己的编号，没给的按钮就是空的', async () => {
+  const { PublishSection } = await pageModule();
+  const calls = [];
+  const publishing = candidate({ dESavedJobRuntimeView: savedDJob(), ozonAccountReadPreparation: accountRead,
+    lifecycleV11: { skuPackage: { businessPhase: 'D' } } });
+  const tree = PublishSection({ candidate: publishing,
+    onContinueSavedDE: (id, payload) => calls.push(['continue', id, payload]),
+    onReconcileDFromPlatformState: (id, payload) => calls.push(['reconcile', id, payload]),
+    onAuthorizeAccountRead: payload => calls.push(['account', payload]) });
+  const children = tree.props.children.filter(Boolean);
+  const card = children.find(child => child?.props?.savedJobRuntime !== undefined);
+  const account = children.find(child => child?.props?.preparation !== undefined);
+  card.props.onContinueSaved({ jobId: 'job:synthetic-d', expectedRevision: 4 });
+  card.props.onReconcileFromPlatformState({ productId: 1 });
+  account.props.onAuthorize({ candidateId: publishing.id });
+  assert.deepEqual(calls, [
+    ['continue', publishing.id, { jobId: 'job:synthetic-d', expectedRevision: 4 }],
+    ['reconcile', publishing.id, { productId: 1 }],
+    ['account', { candidateId: publishing.id }]]);
+  assert.equal(card.props.onDispatchNewRound, null);
+  assert.equal(card.props.onRollbackAuthorization, null);
+  assert.equal(PublishSection({ candidate: candidate() }), null);
+});
+
+test('做这件之后软件做到哪儿、停在哪儿等你，就在做这件卡下面一节说；只有没许可和出错时才有按钮', async () => {
+  const writing = view => candidate({ workflowStatus: 'listing_preparation', executionRuntime: { businessPhase: 'C1' },
+    lifecycleV11: { aConfirmationReceipt: { decision: 'confirm' }, skuPackage: { businessPhase: 'C1' } }, gate1AutopilotView: view });
+  const ran = [{ step: 'c1_local_material', label: '整理商品属性与关键词', at: null }, { step: 'c1_prepare_copy', label: '准备文案请求', at: null },
+    { step: 'c1_local_material', label: '整理商品属性与关键词', at: null }];
+  const waiting = await render(props({ candidate: writing({ status: 'waiting_owner', granted: true, line: '文案请求已经准备好，等你允许这一次付费生成',
+    next: null, stops: [{ code: 'c1_paid_draft', line: '文案请求已经准备好，等你允许这一次付费生成' }], moreStops: 0, failure: null, ranSteps: ran }),
+    onContinueGate1Autopilot: forbidden }));
+  assert.match(waiting, /aria-label="软件接着做"><h3>现在等你<\/h3><p role="status">文案请求已经准备好，等你允许这一次付费生成。<\/p>/u);
+  assert.match(waiting, /软件已经替你做了：整理商品属性与关键词、准备文案请求。都只用已经保存的资料，没有打开平台，也没有花钱。/u);
+  assert.doesNotMatch(waiting, /让软件接着做|让软件再试一次/u);
+
+  const gaps = await render(props({ candidate: writing({ status: 'waiting_owner', granted: true, line: 'a', next: null,
+    stops: [{ code: 'c1_material_gap', line: '还没有保存这件商品的品牌与权利声明，这一步只能你来签' }, { code: 'c1_material_gap', line: '必填属性「类型」仍需核对' }],
+    moreStops: 2, failure: null, ranSteps: [] }) }));
+  assert.match(gaps, /<ul class="product-autopilot-stops"><li>还没有保存这件商品的品牌与权利声明，这一步只能你来签<\/li><li>必填属性「类型」仍需核对<\/li><\/ul>/u);
+  assert.match(gaps, /还有 2 项，在下面各节里。/u);
+
+  const ready = await render(props({ candidate: writing({ status: 'ready', granted: false, line: '「整理商品属性与关键词」这一步不花钱，可以让软件接着做',
+    next: { step: 'c1_local_material', label: '整理商品属性与关键词' }, stops: [], moreStops: 0, failure: null, ranSteps: [] }),
+    onContinueGate1Autopilot: forbidden }));
+  assert.match(ready, /<h3>这一步可以让软件接着做<\/h3>/u);
+  assert.match(ready, /<button type="button" class="button primary">让软件接着做<\/button>/u);
+  const failed = await render(props({ candidate: writing({ status: 'failed', granted: true, line: '软件准备文案请求时出错停下了（C1_DRAFT_RUNTIME_UNAVAILABLE），没有自己重试',
+    next: { step: 'c1_prepare_copy', label: '准备文案请求' }, stops: [], moreStops: 0,
+    failure: { step: 'c1_prepare_copy', label: '准备文案请求', code: 'C1_DRAFT_RUNTIME_UNAVAILABLE', at: null }, ranSteps: [] }),
+    onContinueGate1Autopilot: forbidden }));
+  assert.match(failed, /<h3>软件停下了<\/h3>/u);
+  assert.match(failed, />让软件再试一次<\/button>/u);
+  // 没有这份视图（还没走到那儿，或已经上架）就没有这一节。
+  assert.doesNotMatch(await render(props({ candidate: writing(null) })), /aria-label="软件接着做"/u);
 });

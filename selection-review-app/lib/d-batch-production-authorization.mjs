@@ -40,12 +40,13 @@ function assertBatchInput(input) {
 
 /** One owner decision, one transaction, one independent authorization per member. */
 export async function commitBatchOwnerProductionAuthorization({ repository, runtimeMode, actor, input,
-  configuration, serverClock }) {
+  configuration, serverClock, newBatchGate = null }) {
   assertBusinessStateRepositoryBoundary(repository);
   if (CENTRAL_MODES.has(runtimeMode)) assertCentralPersistenceBoundary(repository);
   authorizeOperation({ actor, requiredRoles: ['owner'] });
   if (actor.actorType !== 'human' || actor.source !== 'authenticated_identity_provider' ||
-      typeof serverClock !== 'function' || !configuration) throw new Error('D_BATCH_AUTHORIZATION_CONTEXT_INVALID');
+      typeof serverClock !== 'function' || !configuration ||
+      (newBatchGate !== null && typeof newBatchGate !== 'function')) throw new Error('D_BATCH_AUTHORIZATION_CONTEXT_INVALID');
   const batchVersion = assertBatchInput(input);
   const inputFingerprint = fingerprintCanonicalRecord({ actorId: actor.userId, input });
   const batchId = `d-batch:${inputFingerprint.slice(0, 32)}`;
@@ -64,6 +65,8 @@ export async function commitBatchOwnerProductionAuthorization({ repository, runt
       }
       return { changed: false, result: structuredClone(prior) };
     }
+    // Replays read the immutable authorization above; a new batch must satisfy the configured admission gate.
+    if (newBatchGate !== null) newBatchGate(serverClock());
     const byCandidateId=new Map();
     for(const candidate of document.candidates){
       if(byCandidateId.has(candidate.id))throw new Error('D_BATCH_CANDIDATE_NOT_UNIQUE');

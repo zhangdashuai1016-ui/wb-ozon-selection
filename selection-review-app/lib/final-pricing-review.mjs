@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { resolveLifecycleBCostPolicy } from "./global-pricing-policy.mjs";
 import { validateProfitModel } from "./profit-model.mjs";
+import { COST_POLICY_PROFIT_CALCULATION_VERSIONS, OWNER_TARGET_PROFIT_CALCULATION_VERSION, validateOwnerTargetPriceSource } from "./profit-model-calculation.mjs";
 import { validateLifecycleBInputBundle, inspectCommissionCatalogValidity } from "./lifecycle-b-input-bundle.mjs";
 import { inspectProductionEvidenceReadiness } from "./production-evidence-readiness.mjs";
 import { inspectLifecycleEvidenceValidity } from "./lifecycle-evidence-validity.mjs";
@@ -61,6 +62,20 @@ export function assertProductionProfitPriceCurrent({ candidate, skuPackage, evid
   }
   // A saved review is never bypassed, even when the original B price would qualify for reuse.
   if (skuPackage.finalPricingReview != null) assertFinalPricingReviewCurrent(skuPackage);
+  if (model.calculation?.version === OWNER_TARGET_PROFIT_CALCULATION_VERSION) {
+    const opportunity = candidate.lifecycleV11.opportunityPackage;
+    const assessment = opportunity?.marketAssessment;
+    if (!validateOwnerTargetPriceSource(model.priceInputs.ownerTargetPrice, {
+      opportunityPackage: opportunity, candidateId: candidate.id, confirmationSource: candidate.lifecycleV11
+    }) ||
+        model.priceInputs.ownerTargetPrice.sourceRevision >= candidate.dataRevision ||
+        opportunity.parentOpportunityId !== skuPackage.parentOpportunityId ||
+        assessment?.assessmentId !== model.marketAssessmentRef || assessment.recommendedSalePrice?.currency !== "RUB" ||
+        assessment.recommendedSalePrice.amount !== model.priceInputs.marketReferencePriceRub ||
+        !isDeepStrictEqual(assessment.primarySampleIds, model.marketSampleRefs)) {
+      fail("PRODUCTION_AUTHORIZATION_PROFIT_INPUT_CHANGED", "目标售价决定或市场参考证据与冻结利润不一致。");
+    }
+  }
   const bundle = candidate.lifecycleV11.bSystemEvidenceBundle;
   const supply = skuPackage.selectedSupplySnapshot;
   const supplier = supply.supplierSku;
@@ -71,7 +86,7 @@ export function assertProductionProfitPriceCurrent({ candidate, skuPackage, evid
   const fees = bundle.platformFeeEvidence, logistics = bundle.logisticsEvidence, fx = bundle.exchangeRateEvidence;
   const expectedRefs = [skuPackage.c1ProductPlan.inputSnapshots.salesSnapshot.snapshotId, supply.snapshotId, fees.evidenceId, logistics.evidenceId, fx.evidenceId];
   if (!isDeepStrictEqual(model.inputSnapshotRefs, expectedRefs) || supplier.supplierSkuId !== skuPackage.supplierSkuId || supplier.variantKey !== skuPackage.variantKey ||
-      model.calculation?.version !== "profit-calculation-v3-cost-policy-snapshot" ||
+      !COST_POLICY_PROFIT_CALCULATION_VERSIONS.includes(model.calculation?.version) ||
       model.commissionMode !== fees.commissionEvidenceMode || model.commissionRate !== fees.commissionRate ||
       model.actualPurchaseCost.amount !== supplier.actualPurchaseCost || model.actualPurchaseCost.evidenceRef !== supply.snapshotId ||
       model.internationalFreight.amount !== logistics.amountRmb || model.internationalFreight.route !== logistics.route || model.internationalFreight.evidenceRef !== logistics.evidenceId ||
@@ -106,7 +121,9 @@ export function assertProductionProfitPriceCurrent({ candidate, skuPackage, evid
     const priceTier = value => value <= 1500 ? "le1500" : value <= 5000 ? "1500_5000" : "gt5000";
     const bindingPrice = fees.officialCommissionBinding.priceRub;
     if (commission.sourceType !== "ozon_official_commission_table" || !ref || ref.priceTier !== priceTier(price) ||
-        Date.parse(ref.effectiveFrom) > Date.parse(observedAt) || !Number.isFinite(bindingPrice) || bindingPrice <= 0 || priceTier(bindingPrice) !== priceTier(price)) {
+        Date.parse(ref.effectiveFrom) > Date.parse(observedAt) || bindingPrice !== price ||
+        !isDeepStrictEqual(commission.evidenceData?.officialCommissionBinding, fees.officialCommissionBinding) ||
+        commission.evidenceData?.commissionRate !== fees.commissionRate || commission.evidenceData?.commissionEvidenceMode !== fees.commissionEvidenceMode) {
       fail("PRODUCTION_AUTHORIZATION_OFFICIAL_COMMISSION_BINDING_INVALID", "官方费表与冻结售价、适用价格档或生效时间不一致。");
     }
   }

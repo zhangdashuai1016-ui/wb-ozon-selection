@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { ozonHashtagAttributeValue } from "./ozon-hashtag-attribute.mjs";
 export { ozonHashtagAttributeValue };
 import { fingerprintAuthorizedMedia } from "./production-authorization-preparation.mjs";
-import { buildOzonOptionalAttributes } from "./ozon-submission-attributes.mjs";
+import { buildOzonOptionalAttributes, isOzonDictionaryCollectionValue } from "./ozon-submission-attributes.mjs";
 import { selectC1DescriptionParts } from "./c1-description-content.mjs";
 import { assertOzonBatchImportLimitCapability } from './ozon-product-import-batch-limit.mjs';
 
@@ -77,8 +77,7 @@ function boundFactAttribute(field, binding) {
   }
   const raw = fact.value;
   if (Array.isArray(raw)) {
-    if (binding.dictionaryId <= 0 || binding.isCollection !== true || !Number.isSafeInteger(binding.maxValueCount) || raw.length < 1 || raw.length > binding.maxValueCount ||
-        raw.some(item=>!isObject(item) || !Number.isSafeInteger(item.dictionaryValueId) || item.dictionaryValueId <= 0 || !nonEmpty(item.value)) || new Set(raw.map(item=>item.dictionaryValueId)).size !== raw.length) throw new Error('OZON_ADAPTER_COLLECTION_VALUE_INVALID');
+    if (!isOzonDictionaryCollectionValue(raw, binding)) throw new Error('OZON_ADAPTER_COLLECTION_VALUE_INVALID');
     return {id:binding.attributeId,complex_id:binding.complexId,values:raw.map(item=>({dictionary_value_id:item.dictionaryValueId,value:item.value}))};
   }
   if (binding.dictionaryId === 0) {

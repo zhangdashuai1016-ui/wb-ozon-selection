@@ -9,18 +9,66 @@ import {allocatedTestPorts} from './helpers/api-process-lifecycle.mjs';
 import {createPreparationValues,preparationDraftScopeCurrent,preparationValuesEqual} from '../src/siblingPreparationState.js';
 import {createJsonBusinessStateRepository} from '../lib/business-state-repository.mjs';
 import {writeSyntheticSiblingPreparationCatalog} from './fixtures/sibling-preparation-catalog-fixture.mjs';
+import {currentCostRule,evidencePacks} from './fixtures/real-a-b-flow-fixture.mjs';
 
 const {api:port}=allocatedTestPorts();
 
-async function startPreparationApi(t,identityProvider='local_owner_password') {
+async function startPreparationApi(t,identityProvider='local_owner_password',prepareDocument=null) {
  const fixture=await threeColorFixture(),document=await fixture.repository.readSnapshot(),parent=document.candidates[0];
  for(const child of document.candidates.slice(1))delete child.targetPlatform;
+ if(prepareDocument)prepareDocument(document);
  const directory=await mkdtemp(path.join(tmpdir(),'s1-preparation-api-'));
  const catalog=await writeSyntheticSiblingPreparationCatalog({document,tempDir:directory});
  const api=await startSavedDEApi(t,{directory,port,document,binding:{storeRef:parent.storeRef,platform:parent.targetPlatform},productionBindings:[],catalogDirectory:directory,identityProvider});
  const route=`/api/sibling-batches/${encodeURIComponent(parent.id)}`;
  return {api,document,parent,catalog,route};
 }
+
+/** Reuse the synthetic family with explicit pre-A inputs and an accepted parent card. */
+async function startEvidencePreparationApi(t,{ready=false}={}) {
+ return startPreparationApi(t,'local_owner_password',document=>{
+  const parent=document.candidates[0],children=document.candidates.slice(1),sku=parent.lifecycleV11.skuPackage;
+  const binding=children[0].siblingSourceV1.parentCardBinding;
+  const assets=binding.parentImageSha256s.map(sha256=>({sha256}));
+  sku.productionAuthorization={lockedScope:{supplierSkuId:sku.supplierSkuId,finalUploads:structuredClone(assets)}};
+  sku.c2FinalAssets={productionAuthorizationPreparation:{finalUploads:structuredClone(assets)}};
+  sku.dSoftwareExecution={checkpoints:[{kind:'import_task_received',taskId:'synthetic-parent-import'}],
+   attempt:{request:{productImport:{body:{items:[{description_category_id:binding.descriptionCategoryId,type_id:binding.typeId,
+    attributes:[{id:9048,values:[{value:binding.model}]},{id:85,values:[{value:binding.brand}]}]}]}}}}};
+  parent.sourceCapture.priceRanges=[{minimumQuantity:1,priceCny:18,source:'synthetic:one-piece-price'}];
+  for(const choice of parent.sourceCapture.skuChoices)choice.priceCny=18;
+  for(const child of children) {
+   delete child.lifecycleV11;
+   delete child.lifecycleEvidenceContextV11;
+   child.siblingSourceV1.parentRevision=parent.dataRevision;
+   child.sourceCapture.skuChoices[0].priceCny=18;
+  }
+  document.rules.ozonDandanshu=currentCostRule({...children[0],lifecycleEvidenceContextV11:{salesScheme:'rfbs'}});
+  document.evidencePacks=ready?evidencePacks().map(pack=>{
+   pack.expiresAt='2099-01-01T00:00:00.000Z';
+   if(['commission','schema'].includes(pack.kind))Object.assign(pack.scope,{store:parent.targetStore,
+    storeRef:structuredClone(parent.storeRef),category:`ozon:${binding.descriptionCategoryId}:${binding.typeId}`});
+   if(pack.kind==='schema') {
+    pack.scope.ruleVersion='ozon-current';
+    Object.assign(pack.evidenceData,{descriptionCategoryId:binding.descriptionCategoryId,typeId:binding.typeId});
+   }
+   if(pack.kind==='logistics_tariff')Object.assign(pack.scope,{route:'synthetic',ruleVersion:'guoo-2026-08-19'});
+   return pack;
+  }):[];
+ });
+}
+
+async function saveEvidencePreparationDraft({api,document,parent,catalog,route}) {
+ const values=createPreparationValues(catalog,parent,document.candidates.slice(1));
+ values.shared.other='0';
+ const saved=await api.post(route+'/preparation-draft',{parentCandidateId:parent.id,parentRevision:parent.dataRevision,
+  memberRevisions:document.candidates.slice(1).map(candidate=>({candidateId:candidate.id,revision:candidate.dataRevision})),
+  expectedDraftRevision:0,idempotencyKey:'synthetic:evidence:save',values});
+ assert.equal(saved.status,200,JSON.stringify(saved.body));
+ return {parentCandidateId:parent.id,parentRevision:parent.dataRevision,draftRevision:saved.body.draft.draftRevision};
+}
+
+const evidenceQuery=input=>`?${new URLSearchParams({parentRevision:String(input.parentRevision),draftRevision:String(input.draftRevision)})}`;
 
 function assertBusinessUnchanged(before,after) {
  assert.equal(after.candidates.length,before.candidates.length);
@@ -153,7 +201,116 @@ test('development-default read-only identity cannot read or save preparation eve
  const rejected=await api.post(route+'/preparation-draft',input,{authenticated:false,
   headers:{'x-user-id':'synthetic-owner','x-session-id':'synthetic-session','x-user-role':'owner'}});
  assert.equal(rejected.status,403,JSON.stringify(rejected.body));
+ const evidenceInput={parentCandidateId:parent.id,parentRevision:parent.dataRevision,draftRevision:1};
+ assert.equal((await api.get(route+'/preparation-evidence'+evidenceQuery(evidenceInput))).status,403);
+ assert.equal((await api.post(route+'/preparation-evidence',evidenceInput,{authenticated:false,
+  headers:{'x-user-id':'synthetic-owner','x-session-id':'synthetic-session','x-user-role':'owner'}})).status,403);
  assert.deepEqual(await api.readBytes(),before);assert.deepEqual(await api.readDocument(),document);
+ await api.assertClean();assert.equal(api.dependencyRequests(),0);assert.equal(api.dictionaryRequests(),0);
+});
+
+test('evidence HTTP rejects missing owner, malformed input and stale revisions without side effects',async t=>{
+ const f=await startEvidencePreparationApi(t),{api,parent,route}=f;
+ const endpoint=route+'/preparation-evidence',initial={parentCandidateId:parent.id,parentRevision:parent.dataRevision,draftRevision:1};
+ const initialBytes=await api.readBytes();
+ assert.equal((await api.get(endpoint+evidenceQuery(initial))).status,401);
+ assert.equal((await api.post(endpoint,initial,{authenticated:false,
+  headers:{'x-user-id':'synthetic-owner','x-session-id':'synthetic-session','x-user-role':'owner'}})).status,401);
+ assert.deepEqual(await api.readBytes(),initialBytes);
+ await api.authenticate();
+ const unsaved=await api.get(endpoint+evidenceQuery(initial));
+ assert.equal(unsaved.status,422,JSON.stringify(unsaved.body));
+ assert.equal(unsaved.body.code,'SIBLING_BATCH_EVIDENCE_DRAFT_REQUIRED');
+ assert.deepEqual(await api.readBytes(),initialBytes);
+ const input=await saveEvidencePreparationDraft(f),before=await api.readBytes();
+ assert.equal((await api.post(endpoint,input,{headers:{Origin:'https://untrusted.example'}})).status,403);
+ assert.equal((await api.post(endpoint,input,{authenticated:false})).status,401);
+ const invalidInputs=[{...input,parentCandidateId:'candidate:other-family'},{...input,unexpected:true},
+  {...input,parentRevision:String(input.parentRevision)},{...input,draftRevision:0},null];
+ for(const invalid of invalidInputs) {
+  const response=await api.post(endpoint,invalid);
+  assert.equal(response.status,422,JSON.stringify(response.body));
+  assert.equal(response.body.code,'SIBLING_BATCH_EVIDENCE_INPUT_INVALID');
+  assert.deepEqual(await api.readBytes(),before);
+ }
+ const malformedQueries=['',`?draftRevision=${input.draftRevision}`,`?parentRevision=&draftRevision=${input.draftRevision}`,
+  `?parentRevision=invalid&draftRevision=${input.draftRevision}`,`?parentRevision=1e0&draftRevision=${input.draftRevision}`,
+  `?parentRevision=${input.parentRevision}&parentRevision=${input.parentRevision+1}&draftRevision=${input.draftRevision}`,
+  `?parentRevision=${input.parentRevision}&draftRevision=${input.draftRevision}&extra=true`];
+ for(const query of malformedQueries) {
+  const response=await api.get(endpoint+query);
+  assert.equal(response.status,400,JSON.stringify({query,...response.body}));
+  assert.match(response.body.message,/唯一、完整/);
+  assert.deepEqual(await api.readBytes(),before);
+ }
+ const zeroDraft=await api.get(endpoint+evidenceQuery({...input,draftRevision:0}));
+ assert.equal(zeroDraft.status,422);assert.equal(zeroDraft.body.code,'SIBLING_BATCH_EVIDENCE_INPUT_INVALID');
+ for(const stale of [{...input,parentRevision:input.parentRevision+1},{...input,draftRevision:input.draftRevision+1}]) {
+  for(const response of [await api.get(endpoint+evidenceQuery(stale)),await api.post(endpoint,stale)]) {
+   assert.equal(response.status,409,JSON.stringify(response.body));
+   assert.equal(response.body.code,'SIBLING_BATCH_EVIDENCE_DRAFT_CHANGED');
+   assert.equal(response.body.externalRequests,0);assert.equal(response.body.platformWrites,0);
+  }
+  assert.deepEqual(await api.readBytes(),before);
+ }
+ const repository=createJsonBusinessStateRepository({filePath:api.dataFile});
+ await repository.transact(state=>{state.candidates[1].dataRevision+=1;return {changed:true,document:state,result:null};});
+ const revisedBytes=await api.readBytes();
+ for(const response of [await api.get(endpoint+evidenceQuery(input)),await api.post(endpoint,input)]) {
+  assert.equal(response.status,409,JSON.stringify(response.body));
+  assert.equal(response.body.code,'SIBLING_BATCH_EVIDENCE_DRAFT_CHANGED');
+ }
+ assert.deepEqual(await api.readBytes(),revisedBytes);
+ await api.assertClean();assert.equal(api.dependencyRequests(),0);assert.equal(api.dictionaryRequests(),0);
+});
+
+test('read-only evidence GET reports dependency gaps and local POST stops with no state changes or shop traffic',async t=>{
+ const f=await startEvidencePreparationApi(t),{api,route}=f;
+ await api.authenticate();
+ const input=await saveEvidencePreparationDraft(f),before=await api.readDocument(),bytes=await api.readBytes();
+ const endpoint=route+'/preparation-evidence';
+ const read=await api.get(endpoint+evidenceQuery(input));
+ assert.equal(read.status,200,JSON.stringify(read.body));
+ assert.equal(read.body.ready,false);assert.equal(read.body.localPreparationAvailable,false);
+ assert.equal(read.body.status,'preparation_required');assert.equal(read.body.members.length,3);
+ for(const member of read.body.members) {
+  assert.equal(Object.hasOwn(member,'candidate'),false);
+  assert.equal(Object.hasOwn(member,'submission'),false);
+  assert.deepEqual(member.actions.filter(action=>action.action==='prepare_once').map(action=>action.kind),
+   ['commission','logistics_tariff','exchange_rate','schema']);
+ }
+ assert.deepEqual([...new Set(read.body.externalGaps.map(gap=>gap.kind))],['logistics_tariff','exchange_rate','schema']);
+ assert.equal(read.body.businessStateEffect,'unchanged');assert.equal(read.body.externalRequests,0);assert.equal(read.body.platformWrites,0);
+ assert.deepEqual(await api.readBytes(),bytes);
+ const posts=await Promise.all([api.post(endpoint,input),api.post(endpoint,input)]);
+ for(const post of posts) {
+  assert.equal(post.status,200,JSON.stringify(post.body));assert.equal(post.body.result,'blocked');
+  assert.equal(post.body.ready,false);assert.equal(post.body.externalRequests,0);assert.equal(post.body.platformWrites,0);
+ }
+ assert.deepEqual(await api.readDocument(),before);assert.deepEqual(await api.readBytes(),bytes);
+ assert.equal(before.candidates.slice(1).every(candidate=>candidate.lifecycleV11===undefined),true);
+ assert.equal(before.candidates[0].lifecycleV11.skuPackage.technicalStatus,'unknown_outcome');
+ await api.assertClean();assert.equal(api.dependencyRequests(),0);assert.equal(api.dictionaryRequests(),0);
+});
+
+test('evidence HTTP reuses current saved evidence without local reads, jobs, receipts or A advancement',async t=>{
+ const f=await startEvidencePreparationApi(t,{ready:true}),{api,route}=f;
+ await api.authenticate();
+ const input=await saveEvidencePreparationDraft(f),before=await api.readDocument(),bytes=await api.readBytes();
+ const endpoint=route+'/preparation-evidence';
+ const read=await api.get(endpoint+evidenceQuery(input));
+ assert.equal(read.status,200,JSON.stringify(read.body));assert.equal(read.body.ready,true);
+ assert.equal(read.body.status,'ready_from_reuse');assert.equal(read.body.localPreparationAvailable,false);
+ assert.deepEqual(read.body.externalGaps,[]);
+ assert.equal(read.body.members.every(member=>member.actions.every(action=>action.action==='reuse')),true);
+ assert.deepEqual(await api.readBytes(),bytes);
+ const posts=await Promise.all([api.post(endpoint,input),api.post(endpoint,input)]);
+ for(const post of posts) {
+  assert.equal(post.status,200,JSON.stringify(post.body));assert.equal(post.body.result,'already_prepared');
+  assert.equal(post.body.ready,true);assert.equal(post.body.externalRequests,0);assert.equal(post.body.platformWrites,0);
+ }
+ assert.deepEqual(await api.readDocument(),before);assert.deepEqual(await api.readBytes(),bytes);
+ assert.equal(before.candidates.slice(1).every(candidate=>candidate.lifecycleV11===undefined),true);
  await api.assertClean();assert.equal(api.dependencyRequests(),0);assert.equal(api.dictionaryRequests(),0);
 });
 

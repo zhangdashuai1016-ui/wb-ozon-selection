@@ -75,8 +75,14 @@ function assertSafeTrace(trace) {
 }
 
 function packId(kind, scope, trace) {
+  // These bindings distinguish SKU-specific readings; the digest is an identity,
+  // not protection against malicious changes.
+  const binding = kind !== 'commission' ? {} : trace.evidenceData?.commissionEvidenceMode === 'official_reference'
+    ? { officialCommissionBinding: trace.evidenceData.officialCommissionBinding }
+    : trace.evidenceData?.commissionEvidenceMode === 'estimated'
+      ? { commissionEstimateAuthorization: trace.evidenceData.commissionEstimateAuthorization } : {};
   const digest = createHash("sha256")
-    .update(JSON.stringify({ kind, scope, sourceType: trace.sourceType, sourceRef: trace.sourceRef, checkedAt: trace.checkedAt }))
+    .update(JSON.stringify({ kind, scope, sourceType: trace.sourceType, sourceRef: trace.sourceRef, checkedAt: trace.checkedAt, ...binding }))
     .digest("hex")
     .slice(0, 20);
   return `b-evidence:${kind}:${digest}`;
@@ -97,6 +103,13 @@ function normalizeReaderResult(result, request, kind) {
         candidateId: request.candidateId, candidateRevision: request.candidateRevision,
         commissionRate: result.evidenceData.commissionRate
       })) throw providerError("B_EVIDENCE_PROVIDER_ESTIMATE_SCOPE_MISMATCH", "估算授权不属于本轮候选与修订");
+  if (kind === 'commission' && result.evidenceData?.commissionEvidenceMode === 'official_reference') {
+    const binding = result.evidenceData.officialCommissionBinding;
+    if (binding?.candidateId !== request.candidateId || binding.candidateRevision !== request.candidateRevision ||
+        binding.priceRub !== request.commissionReferenceScope?.priceRub) {
+      throw providerError('B_EVIDENCE_PROVIDER_OFFICIAL_SCOPE_MISMATCH', '官方费表绑定不属于本轮候选、修订或目标价');
+    }
+  }
   const validation = validateLifecycleEvidenceData(kind, result.evidenceData);
   if (!validation.valid) {
     throw providerError(

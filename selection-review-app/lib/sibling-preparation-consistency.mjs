@@ -17,7 +17,7 @@ export function siblingPreparationFinalGaps({parent,members,draft}) {
     if(draft.memberRevisions?.find(r=>r.candidateId===candidate.id)?.revision!==candidate.dataRevision)add(m,'revision','本色正式版本已变化，请核对并保存新草稿版本');
     if(!sku){add(m,'A','本色正式供货确认和利润尚未完成');continue;}
     const supply=sku.selectedSupplySnapshot?.supplierSku;
-    for(const [key,actual] of [['goods',supply?.unitProductPrice],['freight',supply?.unitDomesticFreight],['other',supply?.otherPurchaseCosts],
+    for(const [key,actual] of [['goods',supply?.unitProductPrice],['freight',supply?.unitDomesticFreight],['other',supply?.attributes?.purchaseCostComponents?.otherPurchaseCosts],
       ['packaging',candidate.packagingCostRmb],['weight',supply?.weight?.unit==='kg'?supply.weight.value:null],...['length','width','height'].map(k=>[k,supply?.dimensions?.unit==='cm'?supply.dimensions[k]:null])]) {
       const requested=effective(draft.values,m,key);
       if(requested==='' || !Number.isFinite(Number(requested)) || actual==null || Number(requested)!==actual)add(m,key,'草稿供货成本或包装与本色正式确认不一致，须修订正式供货资料');

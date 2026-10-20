@@ -19,12 +19,16 @@ import { runtimeArchitectureView } from '../src/runtimeArchitectureView.js';
 const EXTENSION_STATES = [
   extensionConnectionStatus({ liveVersion: EXPECTED_EXTENSION_VERSION, backgroundReady: true }),
   extensionConnectionStatus({ liveVersion: EXPECTED_EXTENSION_VERSION, backgroundReady: false }),
+  extensionConnectionStatus({ liveVersion: EXPECTED_EXTENSION_VERSION, backgroundReady: false, heldBy: 'tab_cleanup_failed' }),
+  extensionConnectionStatus({ liveVersion: EXPECTED_EXTENSION_VERSION, backgroundReady: false, heldBy: 'tab_creation_unconfirmed' }),
   extensionConnectionStatus({ liveVersion: '0.9.1', backgroundReady: true }),
   extensionConnectionStatus({ cachedVersion: EXPECTED_EXTENSION_VERSION }),
   extensionConnectionStatus({ cachedVersion: '0.9.1' }),
   extensionConnectionStatus({}),
   extensionConnectionStatus({ serverHeartbeat: { fresh: true, version: EXPECTED_EXTENSION_VERSION, backgroundReady: true } }),
-  extensionConnectionStatus({ serverHeartbeat: { fresh: true, version: EXPECTED_EXTENSION_VERSION, backgroundReady: false } })
+  extensionConnectionStatus({ serverHeartbeat: { fresh: true, version: EXPECTED_EXTENSION_VERSION, backgroundReady: false } }),
+  extensionConnectionStatus({ liveVersion: EXPECTED_EXTENSION_VERSION, backgroundReady: true, otherService: true }),
+  extensionConnectionStatus({ liveVersion: EXPECTED_EXTENSION_VERSION, backgroundReady: true, workstationNotAdded: true })
 ];
 const CONNECTED = extensionConnectionStatus({ liveVersion: EXPECTED_EXTENSION_VERSION, backgroundReady: true });
 
@@ -41,6 +45,17 @@ const RUNTIME_STATES = [LOCAL_RUNTIME, CENTRAL_RUNTIME, null];
 const IDLE_CONTROL = { status: 'idle', label: '商品采集控制空闲', candidateId: null, platform: null };
 const BUSY_CONTROL = { status: 'busy', label: '商品采集控制已由 candidate:synthetic 占用（1688）', candidateId: 'candidate:synthetic', platform: '1688' };
 const CAPTURE_STATES = [IDLE_CONTROL, BUSY_CONTROL, null, undefined, { status: '', label: '' }];
+
+test('本页旧版插件不能被另一个新版本服务心跳伪装成已连接', () => {
+  const extensionStatus = extensionConnectionStatus({ liveVersion: '1.2.7', backgroundReady: true,
+    serverHeartbeat: { fresh: true, version: EXPECTED_EXTENSION_VERSION, backgroundReady: true } });
+  assert.equal(EXPECTED_EXTENSION_VERSION, '1.6.0');
+  assert.equal(extensionStatus.code, 'reload_required');
+  assert.match(extensionStatus.label, /当前v1\.2\.7，需要v1\.6\.0/u);
+  const indicator = headerStatusIndicator({ extensionStatus, captureControl: IDLE_CONTROL, runtimeArchitecture: LOCAL_RUNTIME });
+  assert.equal(indicator.ok, false);
+  assert.match(indicator.label, /旧版本.*失败/u);
+});
 
 const normalExtension = status => status.code === 'connected';
 const normalRuntime = status => ['local_development', 'central_ready'].includes(runtimeArchitectureView(status).code);
@@ -59,7 +74,8 @@ test('三条状态都正常时，顶栏只剩一个圆点和「一切正常」',
 test('插件那条线的每一种不正常都还说得出来，而且说的是它影响什么', () => {
   // 先证明枚举本身没有漏：这些输入确实覆盖了 extensionConnectionStatus 能返回的全部 code。
   assert.deepEqual(new Set(EXTENSION_STATES.map(status => status.code)),
-    new Set(['connected', 'background_unavailable', 'reload_required', 'page_refresh_required', 'disconnected']));
+    new Set(['connected', 'background_unavailable', 'tab_left_open', 'tab_unconfirmed', 'reload_required', 'page_refresh_required',
+      'disconnected', 'other_service', 'workstation_not_added']));
   const said = new Map();
   for (const extensionStatus of EXTENSION_STATES) {
     const view = headerStatusIndicator({ extensionStatus, captureControl: IDLE_CONTROL, runtimeArchitecture: LOCAL_RUNTIME });
@@ -78,6 +94,10 @@ test('插件那条线的每一种不正常都还说得出来，而且说的是�
   assert.equal(said.get('background_unavailable'), '插件后台没有响应，现在发不出采集任务');
   assert.match(said.get('reload_required'), /旧版本.*重新加载/u);
   assert.match(said.get('page_refresh_required'), /刷新这一页/u);
+  assert.match(said.get('tab_left_open'), /没能自动关上.*关掉/u);
+  assert.match(said.get('tab_unconfirmed'), /重新加载插件/u);
+  assert.match(said.get('other_service'), /别的服务地址.*插件图标/u);
+  assert.match(said.get('workstation_not_added'), /还没加进团队.*干活的电脑/u);
   // 认不出来的 code 也算不正常：「不知道」不能显示成「一切正常」。
   for (const unknown of [{ code: 'brand_new_failure' }, { code: '' }, {}, null]) {
     const view = headerStatusIndicator({ extensionStatus: unknown, captureControl: IDLE_CONTROL, runtimeArchitecture: LOCAL_RUNTIME });
@@ -106,12 +126,13 @@ test('运行方式：本地开发和中央运行都是正常，只有读不出�
   assert.match(normal.detail, /商品采集控制空闲/u);
 });
 
-test('采集控制：有一件商品占着时说清楚谁在采，状态没取到算不正常', () => {
+test('采集控制：有一件商品占着时只说明通道占用，不把待领取作业说成正在采集', () => {
   const busy = headerStatusIndicator({ extensionStatus: CONNECTED, captureControl: BUSY_CONTROL, runtimeArchitecture: LOCAL_RUNTIME });
   assert.equal(busy.ok, false);
   assert.equal(busy.tone, 'busy');
   assert.equal(busy.issues[0].source, 'capture');
-  assert.match(busy.label, /candidate:synthetic 正在采集（1688）/u);
+  assert.match(busy.label, /采集通道已由 candidate:synthetic（1688） 占用/u);
+  assert.doesNotMatch(busy.label, /正在采集/u);
   assert.match(busy.label, /别的商品要等它结束/u);
   for (const captureControl of [null, undefined, { status: '', label: '' }, { status: 'brand_new_state' }]) {
     const view = headerStatusIndicator({ extensionStatus: CONNECTED, captureControl, runtimeArchitecture: LOCAL_RUNTIME });
@@ -178,19 +199,31 @@ test('顶栏真正画出来的东西：正常时一句，不正常时逐条展�
   assert.match(broken, /class="header-status error"/u);
   assert.match(broken, /插件没连上，现在没法采集1688页面/u);
   assert.match(broken, /运行方式没读出来/u);
-  assert.match(broken, /candidate:synthetic 正在采集/u);
+  assert.match(broken, /采集通道已由 candidate:synthetic（1688） 占用/u);
+  assert.doesNotMatch(broken, /正在采集/u);
   assert.doesNotMatch(broken, /一切正常/u);
 });
 
-test('顶栏只剩：我在哪儿、哪家店、有没有异常', async () => {
+test('顶栏保留四个业务入口、平台店铺和合并状态，并标记当前页面', async () => {
   const app = await readFile(fileURLToPath(new URL('../src/App.jsx', import.meta.url)), 'utf8');
   const header = app.slice(app.indexOf('<header className="app-header">'), app.indexOf('</header>'));
-  // 留下的：品牌与位置、四个入口加数字、店铺选择、一个状态指示器。
-  assert.match(header, /className="desk-nav"/u);
-  assert.match(header, /className="desk-store-switch"/u);
+  const actions = header.slice(header.indexOf('<div className="header-actions">'));
+  // 原稿的四个入口各保留一次；需要处理和进行中带数字，当前页面有可访问的明确标记。
+  assert.match(header, /className="desk-store-switch" role="group" aria-label="平台和店铺"/u);
+  assert.match(header, /aria-label="选择平台"/u);
+  assert.match(header, /aria-label="选择店铺"/u);
+  assert.match(actions, /onClick=\{\(\) => setView\("desk"\)\}\s+aria-current=\{view === "desk" \? "page" : undefined\}>选品台<\/button>/u);
+  assert.match(actions, /onClick=\{\(\) => setView\("inbox"\)\}\s+aria-current=\{view === "inbox" \? "page" : undefined\}>\s*需要你处理<span className="desk-badge">\{counts\.inbox\}<\/span>/u);
+  assert.match(actions, /onClick=\{\(\) => setView\("board"\)\}\s+aria-current=\{view === "board" \? "page" : undefined\}>\s*进行中<span className="desk-badge">\{counts\.board\}<\/span>/u);
+  assert.match(actions, /onClick=\{\(\) => setView\("maint"\)\}\s+aria-current=\{view === "maint" \? "page" : undefined\}>维护<\/button>/u);
+  assert.equal((actions.match(/<button\b/gu) ?? []).length, 4, '四个业务入口各出现一次');
   assert.match(header, /className="app-brand-back" onClick=\{\(\) => setView\("desk"\)\}>← 选品台/u);
   assert.match(header, /<HeaderStatus extensionStatus=\{effectiveExtensionStatus\} captureControl=\{state\.captureControl\}/u);
-  assert.match(header, /runtimeArchitecture=\{state\.runtimeArchitecture\}/u);
+  assert.match(header, /runtimeArchitecture=\{state\.runtimeArchitecture\} intakeQueue=\{intake\.queue\}/u);
+  // 入口直接属于顶栏，不恢复旧的第二套 deskNav 导航。
+  assert.doesNotMatch(header, /desk-nav/u);
+  assert.doesNotMatch(header, /deskNav/u);
+  assert.doesNotMatch(app, /const deskNav/u);
   // 收走的：三条状态各自的横条、找一轮新品、刷新数据、添加我找到的商品。
   for (const gone of [/找一轮新品/u, /刷新数据/u, /添加我找到的商品/u, /extension-status/u, /capture-control-status/u,
     /runtime-architecture-status/u, /RuntimeArchitectureStatus/u]) {
@@ -202,7 +235,7 @@ test('顶栏只剩：我在哪儿、哪家店、有没有异常', async () => {
   assert.equal((app.match(/view: "discovery"/gu) ?? []).length, 1);
 });
 
-test('刷新数据和退出登录收进「维护」，添加我找到的商品搬到选品台', async () => {
+test('刷新数据和退出登录收进「维护」，首页保留选品总览，添加商品使用独立录入页', async () => {
   const app = await readFile(fileURLToPath(new URL('../src/App.jsx', import.meta.url)), 'utf8');
   const desk = await readFile(fileURLToPath(new URL('../src/components/SelectionDesk.jsx', import.meta.url)), 'utf8');
   const maintenance = app.slice(app.indexOf('<h2>维护</h2>'), app.indexOf('<h2>维护</h2>') + 1400);
@@ -217,10 +250,13 @@ test('刷新数据和退出登录收进「维护」，添加我找到的商品�
   const panel = await readFile(fileURLToPath(new URL('../src/components/LocalOwnerAccessPanel.jsx', import.meta.url)), 'utf8');
   assert.match(panel, /access\.status === "authenticated"\) return showAuthenticated \?/u);
   assert.equal((panel.match(/showAuthenticated \?/gu) ?? []).length, 1);
-  // 添加我找到的商品：顶栏不再有，选品台自己有一个，打开的还是原来那个弹窗。
-  assert.match(app, /onAddProduct=\{\(\) => setAddOpen\(true\)\}/u);
-  assert.match(app, /<AddCandidateModal open=\{addOpen\}/u);
-  assert.match(desk, /onClick=\{onAddProduct\}>\s*<PlusIcon \/> 添加我找到的商品/u);
+  // 首页是已确认的选品总览；录入页有独立入口，旧弹窗和 Seerfar 页的重复添加按钮不恢复。
+  assert.doesNotMatch(app, /AddCandidateModal/u);
+  assert.doesNotMatch(app, /onAddProduct/u);
+  assert.doesNotMatch(app, /setAddOpen/u);
+  assert.match(app, /view === "desk" \? \(\s*<SelectionHome /u);
+  assert.match(app, /view === "intake" \? \(\s*<IntakePage /u);
+  assert.doesNotMatch(desk, /onAddProduct/u);
   // 空列表那句话原来指着顶栏的按钮，顶栏那个已经没了。
   assert.doesNotMatch(desk, /点右上角「找一轮新品」/u);
   assert.match(desk, /点右边「下一轮方向」里的「找一轮新品」/u);

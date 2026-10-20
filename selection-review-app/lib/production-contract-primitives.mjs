@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { TERRA_AUXILIARY_DRAFT_VERSION, SALES_AUXILIARY_OUTPUT_SCHEMA, isSalesAuxiliaryAttributeHint } from "./sales-snapshot.mjs";
 
 export const SAFE_FROZEN_REF_MAX_LENGTH = 256;
 export const PERCENT_ENCODING_MAX_DECODE_DEPTH = 3;
@@ -118,6 +119,7 @@ const C2_DIAGNOSTIC_STATIC_FIELDS = new Set([
   "authorizationId", "authorizationType", "scope", "finalCardInputSnapshot", "c1Snapshot", "canonicalC1",
   "exactSkuVerification", "productAttributes", "platformCategory", "schemaSnapshot", "batteryAssessment",
   "categoryRestrictions", "platformCompliance", "inputSnapshots",
+  "salesSnapshot", "auxiliaryDrafts", "output", "attributeHints",
   "lockedScope", "c1", "seoDraft", "evidenceLayer", "targetContext", "candidateId", "skuPackageId",
   "variantKey", "platform", "storeRef", "merchantSku", "supplierSkuId", "warehouseRef", "credentialAlias",
   "sourceDataRevision", "resultRevision", "sourceC1Fingerprint", "requirementsFingerprint", "schemaVersion",
@@ -462,6 +464,17 @@ const C1_COMPETITOR_TEXT_REFERENCE_PATHS = Object.freeze(
 const C1_CONTEXT_TEXT_REFERENCE_PATHS = Object.freeze(C1_COMPETITOR_TEXT_REFERENCE_PATHS.map(path =>
   Object.freeze([...path.slice(0, -4), "referenceContext", "referenceTexts", "[array]", "sourceRef"])));
 
+// The v1 auxiliary output calls a short explanation "evidenceRef". It is text,
+// not an independently trusted resource ID. Its publicTextEvidenceRefs remain references.
+const C1_SALES_AUXILIARY_LABEL_PATHS = Object.freeze(
+  C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS_VALUE.runtimeRootPrefixes.flatMap(root =>
+    [["finalCardInputSnapshot", "c1Snapshot"], ["lockedScope", "finalCardInputSnapshot", "c1Snapshot"],
+      ["c1ProductPlan"], ["lifecycleV11", "skuPackage", "c1ProductPlan"],
+      ...[...C1_PRICING_REUSE_CONTAINER_PATHS, ["draftOnlySeo"], ["c1ProductPlan", "draftOnlySeo"]]
+        .flatMap(prefix => ["pricingReuseRecord", "siblingFormalReuseRecord"].map(kind => [...prefix, kind, "sourcePlan"]))]
+      .map(prefix => Object.freeze([...root, ...prefix, "inputSnapshots", "salesSnapshot", "auxiliaryDrafts", "[array]",
+        "output", "attributeHints", "[array]", "evidenceRef"]))));
+
 /**
  * One public source for collector field semantics and the single C1 opaque-ID
  * exception that the schema generator materializes at explicit paths.
@@ -470,7 +483,8 @@ export const C2_REFERENCE_SEMANTICS = Object.freeze({
   fields: C2_REFERENCE_FIELD_SEMANTICS,
   c1OpaqueAuthorizationId: C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS_VALUE,
   c1CompetitorTextReferencePaths: C1_COMPETITOR_TEXT_REFERENCE_PATHS,
-  c1ContextTextReferencePaths: C1_CONTEXT_TEXT_REFERENCE_PATHS
+  c1ContextTextReferencePaths: C1_CONTEXT_TEXT_REFERENCE_PATHS,
+  c1SalesAuxiliaryLabelPaths: C1_SALES_AUXILIARY_LABEL_PATHS
 });
 export const C1_OPAQUE_AUTHORIZATION_ID_SEMANTICS = C2_REFERENCE_SEMANTICS.c1OpaqueAuthorizationId;
 
@@ -1013,6 +1027,24 @@ function isFrozenC1ContextTextPointer(value, pathSegments, root, row) {
   return false;
 }
 
+function isFrozenSalesAuxiliaryLabel(value, pathSegments, root, row) {
+  if (!C1_SALES_AUXILIARY_LABEL_PATHS.some(expected => expected.length === pathSegments.length &&
+      expected.every((segment, index) => segment === pathSegments[index]))) return false;
+  const snapshot = pathSegments.slice(0, -6).reduce((node, segment) => node[segment], root);
+  if (!isObject(snapshot) || !isCanonicalFrozenRef(snapshot.evidenceRef) || !Array.isArray(snapshot.auxiliaryDrafts) ||
+      snapshot.auxiliaryDrafts.length > PRODUCTION_CONTRACT_MAX_NODES || !isSalesAuxiliaryAttributeHint(row) || row.evidenceRef !== value) return false;
+  const matches = snapshot.auxiliaryDrafts.filter(draft => isObject(draft) && isObject(draft.output) &&
+    Array.isArray(draft.output.attributeHints) &&
+    draft.output.attributeHints.length <= SALES_AUXILIARY_OUTPUT_SCHEMA.properties.attributeHints.maxItems && draft.output.attributeHints.includes(row));
+  if (matches.length !== 1) return false;
+  const draft = matches[0];
+  return draft.schemaVersion === TERRA_AUXILIARY_DRAFT_VERSION && draft.provider === "terra" && draft.status === "draft" &&
+    draft.authoritative === false && draft.mayOverrideObservedFields === false &&
+    Array.isArray(draft.publicTextEvidenceRefs) && draft.publicTextEvidenceRefs.length > 0 &&
+    draft.publicTextEvidenceRefs.length <= PRODUCTION_CONTRACT_MAX_NODES &&
+    draft.publicTextEvidenceRefs.includes(snapshot.evidenceRef) && draft.publicTextEvidenceRefs.every(isCanonicalFrozenRef);
+}
+
 function isCanonicalC2ReferenceValue(value, semanticKind, pathSegments, root, parent) {
   if (semanticKind === "assetRef") {
     return isAnalysisAssetRefPath(pathSegments)
@@ -1029,7 +1061,7 @@ function isCanonicalC2ReferenceValue(value, semanticKind, pathSegments, root, pa
       isFrozenC1CompetitorTextPointer(value, pathSegments, root) ||
       isFrozenC1ContextTextPointer(value, pathSegments, root, parent);
   }
-  if (semanticKind === "canonicalFrozenRef") return isCanonicalFrozenRef(value);
+  if (semanticKind === "canonicalFrozenRef") return isCanonicalFrozenRef(value) || isFrozenSalesAuxiliaryLabel(value, pathSegments, root, parent);
   return true;
 }
 

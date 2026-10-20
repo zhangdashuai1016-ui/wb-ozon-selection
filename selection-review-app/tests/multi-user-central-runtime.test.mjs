@@ -151,21 +151,16 @@ test("生产源码新增本机假设必须进入明确审计文件，不能静�
   const files = [path.join(appDir, "server.mjs")];
   for (const root of roots) files.push(...await sourceFiles(root));
   const reviewedAdapters = new Map([
-    ["extension/1688-capture/background.js", ["worker_adapter", { loopback_address: 1 }]],
-    ["extension/1688-capture/bridge.js", ["worker_adapter", { loopback_address: 1 }]],
+    // The plugin's one default address (this computer's workbench) lives in capture-request.js; the worker and the page bridge
+    // follow the service set on the plugin's settings page (central plan step 3b).
     ["extension/1688-capture/capture-request.js", ["worker_adapter", { loopback_address: 1 }]],
     ["lib/c1-seo-draft.mjs", ["local_adapter", { personal_home_path: 2 }]],
     ["lib/codex-dispatcher.mjs", ["local_adapter", { loopback_address: 1, dynamic_home_dependency: 1 }]],
     ["lib/http-api-boundary.mjs", ["local_adapter", { loopback_address: 1 }]],
-    ["lib/lifecycle-b-real-evidence-readers.mjs", ["local_adapter", { loopback_address: 2 }]],
     ["lib/multi-user-central-runtime.mjs", ["local_adapter", { loopback_address: 3, fixed_worker_identity: 3 }]],
     ["lib/ozon-de-http-transport.mjs", ["local_adapter", { loopback_address: 2 }]],
-    // 当前本地开发凭据适配器：URL由配置注入，但只允许本机Ozon凭据服务；不宣称可直接部署到中央服务。
-    ["lib/ozon-dictionary-value-reader.mjs", ["local_adapter", { loopback_address: 2 }]],
     ["lib/runtime-configuration.mjs", ["local_adapter", { loopback_address: 8 }]],
     ["lib/runtime-identity-provider.mjs", ["local_adapter", { loopback_address: 4 }]],
-    // 采集开始信号只被内容脚本在 http://127.0.0.1:4317 这一个来源上接受，所以给主人的那两句话必须写出这个地址。
-    ["src/captureStart.js", ["local_adapter", { loopback_address: 3 }]],
     ["lib/workflow-map.mjs", ["local_adapter", { personal_home_path: 3 }]]
   ]);
   const checked = [];
@@ -197,7 +192,7 @@ test("当前本地运行明确标记为不具备多人并发，中央模式缺�
   const localRepository = {
     boundaryType: "business_state_repository", authoritative: true, adapter: "json",
     concurrencyScope: "single_process", multiUserReady: false,
-    readSnapshot() {}, transact() {}
+    readSnapshot() {}, transact() {}, readCandidates() {}, transactCandidates() {}
   };
   const localIdentity = {
     boundaryType: "runtime_identity_provider", providerType: "development_default", multiUserReady: false,
@@ -232,6 +227,35 @@ test("当前本地运行明确标记为不具备多人并发，中央模式缺�
   }), /Production state has no central persistence boundary/);
 });
 
+test("central mode starts only with every boundary ready and no unguarded write left; the server says so only with its guards in place", async () => {
+  const configuration = { schemaVersion: "selection-review-runtime-configuration-v1", deploymentMode: "central_test" };
+  const ready = {
+    configuration,
+    businessStateRepository: { boundaryType: "business_state_repository", authoritative: true, adapter: "postgres",
+      concurrencyScope: "database_transaction", multiUserReady: true, readSnapshot() {}, transact() {}, readCandidates() {}, transactCandidates() {} },
+    identityProvider: { boundaryType: "runtime_identity_provider", providerType: "team_accounts", multiUserReady: true, resolveActor() {} },
+    softwareJobStore: { boundaryType: "software_job_store", persistenceClass: "business_state_repository", multiUserReady: true },
+    workerRegistry: { boundaryType: "worker_registry", persistenceClass: "single_active_process", multiUserReady: true, findEligible() {} }
+  };
+  const status = assertRuntimeBoundaries({ ...ready, legacyBusinessMutationPathsPresent: false });
+  assert.deepEqual([status.status, status.multiUserReady, status.workerRegistry, status.limitations.length],
+    ["central_runtime_ready", true, "single_active_process", 0]);
+  for (const notReady of [{ legacyBusinessMutationPathsPresent: true }, {},
+    { workerRegistry: { ...ready.workerRegistry, multiUserReady: false }, legacyBusinessMutationPathsPresent: false },
+    { identityProvider: { ...ready.identityProvider, multiUserReady: false }, legacyBusinessMutationPathsPresent: false }]) {
+    assert.throws(() => assertRuntimeBoundaries({ ...ready, ...notReady }), error => error.code === "MULTI_USER_CENTRAL_RUNTIME_NOT_READY");
+  }
+
+  // The server claims no unguarded write only alongside the guards the 2026-10-16 audit added.
+  const serverSource = await readFile(path.join(appDir, "server.mjs"), "utf8");
+  assert.equal(serverSource.split("legacyBusinessMutationPathsPresent:").length - 1, 1);
+  assert.match(serverSource, /legacyBusinessMutationPathsPresent: false\n\}\);/);
+  assert.match(serverSource, /c1OzonAttributeProposals\.once\(/, "attribute proposals: a repeat click pays once");
+  assert.match(serverSource, /code: "evidence_pack_not_newer"/, "shared evidence only moves forward in time");
+  const translation = await readFile(path.join(appDir, "lib/discovery-title-translation-store.mjs"), "utf8");
+  assert.match(translation, /return oneAtATime\(input\.batchId, /, "title translation: one click at a time per batch");
+});
+
 test("服务先初始化身份和闭集新A中断对账，仅显式配置可启动消费者且不恢复旧作业", async () => {
   const serverSource = await readFile(path.join(appDir, "server.mjs"), "utf8");
   const identityIndex = serverSource.indexOf("await runtimeIdentityProvider.initialize()");
@@ -243,6 +267,11 @@ test("服务先初始化身份和闭集新A中断对账，仅显式配置可启�
   const reconciliationIndex=serverSource.indexOf(reconciliation);
   assert.ok(reconciliationIndex>identityIndex&&reconciliationIndex<listenIndex);
   assert.equal([...serverSource.matchAll(/(?:softwareJobStore\.)?reconcileAfterRestart\s*\(/g)].length,1);
+  // A process standing by for the lease already has its port open, but no request reaches the service before this point.
+  const gateIndex = serverSource.indexOf("requestGate.open(handleRequest);");
+  assert.ok(gateIndex > reconciliationIndex && gateIndex < listenIndex, "对账做完之前，任何请求都进不了服务");
+  assert.equal([...serverSource.matchAll(/requestGate\.open\(/g)].length, 1);
+  assert.ok(serverSource.includes("const server = http.createServer((req, res) => requestGate.handle(req, res));"));
   const shutdownIndex = serverSource.indexOf("function closeServer()", listenIndex);
   assert.ok(shutdownIndex > listenIndex);
   const startup = serverSource.slice(listenIndex, shutdownIndex);

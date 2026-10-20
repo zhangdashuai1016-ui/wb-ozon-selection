@@ -1,6 +1,7 @@
 import { createInitialCandidate } from './candidate-initialization.mjs';
 import { currentSalesSnapshot } from './discovery-market-snapshot.mjs';
-import { normalize1688CaptureSource } from './source-capture.mjs';
+import { siblingFamilySalesSnapshot } from './sibling-sales-snapshot.mjs';
+import { normalizeSupplierCaptureSource } from './source-capture.mjs';
 import { inForceSkuUniformSupply } from './sku-choice-estimate.mjs';
 import { isCompleteStoreRef, sameStoreRef, STORE_PLATFORMS } from './store-binding.mjs';
 import { parentCardBinding } from './sibling-sku-card-guard.mjs';
@@ -52,7 +53,7 @@ export function createSiblingSkuCandidate({ document, parentCandidateId, input, 
     fail('SIBLING_PARENT_IMPORT_UNVERIFIED', '原商品尚无已接受导入的持久回执');
   }
   const capture = parent.sourceCapture;
-  const source = normalize1688CaptureSource(capture?.sourceUrl);
+  const source = normalizeSupplierCaptureSource(capture?.sourceUrl);
   if (capture?.mode !== 'a_supplier_capture' || capture.status !== 'captured_waiting_owner_selection' ||
       source.type !== 'detail' || source.offerId !== capture.offerId || !text(capture.captureId) ||
       !Array.isArray(capture.selectedSkuIds) || !capture.selectedSkuIds.includes(input.supplierSkuId) ||
@@ -65,7 +66,8 @@ export function createSiblingSkuCandidate({ document, parentCandidateId, input, 
   if (input.productName !== undefined && input.productName !== productName) {
     fail('SIBLING_NAME_CONFLICT', '商品名称由已采集规格生成，请刷新页面后重新建立');
   }
-  const sales = currentSalesSnapshot(parent);
+  // Each colour is priced on the snapshot the parent itself was priced on; only a parent that froze none falls back to the newest.
+  const sales = siblingFamilySalesSnapshot(parent) ?? currentSalesSnapshot(parent);
   if (!sales) fail('SIBLING_MARKET_EVIDENCE_MISSING', '原商品没有可复用的有效市场快照');
   const salesSnapshots = parent.salesSnapshotsV11.filter(snapshot => validateSalesSnapshot(snapshot).valid);
   const uniform = inForceSkuUniformSupply(parent);

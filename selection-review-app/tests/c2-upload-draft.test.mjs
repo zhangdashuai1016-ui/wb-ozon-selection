@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { assertCurrentC2UploadDraft, reserveC2Upload, settleC2Upload, saveC2UploadSelection, selectedC2DraftAssets, resolveRegisteredC2FinalAsset } from "../lib/c2-upload-draft.mjs";
+import { assertCurrentC2UploadDraft, readCurrentC2UploadDraft, reserveC2Upload, settleC2Upload, saveC2UploadSelection, selectedC2DraftAssets, resolveRegisteredC2FinalAsset, MAX_UPLOAD_RECORDS } from "../lib/c2-upload-draft.mjs";
 import { createC2LocalAssetStore, normalizeC2LocalUpload } from "../lib/c2-local-asset-store.mjs";
 
 const TIME = "2026-09-07T00:00:00.000Z";
@@ -25,6 +25,106 @@ function reserve(current, uploadId = ID) {
   current.lifecycleV11.c2UploadDraft = draft;
   return draft.uploads.find(upload => upload.uploadId === uploadId);
 }
+
+function readyDraftCandidate() {
+  const current = candidate(), upload = reserve(current);
+  current.lifecycleV11.c2UploadDraft = settleC2Upload(current.lifecycleV11.c2UploadDraft, {
+    uploadId: ID, asset: { ...upload, assetRef: `local-asset:${upload.assetId}`,
+      sha256: "a".repeat(64), byteSize: 100 }, settledAt: TIME
+  });
+  return current;
+}
+
+test("read current C2 draft distinguishes no registration without creating one", () => {
+  for (const initialize of [current => {}, current => { current.lifecycleV11.c2UploadDraft = null; }]) {
+    const current = candidate(); initialize(current);
+    const before = structuredClone(current);
+    assert.deepEqual(readCurrentC2UploadDraft(current), { candidateId: current.id, dataRevision: 12,
+      draft: null, businessPhaseChanged: false, platformWrites: 0 });
+    assert.deepEqual(current, before);
+  }
+});
+
+test("read current C2 draft projects only consumed fields and preserves ready, failed and uploading states", () => {
+  const current = readyDraftCandidate();
+  reserve(current, SECOND);
+  current.lifecycleV11.c2UploadDraft = settleC2Upload(current.lifecycleV11.c2UploadDraft,
+    { uploadId: SECOND, failureCode: "file_storage_unconfirmed", settledAt: TIME });
+  const pendingId = "00000000-0000-4000-8000-000000000003";
+  reserve(current, pendingId);
+  current.lifecycleV11.c2UploadDraft.privateStoragePath = "/private/synthetic-storage";
+  for (const upload of current.lifecycleV11.c2UploadDraft.uploads) upload.privateStoragePath = "/private/synthetic-storage";
+  current.lifecycleV11.c2UploadDraft.selection[0].privateStoragePath = "/private/synthetic-storage";
+  const before = structuredClone(current), view = readCurrentC2UploadDraft(current);
+  assert.deepEqual(view, { candidateId: current.id, dataRevision: 12, draft: { revision: 5,
+    uploads: [
+      { assetId: `c2-local:${ID}`, status: "ready", sha256: "a".repeat(64) },
+      { assetId: `c2-local:${SECOND}`, status: "failed" },
+      { assetId: `c2-local:${pendingId}`, status: "uploading" }
+    ], selection: [{ assetId: `c2-local:${ID}`, order: 1 }] }, businessPhaseChanged: false, platformWrites: 0 });
+  assert.deepEqual(current, before);
+  view.draft.uploads[0].assetId = "changed-view";
+  view.draft.selection[0].order = 9;
+  assert.deepEqual(current, before);
+});
+
+test("read current C2 draft rejects malformed registrations explicitly instead of returning an empty draft", () => {
+  const cases = [
+    ["false", current => { current.lifecycleV11.c2UploadDraft = false; }],
+    ["zero", current => { current.lifecycleV11.c2UploadDraft = 0; }],
+    ["empty string", current => { current.lifecycleV11.c2UploadDraft = ""; }],
+    ["array", current => { current.lifecycleV11.c2UploadDraft = []; }],
+    ...[undefined, -1, 0.5, Number.MAX_SAFE_INTEGER + 1, "2"].map(revision => [
+      `revision ${String(revision)}`, current => { current.lifecycleV11.c2UploadDraft.revision = revision; }
+    ]),
+    ["uploads shape", current => { current.lifecycleV11.c2UploadDraft.uploads = {}; }],
+    ["uploads limit", current => { current.lifecycleV11.c2UploadDraft.uploads = Array(MAX_UPLOAD_RECORDS + 1).fill(null); }],
+    ["sparse uploads", current => { current.lifecycleV11.c2UploadDraft.uploads = Array(1); }],
+    ["duplicate identity", current => { current.lifecycleV11.c2UploadDraft.uploads.push(structuredClone(current.lifecycleV11.c2UploadDraft.uploads[0])); }],
+    ["invalid identity", current => { current.lifecycleV11.c2UploadDraft.uploads[0].assetId = "/private/synthetic-file"; }],
+    ["unknown status", current => { current.lifecycleV11.c2UploadDraft.uploads[0].status = "completed"; }],
+    ["missing ready digest", current => { delete current.lifecycleV11.c2UploadDraft.uploads[0].sha256; }],
+    ["invalid ready digest", current => { current.lifecycleV11.c2UploadDraft.uploads[0].sha256 = "not-a-digest"; }],
+    ["selection shape", current => { current.lifecycleV11.c2UploadDraft.selection = {}; }],
+    ["selection limit", current => { current.lifecycleV11.c2UploadDraft.selection = Array(MAX_UPLOAD_RECORDS + 1).fill(null); }],
+    ["sparse selection", current => { current.lifecycleV11.c2UploadDraft.selection = Array(1); }],
+    ["duplicate selection", current => { current.lifecycleV11.c2UploadDraft.selection.push({ assetId: `c2-local:${ID}`, order: 2 }); }],
+    ["foreign selection", current => { current.lifecycleV11.c2UploadDraft.selection[0].assetId = `c2-local:${SECOND}`; }],
+    ["order changed", current => { current.lifecycleV11.c2UploadDraft.selection[0].order = 2; }],
+    ["failed selection", current => { current.lifecycleV11.c2UploadDraft.uploads[0].status = "failed"; }],
+    ["uploading selection", current => { current.lifecycleV11.c2UploadDraft.uploads[0].status = "uploading"; }]
+  ];
+  for (const [name, mutate] of cases) {
+    const current = readyDraftCandidate(); mutate(current);
+    const before = structuredClone(current);
+    assert.throws(() => readCurrentC2UploadDraft(current), error =>
+      error.status === 409 && error.extra?.code === "c2_upload_draft_invalid", name);
+    assert.deepEqual(current, before, name);
+  }
+});
+
+test("read current C2 draft retains stage and frozen source rejection without rebinding", () => {
+  const cases = [
+    ["c2_upload_source_changed", current => { current.id = "another-candidate"; }],
+    ["c2_upload_source_changed", current => { current.dataRevision++; }],
+    ["c2_upload_source_changed", current => { current.lifecycleV11.skuPackage.skuPackageId = "another-sku"; }],
+    ["c2_upload_source_changed", current => { current.lifecycleV11.skuPackage.dataRevision++; }],
+    ["c2_upload_source_changed", current => { current.lifecycleV11.skuPackage.c2FinalAssets.softwareState.sourceC1Fingerprint = "b".repeat(64); }],
+    ["c2_upload_source_changed", current => { current.lifecycleV11.skuPackage.c2FinalAssets.targetContext.schemaEvidenceRef = "schema:other"; }],
+    ["c2_upload_stage_invalid", current => { current.lifecycleV11.skuPackage.businessPhase = "D"; }],
+    ["c2_upload_stage_invalid", current => { current.lifecycleV11.skuPackage.c2FinalAssets.status = "completed"; }],
+    ["c2_upload_stage_invalid", current => { current.lifecycleV11.skuPackage.productionAuthorization = { authorizationId: "synthetic:authorization" }; }],
+    ["c2_upload_stage_invalid", current => { current.lifecycleV11.skuPackage.productionRecord = { productionRecordId: "synthetic:production" }; }]
+  ];
+  for (const [code, mutate] of cases) {
+    const current = readyDraftCandidate(); mutate(current);
+    const before = structuredClone(current);
+    assert.throws(() => readCurrentC2UploadDraft(current), error => error.status === 409 && error.extra?.code === code);
+    assert.deepEqual(current, before);
+  }
+  const uninitialized = candidate(); uninitialized.lifecycleV11.skuPackage.businessPhase = "D";
+  assert.throws(() => readCurrentC2UploadDraft(uninitialized), error => error.extra?.code === "c2_upload_stage_invalid");
+});
 
 test("C2 local file and draft survive JSON save/reopen with selection and source revisions", async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), "c2-upload-test-"));

@@ -64,7 +64,7 @@ export function createOzonAccountReadServices({ configuration, repository, worke
       worker: { workerId: binding.workerId, version: binding.workerVersion, leaseDurationMs: binding.leaseDurationMs },
       loadCurrentReadBinding, requestJson }));
   }
-  function savedReads(document, candidateId) {
+  function savedReads(document, candidateId, { routingBlocker = null } = {}) {
     const hasRuntime = Object.hasOwn(document, 'runtime');
     const runtime = hasRuntime ? document.runtime : {};
     if (runtime === null || typeof runtime !== 'object' || Array.isArray(runtime) ||
@@ -79,8 +79,8 @@ export function createOzonAccountReadServices({ configuration, repository, worke
     const candidate = document.candidates.find(value => value.id === candidateId);
     if (!candidate?.lifecycleV11?.skuPackage || candidate.targetPlatform !== 'ozon') return [];
     const candidateJobs = jobs.filter(job => job.jobType === 'ozon_account_read' && job.candidateId === candidateId);
-    const relevantBindings = configuration.productionBindings.filter(production => candidateJobs.some(job =>
-      job.scopeBinding.bindingId === production.bindingId && job.scopeBinding.configurationVersion === production.configurationVersion));
+    const relevantBindings = routingBlocker === null ? configuration.productionBindings.filter(production => candidateJobs.some(job =>
+      job.scopeBinding.bindingId === production.bindingId && job.scopeBinding.configurationVersion === production.configurationVersion)) : [];
     const currentIds = new Set(relevantBindings.flatMap(production => {
       const binding = loadCurrentReadBinding({ document, candidateId, skuPackageId: candidate.lifecycleV11.skuPackage.skuPackageId,
         bindingId: production.bindingId, configurationVersion: production.configurationVersion });
@@ -92,7 +92,7 @@ export function createOzonAccountReadServices({ configuration, repository, worke
         assertOzonAccountReadReceipt(receipt, job);
       }
       const isCurrent = currentIds.has(job.jobId), expired = Date.parse(serverClock()) >= Date.parse(job.scopeBinding.expiresAt);
-      let admissionBlocker = null;
+      let admissionBlocker = routingBlocker;
       if (isCurrent && !expired && job.status === 'queued' && job.revision === candidate.dataRevision) {
         try { validateSoftwareJobAdmission({ document, job, observedAt: serverClock(), phase: 'claim', workerId:
           configuration.ozonAccountReadServiceBindings.find(value => value.productionBindingId === job.scopeBinding.bindingId)?.workerId ?? null }); }
@@ -358,7 +358,11 @@ export function createOzonAccountReadServices({ configuration, repository, worke
         d: { ...view.d, canContinueSaved: false, blockers: [...view.d.blockers, { code: invalidSource ? reason : 'OZON_ACCOUNT_EVIDENCE_REQUIRED', message }] } };
     },
     preparation({ candidate, document }) {
-      return buildOzonAccountReadPreparation({ candidate, configuration, runtimeView: savedReads(document, candidate.id) });
+      const preparation = buildOzonAccountReadPreparation({ candidate, configuration, runtimeView: [] });
+      const routingBlocker = preparation !== null && preparation.status === 'blocked' ? preparation.blocker.code : null;
+      // A damaged immutable production route blocks continuation, not visibility of the saved read history.
+      const runtime = savedReads(document, candidate.id, { routingBlocker });
+      return preparation === null ? null : { ...preparation, runtime };
     },
     continueProduction,
     continueAuthorizedBatch,

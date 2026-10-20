@@ -1,6 +1,6 @@
 import { c1CopyFields } from './sibling-preparation-consistency.mjs';
 import { assertBusinessStateRepositoryBoundary, assertCentralPersistenceBoundary } from './business-state-repository.mjs';
-import { authorizeOperation, assertSafeBusinessMutationCandidate } from './runtime-identity.mjs';
+import { authorizeOperation, teamOperationRoles, assertSafeBusinessMutationCandidate } from './runtime-identity.mjs';
 import { sameStoreRef } from './store-binding.mjs';
 import { createC1SkuRightsReviewRecord, resolveC1SkuRightsReviewForFacts } from './c1-sku-rights-review.mjs';
 import { verifyC1ProductFacts } from './c1-product-plan.mjs';
@@ -8,7 +8,8 @@ import { C1_OZON_ATTRIBUTE_MAPPING_VERSION } from './c1-ozon-attribute-mapping-u
 import { resolveSavedC1ColorDictionaryValue } from './c1-color-dictionary-read-use-case.mjs';
 import { assertSiblingSkuColorProjection } from './sibling-sku-card-guard.mjs';
 import { readCurrentAppliedC1Draft } from './c1-content-review-use-case.mjs';
-import { projectC1SiblingNeutralDraft } from './c1-sibling-neutral-copy.mjs';
+import { projectC1SiblingNeutralDraft, mapC1SiblingFactPath, assertC1SiblingSchemaCompatibility } from './c1-sibling-neutral-copy.mjs';
+import { createC1SiblingSharedFactRevision } from './c1-sibling-shared-facts.mjs';
 import { createC2SoftwareContainer } from './c2-software-orchestrator.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { fingerprintCanonicalRecord } from './production-contract-primitives.mjs';
@@ -16,7 +17,7 @@ import { fingerprintCanonicalRecord } from './production-contract-primitives.mjs
 const fail = code => { throw new Error(code); };
 const text = value => typeof value === 'string' && value.trim() === value && value.length > 0;
 
-function mapColors(candidate, dictionarySource, evidencePacks, ownerId, at, values) {
+function mapColors(candidate, parent, dictionarySource, evidencePacks, ownerId, at, values) {
   const sku = structuredClone(candidate.lifecycleV11.skuPackage);
   const plan = sku.c1ProductPlan;
   const schema = plan.inputSnapshots.platformSchemaRules;
@@ -29,6 +30,35 @@ function mapColors(candidate, dictionarySource, evidencePacks, ownerId, at, valu
   const rights = resolveC1SkuRightsReviewForFacts({ skuPackage: sku, observedAt: at });
   if (rights.status !== 'verified') fail('SIBLING_BATCH_C1_RIGHTS_NOT_VERIFIED');
   const inMemory = verifyC1ProductFacts({ skuPackage: sku, skuRightsReview: rights.review, verifiedAt: at }).skuPackage;
+  const parentSku = parent.lifecycleV11.skuPackage;
+  const sharedMappings = (parentSku.ozonAttributeMappingsV1?.mappings ?? [])
+    .filter(item => !['10096', '10097'].includes(String(item.attributeId)));
+  if (new Set(sharedMappings.map(item => String(item.attributeId))).size !== sharedMappings.length) {
+    fail('SIBLING_BATCH_C1_SHARED_MAPPING_CONFLICT');
+  }
+  if (sharedMappings.length && (parentSku.ozonAttributeMappingsV1.schemaVersion !== C1_OZON_ATTRIBUTE_MAPPING_VERSION ||
+      parentSku.ozonAttributeMappingsV1.schemaRevision !== parentSku.c1ProductPlan.inputSnapshots.platformSchemaRules.schemaRevision)) {
+    fail('SIBLING_BATCH_C1_SHARED_MAPPING_CONFLICT');
+  }
+  assertC1SiblingSchemaCompatibility({ sourcePlan: parentSku.c1ProductPlan,
+    targetPlan: inMemory.c1ProductPlan, attributeIds: sharedMappings.map(item => item.attributeId) });
+  const adoptedMappings = sharedMappings.map(item => {
+    const original = (parentSku.c1ProductPlan.productAttributes.ozonAttributes ?? [])
+      .filter(fact => String(fact.fieldKey) === String(item.attributeId));
+    const mappedValue = Array.isArray(item.dictionaryValues) ? item.dictionaryValues
+      : item.dictionaryValueId === null || item.dictionaryValueId === undefined ? item.value
+        : { value: item.value, dictionaryValueId: item.dictionaryValueId };
+    if (original.length !== 1 || original[0].sourceFactPath !== item.sourceFactPath ||
+        original[0].fact.verificationStatus !== 'confirmed' || !isDeepStrictEqual(original[0].fact.value, mappedValue)) {
+      fail('SIBLING_BATCH_C1_SHARED_MAPPING_CONFLICT');
+    }
+    const sourceFactPath = mapC1SiblingFactPath({ sourcePlan: parentSku.c1ProductPlan,
+      targetPlan: inMemory.c1ProductPlan, sourceFactPath: item.sourceFactPath });
+    const current = sourceFactPath.split('.').reduce((node, key) => node[key], inMemory.c1ProductPlan);
+    if (!isDeepStrictEqual(item.sourceFactValue, current.value)) fail('SIBLING_BATCH_C1_SHARED_MAPPING_CONFLICT');
+    return { ...structuredClone(item), sourceFactPath,
+      confirmationRef: `owner-ozon-attribute-mapping:${candidate.id}:${candidate.dataRevision}` };
+  });
   const facts = inMemory.c1ProductPlan.productAttributes.supplierAttributes
     .map((item, index) => ({ item, index })).filter(({ item }) => item.fieldKey === '颜色' &&
       item.fact?.verificationStatus === 'confirmed' && item.fact.value === candidate.sourceCapture?.skuChoices?.[0]?.attributes?.颜色);
@@ -39,8 +69,11 @@ function mapColors(candidate, dictionarySource, evidencePacks, ownerId, at, valu
     if (attributes.length !== 1) fail('SIBLING_BATCH_C1_SCHEMA_COLOR_MISSING');
     const attribute = attributes[0];
     const value = values[attributeId];
-    if (attribute.dictionaryId > 0 && (!isDeepStrictEqual(schema, dictionarySource.lifecycleV11?.skuPackage?.c1ProductPlan?.inputSnapshots?.platformSchemaRules) ||
-        !sameStoreRef(candidate.storeRef, dictionarySource.storeRef))) fail('SIBLING_BATCH_C1_DICTIONARY_SCOPE_DIFFERENCE');
+    if (attribute.dictionaryId > 0) {
+      if (!sameStoreRef(candidate.storeRef, dictionarySource.storeRef)) fail('SIBLING_BATCH_C1_DICTIONARY_SCOPE_DIFFERENCE');
+      assertC1SiblingSchemaCompatibility({ sourcePlan: dictionarySource.lifecycleV11.skuPackage.c1ProductPlan,
+        targetPlan: plan, attributeIds: [attributeId] });
+    }
     if (Array.isArray(value)) {
       if (attributeId !== '10096' || attribute.dictionaryId <= 0 || attribute.isCollection !== true ||
           !Number.isSafeInteger(attribute.maxValueCount) || value.length > attribute.maxValueCount || new Set(value).size !== value.length) fail('SIBLING_BATCH_C1_COLOR_COLLECTION_SCHEMA_REQUIRED');
@@ -58,14 +91,14 @@ function mapColors(candidate, dictionarySource, evidencePacks, ownerId, at, valu
   });
   sku.ozonAttributeMappingsV1 = { schemaVersion: C1_OZON_ATTRIBUTE_MAPPING_VERSION,
     schemaRevision: schema.schemaRevision, confirmationRef: `owner-ozon-attribute-mapping:${candidate.id}:${candidate.dataRevision}`,
-    confirmedBy: ownerId, confirmedAt: at, mappings };
+    confirmedBy: ownerId, confirmedAt: at, mappings: [...adoptedMappings, ...mappings] };
   const verified = verifyC1ProductFacts({ skuPackage: sku, skuRightsReview: rights.review, verifiedAt: at }).skuPackage;
   assertSiblingSkuColorProjection({ ...candidate, lifecycleV11: { ...candidate.lifecycleV11, skuPackage: verified } });
   return verified;
 }
 
 function validateInput(actor, input, serverClock, requireConfirmation) {
-  authorizeOperation({ actor, requiredRoles: ['owner'] });
+  authorizeOperation({ actor, requiredRoles: teamOperationRoles(actor) });
   if (actor.actorType !== 'human' || actor.source !== 'authenticated_identity_provider' ||
       typeof serverClock !== 'function' || !input || !text(input.parentCandidateId) ||
       !Number.isSafeInteger(input.parentRevision) || (requireConfirmation && input.confirmed !== true) ||
@@ -128,11 +161,14 @@ function prepareBatch(document, actor, input, serverClock) {
         fail('SIBLING_BATCH_C1_MEMBER_CONFLICT');
       }
       const current = structuredClone(child);
+      const sharedFacts = createC1SiblingSharedFactRevision({ parent, candidate: child,
+        confirmedByUserId: actor.userId, preparedAt: at });
+      if (sharedFacts !== null) current.lifecycleV11.skuPackage.c1ProductPlan.sourceFactsRevision = sharedFacts;
       current.lifecycleV11.skuPackage.c1RightsReviewRecord = createC1SkuRightsReviewRecord({
         plan: sku.c1ProductPlan, sourceIdentity: sku.g1Identity, sourceCandidateRevision: child.dataRevision,
         declaredByUserId: actor.userId, declaredAt: at,
         ownerDeclaration: { ...(member.rightsDeclaration ?? input.rightsDeclaration), reviewedAt: at } });
-      const facts = mapColors(current, dictionarySource, document.evidencePacks ?? [], actor.userId, at, member.colorMappings);
+      const facts = mapColors(current, parent, dictionarySource, document.evidencePacks ?? [], actor.userId, at, member.colorMappings);
       const drafted = projectC1SiblingNeutralDraft({ sourcePlan, sourceIdentity: parent.lifecycleV11.skuPackage.g1Identity,
         request: source.request, receipt: source.receipt, settledExecution: source.settledExecution,
         targetSkuPackage: facts, sourceCandidateRevision: parent.dataRevision,
@@ -140,7 +176,7 @@ function prepareBatch(document, actor, input, serverClock) {
       const c2 = createC2SoftwareContainer({ skuPackage: drafted.skuPackage, expectedDataRevision: drafted.skuPackage.dataRevision,
         assetRegions: { collected: [], aiDrafts: [], finalUploads: [] }, createdAt: at }).skuPackage;
       return { child, skuPackage: c2, content: drafted.content, copyReviewRequired: member.copyDraft != null && !isDeepStrictEqual(member.copyDraft,c1CopyFields(drafted.content)), differences: drafted.differences,
-        reuseRecord: drafted.reuseRecord };
+        reuseRecord: drafted.reuseRecord, sharedFacts };
     });
     const binding = { parentCandidateId: parent.id, parentRevision: parent.dataRevision,
       dictionarySourceCandidateId: dictionarySource.id, confirmedBy: actor.userId,
@@ -148,9 +184,13 @@ function prepareBatch(document, actor, input, serverClock) {
       members: input.members.map(member => ({ candidateId: member.candidateId,
         candidateRevision: member.candidateRevision, colorMappings: member.colorMappings,
         rightsDeclaration: member.rightsDeclaration ?? null, copyDraft: member.copyDraft ?? null })),
-      projected: prepared.map(({ child, content, reuseRecord }) => ({ candidateId: child.id,
+      projected: prepared.map(({ child, content, reuseRecord, sharedFacts }) => ({ candidateId: child.id,
         contentFingerprint: reuseRecord.contentFingerprint, targetCandidateRevision: child.dataRevision,
-        sourcePlanFingerprint: reuseRecord.sourcePlanFingerprint })) };
+        sourcePlanFingerprint: reuseRecord.sourcePlanFingerprint,
+        sharedFactSource: sharedFacts === null ? null : {
+          source: sharedFacts.source, family: sharedFacts.family,
+          sourceOwnerDeclaration: sharedFacts.sourceOwnerDeclaration, supplierFacts: sharedFacts.supplierFacts,
+          adoptedOwnerFieldKeys: sharedFacts.ownerConfirmation.adoptedOwnerFieldKeys } })) };
     return { parent, prepared, at, previewFingerprint: fingerprintCanonicalRecord(binding) };
 }
 

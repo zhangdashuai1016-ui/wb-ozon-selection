@@ -1,6 +1,6 @@
 import { assertBusinessStateRepositoryBoundary, assertCentralPersistenceBoundary } from './business-state-repository.mjs';
 import { authorizeOperation, assertSafeBusinessMutationCandidate } from './runtime-identity.mjs';
-import { applyLifecycleBEvidenceContext } from './lifecycle-b-evidence-context.mjs';
+import { resolveSiblingBatchEvidenceCandidate, selectSiblingBatchEvidenceForPrice } from './sibling-batch-evidence-preparation.mjs';
 import { buildLifecycleBExplicitOtherCosts, resolveLifecycleBProfitRule } from './lifecycle-b-evidence-runtime.mjs';
 import { buildRealAConfirmationCard } from './real-a-confirmation-card.mjs';
 import { runRealAConfirmationToBAndC1, assertCurrentBCommissionEvidence } from './real-a-b-c1-flow.mjs';
@@ -9,6 +9,7 @@ import { createSoftwareExecutionRuntime, startSoftwareStep, completeExecutionSte
 import { isCommercialMerchantSku, prepareProductionCommercialDraft } from './production-commercial-draft.mjs';
 import { merchantSkuClaimsForStore } from './business-mutation-transaction.mjs';
 import { siblingPlatform, siblingSupplyPreparation } from './sibling-supply-preparation.mjs';
+import { siblingFamilySalesSnapshot, siblingReferencedSalesSnapshot } from './sibling-sales-snapshot.mjs';
 
 const CENTRAL_MODES = new Set(['central_test', 'central_production']);
 const text = value => typeof value === 'string' && value.trim() !== '';
@@ -104,22 +105,50 @@ export async function commitSiblingBatchABAndC1({ repository, runtimeMode, actor
       const reuse = input.shared.reusePriorSupply ? siblingSupplyPreparation(parent, [child]) : null;
       if (reuse && (reuse.gaps.length || reuse.rows[0].unitProductPrice !== member.unitProductPrice)) fail('SIBLING_BATCH_A_QUANTITY_ONE_EVIDENCE_MISSING');
       const common = reuse ? { ...input.shared, quantityOneEvidenceSourceNote: reuse.rows[0].quantityOneEvidenceSourceNote } : input.shared;
-      const projected = { ...child, targetPlatform: platform };
+      const family = siblingFamilySalesSnapshot(parent);
+      const siblingSource = family && child.siblingSourceV1.salesSnapshotId !== family.snapshotId
+        ? { ...structuredClone(child.siblingSourceV1), salesSnapshotId: family.snapshotId } : child.siblingSourceV1;
+      const projected = { ...child, siblingSourceV1: siblingSource, targetPlatform: platform };
+      if (family && !siblingReferencedSalesSnapshot(projected)) fail('SIBLING_BATCH_A_FAMILY_SNAPSHOT_MISSING');
       const submission = submissionFor(projected, member, common);
-      const withCost = { ...projected, packagingCostRmb: input.shared.packagingCostRmb };
-      const contextual = applyLifecycleBEvidenceContext(withCost, { submission, guooFilePath,
-        route: input.shared.route }).candidate;
+      const contextual = resolveSiblingBatchEvidenceCandidate({ document, parent, child: projected, submission, guooFilePath,
+        packagingCostRmb: input.shared.packagingCostRmb, route: input.shared.route });
       const profitRule = resolveLifecycleBProfitRule(contextual, document.rules);
       const otherCosts = buildLifecycleBExplicitOtherCosts(contextual, profitRule, { asOf: at });
+      const applicable = selectSiblingBatchEvidenceForPrice({ candidate: contextual,
+        evidencePacks: document.evidencePacks ?? [], targetSalePriceRub: submission.targetSalePriceRub });
       const result = runRealAConfirmationToBAndC1({ candidate: contextual, submission,
-        evidencePacks: document.evidencePacks ?? [], currentCommissionCatalogs: document.currentCommissionCatalogs ?? [],
+        evidencePacks: applicable.evidencePacks, currentCommissionCatalogs: document.currentCommissionCatalogs ?? [],
         otherCosts, confirmedAt: at });
-      if (result.profitModel.result !== 'passed' || result.c1Handoff === null) fail('SIBLING_BATCH_A_B_NOT_PASSED');
       assertCurrentBCommissionEvidence({ bundle: result.systemEvidenceBundle,
-        evidencePacks: document.evidencePacks ?? [], currentCommissionCatalogs: document.currentCommissionCatalogs ?? [], asOf: at });
-      return { child, result, platform, reuse, context: contextual.lifecycleEvidenceContextV11 };
+        evidencePacks: applicable.evidencePacks, currentCommissionCatalogs: document.currentCommissionCatalogs ?? [], asOf: at });
+      return { child, result, platform, reuse, siblingSource, context: contextual.lifecycleEvidenceContextV11 };
     });
-    for (const { child, result, context, platform, reuse } of prepared) {
+    // A failed formal result remains evidence; no member advances until the entire batch passes.
+    const failed = prepared.filter(({ result }) => result.profitModel.result !== 'passed' || result.c1Handoff === null);
+    if (failed.length) {
+      for (const { child, result } of failed) {
+        if (child.siblingBatchBAttemptsV1 !== undefined && !Array.isArray(child.siblingBatchBAttemptsV1)) {
+          fail('SIBLING_BATCH_A_B_HISTORY_INVALID');
+        }
+        child.siblingBatchBAttemptsV1 = [...(child.siblingBatchBAttemptsV1 ?? []), {
+          schemaVersion: 'sibling-batch-b-attempt-v1', parentCandidateId: parent.id, parentRevision: parent.dataRevision,
+          sourceRevision: child.dataRevision, recordedAt: at, recordedBy: actor.userId,
+          result: result.profitModel.result, profitModel: structuredClone(result.profitModel), platformWrites: 0 }];
+        child.dataRevision += 1;
+        child.updatedAt = at;
+        child.lastModifiedBy = actor.userId;
+        assertSafeBusinessMutationCandidate(child);
+      }
+      return { changed: true, document, result: { status: 'b_not_passed',
+        members: failed.map(({ child, result }) => ({ candidateId: child.id,
+          supplierSkuId: result.skuPackage.supplierSkuId, result: result.profitModel.result,
+          unitProfitRmb: result.profitModel.unitProfitRmb, profitMargin: result.profitModel.profitMargin,
+          resultRevision: child.dataRevision })), passedMembers: prepared.length - failed.length,
+        platformWrites: 0, externalRequests: 0 } };
+    }
+    for (const { child, result, context, platform, reuse, siblingSource } of prepared) {
+      child.siblingSourceV1 = structuredClone(siblingSource);
       child.targetPlatform = platform;
       child.packagingCostRmb = input.shared.packagingCostRmb;
       child.lifecycleEvidenceContextV11 = structuredClone(context);

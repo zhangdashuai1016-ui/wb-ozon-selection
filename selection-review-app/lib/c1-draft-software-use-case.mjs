@@ -7,7 +7,8 @@ import { assertCurrentC1AiDraftRequest, validateC1AiDraftRequest } from "./c1-ai
 import { prepareCurrentC1AiDraftRequest, assertCurrentC1AiDraftRequestSources, assertC1DraftExecutionBinding } from "./c1-ai-draft-request-source.mjs";
 import { C1AiGatewayError, C1_AI_GATEWAY_TOTAL_TIMEOUT_MS, buildC1GatewayJob } from "./c1-ai-gateway.mjs";
 import { fingerprintCanonicalRecord } from "./production-contract-primitives.mjs";
-import { authorizeOperation, workerSatisfiesCapabilities } from "./runtime-identity.mjs";
+import { gate1AutopilotMayAct, isGate1AutopilotActor } from "./gate1-autopilot.mjs";
+import { authorizeOperation, teamOperationRoles, workerSatisfiesCapabilities } from "./runtime-identity.mjs";
 import { createRepositoryBackedSoftwareJobStore, assertC1PaidKeywordContinuationResult } from "./software-job-repository.mjs";
 import { C1_AI_DRAFT_CAPABILITY, C1_AI_DRAFT_JOB_TYPE, createSoftwareJobEnvelope, createSoftwareJobResultEnvelope,
   normalizeC1AiDraftScopeBinding, projectC1AiSoftwareJobAuthorizedExecution, readC1PaidKeywordSourceForSettlement } from "./software-job-contract.mjs";
@@ -96,14 +97,19 @@ export function createC1DraftSoftwareUseCase({ repository, runtimeMode, serverCl
     async prepareLocal({ actor, input }) {
       input = structuredClone(input); actor = structuredClone(actor);
       closed(input, ["candidateId", "expectedRevision", "idempotencyKey", "auditEventId"], "C1_DRAFT_PREPARE_INPUT_INVALID");
-      authorizeOperation({ actor, requiredRoles: ["owner"] });
-      if (actor.actorType !== "human" || actor.source !== "authenticated_identity_provider") throw new Error("C1_DRAFT_AUTHENTICATED_OWNER_REQUIRED");
+      // 主人点过「做这件」并许可之后，软件身份也能准备这份请求（lib/gate1-autopilot.mjs）。只准备、不付费：
+      // 付费生成仍要主人另外允许。
+      const software = isGate1AutopilotActor(actor);
+      const requiredRoles = software ? ["operator"] : teamOperationRoles(actor);
+      authorizeOperation({ actor, requiredRoles });
+      if (!software && (actor.actorType !== "human" || actor.source !== "authenticated_identity_provider")) throw new Error("C1_DRAFT_AUTHENTICATED_OWNER_REQUIRED");
       const { candidate } = await candidateSnapshot(input.candidateId);
-      return executeBusinessMutation({ repository, runtimeMode, actor, requiredRoles: ["owner"], action: "c1_local_draft_prepare",
+      return executeBusinessMutation({ repository, runtimeMode, actor, requiredRoles, action: "c1_local_draft_prepare",
         candidateId: input.candidateId, skuPackageId: candidate.lifecycleV11.skuPackage.skuPackageId, expectedRevision: input.expectedRevision,
         idempotencyKey: input.idempotencyKey, inputFingerprint: fingerprintCanonicalRecord(input), auditEventId: input.auditEventId,
         serverClock, includeRelatedSoftwareJobs: true,
         mutate: ({ candidate: current, observedAt, relatedSoftwareJobs }) => {
+          if (software && !gate1AutopilotMayAct(actor, current, "c1_prepare_copy")) throw new Error("C1_LOCAL_DRAFT_AUTOPILOT_GRANT_REQUIRED");
           if (current.lifecycleV11.c1AiDraftRequestV1) throw new Error("C1_LOCAL_DRAFT_REQUEST_ALREADY_SAVED");
           const prepared = prepareC1LocalDraftSource({ candidate: current, preparedAt: observedAt });
           current.lifecycleV11.skuPackage = structuredClone(prepared.skuPackage);
@@ -128,14 +134,14 @@ export function createC1DraftSoftwareUseCase({ repository, runtimeMode, serverCl
     async retryKeywordHandoff({ actor, input }) {
       input = structuredClone(input); actor = structuredClone(actor);
       closed(input, ["candidateId", "expectedRevision", "keywordJobId", "failureId", "idempotencyKey", "auditEventId"], "C1_KEYWORD_HANDOFF_RETRY_INPUT_INVALID");
-      authorizeOperation({ actor, requiredRoles: ["owner"] });
+      authorizeOperation({ actor, requiredRoles: teamOperationRoles(actor) });
       if (actor.actorType !== "human" || actor.source !== "authenticated_identity_provider") throw new Error("C1_DRAFT_AUTHENTICATED_OWNER_REQUIRED");
       if (configuredBinding === null) throw new Error("C1_DRAFT_EXECUTION_BINDING_REQUIRED");
       const { candidate, document } = await candidateSnapshot(input.candidateId);
       const sourceJob = document.runtime?.softwareJobs?.find(job => job.jobId === input.keywordJobId);
       if (!sourceJob || sourceJob.candidateId !== input.candidateId) throw new Error("C1_KEYWORD_HANDOFF_RETRY_SOURCE_CONFLICT");
       readC1PaidKeywordSourceForSettlement(document, sourceJob);
-      return executeBusinessMutation({ repository, runtimeMode, actor, requiredRoles: ["owner"], action: "c1_keyword_handoff_retry",
+      return executeBusinessMutation({ repository, runtimeMode, actor, requiredRoles: teamOperationRoles(actor), action: "c1_keyword_handoff_retry",
         candidateId: input.candidateId, skuPackageId: candidate.lifecycleV11.skuPackage.skuPackageId, expectedRevision: input.expectedRevision,
         idempotencyKey: input.idempotencyKey, inputFingerprint: fingerprintCanonicalRecord(input), auditEventId: input.auditEventId,
         serverClock, includeRelatedSoftwareJobs: true,
@@ -162,7 +168,7 @@ export function createC1DraftSoftwareUseCase({ repository, runtimeMode, serverCl
     async authorizeAndEnqueue({ actor, input }) {
       input = structuredClone(input); actor = structuredClone(actor);
       closed(input, ["candidateId", "expectedRevision", "requestRef", "requestFingerprint", "confirmPaidCall", "expiresAt", "idempotencyKey", "auditEventId"], "C1_DRAFT_AUTHORIZE_INPUT_INVALID");
-      authorizeOperation({ actor, requiredRoles: ["owner"] });
+      authorizeOperation({ actor, requiredRoles: teamOperationRoles(actor) });
       if (actor.actorType !== "human" || actor.source !== "authenticated_identity_provider") throw new Error("C1_DRAFT_AUTHENTICATED_OWNER_REQUIRED");
       if (input.confirmPaidCall !== true || (input.expiresAt !== null && (typeof input.expiresAt !== "string" || !Number.isFinite(Date.parse(input.expiresAt))))) throw new Error("C1_DRAFT_PAID_CONFIRMATION_INVALID");
       if (configuredBinding === null) throw new Error("C1_DRAFT_EXECUTION_BINDING_REQUIRED");
@@ -182,7 +188,7 @@ export function createC1DraftSoftwareUseCase({ repository, runtimeMode, serverCl
         credentialBinding: { schemaVersion: "software-job-credential-binding-v1", bindingId: `binding:c1-draft:${request.requestFingerprint.slice(0, 32)}`,
           credentialAlias: configuredBinding.credentialAlias, status: "active", provider: configuredBinding.provider, sideEffectScope: C1_AI_DRAFT_JOB_TYPE,
           scopeBinding: jobInput.scopeBinding, allowedWorkerIds: configuredBinding.allowedWorkerIds, redaction: "credential_alias_only", boundAt: null, expiresAt: input.expiresAt } };
-      return executeBusinessMutation({ repository, runtimeMode, actor, requiredRoles: ["owner"], action: C1_AI_DRAFT_JOB_TYPE,
+      return executeBusinessMutation({ repository, runtimeMode, actor, requiredRoles: teamOperationRoles(actor), action: C1_AI_DRAFT_JOB_TYPE,
         candidateId: input.candidateId, skuPackageId: jobInput.skuPackageId, expectedRevision: input.expectedRevision,
         idempotencyKey: input.idempotencyKey, inputFingerprint: fingerprintCanonicalRecord({ input, jobInput, admissionRecords }),
         auditEventId: input.auditEventId, authorizationRef, serverClock,
@@ -292,10 +298,10 @@ export function createC1DraftSoftwareUseCase({ repository, runtimeMode, serverCl
       input = structuredClone(input);
       actor = structuredClone(actor);
       closed(input, ["request", "expectedRevision", "authorizationRef", "credentialAlias", "jobId", "idempotencyKey", "auditEventId"], "C1_DRAFT_ENQUEUE_INPUT_INVALID");
-      authorizeOperation({ actor, requiredRoles: ["owner"] });
+      authorizeOperation({ actor, requiredRoles: teamOperationRoles(actor) });
       const frozen = structuredClone(input);
       const jobInput = buildJobInput({ ...frozen, ownerUserId: actor.userId, requestedByUserId: actor.userId });
-      return executeBusinessMutation({ repository, runtimeMode, actor, requiredRoles: ["owner"], action: C1_AI_DRAFT_JOB_TYPE,
+      return executeBusinessMutation({ repository, runtimeMode, actor, requiredRoles: teamOperationRoles(actor), action: C1_AI_DRAFT_JOB_TYPE,
         candidateId: jobInput.candidateId, skuPackageId: jobInput.skuPackageId, expectedRevision: frozen.expectedRevision,
         idempotencyKey: frozen.idempotencyKey, inputFingerprint: fingerprintCanonicalRecord(jobInput),
         auditEventId: frozen.auditEventId, authorizationRef: frozen.authorizationRef, serverClock,

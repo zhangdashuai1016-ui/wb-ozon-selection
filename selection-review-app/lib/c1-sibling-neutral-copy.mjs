@@ -1,7 +1,8 @@
 import { isDeepStrictEqual } from 'node:util';
 import { assertC1EditorialPlan } from './c1-editorial-review-contract.mjs';
 import { mergeC1AiDraftReceipt } from './c1-ai-draft-contract.mjs';
-import { assertValidC1ProductPlan, collectC1UnknownManifest } from './c1-product-plan.mjs';
+import { assertValidC1ProductPlan, collectC1UnknownManifest, validatePlatformSchemaEvidence } from './c1-product-plan.mjs';
+import { isOzonDictionaryCollectionValue, isOzonScalarAttributeValue } from './ozon-submission-attributes.mjs';
 import { fingerprintCanonicalRecord } from './production-contract-primitives.mjs';
 
 export const C1_SIBLING_NEUTRAL_REUSE_VERSION = 'c1-sibling-neutral-reuse-v2';
@@ -153,15 +154,128 @@ export function buildC1SiblingNeutralContent(sourcePlan) {
   return result;
 }
 
-function adoptedFacts(plan, content) {
+function adoptedFacts(plan, content, includeRussianAttributes = false) {
   const paths = [...new Set([content.seoTitleDraft, content.descriptionDraft, ...content.bulletPointsDraft,
-    ...content.searchKeywordsDraft.keywords].flatMap(piece => piece.factRefs))].sort();
+    ...content.searchKeywordsDraft.keywords].flatMap(piece => piece.factRefs)
+    .concat(includeRussianAttributes ? (content.seoEvidenceLayer.russianAttributes ?? []).map(item => item.factPath) : []))].sort();
   if (!paths.length) fail('C1_SIBLING_NEUTRAL_FACTS_MISSING');
   return Object.fromEntries(paths.map(path => {
     const fact = factAt(plan, path);
     if (fact?.verificationStatus !== 'confirmed' || !fact.sourceRefs?.length) fail('C1_SIBLING_NEUTRAL_FACT_NOT_CONFIRMED');
     return [path, fact.value];
   }));
+}
+
+/** Array position is presentation order. Field keys are the identity of an adopted fact. */
+export function mapC1SiblingFactPath({ sourcePlan, targetPlan, sourceFactPath }) {
+  if (typeof sourceFactPath !== 'string' || !sourceFactPath) fail('C1_SIBLING_NEUTRAL_FACT_KEY_MISMATCH');
+  const match = /^productAttributes\.(supplierAttributes|ownerDeclaredFacts|ozonAttributes|requiredPlatformFields)\.(\d+)\.fact$/.exec(sourceFactPath);
+  let targetPath = sourceFactPath;
+  if (match) {
+    const sourceRows = sourcePlan.productAttributes[match[1]], targetRows = targetPlan.productAttributes[match[1]];
+    const sourceRow = sourceRows?.[Number(match[2])];
+    if (!sourceRow || sourceRows.filter(item => item.fieldKey === sourceRow.fieldKey).length !== 1 ||
+        !Array.isArray(targetRows) || targetRows.filter(item => item.fieldKey === sourceRow.fieldKey).length !== 1) {
+      fail('C1_SIBLING_NEUTRAL_FACT_KEY_MISMATCH');
+    }
+    targetPath = `productAttributes.${match[1]}.${targetRows.findIndex(item => item.fieldKey === sourceRow.fieldKey)}.fact`;
+  } else if (/\.(?:\d+)\./.test(sourceFactPath)) fail('C1_SIBLING_NEUTRAL_FACT_KEY_MISMATCH');
+  const sourceFact = factAt(sourcePlan, sourceFactPath), targetFact = factAt(targetPlan, targetPath);
+  if (sourceFact?.verificationStatus !== 'confirmed' || targetFact?.verificationStatus !== 'confirmed' ||
+      !sourceFact.sourceRefs?.length || !targetFact.sourceRefs?.length) fail('C1_SIBLING_NEUTRAL_FACT_NOT_CONFIRMED');
+  if (!isDeepStrictEqual(sourceFact.value, targetFact.value)) fail('C1_SIBLING_NEUTRAL_FACT_DIFFERENCE');
+  return targetPath;
+}
+
+function assertCurrentSchemaSource(plan, schema) {
+  if (!validatePlatformSchemaEvidence(schema).valid ||
+      plan.inputRefs?.platformSchemaEvidenceId !== schema.evidenceId ||
+      plan.frozenInputRefs?.schemaSnapshotRef !== schema.evidenceId || plan.schemaSnapshotRef !== schema.evidenceId) {
+    fail('C1_SIBLING_NEUTRAL_SCHEMA_SOURCE_INVALID');
+  }
+}
+
+function confirmedAttributeFacts(sourcePlan, fieldKey) {
+  const facts = [];
+  for (const section of ['ozonAttributes', 'requiredPlatformFields']) {
+    const rows = sourcePlan.productAttributes?.[section];
+    if (section === 'requiredPlatformFields' && rows === undefined) continue;
+    if (!Array.isArray(rows)) fail('C1_SIBLING_NEUTRAL_FACT_NOT_CONFIRMED');
+    if (rows.some(item => item === null || typeof item !== 'object' || Array.isArray(item))) {
+      fail('C1_SIBLING_NEUTRAL_FACT_KEY_MISMATCH');
+    }
+    const matches = rows.filter(item => String(item.fieldKey) === String(fieldKey));
+    if (matches.length > 1) fail('C1_SIBLING_NEUTRAL_FACT_KEY_MISMATCH');
+    if (section === 'requiredPlatformFields' && matches.length === 0) continue;
+    const fact = matches[0]?.fact;
+    if (fact?.verificationStatus !== 'confirmed' || !Array.isArray(fact.sourceRefs) || !fact.sourceRefs.length ||
+        fact.sourceRefs.some(ref => typeof ref !== 'string' || !ref.trim()) ||
+        fact.value === undefined || fact.value === null || fact.value === '' || fact.value === 'unknown') {
+      fail('C1_SIBLING_NEUTRAL_FACT_NOT_CONFIRMED');
+    }
+    facts.push(fact);
+  }
+  return facts;
+}
+
+function assertAdoptedValueFitsNewMaximum(sourcePlan, attribute) {
+  for (const fact of confirmedAttributeFacts(sourcePlan, attribute.fieldKey)) {
+    if (attribute.isCollection === true) {
+      // A saved dictionary object represents one value. This validation never changes its saved or submitted shape.
+      if (!isOzonDictionaryCollectionValue(Array.isArray(fact.value) ? fact.value : [fact.value], attribute)) {
+        fail('C1_SIBLING_NEUTRAL_SCHEMA_VALUE_REJECTED');
+      }
+    } else if (attribute.isCollection !== false || !isOzonScalarAttributeValue(fact.value, attribute)) {
+      // The existing scalar contract allows one value; max=0 never grants permission for an array.
+      fail('C1_SIBLING_NEUTRAL_SCHEMA_VALUE_REJECTED');
+    }
+  }
+}
+
+/** A refreshed snapshot may add a previously absent bound only when every adopted value satisfies it. */
+export function assertC1SiblingSchemaCompatibility({ sourcePlan, targetPlan, attributeIds = [] }) {
+  const source = sourcePlan.inputSnapshots.platformSchemaRules, target = targetPlan.inputSnapshots.platformSchemaRules;
+  if (['platform', 'store', 'storeRef', 'descriptionCategoryId', 'typeId', 'categoryName'].some(key =>
+    !isDeepStrictEqual(source[key], target[key]))) fail('C1_SIBLING_NEUTRAL_SCOPE_DIFFERENCE');
+  for (const attributeId of new Set(attributeIds.map(String))) {
+    for (const section of ['attributes', 'requiredFields']) {
+      const left = (source[section] ?? []).filter(item => String(item.fieldKey) === attributeId);
+      const right = (target[section] ?? []).filter(item => String(item.fieldKey) === attributeId);
+      if (left.length > 1 || right.length > 1 || section === 'attributes' && (left.length !== 1 || right.length !== 1)) {
+        fail('C1_SIBLING_NEUTRAL_SCHEMA_FIELD_CHANGED');
+      }
+      if (isDeepStrictEqual(left, right)) continue;
+      if (section !== 'attributes' || Object.hasOwn(left[0], 'maxValueCount') || !Object.hasOwn(right[0], 'maxValueCount')) {
+        fail('C1_SIBLING_NEUTRAL_SCHEMA_FIELD_CHANGED');
+      }
+      const { maxValueCount, ...unchangedDefinition } = right[0];
+      if (!Number.isSafeInteger(maxValueCount) || maxValueCount < 0 || !isDeepStrictEqual(left[0], unchangedDefinition)) {
+        fail('C1_SIBLING_NEUTRAL_SCHEMA_FIELD_CHANGED');
+      }
+      assertCurrentSchemaSource(targetPlan, target);
+      assertAdoptedValueFitsNewMaximum(sourcePlan, right[0]);
+    }
+  }
+}
+
+function rebindContent(sourcePlan, targetPlan, content) {
+  const facts = adoptedFacts(sourcePlan, content, true);
+  const paths = new Map(Object.keys(facts).map(sourceFactPath => [sourceFactPath,
+    mapC1SiblingFactPath({ sourcePlan, targetPlan, sourceFactPath })]));
+  const attributeIds = Object.keys(facts).flatMap(path => {
+    const match = /^productAttributes\.(ozonAttributes|requiredPlatformFields)\.(\d+)\.fact$/.exec(path);
+    return match ? [sourcePlan.productAttributes[match[1]][Number(match[2])].fieldKey] : [];
+  });
+  assertC1SiblingSchemaCompatibility({ sourcePlan, targetPlan, attributeIds });
+  const rebound = structuredClone(content);
+  for (const piece of allPieces(rebound)) {
+    piece.factRefs = piece.factRefs.map(path => paths.get(path));
+    piece.assertions = piece.assertions.map(item => ({ ...item, factPath: paths.get(item.factPath) }));
+  }
+  if (Array.isArray(rebound.seoEvidenceLayer.russianAttributes)) {
+    rebound.seoEvidenceLayer.russianAttributes = rebound.seoEvidenceLayer.russianAttributes.map(item => ({ ...item, factPath: paths.get(item.factPath) }));
+  }
+  return rebound;
 }
 
 function assertPieceAssertions(content, facts) {
@@ -184,22 +298,22 @@ export function projectC1SiblingNeutralDraft({ sourcePlan, sourceIdentity, reque
   if (next.businessPhase !== 'C1' || plan?.status !== 'facts_checked' ||
       sourceIdentity.platform !== next.g1Identity.platform ||
       !isDeepStrictEqual(sourceIdentity.storeRef, next.g1Identity.storeRef) ||
-      !isDeepStrictEqual(sourcePlan.inputSnapshots.platformSchemaRules, plan.inputSnapshots.platformSchemaRules) ||
       !isDeepStrictEqual(sourcePlan.platformCategory.categoryName.value, plan.platformCategory.categoryName.value) ||
       !isDeepStrictEqual(sourcePlan.platformCategory.descriptionCategoryId.value, plan.platformCategory.descriptionCategoryId.value) ||
       !isDeepStrictEqual(sourcePlan.platformCategory.typeId.value, plan.platformCategory.typeId.value)) {
     fail('C1_SIBLING_NEUTRAL_SCOPE_DIFFERENCE');
   }
-  const content = buildC1SiblingNeutralContent(sourcePlan);
-  const sourceFacts = adoptedFacts(sourcePlan, content), targetFacts = adoptedFacts(plan, content);
-  if (!isDeepStrictEqual(sourceFacts, targetFacts)) fail('C1_SIBLING_NEUTRAL_FACT_DIFFERENCE');
+  const sourceContent = buildC1SiblingNeutralContent(sourcePlan);
+  assertPieceAssertions(sourceContent, adoptedFacts(sourcePlan, sourceContent));
+  const content = rebindContent(sourcePlan, plan, sourceContent);
+  const targetFacts = adoptedFacts(plan, content);
   assertPieceAssertions(content, targetFacts);
   const record = { schemaVersion: C1_SIBLING_NEUTRAL_REUSE_VERSION, observedAt, sourceKind,
     sourceCandidateId: sourceIdentity.candidateId, sourceCandidateRevision, targetCandidateRevision,
     sourcePlanFingerprint: fingerprintCanonicalRecord(sourcePlan), sourceContentFingerprint: fingerprintCanonicalRecord(contentOf(sourcePlan)),
     targetIdentity: structuredClone(next.g1Identity), targetPlanIdentity: structuredClone(plan.identity),
     targetPlanId: plan.c1PlanId, resultSkuRevision: next.dataRevision + 1,
-    adoptedFactPaths: Object.keys(sourceFacts), adoptedFactFingerprint: fingerprintCanonicalRecord(sourceFacts),
+    adoptedFactPaths: Object.keys(targetFacts), adoptedFactFingerprint: fingerprintCanonicalRecord(targetFacts),
     contentFingerprint: fingerprintCanonicalRecord(contentOf(content)), differences: content.differences };
   for (const key of Object.keys(contentOf(content))) plan[key] = structuredClone(content[key]);
   plan.status = 'seo_draft_ready';

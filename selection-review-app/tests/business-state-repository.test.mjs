@@ -12,8 +12,10 @@ import {
   createConfiguredBusinessStateRepository,
   createJsonBusinessStateRepository,
   createMemoryBusinessStateRepository,
+  createPostgresBusinessStateRepository,
   initialBusinessStateDocument
 } from "../lib/business-state-repository.mjs";
+import { createFakePostgresBusinessStateStore } from "./helpers/fake-postgres-business-state-store.mjs";
 import { createActorContext } from "../lib/runtime-identity.mjs";
 import { commitSingleOwnerProductionAuthorization } from "../lib/production-authorization.mjs";
 
@@ -198,6 +200,119 @@ test("JSON与内存适配器遵守相同Repository契约，但不冒充中央多
       multiUserReady: false
     });
     assert.throws(() => assertCentralPersistenceBoundary(repository), new RegExp(CENTRAL_PERSISTENCE_ERROR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Postgres适配器遵守同一Repository契约，并且是中央多人存储边界", async () => {
+  const store = createFakePostgresBusinessStateStore({ document: { candidates: [{ id: "C-1", dataRevision: 1 }] } });
+  const repository = createPostgresBusinessStateRepository({ store });
+  await repositoryContract(repository);
+  assert.equal(store.storedDocument().candidates[0].dataRevision, 2);
+  assert.equal(store.calls.writes, 1);
+  assert.deepEqual(assertCentralPersistenceBoundary(repository), {
+    status: "central_persistence_boundary_present",
+    adapter: "postgres",
+    concurrencyScope: "database_transaction",
+    multiUserReady: true
+  });
+});
+
+test("Postgres适配器经过整行文本往返后，主人确认的授权、幂等重放和冲突与内存适配器一致", async () => {
+  const fixture = authorizationFixture();
+  const document = { candidates: [fixture.candidate], evidencePacks: fixture.evidencePacks, currentCommissionCatalogs: fixture.currentCommissionCatalogs, runtime: { operationAudit: [], idempotencyRecords: [] }, dispatches: [] };
+  const store = createFakePostgresBusinessStateStore({ document });
+  const repository = createPostgresBusinessStateRepository({ store });
+  const memory = createMemoryBusinessStateRepository(structuredClone(document));
+  const first = await commitSingleOwnerProductionAuthorization(authorizationArgs(fixture, repository));
+  const expected = await commitSingleOwnerProductionAuthorization(authorizationArgs(fixture, memory));
+  assert.equal(first.status, "committed");
+  // Everything but the repository boundary it reports matches the in-memory adapter.
+  const { repository: boundary, ...committed } = first;
+  const { repository: memoryBoundary, ...expectedCommitted } = expected;
+  assert.deepEqual(committed, expectedCommitted);
+  assert.deepEqual([boundary.adapter, boundary.multiUserReady, memoryBoundary.adapter], ["postgres", true, "memory"]);
+  const stored = await repository.readSnapshot();
+  assert.deepEqual(stored, await memory.readSnapshot());
+  // The candidate's row keeps the production entity store, not the restored snapshots.
+  assert.ok(Array.isArray(store.storedDocument().productionEntityRecords));
+  assert.ok(Array.isArray(store.storedRows().parts[fixture.candidate.id].collections.productionEntityRecords.records));
+  const replay = await commitSingleOwnerProductionAuthorization({ ...authorizationArgs(fixture, repository), serverClock: () => "2026-08-22T07:05:00.000Z" });
+  assert.equal(replay.status, "idempotent_replay");
+  const revision = store.revision;
+  await assert.rejects(commitSingleOwnerProductionAuthorization({ ...authorizationArgs(fixture, repository), input: { ...fixture.input, merchantSku: "OTHER-SKU" } }), /IDEMPOTENCY_CONFLICT/);
+  assert.equal(store.revision, revision);
+  assert.deepEqual(await repository.readSnapshot(), stored);
+});
+
+function scopedDocument() {
+  return { meta: { version: 2 }, rules: { margin: 0.3 },
+    candidates: [{ id: "A", dataRevision: 1 }, { id: "B", dataRevision: 1 }],
+    dispatches: [{ id: "d-a", candidateId: "A" }, { id: "d-b", candidateId: "B" }],
+    runtime: { operationAudit: [], idempotencyRecords: [{ idempotencyKey: "k-b", candidateId: "B" }] } };
+}
+
+// A single-candidate transaction sees only its candidate and the shared part, saves only its candidate, and every other
+// change fails it whole, in every adapter.
+async function scopedContract(repository) {
+  const view = await repository.readCandidates(["A"]);
+  assert.deepEqual(view.candidates.map(candidate => candidate.id), ["A"]);
+  assert.deepEqual(view.dispatches.map(record => record.id), ["d-a"]);
+  assert.deepEqual(view.rules, { margin: 0.3 });
+  assert.deepEqual((await repository.readCandidates([])).candidates, []);
+
+  const result = await repository.transactCandidates(["A"], async document => {
+    assert.deepEqual(document.candidates.map(candidate => candidate.id), ["A"]);
+    document.candidates[0].dataRevision = 2;
+    document.dispatches.push({ id: "d-a2", candidateId: "A" });
+    return { changed: true, document, result: "saved" };
+  });
+  assert.equal(result, "saved");
+  const saved = await repository.readSnapshot();
+  assert.deepEqual(saved.candidates, [{ id: "A", dataRevision: 2 }, { id: "B", dataRevision: 1 }]);
+  assert.deepEqual(saved.dispatches.map(record => record.id), ["d-a", "d-b", "d-a2"]);
+
+  const refused = [
+    [document => { document.rules.margin = 0.5; }, /BUSINESS_STATE_REPOSITORY_SCOPE_VIOLATION:shared/u],
+    [document => { document.dispatches.push({ id: "d-b2", candidateId: "B" }); }, /BUSINESS_STATE_REPOSITORY_SCOPE_VIOLATION:dispatches:B/u],
+    [document => { document.runtime.idempotencyRecords.push({ idempotencyKey: "k-b", candidateId: "A" }); }, /BUSINESS_MUTATION_IDEMPOTENCY_CONFLICT/u]
+  ];
+  for (const [change, error] of refused) {
+    await assert.rejects(repository.transactCandidates(["A"], async document => {
+      document.candidates[0].dataRevision = 99;
+      change(document);
+      return { changed: true, document };
+    }), error);
+  }
+  assert.deepEqual(await repository.readSnapshot(), saved, "被拒绝的事务一点都不留下");
+
+  // 删掉 A 前面那条：A 后面那条仍排在 B 的后面，和整份写入时一样。
+  await repository.transactCandidates(["A"], async document => {
+    document.dispatches = document.dispatches.filter(record => record.id !== "d-a");
+    return { changed: true, document };
+  });
+  assert.deepEqual((await repository.readSnapshot()).dispatches.map(record => record.id), ["d-b", "d-a2"]);
+
+  for (const ids of [["A", ""], Array.from({ length: 201 }, (_, index) => `C-${index}`), "A"]) {
+    assert.throws(() => repository.transactCandidates(ids, async () => ({ changed: false })), /BUSINESS_STATE_REPOSITORY_SCOPE_INVALID/u);
+  }
+}
+
+test("单件商品的读写只看见、只改动它自己，三种存法一样", async () => {
+  await scopedContract(createMemoryBusinessStateRepository(scopedDocument()));
+
+  const store = createFakePostgresBusinessStateStore({ document: scopedDocument() });
+  await scopedContract(createPostgresBusinessStateRepository({ store }));
+  assert.equal(store.calls.writes, 2);
+  assert.deepEqual(store.calls.lockedCandidateIds.at(-1), ["A"]);
+
+  const directory = await mkdtemp(path.join(os.tmpdir(), "scoped-state-repository-"));
+  const filePath = path.join(directory, "candidates.json");
+  await writeFile(filePath, JSON.stringify(scopedDocument()), "utf8");
+  try {
+    await scopedContract(createJsonBusinessStateRepository({ filePath }));
+    assert.deepEqual(JSON.parse(await readFile(filePath, "utf8")).candidates.map(candidate => candidate.dataRevision), [2, 1]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

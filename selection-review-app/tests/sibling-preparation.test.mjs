@@ -15,7 +15,7 @@ import {oneColorFixture,threeColorFixture,threeColorC2Fixture,at} from './fixtur
 import {previewSiblingBatchC1Preparation,commitSiblingBatchC1Preparation} from '../lib/sibling-batch-c1-preparation.mjs';
 import {buildOzonOptionalAttributes} from '../lib/ozon-submission-attributes.mjs';
 import {createLocalSiblingCatalogReader} from '../lib/sibling-preparation-catalog.mjs';
-import {c1CopyFields,assertSiblingPreparationMatchesFinal} from '../lib/sibling-preparation-consistency.mjs';
+import {c1CopyFields,assertSiblingPreparationMatchesFinal,siblingPreparationFinalGaps} from '../lib/sibling-preparation-consistency.mjs';
 import {readyAuthorizationFamily} from './fixtures/sibling-batch-final-fixture.mjs';
 import {commitBatchOwnerProductionAuthorization} from '../lib/d-batch-production-authorization.mjs';
 import {siblingBatchAuthorizationInput} from '../src/siblingBatchAuthorizationInput.js';
@@ -67,6 +67,7 @@ test('synthetic catalog retains real file identities, 15 finished PNGs and three
  assert.deepEqual(catalog.functionalAssetIds,['19','27','29']);assert.deepEqual(catalog.assets.filter(a=>a.functionalCandidate).map(a=>a.assetId),catalog.functionalAssetIds);
  assert.equal(new Set(catalog.assets.map(a=>a.sha256)).size,18);
  for(const asset of catalog.assets) {
+  assert.equal(asset.fileName,`合成素材 ${asset.assetId}.png`);assert.notEqual(asset.fileName,asset.storageKey);
   const {body,contentType}=await reader.readAsset(catalog,asset.assetId);assert.equal(contentType,'image/png');assert.equal(body.length,asset.byteSize);assert.equal(createHash('sha256').update(body).digest('hex'),asset.sha256);
   assert.equal(body.subarray(0,8).toString('hex'),'89504e470d0a1a0a');assert.equal(body.readUInt32BE(16),2);assert.equal(body.readUInt32BE(20),2);assert.equal(body[24],8);assert.equal(body[25],2);
   assert.equal(body.subarray(12,16).toString('ascii'),'IHDR');assert.equal(body.subarray(37,41).toString('ascii'),'IDAT');assert.equal(body.subarray(-8,-4).toString('ascii'),'IEND');
@@ -93,11 +94,55 @@ test('synthetic catalog rejects malformed metadata, changed bytes, changed size 
  await rm(catalogFile);await assert.rejects(()=>reader.readCatalog(),/SIBLING_CATALOG_UNAVAILABLE/);
 });
 
+test('catalog rejects missing or unusable upload file names before returning asset metadata',async t=>{
+ const f=await threeColorFixture(),document=await f.repository.readSnapshot();
+ const directory=await mkdtemp(path.join(tmpdir(),'sibling-catalog-names-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+ const catalog=await writeSyntheticSiblingPreparationCatalog({document,tempDir:directory}),reader=createLocalSiblingCatalogReader({directory}),catalogFile=path.join(directory,'catalog.json');
+ const invalidNames=[undefined,null,'',42,'a'.repeat(177)+'.png','../image.png','folder/image.png','folder\\image.png','image\u0000.png','image\n.png','image\u007f.png','image','image.jpg','image.png.exe'];
+ for(const fileName of invalidNames) {
+  const invalid=structuredClone(catalog);
+  if(fileName===undefined)delete invalid.assets[0].fileName;else invalid.assets[0].fileName=fileName;
+  await writeFile(catalogFile,JSON.stringify(invalid));
+  await assert.rejects(()=>reader.readCatalog(),/SIBLING_CATALOG_INVALID/,`fileName=${JSON.stringify(fileName)}`);
+ }
+ const wrongJpeg=structuredClone(catalog);wrongJpeg.assets[0].contentType='image/jpeg';wrongJpeg.assets[0].fileName='image.png';
+ await writeFile(catalogFile,JSON.stringify(wrongJpeg));await assert.rejects(()=>reader.readCatalog(),/SIBLING_CATALOG_INVALID/);
+});
+
+test('catalog preserves accepted upload names independently of storage keys',async t=>{
+ const f=await threeColorFixture(),document=await f.repository.readSnapshot();
+ const directory=await mkdtemp(path.join(tmpdir(),'sibling-catalog-valid-names-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+ const catalog=await writeSyntheticSiblingPreparationCatalog({document,tempDir:directory}),reader=createLocalSiblingCatalogReader({directory}),catalogFile=path.join(directory,'catalog.json');
+ const names=[['本色 白底图.png','image/png'],['本色 白底图.PNG','image/png'],['a'.repeat(176)+'.png','image/png'],['商品图.jpg','image/jpeg'],['商品图.JPEG','image/jpeg']];
+ for(const [fileName,contentType] of names) {
+  const accepted=structuredClone(catalog);Object.assign(accepted.assets[0],{fileName,contentType});
+  await writeFile(catalogFile,JSON.stringify(accepted));
+  const readback=await reader.readCatalog();assert.deepEqual(readback,accepted);assert.equal(readback.assets[0].storageKey,catalog.assets[0].storageKey);
+ }
+});
+
 test('server-side final gate rejects saved draft changes despite a valid old final card and bypassed browser',async()=>{
  const {source,parent,child}=readyAuthorizationFamily();parent.sourceCapture.selectedSkuIds.reverse();const initial=await source.repository.readSnapshot();initial.candidates=[parent,child];const catalog=syntheticCatalog(initial),values=createPreparationValues(catalog,parent,[child]);values.supplyReviewed=true;
  initial.runtime.siblingPreparationDrafts=[{parentCandidateId:parent.id,sourceRevision:parent.dataRevision,memberRevisions:[{candidateId:child.id,revision:child.dataRevision}],values,assetBindings:catalog.assets}];const repository=createMemoryBusinessStateRepository(initial),input=siblingBatchAuthorizationInput(parent,[child],child.productionOwnerPreparation.executionBindings[0].bindingId,{inventoryAction:'write_authorized_stock'}).input;
  const before=await repository.readSnapshot();await assert.rejects(()=>commitBatchOwnerProductionAuthorization({repository,runtimeMode:'local_development',actor:source.args.actor,input,configuration:source.configuration,serverClock:source.args.serverClock}),/SIBLING_PREPARATION_FINAL_MISMATCH/);assert.deepEqual(await repository.readSnapshot(),before);
  assert.throws(()=>assertSiblingPreparationMatchesFinal({parent,members:[child],draft:initial.runtime.siblingPreparationDrafts[0]}),/FINAL_MISMATCH/);
+});
+
+test('final consistency reads confirmed purchase components and never turns a missing cost into zero', () => {
+ const {parent,child}=readyAuthorizationFamily();
+ const catalog=syntheticCatalog({candidates:[parent,child]}),values=createPreparationValues(catalog,parent,[child]);
+ values.shared.other='0';
+ const supply=child.lifecycleV11.skuPackage.selectedSupplySnapshot.supplierSku;
+ supply.attributes.purchaseCostComponents={unitProductPrice:supply.unitProductPrice,unitDomesticFreight:supply.unitDomesticFreight,
+   otherPurchaseCosts:0,actualPurchaseCost:supply.actualPurchaseCost,currency:'CNY'};
+ delete supply.otherPurchaseCosts;
+ const draft={parentCandidateId:parent.id,sourceRevision:parent.dataRevision,memberRevisions:[{candidateId:child.id,revision:child.dataRevision}],values,assetBindings:catalog.assets};
+ const gaps=()=>siblingPreparationFinalGaps({parent,members:[child],draft}).filter(item=>item.field==='other');
+ const before=structuredClone(child);
+ assert.deepEqual(gaps(),[]);assert.deepEqual(child,before);
+ supply.attributes.purchaseCostComponents.otherPurchaseCosts=2;assert.equal(gaps().length,1);
+ supply.otherPurchaseCosts=0;delete supply.attributes.purchaseCostComponents.otherPurchaseCosts;assert.equal(gaps().length,1);
+ supply.attributes.purchaseCostComponents.otherPurchaseCosts=null;assert.equal(gaps().length,1);
 });
 
 

@@ -1,7 +1,7 @@
-export const CAPTURE_START_ACCEPTED_MESSAGE = "插件已领取本次采集，正在读取这个1688页面";
+export const CAPTURE_START_ACCEPTED_MESSAGE = "插件已领取本次采集，正在读取这个货源页面";
 
 /**
- * 开始信号有两种页面要读：1688 的供应页，和这件商品自己的 Ozon 商品页。
+ * 开始信号有两种页面要读：1688 或拼多多的供应页，和这件商品自己的 Ozon 商品页。
  *
  * 两边的机制完全一样 —— 同一条页面→内容脚本的提示、同一套回执码、同一句「软件不会自动重试」——，不一样的只有
  * 消息类型和「已经开始」那一句话。所以这里把类型参数化，而不是复制一份：复制出来的第二份迟早会和插件那侧的白
@@ -19,6 +19,27 @@ export const OZON_PAGE_READ_CHANNEL = Object.freeze({
   request: "SELECTION_REVIEW_OZON_CAPTURE_REQUEST",
   ack: "SELECTION_REVIEW_OZON_CAPTURE_ACK",
   acceptedMessage: "插件已领取这次读页面，正在打开并读取这个 Ozon 商品页"
+});
+
+export const IMAGE_MATCH_CHANNEL = Object.freeze({
+  queuedStatus: "supplier_image_match_job_queued",
+  request: "SELECTION_REVIEW_1688_IMAGE_MATCH_REQUEST",
+  ack: "SELECTION_REVIEW_1688_IMAGE_MATCH_ACK",
+  acceptedMessage: "插件已领取这次找同款，正在用你 Chrome 里登录的 1688 搜这张首图；读完这里会列出最像的结果"
+});
+
+export const OZON_IMAGE_MATCH_CHANNEL = Object.freeze({
+  queuedStatus: "ozon_image_match_job_queued",
+  request: "SELECTION_REVIEW_OZON_IMAGE_MATCH_REQUEST",
+  ack: "SELECTION_REVIEW_OZON_IMAGE_MATCH_ACK",
+  acceptedMessage: "插件已领取这次在 Ozon 找同款，正在这台电脑的 Chrome 里打开 Ozon 搜这几个词；读完这里会按首图像不像列出结果"
+});
+
+export const SEERFAR_WEB_CHANNEL = Object.freeze({
+  queuedStatus: "seerfar_web_round_queued",
+  request: "SELECTION_REVIEW_SEERFAR_WEB_REQUEST",
+  ack: "SELECTION_REVIEW_SEERFAR_WEB_ACK",
+  acceptedMessage: "插件已领取这一轮，Seerfar 热销榜单选品页已经打开：请在 3 分钟内按建议的类目、跨境卖家、近 30 天搜一次"
 });
 
 export const CAPTURE_START_TIMEOUT_MS = 12000;
@@ -56,15 +77,18 @@ export function requestSupplierCaptureStart(captureId, page = window, channel = 
  * technical conclusion the page did not observe, and none of them promises a retry — the software never retries by itself.
  */
 export const CAPTURE_START_REJECTION_MESSAGES = Object.freeze({
-  no_bridge: "这个标签页里没有采集插件：请用 http://127.0.0.1:4317 打开页面（不是 localhost），按 Cmd+Shift+R 强制刷新后再试；仍然不行就到 chrome://extensions 确认插件已启用",
+  no_bridge: "这个标签页里没有采集插件，或者插件连的不是这个网址：点浏览器右上角的插件图标，让插件连接到地址栏中当前工作台的网址，改好后按 Cmd+Shift+R 强制刷新再试；仍然不行就到 chrome://extensions 确认插件已启用",
   capture_busy: "插件正在采另一件商品，等它结束再试",
   extension_identity_rejected: "服务端没有允许这个插件（白名单里没有它的 ID），需要改配置后重启",
+  workstation_not_added: "这台电脑还没加进来（或者已经被移除），插件领不了作业；到「维护」里点「把这台电脑加进来」再试，软件不会自动重试",
   background_unavailable: "插件后台没有响应，请在 chrome://extensions 重新加载插件",
   heartbeat_unavailable: "插件后台还没有和评审台连上，这次没有领取；请确认评审台正在运行，然后重新申请一次采集，软件不会自动重试",
-  request_origin_invalid: "插件认为这条开始提示不是来自本机评审台页面，因此拒绝领取；请用 http://127.0.0.1:4317 打开页面后重新申请一次采集，软件不会自动重试",
+  request_origin_invalid: "插件连的不是这个网址，因此拒绝领取：点浏览器右上角的插件图标，改成地址栏中当前工作台的网址后重新申请一次采集，软件不会自动重试",
   start_signal_invalid: "插件认为这条开始提示的格式不对，因此拒绝领取；请按 Cmd+Shift+R 强制刷新页面后重新申请一次采集，软件不会自动重试",
   capture_job_invalid: "插件去服务端领取时，服务端判定这个采集作业已经不能领取，这次没有开始；请重新申请一次采集，软件不会自动重试",
-  capture_job_not_claimed: "插件收到了开始提示，但没有完成领取，这次采集没有开始；请重新申请一次采集，软件不会自动重试"
+  capture_job_not_claimed: "插件收到了开始提示，但没有完成领取，这次采集没有开始；请重新申请一次采集，软件不会自动重试",
+  tab_cleanup_failed: "插件上次打开的一个页面没能自动关上，这次没有开始；把插件刚才打开的那个页面关掉再点一次，分不清是哪个就到 chrome://extensions 重新加载插件，软件不会自动重试",
+  tab_creation_unconfirmed: "插件上次开页面时 Chrome 一直没回话，这次没有开始；请到 chrome://extensions 重新加载插件后再点一次，软件不会自动重试"
 });
 
 const CAPTURE_START_UNKNOWN_MESSAGE = "插件没有确认领取这次采集，也没有说明原因；请查看上面的插件状态后重新申请一次采集，软件不会自动重试";

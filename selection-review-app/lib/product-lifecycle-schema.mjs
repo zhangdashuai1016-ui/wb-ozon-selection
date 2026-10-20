@@ -1,6 +1,6 @@
 import { sameStoreRef } from "./store-binding.mjs";
 import { validateAMarketAssessment } from "./market-sample-policy.mjs";
-import { validateProfitCalculation } from "./profit-model-calculation.mjs";
+import { validateProfitCalculation, COST_POLICY_PROFIT_CALCULATION_VERSIONS, OWNER_TARGET_PROFIT_CALCULATION_VERSION } from "./profit-model-calculation.mjs";
 import { MINIMUM_PROFIT_MARGIN, MINIMUM_UNIT_PROFIT_RMB, LEGACY_PROFIT_THRESHOLD_VERSION } from "./profit-threshold-policy.mjs";
 export { MINIMUM_PROFIT_MARGIN, MINIMUM_UNIT_PROFIT_RMB, CURRENT_PROFIT_THRESHOLD_VERSION, LEGACY_PROFIT_THRESHOLD_VERSION } from "./profit-threshold-policy.mjs";
 import {
@@ -351,6 +351,9 @@ function validateProfitModels(pkg, errors) {
   pkg.profitModels.forEach((model, index) => {
     const path = `profitModels[${index}]`;
     if (!requireObject(model, path, errors)) return;
+    if (Object.hasOwn(model, "priceInputs") && model.calculation?.version !== OWNER_TARGET_PROFIT_CALCULATION_VERSION) {
+      push(errors, `${path}.priceInputs`, "主人目标价必须使用双价格计算版本");
+    }
     const numericVersion = parseProfitVersion(model.profitModelVersion);
     if (numericVersion === null) push(errors, `${path}.profitModelVersion`, "必须使用profit-vN格式");
     if (seen.has(model.profitModelVersion)) push(errors, `${path}.profitModelVersion`, "版本不得重复或覆盖");
@@ -368,12 +371,15 @@ function validateProfitModels(pkg, errors) {
     if (Number.isFinite(model.recommendedSalePriceCny) && model.recommendedSalePriceCny <= 0) {
       push(errors, `${path}.recommendedSalePriceCny`, "建议成交价必须大于0");
     }
-    if (model.calculation?.version === "profit-calculation-v3-cost-policy-snapshot") {
+    if (COST_POLICY_PROFIT_CALCULATION_VERSIONS.includes(model.calculation?.version)) {
       const context = model.otherCosts?.costPolicyContext;
       if (context?.platform !== pkg.targetPlatform || context?.store !== pkg.targetStore ||
           !sameStoreRef(context?.storeRef, pkg.g1Identity?.storeRef)) {
         push(errors, `${path}.otherCosts.costPolicyContext`, "成本政策必须属于父SKU的同一平台、店铺和完整店铺身份");
       }
+    }
+    if (model.calculation?.version === OWNER_TARGET_PROFIT_CALCULATION_VERSION && model.priceInputs?.ownerTargetPrice?.candidateId !== pkg.g1Identity?.candidateId) {
+      push(errors, `${path}.priceInputs.ownerTargetPrice.candidateId`, "主人目标价必须属于父SKU的同一候选");
     }
     if (Object.hasOwn(model, "calculation")) {
       for (const entry of validateProfitCalculation(model)) push(errors, `${path}.${entry.path}`, entry.message);

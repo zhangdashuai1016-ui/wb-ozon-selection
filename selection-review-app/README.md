@@ -23,10 +23,19 @@ node scripts/prepare-local-runtime.mjs --output /absolute/new/runtime-directory
 
 - `SELECTION_REVIEW_DATA_FILE`：候选、生命周期、作业、决定及回执的当前持久化入口。
 - `SELECTION_REVIEW_C2_UPLOAD_DIR`：当前服务的本地最终素材目录，与其他实例隔离。
+- `SELECTION_REVIEW_PRODUCT_IMAGES_DIR`：`/product-images/`读的商品图片目录，本机默认是代码目录下的`product-images`。中央模式这两个目录都必须写明，放在代码目录外、部署后还在的磁盘上（Render 上挂一块磁盘，比如挂在`/var/data`，就填`/var/data/c2-final-uploads`和`/var/data/product-images`），而且互不包含；没写或写在代码目录里时启动就报错，因为代码目录每次部署都会换掉。
 - `SELECTION_REVIEW_STORE_BINDINGS_JSON`：明确配置内部店铺、平台与完整`storeRef`；不从店名猜卖家ID。
 - `SELECTION_REVIEW_PRODUCTION_BINDINGS_JSON`：可缺省的生产绑定声明。每条锁定完整店铺、绑定ID与配置版本、中文店铺/仓库名称、准确仓库引用和平台仓库ID、凭据别名，以及核验声明的来源与有效期。配置值不是本轮平台回读，前检仍须核对真实连接与权限。此配置不存秘密值。
 - `SELECTION_REVIEW_IDENTITY_PROVIDER=local_owner_password`：启用单机主人登录，限本地回环服务。另须明确指定`SELECTION_REVIEW_OWNER_IDENTITY_FILE`为独立私有目录中的绝对文件路径，不能放进源码、候选/工作流数据或素材目录。未识别的提供器在启动时拒绝，不退回开发身份。
 - 网关和平台证据服务地址须通过当前运行配置显式提供；地址存在不表示身份、授权或服务已经接通。
+
+本机密钥统一经`lib/credential-store.mjs`读取，按操作系统选择后端，条目仍用原来的服务名和账户名（例如`egg-ozon-operations-center`下的`seerfar-open-api`）。换到别的系统时，在那台机器上用同样的名字存一次：
+
+- macOS 钥匙串：沿用现有条目，`security find-generic-password -s <服务名> -a <账户名>`可确认存在（不加`-w`不显示值）。
+- Windows 凭据管理器：普通凭据，目标写成`<服务名>/<账户名>`，例如`cmdkey /generic:egg-ozon-operations-center/seerfar-open-api /user:seerfar-open-api /pass`（不带值时命令行会提示输入）。
+- Linux Secret Service：`secret-tool store --label=<说明> service <服务名> account <账户名>`，值从提示输入。
+
+中央服务不走本机凭据层，改读服务器自己的密钥设置（`lib/server-secret-store.mjs`）：每条密钥一个环境变量，名字是`SELECTION_REVIEW_SECRET__<服务名>__<账户名>`，全部大写、非字母数字换成`_`，例如`SELECTION_REVIEW_SECRET__EGG_OZON_OPERATIONS_CENTER__SEERFAR_OPEN_API`。启动时没填的会在日志里点名（只有名字和用途）。中央模式没设`SELECTION_REVIEW_PORT`时听主机给的`PORT`；AI 网关和 Ozon 证据服务可以是同一私有网络里的邻居（如`http://ai-gateway:10000`），证据服务只能是这样。测试只用`createFakeCredentialStore`里的合成值。
 
 未配置、错店、过期或缺少证据时显示缺口。未知费用、用量、扣款和平台状态不记为0。真实秘密不得写入候选、配置声明、源码或日志。
 

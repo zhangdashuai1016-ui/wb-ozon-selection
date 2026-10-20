@@ -8,6 +8,8 @@ import { spawn } from "node:child_process";
 import { stopApiProcess } from "./helpers/api-process-lifecycle.mjs";
 import { createServer } from "node:http";
 import { isOzonCaptureJob, validateOzonCaptureRequest } from "../extension/1688-capture/capture-request.js";
+import { buildGate1AutopilotGrant } from "../lib/gate1-autopilot.mjs";
+import { blockExecutionForTechnicalFailure, createSoftwareExecutionRuntime, openExceptionCase } from "../lib/software-execution-state.mjs";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number(process.env.SELECTION_REVIEW_TEST_PORT || 43927);
@@ -169,7 +171,7 @@ async function startApi(t, candidates, { ttlMs = 2000, executionTtlMs = 500, dat
       assert.equal(response.status, 200, JSON.stringify(response.body));
       cookie = response.cookie.split(";")[0];
     },
-    claim: (jobId, version = "1.2.7") =>
+    claim: (jobId, version = "1.6.0") =>
       post(`/api/extension/capture-jobs/${jobId}/claim`, { version }, { authenticated: false, headers: { Origin: extensionOrigin } }),
     result: (candidateId, body) =>
       post(`/api/candidates/${candidateId}/sales-capture/result`, body, { authenticated: false, headers: { Origin: extensionOrigin } }),
@@ -218,7 +220,7 @@ test("读一次 Ozon 页面：只有主人能发起，占同一把采集控制�
   assert.equal(queued.body.dispatch, null);
   assert.equal(queued.body.captureJob.status, "queued");
   assert.equal(queued.body.captureJob.attempt, 0);
-  assert.equal(queued.body.captureJob.requiredExtensionVersion, "1.2.7");
+  assert.equal(queued.body.captureJob.requiredExtensionVersion, "1.6.0");
   assert.equal(queued.body.captureJob.expectedProductId, "4403916892");
   assert.equal(queued.body.captureJob.productUrl, "https://www.ozon.ru/product/4403916892/");
   assert.equal(Object.hasOwn(queued.body.captureJob, "token"), false, "页面回执不得带一次性令牌");
@@ -255,7 +257,7 @@ test("读一次 Ozon 页面：只有主人能发起，占同一把采集控制�
   const job = claim.body.captureJob;
   // 插件那侧的判定原样跑一遍：形状不对，真实作业会在插件里被当场丢掉。
   assert.equal(isOzonCaptureJob(job), true);
-  assert.deepEqual(validateOzonCaptureRequest({ payload: job, manifestVersion: "1.2.7" }),
+  assert.deepEqual(validateOzonCaptureRequest({ payload: job, manifestVersion: "1.6.0" }),
     { ok: true, sourceUrl: "https://www.ozon.ru/product/4403916892/" });
   assert.equal(Object.hasOwn(job, "mode"), false);
   assert.equal(Object.hasOwn(job, "sourceUrl"), false);
@@ -324,6 +326,11 @@ test("读一次 Ozon 页面：只有主人能发起，占同一把采集控制�
   assert.equal(snapshots[0].readOnly, true);
   assert.equal(captured.body.candidate.workflowStatus, "codex_processing", "读到了也不推进业务阶段");
   assert.equal(captured.body.candidate.lifecycleV11.platformWrites, 0);
+  // 主人点的只是「读一次」：回传后不顺手叫付费 AI，插件那头也不用等它，执行状态不被 AI 改写。
+  assert.equal(api.terraCalls(), 0, "读页面不得顺手调用付费 AI");
+  assert.equal(captured.body.candidate.aStageAi, undefined);
+  assert.equal((snapshots[0].auxiliaryDrafts ?? []).length, 0);
+  assert.equal(captured.body.candidate.executionRuntime ?? null, null);
 
   // 算利润那一小块现在说「可以用它」，按钮不再被类目挡住。
   const view = await api.get("/api/candidates/OZON-CAPTURE-1/lifecycle/supplier-draft");
@@ -352,7 +359,7 @@ test("没人领取就按期限收口，1688 那一侧的领取判断一个字都
   assert.equal(unknown.body.code, "capture_job_not_current");
   assert.equal(unknown.body.message, "当前服务没有这次明确创建的采集作业");
   const claimShape = await api.post("/api/extension/capture-jobs/SCJ-does-not-exist/claim",
-    { version: "1.2.7", extra: true }, { authenticated: false, headers: { Origin: extensionOrigin } });
+    { version: "1.6.0", extra: true }, { authenticated: false, headers: { Origin: extensionOrigin } });
   assert.equal(claimShape.status, 400);
   assert.equal(claimShape.body.code, "capture_claim_invalid");
 
@@ -378,11 +385,11 @@ test("服务重启时把等不到结果的读页面记录收口，不留下永�
   const waiting = candidate("OZON-RESTART-QUEUED", "4403916892");
   waiting.salesCapture = { captureId: "OPR-lost-queued", jobId: "OPR-lost-queued", status: "waiting_extension",
     jobStatus: "queued", productId: "4403916892", productUrl: "https://www.ozon.ru/product/4403916892/",
-    attempt: 0, requiredExtensionVersion: "1.2.7", token: "must-not-survive-restart", writeOccurred: false };
+    attempt: 0, requiredExtensionVersion: "1.6.0", token: "must-not-survive-restart", writeOccurred: false };
   const capturing = candidate("OZON-RESTART-CLAIMED", "4403916999");
   capturing.salesCapture = { captureId: "OPR-lost-claimed", jobId: "OPR-lost-claimed", status: "capturing",
     jobStatus: "claimed", productId: "4403916999", productUrl: "https://www.ozon.ru/product/4403916999/",
-    attempt: 1, requiredExtensionVersion: "1.2.7", writeOccurred: false };
+    attempt: 1, requiredExtensionVersion: "1.6.0", writeOccurred: false };
   const settled = candidate("OZON-RESTART-DONE", "4403916777");
   settled.salesCapture = { captureId: "OPR-done", status: "verified", technicalStatus: "completed", writeOccurred: false };
   await writeFile(dataFile, JSON.stringify(document([waiting, capturing, settled])));
@@ -409,5 +416,240 @@ test("服务重启时把等不到结果的读页面记录收口，不留下永�
   // 收口之后这件商品可以重新读一次。
   const retry = await api.post(startRoute("OZON-RESTART-QUEUED"), { dataRevision: closedQueued.dataRevision });
   assert.equal(retry.status, 202, JSON.stringify(retry.body));
+  assert.equal(api.stderr.join(""), "");
+});
+
+test("以前 AI 整理失败锁住的商品：服务重启时只解开那条 AI 记录并存档，别的技术失败原样留着，不调用模型", async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "ozon-terra-release-"));
+  const dataFile = path.join(directory, "candidates.json");
+  const at = "2026-10-01T08:00:00.000Z";
+  const base = (id) => createSoftwareExecutionRuntime({ candidateId: id, dataRevision: 2, businessPhase: "A", stepId: "A_TERRA_SALES_ASSIST", at });
+  const failed = candidate("OZON-TERRA-FAILED", "4403916892");
+  failed.dataRevision = 3;
+  failed.executionRuntime = blockExecutionForTechnicalFailure(base(failed.id), {
+    failureId: `technical-failure:${failed.id}:2:a-terra`, kind: "external_dependency", errorCode: "A_TERRA_GATEWAY_UNAVAILABLE",
+    failureLayer: "gateway_status", evidenceRefs: ["sales-snapshot:terra-failed"], sourceRevision: 2, at });
+  failed.aStageAi = { status: "failed", taskType: "sales_comparability_assist", model: "gpt-5.6-terra", jobId: null, attempt: 1,
+    failure: { code: "A_TERRA_GATEWAY_UNAVAILABLE", layer: "gateway_status", safeMessageKey: "technical_failure.external_dependency" },
+    businessStateEffect: "unchanged", stoppedAt: at };
+  const mismatched = candidate("OZON-TERRA-SCHEMA", "4403916999");
+  mismatched.dataRevision = 3;
+  mismatched.executionRuntime = openExceptionCase(base(mismatched.id), {
+    exceptionId: `exception:${mismatched.id}:2:a-terra`, reasonCode: "output_schema_mismatch", failureLayer: "output_schema",
+    evidenceRefs: ["sales-snapshot:terra-schema"], sourceRevision: 2, at });
+  const waiting = candidate("OZON-B-WAITING", "4403916777");
+  waiting.dataRevision = 3;
+  waiting.executionRuntime = blockExecutionForTechnicalFailure(
+    createSoftwareExecutionRuntime({ candidateId: waiting.id, dataRevision: 2, businessPhase: "B", stepId: "B_DETERMINISTIC_PROFIT", at }), {
+      failureId: `b-exact-commission-required:${waiting.id}:3`, kind: "external_dependency", errorCode: "B_EXACT_COMMISSION_REQUIRED",
+      failureLayer: "b_commission_evidence", evidenceRefs: ["commission:synthetic"], sourceRevision: 3, at });
+  await writeFile(dataFile, JSON.stringify(document([failed, mismatched, waiting])));
+
+  const api = await startApi(t, null, { dataFile });
+  const stored = await api.readDocument();
+  const releasedFailure = stored.candidates.find(item => item.id === failed.id);
+  const releasedException = stored.candidates.find(item => item.id === mismatched.id);
+  for (const [released, before] of [[releasedFailure, failed], [releasedException, mismatched]]) {
+    assert.equal(released.executionRuntime.technicalFailure, null);
+    assert.equal(released.executionRuntime.exceptionCase, null);
+    assert.equal(released.executionRuntime.status, "waiting_owner", "解开之后这件商品等主人，不再显示被挡住");
+    assert.equal(released.executionRuntime.history.at(-1).type, "a_terra_assist_block_released");
+    assert.equal(released.dataRevision, 4, "解开只推进一次修订号");
+    assert.equal(released.lastModifiedBy, "system");
+    assert.equal(released.history.at(-1).action, "aTerraAssistBlockReleased");
+    assert.equal(released.workflowStatus, before.workflowStatus, "业务结论不变");
+  }
+  assert.equal(releasedFailure.aStageAi.status, "failed", "AI 那条失败记录还在，页面照样说它没做成");
+  assert.deepEqual(releasedFailure.aStageAi.releasedRuntimeBlock.technicalFailure, failed.executionRuntime.technicalFailure);
+  assert.equal(releasedFailure.aStageAi.releasedRuntimeBlock.exceptionCase, null);
+  assert.deepEqual(releasedException.aStageAi.releasedRuntimeBlock.exceptionCase, mismatched.executionRuntime.exceptionCase);
+  const untouched = stored.candidates.find(item => item.id === waiting.id);
+  assert.deepEqual(untouched.executionRuntime, waiting.executionRuntime, "等精确佣金那种正常的技术停止不能被顺手解开");
+  assert.equal(untouched.dataRevision, 3);
+  assert.equal(api.terraCalls(), 0);
+
+  // 再重启一次什么都不变：只解一次。
+  await api.restart();
+  const again = await api.readDocument();
+  assert.deepEqual(again.candidates.map(item => item.dataRevision), [4, 4, 3]);
+  assert.equal(api.terraCalls(), 0);
+  assert.equal(api.stderr.join(""), "");
+});
+
+// 从拼多多链接录进来的商品：自己没有 Ozon 页面，主人在「做这件」卡上认了一个 Ozon 同款，1688 规格已经采回来。
+function gate1Picked(id) {
+  const picked = candidate(id, "1111111");
+  picked.productUrl = "unknown";
+  picked.workflowStatus = "needs_user_data";
+  delete picked.processing;
+  const decidedAt = new Date(Date.now() - 60000).toISOString();
+  picked.gate1DecisionV1 = { schemaVersion: "gate1-decision-v1", decision: "accept", decidedAt, decidedBy: "synthetic-owner",
+    sourceRevision: 1, roundIndex: 0, ownerSupplyConfirmed: false,
+    picks: { ozon: { id: "4403916892", sourceUrl: "https://www.ozon.ru/product/shkatulka-4403916892/?from=search" }, match: null, supplier: null } };
+  picked.gate1AutopilotGrantV1 = structuredClone(buildGate1AutopilotGrant({ candidateId: picked.id, sourceRevision: 1,
+    decision: picked.gate1DecisionV1, via: "gate1_accept", grantedAt: decidedAt, grantedBy: "synthetic-owner" }));
+  picked.sourceCapture = { captureId: "SCJ-gate1-read", status: "captured_waiting_owner_selection", mode: "a_supplier_capture",
+    jobStatus: "completed", attempt: 1, offerId: "876240928352", sourceUrl: "https://detail.1688.com/offer/876240928352.html",
+    title: "合成音乐盒", observedAt: "2026-10-11T08:00:00.000Z", collectionMethod: "chrome_extension_structured_page_v1",
+    skuChoices: [{ sourceSkuId: "sku-1", propPath: "1627207:sku-1", attributes: { 颜色: "白色" }, priceCny: 20.5,
+      priceSource: "tradeModel.skuMap.price", stock: 30, stockSource: "tradeModel.skuMap.canBookCount", inStock: true,
+      weight: { value: 0.3, unit: "kg" }, weightSource: "detailDescription.freightInfo.skuWeight", imageUrl: null }],
+    selectedSkuIds: [], ownerSupplyConfirmed: false, writeOccurred: false, businessStateEffect: "unchanged" };
+  return picked;
+}
+const cargoFacts = dataRevision => ({ dataRevision, batteryType: "none", batteryEnergyWh: null, generalCargo: true, personalUse: false,
+  irregularShape: false });
+const readsQueued = saved => saved.history.filter(item => item.action === "ozonPageReadJobQueued").length;
+
+test("「做这件」之后：1688 规格采回来，软件读一次主人认的 Ozon 同款；工作台页面递编号，插件领一次，读到了就不再读", async (t) => {
+  const picked = gate1Picked("GATE1-READ-1");
+  const api = await startApi(t, [picked]);
+
+  // 服务一开门软件就看到：规格采回来了，认下的那一页还没读过，于是排一次读页面，只排这一次。
+  let saved = null;
+  for (let attempt = 0; attempt < 100 && saved?.salesCapture?.queuedBy !== "gate1_autopilot"; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    saved = (await api.readDocument()).candidates[0];
+  }
+  assert.equal(saved?.salesCapture?.queuedBy, "gate1_autopilot", JSON.stringify({ stderr: api.stderr.join(""),
+    record: saved?.gate1AutopilotV1, capture: saved?.sourceCapture?.status, grant: saved?.gate1AutopilotGrantV1?.scopeVersion,
+    decision: saved?.gate1DecisionV1?.picks, history: saved?.history?.slice(-3) }));
+  assert.equal(saved.salesCapture.productId, "4403916892");
+  assert.equal(saved.salesCapture.status, "waiting_extension");
+  assert.equal(saved.lastModifiedBy, "software");
+  const queuedLine = saved.history.at(-1);
+  assert.deepEqual([queuedLine.actor, queuedLine.action], ["software", "ozonPageReadJobQueued"]);
+  assert.match(queuedLine.detail, /按「做这件」的许可读一次主人认的那个 Ozon 同款页面（4403916892），只读这一次/u);
+  // 建作业的同一个事务里按许可扣掉了这一次；软件自己的运行记录随后才写。
+  assert.deepEqual(saved.gate1AutopilotV1.publicReads, [{ grantId: picked.gate1AutopilotGrantV1.grantId, productId: "4403916892",
+    captureId: saved.salesCapture.captureId, at: saved.salesCapture.startedAt, sourceRevision: 1 }]);
+  for (let attempt = 0; attempt < 100 && !saved.gate1AutopilotV1?.ranSteps?.length; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    saved = (await api.readDocument()).candidates[0];
+  }
+  assert.deepEqual(saved.gate1AutopilotV1.ranSteps.map(item => item.step), ["a_read_ozon_benchmark"]);
+
+  // 插件只领页面递过去的编号：开着的工作台页面从「找货中」那里拿到这一个，递过去，回执记下来。
+  await api.login();
+  const queue = await api.get("/api/intake/queue?bridge=1");
+  assert.equal(queue.status, 200, JSON.stringify(queue.body));
+  assert.deepEqual(queue.body.pendingStart, { candidateId: "GATE1-READ-1", captureId: saved.salesCapture.captureId, kind: "ozon_page_read" });
+  const ack = await api.post("/api/intake/start-ack", { captureId: saved.salesCapture.captureId, kind: "ozon_page_read", accepted: true, code: "" });
+  assert.equal(ack.status, 200, JSON.stringify(ack.body));
+
+  const claim = await api.claim(saved.salesCapture.captureId);
+  assert.equal(claim.status, 200, JSON.stringify(claim.body));
+  const job = claim.body.captureJob;
+  assert.deepEqual(validateOzonCaptureRequest({ payload: job, manifestVersion: "1.6.0" }),
+    { ok: true, sourceUrl: "https://www.ozon.ru/product/4403916892/" });
+  assert.equal((await api.get("/api/intake/queue?bridge=1")).body.pendingStart, null, "领走了就不再递");
+  const captured = await api.result("GATE1-READ-1", { captureId: job.captureId, token: job.token, dataRevision: job.dataRevision,
+    status: "captured", evidence: evidence("4403916892") });
+  assert.equal(captured.status, 200, JSON.stringify(captured.body));
+  const [snapshot] = captured.body.candidate.salesSnapshotsV11;
+  assert.deepEqual([snapshot.collectorMode, snapshot.productUrl, snapshot.comparable],
+    ["real_page_read_only", "https://www.ozon.ru/product/4403916892/", true]);
+
+  // 读到了：类目可以用，对标就是认下的那一件；软件不再读第二次。
+  await new Promise(resolve => setTimeout(resolve, 300));
+  const after = (await api.readDocument()).candidates[0];
+  assert.equal(after.salesCapture.status, "verified");
+  assert.deepEqual(after.gate1AutopilotV1.ranSteps.map(item => item.step), ["a_read_ozon_benchmark"]);
+  assert.equal(after.gate1AutopilotV1.publicReads.length, 1);
+  assert.equal(readsQueued(after), 1);
+  assert.equal((await api.get("/api/health")).body.captureControl.status, "idle");
+  const view = await api.get("/api/candidates/GATE1-READ-1/lifecycle/supplier-draft");
+  assert.equal(view.status, 200, JSON.stringify(view.body));
+  assert.equal(view.body.ozonCategoryReadStepV1.ready, true);
+  assert.equal(view.body.ozonCategoryReadStepV1.target.from, "gate1_pick");
+  assert.equal(view.body.candidate.realAConfirmationCard.salesReview.productUrl, "https://www.ozon.ru/product/4403916892/");
+  const persisted = await api.readDocument();
+  assert.equal(persisted.dispatches.length, 0);
+  assert.equal(api.terraCalls(), 0);
+  assert.equal(api.stderr.join(""), "");
+});
+
+test("软件读过的那一次在建作业时就扣掉：服务在记下运行记录之前停了，重启收口之后不再读，主人改资料之后也不读", async (t) => {
+  // 上一次服务建好读页面作业、扣下了那一次，还没来得及记运行记录就停了：作业还挂着，运行记录里没有这一步。
+  const picked = gate1Picked("GATE1-READ-LOST");
+  picked.dataRevision = 2;
+  picked.salesCapture = { captureId: "OPR-lost-autopilot", jobId: "OPR-lost-autopilot", status: "waiting_extension", jobStatus: "queued",
+    productId: "4403916892", productUrl: "https://www.ozon.ru/product/4403916892/", attempt: 0, requiredExtensionVersion: "1.6.0",
+    startedAt: picked.gate1AutopilotGrantV1.grantedAt, businessStateEffect: "unchanged", retryAttempted: false, writeOccurred: false,
+    queuedBy: "gate1_autopilot" };
+  picked.gate1AutopilotV1 = { schemaVersion: "gate1-autopilot-v1", lastRunAt: null, ranSteps: [], failure: null,
+    publicReads: [{ grantId: picked.gate1AutopilotGrantV1.grantId, productId: "4403916892", captureId: "OPR-lost-autopilot",
+      at: picked.gate1AutopilotGrantV1.grantedAt, sourceRevision: 1 }] };
+  const directory = await mkdtemp(path.join(tmpdir(), "gate1-read-lost-"));
+  const dataFile = path.join(directory, "candidates.json");
+  await writeFile(dataFile, JSON.stringify(document([picked])));
+  const api = await startApi(t, null, { dataFile });
+  await api.login();
+
+  // 重启把挂着的作业收口成「没读成」（整份重写，不带 queuedBy）；开门后软件看一眼：这份许可的那一次已经用掉，停下等主人。
+  await new Promise(resolve => setTimeout(resolve, 300));
+  let saved = (await api.readDocument()).candidates[0];
+  assert.deepEqual([saved.salesCapture.captureId, saved.salesCapture.status, saved.salesCapture.failureCode],
+    ["OPR-lost-autopilot", "failed", "capture_job_lost"]);
+  assert.equal(readsQueued(saved), 0);
+  const state = await api.get("/api/state");
+  const view = state.body.candidates.find(item => item.id === "GATE1-READ-LOST").gate1AutopilotView;
+  assert.deepEqual([view.status, view.next, view.stops[0].code], ["waiting_owner", null, "a_ozon_read_failed"]);
+  assert.match(view.line, /它不会自己再读/u);
+
+  // 主人确认运输属性（修订号加一，写完软件会再看一眼）：还是不读。
+  const declared = await api.post(`/api/candidates/GATE1-READ-LOST/lifecycle/cargo-facts`, cargoFacts(saved.dataRevision));
+  assert.equal(declared.status, 200, JSON.stringify(declared.body));
+  await new Promise(resolve => setTimeout(resolve, 300));
+  saved = (await api.readDocument()).candidates[0];
+  assert.equal(saved.salesCapture.captureId, "OPR-lost-autopilot");
+  assert.equal(readsQueued(saved), 0);
+  assert.equal(saved.gate1AutopilotV1.publicReads.length, 1);
+  assert.equal((await api.get("/api/health")).body.captureControl.status, "idle");
+  assert.equal(api.terraCalls(), 0);
+  assert.equal(api.stderr.join(""), "");
+});
+
+test("读页面这一步出错停下：主人之后改了资料也不读；点「让软件再试一次」才读，而且只读一次", async (t) => {
+  const picked = gate1Picked("GATE1-READ-FAILED");
+  // 上一次软件要读页面时，这件商品正有别的任务在跑，没建成作业：出错记下来，那一次也没扣。
+  picked.gate1AutopilotV1 = { schemaVersion: "gate1-autopilot-v1", lastRunAt: picked.gate1AutopilotGrantV1.grantedAt, ranSteps: [],
+    failure: { step: "a_read_ozon_benchmark", code: "CANDIDATE_BUSY", at: picked.gate1AutopilotGrantV1.grantedAt, sourceRevision: 1,
+      grantId: picked.gate1AutopilotGrantV1.grantId } };
+  const api = await startApi(t, [picked]);
+  await api.login();
+  await new Promise(resolve => setTimeout(resolve, 300));
+  const failedView = (await api.get("/api/state")).body.candidates.find(item => item.id === "GATE1-READ-FAILED").gate1AutopilotView;
+  assert.deepEqual([failedView.status, failedView.failure.code], ["failed", "CANDIDATE_BUSY"]);
+  assert.match(failedView.line, /要它再做一次就点「让软件再试一次」/u);
+
+  // 主人确认运输属性：修订号变了，写完软件看一眼，出错照样挡着，不读页面。
+  const declared = await api.post(`/api/candidates/GATE1-READ-FAILED/lifecycle/cargo-facts`, cargoFacts(1));
+  assert.equal(declared.status, 200, JSON.stringify(declared.body));
+  await new Promise(resolve => setTimeout(resolve, 300));
+  let saved = (await api.readDocument()).candidates[0];
+  assert.equal(saved.dataRevision, 2);
+  assert.equal(saved.salesCapture, undefined);
+  assert.equal(readsQueued(saved), 0);
+  assert.deepEqual(saved.gate1AutopilotV1, picked.gate1AutopilotV1);
+
+  // 主人点「让软件再试一次」：清掉出错，读一次，扣下这一次。
+  const retried = await api.post("/api/candidates/GATE1-READ-FAILED/gate1/autopilot/continue", { dataRevision: 2 });
+  assert.equal(retried.status, 200, JSON.stringify(retried.body));
+  assert.deepEqual(retried.body.autopilot.ranSteps, ["a_read_ozon_benchmark"]);
+  saved = (await api.readDocument()).candidates[0];
+  assert.equal(saved.salesCapture.queuedBy, "gate1_autopilot");
+  assert.equal(readsQueued(saved), 1);
+  assert.deepEqual(saved.gate1AutopilotV1.publicReads.map(item => item.captureId), [saved.salesCapture.captureId]);
+  assert.equal(saved.gate1AutopilotV1.failure, null);
+  assert.ok(saved.history.some(item => item.action === "gate1AutopilotContinued" && /再试一次/u.test(item.detail)));
+  // 再点一次：那一次已经在读，没有软件能接着做的步骤，不会排第二次。
+  const again = await api.post("/api/candidates/GATE1-READ-FAILED/gate1/autopilot/continue", { dataRevision: saved.dataRevision });
+  assert.equal(again.status, 409, JSON.stringify(again.body));
+  assert.equal(again.body.code, "gate1_autopilot_nothing_to_do");
+  saved = (await api.readDocument()).candidates[0];
+  assert.equal(readsQueued(saved), 1);
+  assert.equal(saved.gate1AutopilotV1.publicReads.length, 1);
+  assert.equal(api.terraCalls(), 0);
   assert.equal(api.stderr.join(""), "");
 });

@@ -9,5 +9,6 @@ if (!Number.isSafeInteger(apiPort) || apiPort <= 0) throw new Error('SIBLING_BAT
 
 const faultProxy=s1WorkspaceFaultProxy();
 export default defineConfig({ plugins: [react(),...(faultProxy?[faultProxy]:[])],
-  ...(faultProxy?{cacheDir:path.join(tmpdir(),'s1-workspace-vite-cache')}:{}),server: { host: '127.0.0.1',
+  // Keep optimized vendor modules under node_modules so React's source transform excludes them.
+  ...(faultProxy?{cacheDir:path.join(tmpdir(),'s1-workspace-vite-cache','node_modules','.vite')}:{}),server: { host: '127.0.0.1',
   proxy: { '/api': `http://127.0.0.1:${apiPort}` } } });
