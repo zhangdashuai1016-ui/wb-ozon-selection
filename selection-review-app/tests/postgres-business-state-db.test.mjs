@@ -62,17 +62,25 @@ async function isolatedSchema(t) {
   const storeLosingCommitAnswer = onCommit => {
     const pool = new pg.Pool({ connectionString: DATABASE_URL, max: 2, options: `-c search_path=${schema}` });
     pools.push(pool);
+    const warnings = [];
+    pool.on("connect", client => client.on("notice", notice => {
+      if (notice.severity === "WARNING") warnings.push({ code: notice.code, message: notice.message });
+    }));
+    t.after(() => assert.deepEqual(warnings, [], "lost-connection recovery must not issue invalid transaction commands"));
     let lost = false;
     return createPostgresBusinessStateStore({ pool: { query: (...args) => pool.query(...args), async connect() {
       const client = await pool.connect();
+      let connectionError = null;
       return {
         async query(sql, params) {
+          if (connectionError) throw connectionError;
           if (sql !== "COMMIT" || lost) return client.query(sql, params);
           lost = true;
           await onCommit(() => client.query("COMMIT"));
-          throw new Error("Connection terminated unexpectedly");
+          connectionError = new Error("Connection terminated unexpectedly");
+          throw connectionError;
         },
-        release: error => client.release(error)
+        release: error => client.release(connectionError ?? error)
       };
     } } });
   };
@@ -307,7 +315,7 @@ test("a COMMIT that never reached the database is reported as failed and leaves 
   const repository = createPostgresBusinessStateRepository({ store: database.storeLosingCommitAnswer(async () => {}) });
   await assert.rejects(repository.transact(bump(7)), /Connection terminated unexpectedly/);
   assert.deepEqual(await database.rows(), before);
-  // The connection went back to the pool clean: the next write goes through.
+  // The pool replaces the lost connection: the next write goes through.
   assert.equal(await repository.transactCandidates(["C-1"], bump(8)), 8);
   assert.equal((await database.storedDocument()).candidates[0].dataRevision, 8);
 });

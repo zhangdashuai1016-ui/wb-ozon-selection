@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-10-19T16:08:32.313Z",
+  "frozenAt": "2026-10-20T01:27:48.598Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 1079,
-      "sha256": "73dad5e3542e6d564630ea3d1ae52facb3f1a7b8e2be3b4a9819f0dc963df383",
+      "sha256": "66f67890035f5e0674cad17f0d09e21705739941c05f8147e9b46ac12c1881ce",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -2348,7 +2348,7 @@
       },
       {
         "path": "tests/aliyun-oss-runtime-deployment-boundary.test.mjs",
-        "sha256": "3c6b98b4f329242f073e7152474feabb64e3e1774461f86d9b09e0a4018cdcbe"
+        "sha256": "adbca335467dfd27639c0f7f10bbcc5ef59424eec421cc0a43ef978071fd248a"
       },
       {
         "path": "tests/aliyun-oss-runtime-provider.test.mjs",
@@ -3868,7 +3868,7 @@
       },
       {
         "path": "tests/postgres-business-state-db.test.mjs",
-        "sha256": "ac4a3b7547d6280f7664d43beeeddd51e212d5ea0a05fc66818db99add46d26f"
+        "sha256": "c321c1b7b4a5d230d1d959b782bb1f45284eb83d5c1662758ee2ec328dfe2ec4"
       },
       {
         "path": "tests/postgres-business-state-store.test.mjs",

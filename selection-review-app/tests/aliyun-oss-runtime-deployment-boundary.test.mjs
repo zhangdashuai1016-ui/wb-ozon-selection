@@ -21,7 +21,11 @@ async function syntheticSource(t) {
   for (const directory of [...RUNTIME_PACKAGE_DIRECTORIES, "scripts", "node_modules/.store", "data", "config"]) {
     await fs.mkdir(path.join(sourceDirectory, directory), { recursive: true });
   }
-  for (const file of RUNTIME_PACKAGE_FILES) await fs.writeFile(path.join(sourceDirectory, file), "// synthetic code only\n");
+  for (const file of RUNTIME_PACKAGE_FILES) {
+    const target = path.join(sourceDirectory, file);
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(target, file.startsWith("data/") ? `${JSON.stringify({ fixtureFile: file })}\n` : "// synthetic code only\n");
+  }
   await fs.writeFile(path.join(sourceDirectory, "package.json"), JSON.stringify(manifest));
   await fs.writeFile(path.join(sourceDirectory, "dist/index.html"), "<!doctype html><title>Synthetic build</title>");
   await fs.writeFile(path.join(sourceDirectory, "lib/module.mjs"), "export const fixture = true;\n");
@@ -49,7 +53,18 @@ async function assertNoOutputOrStaging(fixture) {
 test("prepare produces only the complete code package and leaves persistent content unchanged", async t => {
   const fixture = await syntheticSource(t);
   const receipt = await prepareRuntimePackage(fixture);
-  assert.deepEqual((await fs.readdir(fixture.outputDirectory)).sort(), ["dist", "docs", "lib", "node_modules", "package.json", "runtime", "runtime-package.json", "schema", "scripts", "server.mjs", "启动今日选品评审台.command"].sort());
+  assert.deepEqual((await fs.readdir(fixture.outputDirectory)).sort(), ["data", "dist", "docs", "lib", "node_modules", "package.json", "runtime", "runtime-package.json", "schema", "scripts", "server.mjs", "启动今日选品评审台.command"].sort());
+  const staticFiles = ["data/seerfar-selection/store-profiles.json", "data/seerfar-selection/season-calendar.json",
+    "data/platform-profiles/ozon.json", "data/platform-profiles/wb.json", "data/platform-mappings/wb-734.json"];
+  assert.deepEqual(receipt.staticConfigurationFiles, staticFiles);
+  assert.deepEqual((await fs.readdir(path.join(fixture.outputDirectory, "data"))).sort(), ["platform-mappings", "platform-profiles", "seerfar-selection"]);
+  for (const [directory, names] of [["seerfar-selection", ["season-calendar.json", "store-profiles.json"]],
+    ["platform-profiles", ["ozon.json", "wb.json"]], ["platform-mappings", ["wb-734.json"]]]) {
+    assert.deepEqual((await fs.readdir(path.join(fixture.outputDirectory, "data", directory))).sort(), names);
+  }
+  for (const file of staticFiles) assert.deepEqual(JSON.parse(await fs.readFile(path.join(fixture.outputDirectory, file), "utf8")), { fixtureFile: file });
+  await assert.rejects(fs.lstat(path.join(fixture.outputDirectory, "data/candidates.json")), { code: "ENOENT" });
+  await assert.rejects(fs.lstat(path.join(fixture.outputDirectory, "config")), { code: "ENOENT" });
   assert.deepEqual(receipt.dependencyVersions, manifest.dependencies);
   assert.deepEqual(await fs.readlink(path.join(fixture.outputDirectory, "node_modules/ali-oss")), ".store/ali-oss");
   assert.equal(await fs.readFile(path.join(fixture.sourceDirectory, "data/candidates.json"), "utf8"), "synthetic persistent candidate sentinel");

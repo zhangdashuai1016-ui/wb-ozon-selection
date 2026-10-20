@@ -144,8 +144,9 @@ jobs:
       postgres:
         image: postgres:16-bookworm
         env:
-          # Disposable database for this job only; it has no data and no password.
-          POSTGRES_HOST_AUTH_METHOD: trust
+          # Public test-only credential for this disposable database; never used by the application.
+          POSTGRES_PASSWORD: ci-test-only-postgres
+          POSTGRES_INITDB_ARGS: "--auth-local=trust --auth-host=scram-sha-256"
         ports:
           - 5432:5432
         options: >-
@@ -186,5 +187,5 @@ jobs:
       - name: Run Postgres storage tests
         env:
           NODE_OPTIONS: "--throw-deprecation"
-          SELECTION_REVIEW_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/postgres
+          SELECTION_REVIEW_TEST_DATABASE_URL: postgres://postgres:ci-test-only-postgres@127.0.0.1:5432/postgres
         run: pnpm test:ci:database
