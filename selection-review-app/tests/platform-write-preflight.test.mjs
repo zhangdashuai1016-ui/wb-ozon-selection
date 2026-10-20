@@ -8,6 +8,7 @@ import {
   PLATFORM_WRITE_PREFLIGHT_VERSION,
   assertCurrentProductionExecutionBinding,
   runPlatformWritePreflight,
+  platformWritePreflightExecutionGaps,
   assertCurrentPlatformWritePreflight,
   validatePlatformWritePreflight
 } from "../lib/platform-write-preflight.mjs";
@@ -84,6 +85,47 @@ function successfulInspection(overrides = {}) {
     ...overrides
   };
 }
+
+test("execution preflight preserves explanatory risks while enforcing normalized permission, identity, currency and field conclusions", async () => {
+  const plan = productionPlanFixture(), requiredWriteFields = projectProductionPlanInputs(plan).allowedWriteFields;
+  const explanations = [{ code: "method_contract_not_product_result", message: "A method contract is not a product result." }];
+  const inspection = successfulInspection({ platformWritableFields: [...requiredWriteFields], risks: explanations });
+  const preflight = await runPlatformWritePreflight({ productionPlan: plan, checkedAt: "2026-08-22T07:10:00.000Z",
+    inspectPlatform: async () => structuredClone(inspection) });
+  const before = structuredClone({ plan, preflight, requiredWriteFields });
+  const evaluate = value => platformWritePreflightExecutionGaps({
+    productionPlan: plan, platformWritePreflight: value, requiredWriteFields });
+  assert.deepEqual(evaluate(preflight), []);
+  assert.deepEqual(preflight.risks, explanations);
+  const cases = [
+    ["permission_denied", value => { value.permissionStatus = "denied"; }, "seller_api_not_ready"],
+    ["permission_unknown", value => { value.permissionStatus = "unknown"; }, "seller_api_not_ready"],
+    ["api_unavailable", value => { value.connections.api.status = "unavailable"; }, "seller_api_not_ready"],
+    ["store_mismatch", value => { value.storeIdentityStatus = "mismatched"; }, "store_identity_not_ready"],
+    ["anchor_missing", value => { value.storeIdentityStatus = "unverified"; value.storeIdentityVia = "none";
+      value.observedStoreRef = null; }, "store_identity_not_ready"],
+    ["currency_mismatch", value => { value.priceFieldCurrency = "RUB"; }, "price_currency_not_ready"],
+    ["missing_stock", value => { value.platformWritableFields = value.platformWritableFields.filter(field => field !== "stock"); },
+      "write_fields_not_ready"],
+    ["image_denied", value => { value.imagePermissionStatus = "denied"; }, "image_permission_not_ready"],
+    ["image_unknown", value => { value.imagePermissionStatus = "unknown"; }, "image_permission_not_ready"]
+  ];
+  for (const [name, mutate, code] of cases) {
+    const current = structuredClone(inspection); mutate(current);
+    const result = await runPlatformWritePreflight({ productionPlan: plan, checkedAt: preflight.checkedAt,
+      inspectPlatform: async () => current });
+    assert.ok(evaluate(result).some(gap => gap.code === code), name);
+    if (name === "api_unavailable") assert.ok(evaluate(result).some(gap => gap.code === "technical_preflight_not_ready"));
+    assert.ok(result.risks.some(risk => risk.code === explanations[0].code), name);
+  }
+  const incomplete = structuredClone(preflight); incomplete.technicalStatus = "system_error";
+  assert.throws(() => evaluate(incomplete), /technicalStatus/);
+  const stalePlan = createProductionPlan(authorizedProductionFixture({ merchantSku: "OTHER-SYNTHETIC-SKU" }));
+  const stale = await runPlatformWritePreflight({ productionPlan: stalePlan, checkedAt: preflight.checkedAt,
+    inspectPlatform: async () => structuredClone(inspection) });
+  assert.ok(evaluate(stale).some(gap => gap.code === "preflight_stale"));
+  assert.deepEqual({ plan, preflight, requiredWriteFields }, before);
+});
 
 test("13B-1 generates a complete read-only PlatformWritePreflight from ProductionPlan", async () => {
   const plan = productionPlanFixture();

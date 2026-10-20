@@ -1,96 +1,93 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createMemoryBusinessStateRepository, createJsonBusinessStateRepository, initialBusinessStateDocument } from '../lib/business-state-repository.mjs';
-import { createLocalDevelopmentWorkerRegistry } from '../lib/worker-registry.mjs';
-import { createDBatchAssetTransport, DBatchAssetTransportError, readDBatchAssetTransportProof,
+import { createMemoryBusinessStateRepository, createJsonBusinessStateRepository } from '../lib/business-state-repository.mjs';
+import { DBatchAssetTransportError, readDBatchAssetTransportProof,
   reconcileExpiredDBatchAssetTransport } from '../lib/d-batch-asset-transport.mjs';
-import { fingerprintCanonicalRecord } from '../lib/production-contract-primitives.mjs';
-import { authorizedProductionFixture, localFinalAssets, finalAssets } from './helpers/c2-software-fixture.mjs';
-import { currentProductionBindingFixture, capabilities } from './helpers/d-software-fixture.mjs';
-import { ozonDEPreflightEvidenceFixture } from './fixtures/ozon-de-preflight-evidence-fixture.mjs';
+import { authorizedProductionFixture } from './helpers/c2-software-fixture.mjs';
+import { currentProductionBindingFixture } from './helpers/d-software-fixture.mjs';
 import { projectDBatchExecutionView } from '../lib/d-batch-execution-view.mjs';
+import { accountReadConcurrencyFixture, waitForAccountReadBoundary } from './helpers/account-read-concurrency-fixture.mjs';
+import { BATCH_ASSET_AT as NOW, createDBatchAssetTransportFixture as fixture,
+  syntheticBatchAssetReceipt as assetReceipt } from './helpers/d-batch-asset-transport-fixture.mjs';
 
-const NOW = '2026-08-22T12:00:00.000Z';
-const hash = body => createHash('sha256').update(body).digest('hex');
-async function fixture({ count = 2, local = true, legacy = false } = {}) {
-  const document = initialBusinessStateDocument({ now: NOW }), files = new Map(), events = [], uploads = [];
-  for (let i = 0; i < count; i++) {
-    const assets = (local ? localFinalAssets() : finalAssets()).map((asset, index) => {
-      const body = Buffer.from(`synthetic batch ${i} image ${index}`);
-      const sha256 = hash(body);
-      const value = local ? { ...asset, sha256, byteSize: body.length, assetVersion: `sha256:${sha256}` } : asset;
-      files.set(`candidate:batch-assets:${i}:${value.assetId}`, { body, contentType: 'image/png' });
-      return value;
-    });
-    const source = authorizedProductionFixture({ candidateId: `candidate:batch-assets:${i}`,
-      supplierSkuId: `SKU-${i}`, merchantSku: `MERCHANT-${i}`, assets });
-    document.candidates.push({ id: source.candidateId, dataRevision: source.candidateRevision,
-      targetPlatform: 'ozon', targetStore: 'dandanshu', storeRef: clone(source.productionAuthorization.lockedScope.storeRef),
-      lifecycleV11: { skuPackage: clone(source.skuPackage), ...(local ? { c2UploadDraft: {
-        schemaVersion: 'c2-upload-draft-v1', candidateId: source.candidateId, skuPackageId: source.skuPackage.skuPackageId,
-        schemaEvidenceRef: source.productionAuthorization.lockedScope.schemaEvidenceRef,
-        uploads: source.productionAuthorization.lockedScope.finalUploads.map(asset => ({ ...clone(asset), status: 'ready' })),
-        selection: source.productionAuthorization.lockedScope.finalUploads.map(asset => ({ assetId: asset.assetId, order: asset.order }))
-      } } : {}) } });
-  }
-  const first = document.candidates[0].lifecycleV11.skuPackage.productionAuthorization;
-  const batch = { schemaVersion: `d-batch-production-authorization-v${legacy ? 1 : 2}`, batchId: 'd-batch:assets-test',
-    ownerActorId: first.authorizedByActorId, confirmedAt: first.authorizedAt, storeRef: clone(first.lockedScope.storeRef),
-    excludedOfferIds: ['EXCLUDED-KHAKI'], postImportScope: { schemaVersion: 'd-batch-post-import-scope-v1',
-      inventoryAction: 'write_authorized_stock', eReadbackOfferIds: document.candidates.map((_, i) => `MERCHANT-${i}`) },
-    status: 'authorized', externalRequestState: 'not_sent', members: document.candidates.map(candidate => {
-      const sku = candidate.lifecycleV11.skuPackage, authorization = sku.productionAuthorization;
-      return { candidateId: candidate.id, skuPackageId: sku.skuPackageId, offerId: authorization.lockedScope.merchantSku,
-        resultRevision: candidate.dataRevision, authorizationId: authorization.authorizationId,
-        authorizationFingerprint: fingerprintCanonicalRecord(authorization) };
-    }) };
-  document.runtime.dProductionBatches = [batch];
-  const repository = createMemoryBusinessStateRepository(document);
-  let currentTime = NOW;
-  const workerRegistry = createLocalDevelopmentWorkerRegistry({ clock: () => currentTime });
-  workerRegistry.register({ workerId: 'worker:assets-test', version: 'v1', capabilities: ['ozon-production-execution'], observedAt: NOW });
-  const configuration = {
-    repository, runtimeMode: 'local_development', workerRegistry, serverClock: () => currentTime, leaseDurationMs: 60_000,
-    loadCurrentProductionBinding: ({ candidate }) => currentProductionBindingFixture(candidate.lifecycleV11.skuPackage.productionAuthorization),
-    resolveLocalAsset: async (asset, { candidate }) => {
-      events.push(`local:${candidate.id}:${asset.assetId}`);
-      const file = files.get(`${candidate.id}:${asset.assetId}`);
-      assert.ok(file);
-      return file;
-    },
-    getBatchMemberEvidence: async ({ candidate }) => {
-      events.push(`evidence:${candidate.id}`);
-      const authorization = candidate.lifecycleV11.skuPackage.productionAuthorization;
-      const binding = currentProductionBindingFixture(authorization);
-      return { checkedAt: currentTime, inspection: clone(ozonDEPreflightEvidenceFixture().record.inspection),
-        capabilities: { ...capabilities('dandanshu', authorization.lockedScope.finalUploads, binding),
-          warehouseId: binding.warehouseId, status: 'not_ready', gaps: [{ code: 'asset_transport_not_verified' }] } };
-    },
-    upload: async ({ candidateId, finalUploads, resolveLocalAsset, beforePublicWrite }) => {
-      uploads.push(candidateId); events.push(`upload:${candidateId}`);
-      for (const asset of finalUploads) {
-        assert.ok(Buffer.isBuffer((await resolveLocalAsset(asset)).body));
-        await beforePublicWrite({ assetId: asset.assetId, order: asset.order, sha256: asset.sha256 });
-      }
-      return assetReceipt(finalUploads);
-    }
-  };
-  const input = { batchId: batch.batchId, workerId: 'worker:assets-test' };
-  return { repository, batch, files, events, uploads, input, configuration,
-    runtime: createDBatchAssetTransport(configuration),
-    restart: overrides => createDBatchAssetTransport({ ...configuration, ...overrides }),
-    advance: value => { currentTime = value; } };
-}
 const clone = value => structuredClone(value);
-const assetReceipt = assets => ({ status: 'verified', mode: 'preapproved_stable_https',
-  protocolVersion: 'aliyun-oss-final-assets-v1', approvedHosts: ['assets.example.invalid'],
-  resolvedAssets: assets.map(asset => ({ assetId: asset.assetId, order: asset.order, sha256: asset.sha256,
-    platformAcceptedUrl: `https://assets.example.invalid/${encodeURIComponent(asset.assetId)}.png`,
-    stable: true, authorizationStatus: 'approved', evidenceRef: `oss:${asset.assetId}` })), evidenceRef: 'oss:synthetic:batch-assets' });
+
+async function accountForAssetBatch(f, options = {}) {
+  const document = await f.repository.readSnapshot(), candidate = document.candidates[1] ?? document.candidates[0];
+  return accountReadConcurrencyFixture({ repository:f.repository, clock:f.configuration.serverClock,
+    candidateId:candidate.id,productionBinding:currentProductionBindingFixture(candidate.lifecycleV11.skuPackage.productionAuthorization),...options });
+}
+
+for (const status of ['queued','unknown_outcome']) test(`batch asset admission rejects a real ${status} account read without any member intent`,async () => {
+  const f=await fixture(),account=await accountForAssetBatch(f,{responseMode:status==='unknown_outcome'?'unknown':'observed'});
+  const read=status==='queued'?await account.enqueue():await account.run();assert.equal(read.status,status);
+  const before=await f.repository.readSnapshot(),outcome=await f.runtime.run(f.input);
+  assert.equal(outcome.status,'blocked');assert.equal(outcome.reasonCode,'D_BATCH_ASSET_ACCOUNT_READ_BLOCKED');
+  assert.deepEqual(await f.repository.readSnapshot(),before);assert.deepEqual(f.uploads,[]);
+});
+
+test('batch asset intent wins the transaction and refuses an expired account refresh before the first public write',async () => {
+  const f=await fixture(),account=await accountForAssetBatch(f),expiry=new Date(Date.parse(NOW)+1000).toISOString();
+  const completed=await account.run({expiresAt:expiry});await account.publish(completed);
+  const entered=Promise.withResolvers(),release=Promise.withResolvers();
+  const runtime=f.restart({upload:async input=>{entered.resolve();await release.promise;return f.configuration.upload(input);}});
+  const running=runtime.run(f.input);await waitForAccountReadBoundary(entered.promise,running,release.resolve);
+  try{
+    f.advance(expiry);
+    const before=await f.repository.readSnapshot();assert.equal(before.runtime.dBatchAssetTransports[0].status,'in_flight');
+    assert.deepEqual(f.uploads,[]);
+    await assert.rejects(()=>account.enqueue({refreshOfJobId:completed.job.jobId,idempotencyKey:'account:refresh:after-asset-intent'}),
+      {code:'OZON_ACCOUNT_READ_REFRESH_PRODUCTION_BUSY'});
+    assert.deepEqual(await f.repository.readSnapshot(),before);assert.equal(account.requests.length,3);
+  }finally{release.resolve();await running;}
+});
+
+for(const expiresFirst of ['grant','roles'])test(`batch asset preparation crossing ${expiresFirst} expiry stops before any member intent and preserves refresh`,async () => {
+  const f=await fixture(),account=await accountForAssetBatch(f),expiry=new Date(Date.parse(NOW)+1000).toISOString();
+  if(expiresFirst==='roles')account.responses['/v1/roles'].expires_at=expiry;
+  const completed=await account.run(expiresFirst==='grant'?{expiresAt:expiry}:{});await account.publish(completed);
+  const before=await f.repository.readSnapshot(),entered=Promise.withResolvers(),release=Promise.withResolvers();let paused=false;
+  const runtime=f.restart({getBatchMemberEvidence:async input=>{
+    const evidence=await f.configuration.getBatchMemberEvidence(input);
+    if(!paused){paused=true;entered.resolve();await release.promise;}
+    return evidence;
+  }});
+  const running=runtime.run(f.input);await waitForAccountReadBoundary(entered.promise,running,release.resolve);
+  f.advance(expiry);release.resolve();
+  const result=await running;assert.equal(result.status,'blocked');assert.equal(result.reasonCode,'D_BATCH_ASSET_ACCOUNT_EVIDENCE_NOT_CURRENT');
+  assert.deepEqual(await f.repository.readSnapshot(),before);assert.deepEqual(f.uploads,[]);
+  const refreshed=await account.enqueue({refreshOfJobId:completed.job.jobId,idempotencyKey:`account:refresh:expired-${expiresFirst}-during-assets`});
+  assert.equal(refreshed.status,'queued');assert.equal(account.requests.length,3);
+  const after=await f.repository.readSnapshot();assert.deepEqual(after.candidates,before.candidates);
+  assert.deepEqual(after.runtime.dProductionBatches,before.runtime.dProductionBatches);
+  assert.deepEqual(after.runtime.ozonAccountReadReceipts,before.runtime.ozonAccountReadReceipts);
+  assert.deepEqual(after.runtime.ozonDEPreflightEvidence,before.runtime.ozonDEPreflightEvidence);
+  assert.equal(after.runtime.dBatchAssetTransports,undefined);
+});
+
+test('an account refresh that fails during asset evidence preparation still invalidates the prepared source before every intent',async () => {
+  const f=await fixture(),account=await accountForAssetBatch(f),expiry=new Date(Date.parse(NOW)+1000).toISOString();
+  const completed=await account.run({expiresAt:expiry});await account.publish(completed);
+  const entered=Promise.withResolvers(),release=Promise.withResolvers();let paused=false;
+  const runtime=f.restart({getBatchMemberEvidence:async input=>{
+    if(!paused){paused=true;entered.resolve();await release.promise;}
+    return f.configuration.getBatchMemberEvidence(input);
+  }});
+  const running=runtime.run(f.input);await waitForAccountReadBoundary(entered.promise,running,release.resolve);
+  let before;
+  try{
+    f.advance(expiry);
+    const retry=await accountForAssetBatch(f,{responseMode:'unavailable'});
+    const failed=await retry.run({refreshOfJobId:completed.job.jobId,idempotencyKey:'account:refresh:during-asset-evidence'});
+    assert.equal(failed.status,'failed');assert.equal(retry.requests.length,1);
+    before=await f.repository.readSnapshot();assert.equal(before.runtime.dBatchAssetTransports,undefined);
+  }finally{release.resolve();}
+  const result=await running;assert.equal(result.status,'blocked');assert.equal(result.reasonCode,'D_BATCH_ASSET_ACCOUNT_READ_CHANGED');
+  assert.deepEqual(await f.repository.readSnapshot(),before);assert.deepEqual(f.uploads,[]);
+});
 
 async function interruptedFixture(writeCount) {
   const source = await fixture({ count: 1 });

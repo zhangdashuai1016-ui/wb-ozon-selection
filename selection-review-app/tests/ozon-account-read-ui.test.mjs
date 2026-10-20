@@ -15,7 +15,8 @@ function preparation(runtime = [], options = undefined) {
 function saved(patch = {}) {
   return { jobId: 'job:synthetic:account-ui', status: 'queued', expectedRevision: 12, bindingId: 'binding:synthetic:account-ui',
     configurationVersion: 'configuration:1', createdAt: '2026-09-08T00:00:00.000Z', isCurrent: true, expired: false,
-    requestsSent: 0, observedMethods: [], companyCurrency: null, failureClass: null, gaps: [], canContinue: true, ...patch };
+    requestsSent: 0, observedMethods: [], companyCurrency: null, failureClass: null, gaps: [], canContinue: true,
+    evidenceExpiresAt: null, canRefresh: false, ...patch };
 }
 
 let renderersPromise;
@@ -113,6 +114,35 @@ test('expired queued permission cannot continue or appear freshly authorized', a
   const html = render({preparation: preparation([saved({expired: true, canContinue: false})]), onContinue: async () => {}, onAuthorize: async () => {}});
   assert.match(html, /本次读取许可已过期，不能继续发送请求/);
   assert.doesNotMatch(html, /<button|<form|继续已授权/);
+});
+
+test('expired completed evidence offers a new explicit read form without selecting or authorizing its scope', async () => {
+  const {render, interaction} = await renderers();
+  for (const expired of [true, false]) {
+    const current = saved({status: 'completed', expired, evidenceExpiresAt: '2026-09-08T01:00:00.000Z', canRefresh: true,
+      canContinue: false, requestsSent: 3, observedMethods: ['roles', 'seller_info', 'warehouse_list']});
+    const input = preparation([current]), before = clone(input), calls = [];
+    const props = {preparation: input, onAuthorize: async value => calls.push(value)};
+    const html = render(props);
+    assert.match(html, /<form/); assert.match(html, /type="checkbox"/);
+    assert.match(html, /<option value="" selected="">请选择本次范围/);
+    assert.match(html, /<button[^>]*type="submit"[^>]*disabled=""/);
+    const card = interaction(props); assert.equal(typeof card.submit, 'function');
+    await card.submit({preventDefault() {}});
+    assert.deepEqual(calls, []); assert.deepEqual(input, before);
+  }
+});
+
+test('active, unknown, unexpired and production-busy reads never expose a refresh form', async () => {
+  const {render} = await renderers();
+  for (const current of [
+    ...['queued','claimed','waiting_platform','unknown_outcome'].map(status => saved({status,expired:true,canContinue:false})),
+    saved({status:'completed',canContinue:false,evidenceExpiresAt:'2027-01-01T00:00:00.000Z'}),
+    saved({status:'completed',expired:true,canContinue:false,evidenceExpiresAt:'2026-09-08T01:00:00.000Z',canRefresh:false})
+  ]) {
+    const html = render({preparation: preparation([current]),onAuthorize:async()=>{throw new Error('Rendering must not grant a refresh');}});
+    assert.doesNotMatch(html, /<form|type="checkbox"/);
+  }
 });
 
 test('historical success is never displayed as current account evidence', async () => {

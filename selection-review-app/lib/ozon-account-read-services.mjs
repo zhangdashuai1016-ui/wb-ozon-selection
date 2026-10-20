@@ -1,6 +1,8 @@
+import { readCompletedOzonAccountReadSource } from './ozon-account-read-evidence.mjs';
+import { ozonAccountReadCoordinationState, ozonAccountReadProductionBlocker, ozonAccountReadRefreshProductionBusy } from './ozon-account-read-coordination.mjs';
 import { createOzonAccountReadRuntime } from './ozon-account-read-runtime.mjs';
 import { isDeepStrictEqual } from 'node:util';
-import { assertOzonAccountReadReceipt, assertOzonAccountReadScope, readOzonAccountReadTerminal,
+import { assertOzonAccountReadReceipt, assertOzonAccountReadScope, readOzonAccountReadTerminal, completedOzonAccountReadEvidenceExpiresAt,
   OzonAccountReadError } from './ozon-account-read-contract.mjs';
 import { createOzonAccountReadBindingResolver, buildOzonAccountReadPreparation, currentOzonAccountReadJobs,
   accountReadBindingForProduction, sameAccountReadRouting, validOzonAccountReadRevisions } from './ozon-account-read-preparation.mjs';
@@ -15,6 +17,7 @@ import { assertValidProductionAuthorization } from './production-authorization.m
 import { assertCurrentProductionExecutionBinding } from './platform-write-preflight.mjs';
 import { isCompleteStoreRef, sameStoreRef } from './store-binding.mjs';
 import {supportedBatchVersion,supportsPostImportBatch,assertDBatchPostImportScope} from './d-batch-production-contract.mjs';
+import { projectDBatchExecutionView } from './d-batch-execution-view.mjs';
 
 const text = value => typeof value === 'string' && value.trim().length > 0;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -86,12 +89,20 @@ export function createOzonAccountReadServices({ configuration, repository, worke
         bindingId: production.bindingId, configurationVersion: production.configurationVersion });
       return binding === null ? [] : currentOzonAccountReadJobs({ document, candidate, binding }).slice(0, 1).map(job => job.jobId);
     }));
+    const checkedAt = serverClock();
+    const unresolved = ozonAccountReadProductionBlocker(ozonAccountReadCoordinationState({ document, candidateIds: [candidateId] }));
+    let productionBusy;
     return candidateJobs.map(job => {
       const receipt = runtime.ozonAccountReadReceipts?.[job.jobId];
       if (runtime.ozonAccountReadReceipts && Object.hasOwn(runtime.ozonAccountReadReceipts, job.jobId)) {
         assertOzonAccountReadReceipt(receipt, job);
       }
-      const isCurrent = currentIds.has(job.jobId), expired = Date.parse(serverClock()) >= Date.parse(job.scopeBinding.expiresAt);
+      const isCurrent = currentIds.has(job.jobId), expired = Date.parse(checkedAt) >= Date.parse(job.scopeBinding.expiresAt);
+      const completed = job.status === 'completed' ? readCompletedOzonAccountReadSource(document, job.jobId) : null;
+      const evidenceExpiresAt = completed === null ? null : completedOzonAccountReadEvidenceExpiresAt(completed.receipt);
+      const refreshDue = isCurrent && evidenceExpiresAt !== null && Date.parse(checkedAt) >= Date.parse(evidenceExpiresAt);
+      if (refreshDue && productionBusy === undefined) productionBusy = ozonAccountReadRefreshProductionBusy({ document, candidateId });
+      const canRefresh = refreshDue && routingBlocker === null && unresolved === null && !productionBusy && services.has(job.scopeBinding.bindingId);
       let admissionBlocker = routingBlocker;
       if (isCurrent && !expired && job.status === 'queued' && job.revision === candidate.dataRevision) {
         try { validateSoftwareJobAdmission({ document, job, observedAt: serverClock(), phase: 'claim', workerId:
@@ -102,7 +113,7 @@ export function createOzonAccountReadServices({ configuration, repository, worke
         }
       }
       return { jobId: job.jobId, status: job.status, expectedRevision: job.revision, bindingId: job.scopeBinding.bindingId,
-        isCurrent, expired, admissionBlocker,
+        isCurrent, expired, admissionBlocker, evidenceExpiresAt, canRefresh,
         configurationVersion: job.scopeBinding.configurationVersion, createdAt: job.createdAt,
         requestsSent: receipt?.steps.some(step => step.requestTransmission === 'unknown') ? 'unknown'
           : receipt ? receipt.steps.filter(step => step.requestTransmission !== 'not_attempted').length : 0,
@@ -144,7 +155,14 @@ export function createOzonAccountReadServices({ configuration, repository, worke
     if (capabilities.gaps.some(gap => gap.code !== 'asset_transport_not_verified')) {
       return { status: 'account_evidence_gaps', externalRequests: 0, platformWrites: 0, gaps: capabilities.gaps };
     }
-    return deRuntimeServices.continueSavedCurrent(input);
+    try {
+      return await deRuntimeServices.continueSavedCurrent(input, {
+        accountReadState: ozonAccountReadCoordinationState({ document, candidateIds: [candidate.id] }) });
+    } catch (error) {
+      if (error?.constructor !== Error || !['SOFTWARE_JOB_ADMISSION_ACCOUNT_READ_BLOCKED',
+        'SOFTWARE_JOB_ADMISSION_ACCOUNT_READ_CHANGED', 'SOFTWARE_JOB_ADMISSION_ACCOUNT_EVIDENCE_NOT_CURRENT'].includes(error.message)) throw error;
+      return { status: 'account_read_incomplete', reasonCode: error.message, externalRequests: 0, platformWrites: 0 };
+    }
   }
   function authorizedBatchSources(document, batchId) {
     const batches = productionBatches(document), matches = batches.filter(batch => batch.batchId === batchId);
@@ -240,8 +258,8 @@ export function createOzonAccountReadServices({ configuration, repository, worke
   async function continueAuthorizedBatch({ batchId }) {
     const document = await repository.readSnapshot(), source = authorizedBatchSources(document, batchId);
     const reads = batchAccountReads(document, source);
-    const members = reads.map(({ source: { member }, job }) => ({ candidateId: member.candidateId, skuPackageId: member.skuPackageId,
-      offerId: member.offerId, status: job === null ? 'awaiting_account_read' : job.status === 'completed' ? 'completed' : 'account_read_incomplete',
+    const members = reads.map(({ source: { member }, job, record }) => ({ candidateId: member.candidateId, skuPackageId: member.skuPackageId,
+      offerId: member.offerId, status: job === null ? 'awaiting_account_read' : job.status === 'completed' && Date.parse(serverClock()) >= Date.parse(record.collectedAt) && Date.parse(serverClock()) < Date.parse(record.expiresAt) ? 'completed' : 'account_read_incomplete',
       jobId: job?.jobId ?? null, jobStatus: job?.status ?? null }));
     if (members.some(member => member.status !== 'completed')) {
       return { status: members.some(member => member.status === 'account_read_incomplete') ? 'account_read_incomplete' : 'awaiting_account_read',
@@ -250,11 +268,18 @@ export function createOzonAccountReadServices({ configuration, repository, worke
     for (const read of reads) await evidenceSource.publish({ scope: read.source.scope, jobId: read.job.jobId });
     const currentDocument = await repository.readSnapshot(), current = authorizedBatchSources(currentDocument, batchId);
     const currentReads = batchAccountReads(currentDocument, current);
-    if (!isDeepStrictEqual(source.batch, current.batch) || !isDeepStrictEqual(reads.map(read => ({ scope: read.source.scope,
+    if (currentReads.some(read => read.record === null || Date.parse(serverClock()) < Date.parse(read.record.collectedAt) ||
+      Date.parse(serverClock()) >= Date.parse(read.record.expiresAt)) || !isDeepStrictEqual(source.batch, current.batch) || !isDeepStrictEqual(reads.map(read => ({ scope: read.source.scope,
       job: read.job, record: read.record })), currentReads.map(read => ({ scope: read.source.scope, job: read.job, record: read.record })))) fail('BATCH_SOURCE_CHANGED');
     // The existing D service owns intent, send guards and unknown-outcome replay
     // protection. Publishing read evidence grants no additional write authority.
-    return deRuntimeServices.continueAuthorizedBatchImport({ batchId });
+    try { return await deRuntimeServices.continueAuthorizedBatchImport({ batchId }); }
+    catch (error) {
+      if (error?.constructor !== Error || !['D_BATCH_IMPORT_ACCOUNT_READ_BLOCKED', 'D_BATCH_IMPORT_ACCOUNT_READ_CHANGED', 'D_BATCH_IMPORT_ACCOUNT_EVIDENCE_NOT_CURRENT'].includes(error.message)) throw error;
+      const executionView = projectDBatchExecutionView(await repository.readSnapshot(), batchId);
+      return { status: 'account_read_incomplete', batchId, members, reasonCode: error.message, executionView,
+        externalRequests: executionView.assetRequestTransmission === 'not_attempted' ? 0 : 'unknown', platformWrites: 0 };
+    }
   }
   async function continueAfterRead(candidateId, outcome) {
     if (outcome.status !== 'completed') return null;

@@ -134,6 +134,16 @@ export function readOzonAccountReadTerminal(receipt,job){
   return {status:receipt.status,externalRequestState,failureClass:receipt.failureClass};
 }
 
+/** The existing permission and observed role bounds both limit completed evidence. */
+export function completedOzonAccountReadEvidenceExpiresAt(receipt) {
+  requireValue(object(receipt) && receipt.status === 'completed' && Array.isArray(receipt.steps) &&
+    receipt.steps.length === 3 && receipt.steps[0]?.method === 'roles' &&
+    receipt.steps[0].result?.status === 'observed' && time(receipt.steps[0].result.facts?.expiresAt) &&
+    time(receipt.scope?.expiresAt), 'RECEIPT_NOT_COMPLETED');
+  const rolesExpiresAt = receipt.steps[0].result.facts.expiresAt;
+  return Date.parse(rolesExpiresAt) < Date.parse(receipt.scope.expiresAt) ? rolesExpiresAt : receipt.scope.expiresAt;
+}
+
 /** Stop this one-use read locally; only an unfinished send stays an unknown external outcome. */
 export function interruptOzonAccountReadReceipt(receipt,job,completedAt,failureClass){
   const next=assertOzonAccountReadReceipt(receipt,job);

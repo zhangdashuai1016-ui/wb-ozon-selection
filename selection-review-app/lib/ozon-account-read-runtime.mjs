@@ -11,8 +11,12 @@ import { bindSoftwareJobAdmissionForEnqueue, assertSoftwareJobAdmittedForExterna
 import { fingerprintCanonicalRecord, isCanonicalFrozenRef } from './production-contract-primitives.mjs';
 import { OZON_ACCOUNT_READ_JOB_TYPE, OZON_ACCOUNT_READ_CAPABILITY, OZON_ACCOUNT_READ_METHODS, OzonAccountReadError,
   OZON_ACCOUNT_DISCOVERY_SCOPE_VERSION, assertOzonAccountPreparation, createOzonAccountDiscoveryScope,
-  interruptOzonAccountReadReceipt, assertOzonAccountReadBinding, createOzonAccountReadScope, assertOzonAccountReadScope, assertOzonAccountReadCandidate, assertOzonAccountReadReceipt } from './ozon-account-read-contract.mjs';
+  interruptOzonAccountReadReceipt, assertOzonAccountReadBinding, createOzonAccountReadScope, assertOzonAccountReadScope, assertOzonAccountReadCandidate, assertOzonAccountReadReceipt, readOzonAccountReadTerminal, completedOzonAccountReadEvidenceExpiresAt } from './ozon-account-read-contract.mjs';
 import { buildOzonAccountReadRequest, normalizeOzonAccountReadResponse, OzonAccountReadApiError } from './ozon-account-read-api.mjs';
+import { currentOzonAccountReadJobs } from './ozon-account-read-preparation.mjs';
+import { readCompletedOzonAccountReadSource } from './ozon-account-read-evidence.mjs';
+import { OzonDEPreflightEvidenceError } from './ozon-de-preflight-provider.mjs';
+import { ozonAccountReadCoordinationState, ozonAccountReadProductionBlocker, ozonAccountReadRefreshProductionBusy } from './ozon-account-read-coordination.mjs';
 import { OzonDEHttpTransportError } from './ozon-de-http-configuration.mjs';
 
 const clone=value=>structuredClone(value);
@@ -33,7 +37,7 @@ function candidateFor(document,id,skuPackageId){
   requireValue(found.length===1&&found[0].lifecycleV11?.skuPackage?.skuPackageId===skuPackageId,'CANDIDATE_REQUIRED');return found[0];
 }
 function replaceJob(document,job){const jobs=softwareJobsInDocument(document),index=jobs.findIndex(value=>value.jobId===job.jobId);requireValue(index>=0,'JOB_REQUIRED');jobs[index]=clone(job);}
-// A new click key is not an evidence-refresh authorization. Only a known failed read may be authorized again.
+// A new click key is not a refresh authorization. Only the latest known failed read may be authorized again.
 function assertReadScopeCanBeAuthorized(document,candidate,scope){
   if(scope.schemaVersion===OZON_ACCOUNT_DISCOVERY_SCOPE_VERSION){
     const fields=['targetStore','bindingId','configurationVersion','credentialAlias','clientIdRef','scopeRef'];
@@ -46,24 +50,39 @@ function assertReadScopeCanBeAuthorized(document,candidate,scope){
       requireValue(job.status==='failed'&&['not_sent','failed','succeeded'].includes(job.externalRequestState),'SCOPE_ALREADY_AUTHORIZED');
     }return;
   }
-  const identityFields=['candidateId','skuPackageId','supplierSkuId','platform','storeRef',
-    'warehouseRef','warehouseId','credentialAlias','clientIdRef','bindingId','configurationVersion'];
-  const revisions=new Set([scope.resultRevision]);
-  const authorization=candidate.lifecycleV11.skuPackage.productionAuthorization;
-  if(authorization!==undefined&&authorization!==null){
-    requireValue(Number.isSafeInteger(authorization.sourceCandidateRevision)&&authorization.sourceCandidateRevision>=0&&
-      authorization.sourceCandidateRevision<scope.resultRevision,'PRODUCTION_AUTHORIZATION_SOURCE_CONFLICT');
-    revisions.add(authorization.sourceCandidateRevision);
+  const blocker = ozonAccountReadProductionBlocker(ozonAccountReadCoordinationState({ document, candidateIds: [candidate.id] }));
+  requireValue(blocker !== 'unknown_outcome', 'OUTCOME_RECONCILIATION_REQUIRED');
+  requireValue(blocker === null, 'SCOPE_ALREADY_AUTHORIZED');
+  const latest = currentOzonAccountReadJobs({ document, candidate, binding: scope })[0];
+  if (latest === undefined) {
+    requireValue(!ozonAccountReadRefreshProductionBusy({ document, candidateId: candidate.id }), 'REFRESH_PRODUCTION_BUSY');
+    return;
   }
-  for(const job of softwareJobsInDocument(document)){
-    if(job.jobType!==OZON_ACCOUNT_READ_JOB_TYPE||job.candidateId!==scope.candidateId||job.skuPackageId!==scope.skuPackageId||!revisions.has(job.revision))continue;
-    const saved=assertOzonAccountReadScope(job.scopeBinding,job);
-    if(!identityFields.every(field=>isDeepStrictEqual(saved[field],scope[field])))continue;
-    requireValue(job.status!=='completed','REFRESH_NOT_SUPPORTED');
-    requireValue(job.status!=='unknown_outcome'&&job.externalRequestState!=='unknown_outcome','OUTCOME_RECONCILIATION_REQUIRED');
-    requireValue(job.status==='failed'&&['not_sent','failed','succeeded'].includes(job.externalRequestState),'SCOPE_ALREADY_AUTHORIZED');
-  }
+  assertOzonAccountReadScope(latest.scopeBinding, latest);
+  requireValue(latest.status !== 'completed', 'REFRESH_NOT_SUPPORTED');
+  requireValue(latest.status === 'failed' && ['not_sent', 'failed', 'succeeded'].includes(latest.externalRequestState), 'SCOPE_ALREADY_AUTHORIZED');
+  const terminal = readOzonAccountReadTerminal(document.runtime.ozonAccountReadReceipts?.[latest.jobId], latest);
+  requireValue(terminal.status === latest.status && terminal.externalRequestState === latest.externalRequestState &&
+    terminal.failureClass === latest.failureClass, 'JOB_SOURCE_CONFLICT');
+  requireValue(!ozonAccountReadRefreshProductionBusy({ document, candidateId: candidate.id }), 'REFRESH_PRODUCTION_BUSY');
 }
+function assertExpiredReadCanBeRefreshed(document, candidate, binding, refreshOfJobId, at) {
+  const state = ozonAccountReadCoordinationState({ document, candidateIds: [candidate.id] });
+  const blocker = ozonAccountReadProductionBlocker(state);
+  requireValue(blocker !== 'unknown_outcome', 'OUTCOME_RECONCILIATION_REQUIRED');
+  requireValue(blocker === null, 'SCOPE_ALREADY_AUTHORIZED');
+  const latest = currentOzonAccountReadJobs({ document, candidate, binding })[0];
+  requireValue(latest?.jobId === refreshOfJobId && latest.status === 'completed', 'REFRESH_TARGET_CONFLICT');
+  let receipt;
+  try { ({ receipt } = readCompletedOzonAccountReadSource(document, latest.jobId)); }
+  catch (error) {
+    if (!(error instanceof OzonDEPreflightEvidenceError) && !(error instanceof OzonAccountReadError)) throw error;
+    throw new OzonAccountReadError('REFRESH_SOURCE_INVALID');
+  }
+  requireValue(Date.parse(at) >= Date.parse(completedOzonAccountReadEvidenceExpiresAt(receipt)), 'REFRESH_NOT_DUE');
+  requireValue(!ozonAccountReadRefreshProductionBusy({ document, candidateId: candidate.id }), 'REFRESH_PRODUCTION_BUSY');
+}
+
 function viewJob(document,job){
   const receipt=document.runtime.ozonAccountReadReceipts?.[job.jobId];
   if(receipt)assertOzonAccountReadReceipt(receipt,job);
@@ -172,7 +191,9 @@ export function createOzonAccountReadRuntime({repository,serverClock,workerRegis
     async authorizeAndEnqueue({actor,input}){
       authorizeOperation({actor,requiredRoles: teamOperationRoles(actor)});
       requireValue(actor.actorType==='human'&&actor.source==='authenticated_identity_provider','AUTHENTICATED_OWNER_REQUIRED');
-      requireValue(closed(input,[...(discovery?['preparationId']:['candidateId','skuPackageId']),'expectedRevision','bindingId','configurationVersion','scopeRef','confirmReadOnce','expiresAt','idempotencyKey'])&&
+      const refresh = object(input) && Object.hasOwn(input, 'refreshOfJobId');
+      requireValue(!refresh || !discovery && ref(input.refreshOfJobId), 'INPUT_INVALID');
+      requireValue(closed(input,[...(discovery?['preparationId']:['candidateId','skuPackageId']),'expectedRevision','bindingId','configurationVersion','scopeRef','confirmReadOnce','expiresAt','idempotencyKey', ...(refresh ? ['refreshOfJobId'] : [])])&&
         [...(discovery?['preparationId']:['candidateId','skuPackageId']),'bindingId','configurationVersion','scopeRef','idempotencyKey'].every(field=>ref(input[field]))&&input.confirmReadOnce===true&&
         Number.isSafeInteger(input.expectedRevision)&&input.expectedRevision>=0&&typeof input.expiresAt==='string'&&Number.isFinite(Date.parse(input.expiresAt)),'INPUT_INVALID');
       const fingerprint=fingerprintCanonicalRecord({input,ownerUserId:actor.userId});
@@ -192,7 +213,15 @@ export function createOzonAccountReadRuntime({repository,serverClock,workerRegis
         const scope=discovery?createOzonAccountDiscoveryScope({preparation:candidate,binding,authorizationRef,expiresAt:input.expiresAt}):createOzonAccountReadScope({candidateId:candidate.id,skuPackageId:input.skuPackageId,supplierSkuId:candidate.lifecycleV11.skuPackage.supplierSkuId,
           revision:input.expectedRevision,binding,authorizationRef,expiresAt:input.expiresAt});
         assertOzonAccountReadCandidate(candidate,scope);
-        assertReadScopeCanBeAuthorized(document,candidate,scope);
+        if (!discovery) {
+          const authorization = candidate.lifecycleV11.skuPackage.productionAuthorization;
+          if (authorization !== undefined && authorization !== null) {
+            requireValue(Number.isSafeInteger(authorization.sourceCandidateRevision) && authorization.sourceCandidateRevision >= 0 &&
+              authorization.sourceCandidateRevision < scope.resultRevision, 'PRODUCTION_AUTHORIZATION_SOURCE_CONFLICT');
+          }
+        }
+        if (refresh) assertExpiredReadCanBeRefreshed(document, candidate, binding, input.refreshOfJobId, at);
+        else assertReadScopeCanBeAuthorized(document,candidate,scope);
         arrayCollection(document,'softwareJobAuthorizationRecords').push({schemaVersion:discovery?'software-job-authorization-record-v2':'software-job-authorization-record-v1',authorizationId:authorizationRef,
           authorizationType:discovery?'account_discovery_once':'account_read_once',status:'active',action:OZON_ACCOUNT_READ_JOB_TYPE,scopeBinding:clone(scope),authorizedByUserId:actor.userId,
           authorizedAt:at,expiresAt:input.expiresAt,maxUses:1,useCount:0,consumedByJobId:null,consumedAt:null});
@@ -202,7 +231,7 @@ export function createOzonAccountReadRuntime({repository,serverClock,workerRegis
         const job=createSoftwareJobEnvelope({jobId,...(discovery?{subject:scope.subject}:{candidateId:candidate.id,skuPackageId:input.skuPackageId}),revision:input.expectedRevision,jobType:OZON_ACCOUNT_READ_JOB_TYPE,
           createdAt:at,requestedByUserId:actor.userId,ownerUserId:actor.userId,requiredCapabilities:[OZON_ACCOUNT_READ_CAPABILITY],idempotencyKey:`account-read:${fingerprint}`,scopeBinding:scope});
         const admitted=bindSoftwareJobAdmissionForEnqueue({document,job,observedAt:at,phase:'enqueue_current'});
-        enqueueSoftwareJobInDocument(document,admitted);idempotency[input.idempotencyKey]={inputFingerprint:fingerprint,jobId};
+        enqueueSoftwareJobInDocument(document,admitted);idempotency[input.idempotencyKey]={inputFingerprint:fingerprint,jobId, ...(refresh ? {refreshOfJobId:input.refreshOfJobId} : {})};
         return {changed:true,document,result:viewJob(document,admitted)};
       });
     },

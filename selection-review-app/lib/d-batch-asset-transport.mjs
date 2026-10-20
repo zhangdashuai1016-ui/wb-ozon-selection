@@ -1,3 +1,4 @@
+import { ozonAccountReadCoordinationState, ozonAccountReadProductionBlocker, ozonAccountReadProductionEvidenceCurrent } from './ozon-account-read-coordination.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { assertBusinessStateRepositoryBoundary, assertCentralPersistenceBoundary } from './business-state-repository.mjs';
@@ -8,8 +9,8 @@ import { sameStoreRef } from './store-binding.mjs';
 import {supportedBatchVersion,supportsPostImportBatch,assertDBatchPostImportScope} from './d-batch-production-contract.mjs';
 import {assertOzonProductImportBatchLimitUse} from './ozon-product-import-batch-limit.mjs';
 import { resolveRegisteredC2FinalAsset } from './c2-upload-draft.mjs';
-import { assertCurrentProductionExecutionBinding, runPlatformWritePreflight } from './platform-write-preflight.mjs';
-import { createProductionPlan } from './production-plan.mjs';
+import { assertCurrentProductionExecutionBinding, runPlatformWritePreflight, platformWritePreflightExecutionGaps } from './platform-write-preflight.mjs';
+import { createProductionPlan, projectProductionPlanInputs } from './production-plan.mjs';
 import { createPersistableAliyunOssAssetIntent, markAliyunOssAssetIntentPersisted,
   executeAliyunOssAssetIntent, settleAliyunOssAssetState, verifiedAliyunOssAssetTransport,
   assertPersistedAliyunOssAssetIntent } from './aliyun-oss-d-asset-integration.mjs';
@@ -23,7 +24,8 @@ const MAX_ASSET_BYTES = 100 * 1024 * 1024;
 const BLOCKED_BATCH_CODES = new Set([
   'D_BATCH_ASSET_WORKER_NOT_CURRENT', 'D_BATCH_ASSET_MIXED_SOURCE_UNSUPPORTED',
   'D_BATCH_ASSET_LOCAL_BATCH_TOO_LARGE', 'D_BATCH_ASSET_ACCOUNT_EVIDENCE_NOT_READY',
-  'D_BATCH_ASSET_EXECUTION_ALREADY_STARTED', 'D_BATCH_ASSET_SEND_GUARD_BLOCKED'
+  'D_BATCH_ASSET_EXECUTION_ALREADY_STARTED', 'D_BATCH_ASSET_SEND_GUARD_BLOCKED',
+  'D_BATCH_ASSET_ACCOUNT_READ_BLOCKED', 'D_BATCH_ASSET_ACCOUNT_READ_CHANGED', 'D_BATCH_ASSET_ACCOUNT_EVIDENCE_NOT_CURRENT'
 ]);
 const BLOCKED_PREWRITE_CODES = new Set([
   'PRODUCTION_EXECUTION_BINDING_REQUIRED', 'PRODUCTION_EXECUTION_BINDING_DRIFT',
@@ -49,6 +51,13 @@ function preparationBlockCode(error) {
   if (error instanceof AliyunOssLocalPreparationError && OSS_LOCAL_PREPARATION_FAILURE_CODES.includes(error.code)) return error.code;
   const failure = productionExecutionPrewriteFailure(error);
   return failure !== null && BLOCKED_PREWRITE_CODES.has(failure.code) ? failure.code : null;
+}
+
+function assertCurrentAccountEvidence(document, batch, preparedReads, observedAt) {
+  const currentReads = ozonAccountReadCoordinationState({ document, candidateIds: batch.members.map(member => member.candidateId) });
+  if (ozonAccountReadProductionBlocker(currentReads)) fail('ACCOUNT_READ_BLOCKED');
+  if (!isDeepStrictEqual(currentReads, preparedReads)) fail('ACCOUNT_READ_CHANGED');
+  if (!ozonAccountReadProductionEvidenceCurrent({ document, state: currentReads, observedAt })) fail('ACCOUNT_EVIDENCE_NOT_CURRENT');
 }
 
 function batchIn(document, batchId) {
@@ -311,10 +320,11 @@ export function createDBatchAssetTransport({ repository, runtimeMode, workerRegi
     if (capabilities.gaps.some(gap => gap.code !== 'asset_transport_not_verified')) fail('ACCOUNT_EVIDENCE_NOT_READY');
     const preflight = await runPlatformWritePreflight({ productionPlan: plan, checkedAt: evidence.checkedAt,
       inspectPlatform: async () => clone(evidence.inspection) });
-    if (preflight.technicalStatus !== 'completed' || preflight.risks.length !== 0) fail('ACCOUNT_EVIDENCE_NOT_READY');
+    if (platformWritePreflightExecutionGaps({ productionPlan: plan, platformWritePreflight: preflight,
+      requiredWriteFields: projectProductionPlanInputs(plan).allowedWriteFields }).length !== 0) fail('ACCOUNT_EVIDENCE_NOT_READY');
   }
 
-  async function executeMember(source, worker, files) {
+  async function executeMember(source, worker, files, accountReadState) {
     const candidateId = source.candidate.id, batchId = source.batch.batchId;
     const admitted = await repository.transact(document => {
       const current = sourceIn(document, batchId, candidateId);
@@ -326,6 +336,7 @@ export function createDBatchAssetTransport({ repository, runtimeMode, workerRegi
       workerFor(worker.workerId, worker.version);
       bindingFor(current.candidate);
       const at = now();
+      assertCurrentAccountEvidence(document, current.batch, accountReadState, at);
       const intent = markAliyunOssAssetIntentPersisted({
         intent: createPersistableAliyunOssAssetIntent({ candidate: current.candidate,
           expectedDataRevision: current.member.resultRevision, startedAt: at,
@@ -362,13 +373,15 @@ export function createDBatchAssetTransport({ repository, runtimeMode, workerRegi
               !isDeepStrictEqual(record.state.intent, held.state.intent) ||
               record.status !== 'in_flight') fail('RECORD_SCOPE_CHANGED');
           if (record.writeIntents.length !== asset.order - 1) fail('WRITE_ORDER_CHANGED');
-          if (Date.parse(now()) >= Date.parse(record.leaseExpiresAt)) fail('SEND_GUARD_BLOCKED');
+          const at = now();
+          if (Date.parse(at) >= Date.parse(record.leaseExpiresAt)) fail('SEND_GUARD_BLOCKED');
           workerFor(record.workerId, record.workerVersion);
           bindingFor(current.candidate);
           const expected = current.authorization.lockedScope.finalUploads[asset.order - 1];
           if (!expected || ['assetId', 'order', 'sha256'].some(key => expected[key] !== asset[key])) fail('MANIFEST_CHANGED');
           resolveRegisteredC2FinalAsset(current.candidate, expected);
-          record.writeIntents.push({ ...asset, startedAt: now() }); record.revision++; record.updatedAt = now();
+          assertCurrentAccountEvidence(document, current.batch, accountReadState, at);
+          record.writeIntents.push({ ...asset, startedAt: at }); record.revision++; record.updatedAt = at;
           return { changed: true, document, result: null };
           });
         } });
@@ -433,6 +446,7 @@ export function createDBatchAssetTransport({ repository, runtimeMode, workerRegi
       } else return outcome(batchId, record.status, [{ candidateId: source.candidate.id, status: record.status, recordId: record.recordId }]);
     }
     const pending = required.filter(source => !members.some(member => member.candidateId === source.candidate.id));
+    const accountReadState = ozonAccountReadCoordinationState({ document, candidateIds: batch.members.map(member => member.candidateId) });
     if (pending.length === 0) return outcome(batchId, 'verified', members);
     if (upload === null || resolveLocalAsset === null) return outcome(batchId, 'blocked', members, 'D_BATCH_ASSET_TRANSPORT_NOT_CONFIGURED');
     try {
@@ -445,7 +459,7 @@ export function createDBatchAssetTransport({ repository, runtimeMode, workerRegi
         await checkEvidence(source, binding, plan);
       }
       for (const source of pending) {
-        const record = await executeMember(source, worker, files);
+        const record = await executeMember(source, worker, files, accountReadState);
         members.push({ candidateId: source.candidate.id, status: record.status, recordId: record.recordId });
         if (record.state.continuationBlocked) return outcome(batchId, 'blocked', members, 'D_BATCH_ASSET_SOURCE_CHANGED');
         if (record.status !== 'verified') return outcome(batchId, record.status, members);

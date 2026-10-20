@@ -8702,8 +8702,19 @@ async function handleApi(req, res, pathname) {
         : await ozonAccountReadServices.continueSavedRead(input);
     } catch (error) {
       if (!(error instanceof OzonAccountReadError)) throw error;
-      const status = /NOT_CONFIGURED/.test(error.code) ? 503 : /CHANGED|CONFLICT|EXPIRED|AMBIGUOUS/.test(error.code) ? 409 : 422;
-      return json(res, status, { code: error.code, message: "账户读取未完成，请核对当前确认范围及已保存作业。" });
+      const admissionMessages = {
+        OZON_ACCOUNT_READ_REFRESH_NOT_DUE: '当前账户证据仍有效，不能重复读取。',
+        OZON_ACCOUNT_READ_REFRESH_TARGET_CONFLICT: '刷新目标已变化，请重新读取当前账户核验卡。',
+        OZON_ACCOUNT_READ_REFRESH_SOURCE_INVALID: '旧账户回执或读取许可不完整，不能据此刷新。',
+        OZON_ACCOUNT_READ_REFRESH_PRODUCTION_BUSY: '本件或同批商品已经开始生产，当前不能创建新的账户读取。',
+        OZON_ACCOUNT_READ_SCOPE_ALREADY_AUTHORIZED: '已保存的账户读取尚未结束，请等待或继续原作业。',
+        OZON_ACCOUNT_READ_OUTCOME_RECONCILIATION_REQUIRED: '账户请求结果未知，须先核对原请求，不能重发。',
+        OZON_ACCOUNT_READ_REFRESH_NOT_SUPPORTED: '已存在完成的账户读取；只有当前证据到期并明确确认刷新，才能创建新一轮。'
+      };
+      const admissionMessage = admissionMessages[error.code];
+      const status = /NOT_CONFIGURED/.test(error.code) ? 503 : admissionMessage || /CHANGED|CONFLICT|EXPIRED|AMBIGUOUS/.test(error.code) ? 409 : 422;
+      return json(res, status, { code: error.code, message: admissionMessage ?? "账户读取未完成，请核对当前确认范围及已保存作业。",
+        ...(admissionMessage ? { externalRequests: 0, platformWrites: 0 } : {}) });
     }
     const document = await readCandidateData(input.candidateId), candidate = document.candidates.find(value => value.id === input.candidateId);
     if (!candidate) throw httpError(500, "账户读取结果待核对：当前商品独立回读缺失");
@@ -9462,9 +9473,11 @@ async function handleApi(req, res, pathname) {
       if (/^(?:D_BATCH|SIBLING_PREPARATION|PRODUCTION_OWNER|PRODUCTION_AUTHORIZATION|BUSINESS_MUTATION|RUNTIME_OPERATION)_[A-Z_]+$/.test(code)) {
         const status = code === 'D_BATCH_AUTHORIZATION_INPUT_INVALID' ? 400 :
           /FORBIDDEN|AUTHENTICATED|AUTHORIZER/.test(code) ? 403 :
-          /NOT_FOUND/.test(code) ? 404 : /CONFLICT|DRIFT|GATE_REJECTED|ALREADY_STARTED|RESERVED/.test(code) ? 409 : 422;
+          /NOT_FOUND/.test(code) ? 404 : /CONFLICT|DRIFT|GATE_REJECTED|ALREADY_STARTED|RESERVED|ACCOUNT_READ_IN_PROGRESS|ACCOUNT_READ_OUTCOME_UNRESOLVED/.test(code) ? 409 : 422;
         return json(res, status,
-          { code, gaps:error.gaps??[], message: '批次授权未保存；请刷新规格清单并核对每项资料与历史任务。', externalRequests: 0, platformWrites: 0 });
+          { code, gaps:error.gaps??[], message: code === 'D_BATCH_ACCOUNT_READ_IN_PROGRESS' ? '本批账户读取尚未结束，整批授权未保存。请等待原读取完成后再核对。'
+            : code === 'D_BATCH_ACCOUNT_READ_OUTCOME_UNRESOLVED' ? '本批账户请求结果未知，整批授权未保存。请先核对原请求。'
+            : '批次授权未保存；请刷新规格清单并核对每项资料与历史任务。', externalRequests: 0, platformWrites: 0 });
       }
       throw error;
     }
@@ -9478,7 +9491,7 @@ async function handleApi(req, res, pathname) {
         return json(res,200,{batch,executionView:projectDBatchExecutionView(saved,batch.batchId),
           executionStatus:'prewrite_blocked',reasonCode:code,externalRequests:0,platformWrites:0});
       }
-      if (!/^(?:D_BATCH_SERVICE_|DE_RUNTIME_UNAVAILABLE_BATCH_IMPORT)/.test(code) &&
+      if (!/^(?:D_BATCH_SERVICE_|D_BATCH_IMPORT_ACCOUNT_(?:READ_(?:BLOCKED|CHANGED)|EVIDENCE_NOT_CURRENT)$|DE_RUNTIME_UNAVAILABLE_BATCH_IMPORT)/.test(code) &&
           !['OZON_DE_PREFLIGHT_EVIDENCE_BATCH_LIMIT_SOURCE_REQUIRED',
             'OZON_DE_PREFLIGHT_EVIDENCE_BATCH_LIMIT_NOT_CURRENT'].includes(code)) throw error;
       const saved = await readData();

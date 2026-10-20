@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-10-20T02:04:55.178Z",
+  "frozenAt": "2026-10-20T04:22:33.674Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -16,8 +16,8 @@
   "sourceBaselines": {
     "integration": {
       "status": "inspected",
-      "artifactCount": 1079,
-      "sha256": "b4e7b1e6bb363ae1ef61e42b61c572efc33566dc042409cdf501e665c4fdc7f5",
+      "artifactCount": 1084,
+      "sha256": "536e078cc7fe027015d2fd850b66134b8fa09bb572c463f6b1b33803b48e1c51",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -464,7 +464,7 @@
       },
       {
         "path": "lib/capability-registry.mjs",
-        "sha256": "c387536aa1bab7f6dc6131881f6489c8ed4279d38c83c3e54579e4ffa3706d7f"
+        "sha256": "6f3abba4ffd98e153d00d0ae829217ebff1cb49c5003eb5d179b4dcc7c0e2583"
       },
       {
         "path": "lib/capture-assignment.mjs",
@@ -512,7 +512,7 @@
       },
       {
         "path": "lib/d-batch-asset-transport.mjs",
-        "sha256": "9c632a0ebb0f4b5a28d79194b4cfd588b9384a698093e8dd9571ae400ae8f06e"
+        "sha256": "e68002ec39dc1e8b37b90cc75a33e9b784ee1f8128e31c5a88d7dece4a798bfe"
       },
       {
         "path": "lib/d-batch-e-media-review.mjs",
@@ -528,11 +528,11 @@
       },
       {
         "path": "lib/d-batch-import-runtime.mjs",
-        "sha256": "b3e724fe12ffe790dadd779d093197d7f58702b0a6bb613d776b10bd07b52d81"
+        "sha256": "ed4c081324919b32c592fd23cf1bcea90f71927e457fb71778c56610eb0d276d"
       },
       {
         "path": "lib/d-batch-import-software-service.mjs",
-        "sha256": "961d82a73cf3a9c0327f0ea89e30f4fa468774de1e92453ed58fa8472a2774d7"
+        "sha256": "ba1e35a60d58aaea676dd49bddafda1272aa071c88101dd5cf7b36c60b62b963"
       },
       {
         "path": "lib/d-batch-import-state.mjs",
@@ -548,7 +548,7 @@
       },
       {
         "path": "lib/d-batch-production-authorization.mjs",
-        "sha256": "85fd0e8379e10376079740d164cb2c15ebee13686943610c3a3612473160e53d"
+        "sha256": "cf38fe8446055d70cb0d7c47bbd3d998c141e9a47ffa5070bf2d3c76e13dd3cd"
       },
       {
         "path": "lib/d-batch-production-contract.mjs",
@@ -560,7 +560,7 @@
       },
       {
         "path": "lib/d-e-runtime-services.mjs",
-        "sha256": "a2ed98265c5af434112a2468bf0c976486d203b0144e9ee2cd8dcfd49118c75c"
+        "sha256": "38e7f8731276adc974a430e3ffe1996264112b7931fff55d32617ae4ec9e1e63"
       },
       {
         "path": "lib/d-e-runtime-view.mjs",
@@ -568,7 +568,7 @@
       },
       {
         "path": "lib/d-e-software-closure.mjs",
-        "sha256": "27a9c04b779db5a3830cb33778f1b3b48841ca90cc9d8913cafe4daa1f53838c"
+        "sha256": "bdaeeff6f39cc2628adae4ca01d86add76c611be2fb89a73c5d7b4ee17a33023"
       },
       {
         "path": "lib/d-e-software-integration.mjs",
@@ -896,11 +896,15 @@
       },
       {
         "path": "lib/ozon-account-read-contract.mjs",
-        "sha256": "a6d56f6c5ec8c5fe2283ea541bb135b5f1f2b0cd22093c395c3663dc3c2b2f9e"
+        "sha256": "f2392510453f62fa2b79f2e36e9f6261f947c1947588edb9cd94a21dbf4bd5c3"
+      },
+      {
+        "path": "lib/ozon-account-read-coordination.mjs",
+        "sha256": "824ddfc22ad44f2bbeaa4961c06081d4fa15a3c6fa9dd5acdc6683a3d33b7541"
       },
       {
         "path": "lib/ozon-account-read-evidence.mjs",
-        "sha256": "2904d20ca33c6e000d8c84c9b9bc976119ce87d33a55968fcf8e7fad3c16605c"
+        "sha256": "45ec49a8588f8e656cdced4b14b7fffead99950be3c671f97bbada9c31f97ee3"
       },
       {
         "path": "lib/ozon-account-read-preparation.mjs",
@@ -908,11 +912,11 @@
       },
       {
         "path": "lib/ozon-account-read-runtime.mjs",
-        "sha256": "410aa4ac3739b28880d8b325fac0184e330a728050ae1aceb84c87bc73331ab3"
+        "sha256": "17f8e13505a037513eef9fca5c2677867f3506626d24b2f39d7e3ccb6fc668a2"
       },
       {
         "path": "lib/ozon-account-read-services.mjs",
-        "sha256": "b99dfe23ae1ece87cb01c24849877fca9506c32326b49946b95f9defa1712098"
+        "sha256": "5e021c97ab4e6c87f18060a35a82805b8bf1ac0f11a64cb6db3b8d2b8fcd8aa5"
       },
       {
         "path": "lib/ozon-category-read-step.mjs",
@@ -936,7 +940,7 @@
       },
       {
         "path": "lib/ozon-de-preflight-provider.mjs",
-        "sha256": "e2a9c7ce2c8ba3838d0ccfa3b1218c61d3d59cd7f95d4ad1ea02de3e49f07a36"
+        "sha256": "d092d0cbbc077020c61369170d012bae9896a07d9559d05b38c650afc5b36765"
       },
       {
         "path": "lib/ozon-de-protocol-catalog.mjs",
@@ -1060,7 +1064,7 @@
       },
       {
         "path": "lib/platform-write-preflight.mjs",
-        "sha256": "37a3f91e618e6ae2e8b3a8ad9de523a24b0fbc413c0ede2b540b49d8c0ab86e4"
+        "sha256": "56927d40af8aa9a8a15e7eef07bda86179fb79db535040fa713f0b1ec5b791aa"
       },
       {
         "path": "lib/post-launch-observation.mjs",
@@ -1324,7 +1328,7 @@
       },
       {
         "path": "lib/software-job-admission.mjs",
-        "sha256": "96f75b5fb4016076d286f00f8c2002d37647b7040ed1f6836185ae076489c75e"
+        "sha256": "9b5930dfd71fe9528b329068fa7bbcb53f812bb5c2cad8f12a2007a33552e0a2"
       },
       {
         "path": "lib/software-job-contract.mjs",
@@ -1332,7 +1336,7 @@
       },
       {
         "path": "lib/software-job-repository.mjs",
-        "sha256": "d0e1449ec63c33ab9ed880305a31728de246df48d0c5a5ff591987684a44d47b"
+        "sha256": "e78ee10e34fb98b225d0ee258ecda097618d2008af0285e9247f7904ab1f21b1"
       },
       {
         "path": "lib/source-capture.mjs",
@@ -1732,7 +1736,7 @@
       },
       {
         "path": "scripts/ci-test-suites.mjs",
-        "sha256": "b4f0f71e42f66af22212868cf0e6567e4f10999897c9a6044652e1217244674e"
+        "sha256": "2a62df609b3bdc06f1583e6d418542b5e2b3d0752aa1bb0a9a45aea91bf07832"
       },
       {
         "path": "scripts/deploy-local-runtime.sh",
@@ -1804,7 +1808,7 @@
       },
       {
         "path": "server.mjs",
-        "sha256": "47bfc5ae9403533ecc6360c52a456ffa23d519aaac0b8f0d2afd932a1741bae5"
+        "sha256": "a8821bb04a4e69a9e11d599029bfce7f3a6149103e947ffa013cc1186c3df4f1"
       },
       {
         "path": "src/App.jsx",
@@ -2004,7 +2008,7 @@
       },
       {
         "path": "src/components/OzonAccountReadCard.jsx",
-        "sha256": "01ae62e294373b5bd502b6050c232a8b5d556dcc8118875b8f762a445a2cd417"
+        "sha256": "2ac03e9b4fa4864dfdeb8843808093488462151897b990a749d4104be1841065"
       },
       {
         "path": "src/components/Phase2ASimulation.jsx",
@@ -2068,7 +2072,7 @@
       },
       {
         "path": "src/components/SiblingBatchPreparation.jsx",
-        "sha256": "3822a0d7b3044fecfa0a68ce8978cc07436932044dbebc2c9bc94435babc4151"
+        "sha256": "b3bfce69dc942dc924e124f9b5a651d09dcdc4fde4366386c8b095a79919de36"
       },
       {
         "path": "src/components/SiblingPreparationWorkspace.css",
@@ -2196,7 +2200,7 @@
       },
       {
         "path": "src/siblingBatchAuthorizationInput.js",
-        "sha256": "41109b0ce82c08632c2cf53b738c972417439832d59a9af1fe7b7515158ce084"
+        "sha256": "8d0a319d34b21fdec0ebc220013732503560295a814d377596a99c25c97e1f4f"
       },
       {
         "path": "src/siblingBatchFormDefaults.js",
@@ -2820,7 +2824,7 @@
       },
       {
         "path": "tests/ci-api-boundary.test.mjs",
-        "sha256": "24ea62619d9effdad0e6aa221c6dc3611d58268a74cbce2d50d3610b8ce9c5b3"
+        "sha256": "cee4a99927eb9910e42d9da0835c615b387edcccda252383bd7ce1ce021fcd25"
       },
       {
         "path": "tests/ci-test-policy.test.mjs",
@@ -2859,8 +2863,16 @@
         "sha256": "72854720ea39988a36694d979337d02961e02f99643a86c8fc97193cc0ba8a33"
       },
       {
+        "path": "tests/d-batch-account-evidence.test.mjs",
+        "sha256": "73ad57dab0865e5e1f04ff673611ee02947b3f1cc590190cb90b94a655736f38"
+      },
+      {
+        "path": "tests/d-batch-asset-send-expiry.test.mjs",
+        "sha256": "fcfe39611bacc0d93231f86db1cc10820d8c9f09578416eff895b629b7a700c4"
+      },
+      {
         "path": "tests/d-batch-asset-transport.test.mjs",
-        "sha256": "e28019caedf9ef7373581d908d5afcefd21efc4662b8d7cc0f60e6b82df96b5b"
+        "sha256": "5c35b3a11e2e2ac9b0c76edafb7c786ad59406ccb29683f71c0160c539305c04"
       },
       {
         "path": "tests/d-batch-e-media-review.test.mjs",
@@ -2872,15 +2884,15 @@
       },
       {
         "path": "tests/d-batch-import-api.test.mjs",
-        "sha256": "47c7769bb3c2b039ecd15f617b051d1a7afbc2fb6a8baac866ceac19c06b7283"
+        "sha256": "c5f3eff8a2557d6377d53ca5e506d2924297f056d4f44f210b49712bc23aff9d"
       },
       {
         "path": "tests/d-batch-import-runtime.test.mjs",
-        "sha256": "10c7ff9f8e580ae652a084c41e71cb2ddf95e9af3bd07f2040930409cfc15e46"
+        "sha256": "65296c2ec197569eaace32f813d8eb99c62fe6c9ac7fa780a9a7b04c9e788255"
       },
       {
         "path": "tests/d-batch-import-software-service.test.mjs",
-        "sha256": "01bbdba29a50e0a6eb8090bbd1ef4cbcd597fad22e73c763ddb1a9394f260b16"
+        "sha256": "0dc38af9b5af532047364ba4639bd1655f5c5455e79353f8b275399cea16ccc6"
       },
       {
         "path": "tests/d-batch-import-state.test.mjs",
@@ -2920,7 +2932,7 @@
       },
       {
         "path": "tests/d-e-runtime-services.test.mjs",
-        "sha256": "bcb3465a5a10eac5763c89c4395a5e5bccb39d367e8fd474ad33f17ad8be604f"
+        "sha256": "8f57ae24df647d75288f7764c28983e7b819b8ed7d91d9bb2ea0ba92c29a8f8a"
       },
       {
         "path": "tests/d-e-runtime-view.test.mjs",
@@ -2932,7 +2944,7 @@
       },
       {
         "path": "tests/d-e-software-closure.test.mjs",
-        "sha256": "cc8a77403426eca2cf4021a297134316f39224724d5f617b0aee53420cfad9bd"
+        "sha256": "cd03d200f3dc03966f33ab456e6c3b494cc23f36af5400f2ff43ffc8c442c2bf"
       },
       {
         "path": "tests/d-e-software-integration.test.mjs",
@@ -3411,6 +3423,10 @@
         "sha256": "d33d2e076600c805ed68f0146fe5fa496d62b9126155f181529a49884a80d9d1"
       },
       {
+        "path": "tests/helpers/account-read-concurrency-fixture.mjs",
+        "sha256": "5a18925b5611026d3cf0edf453cf7c366d9a1812db220cbec590f9efe1863b69"
+      },
+      {
         "path": "tests/helpers/api-process-lifecycle.mjs",
         "sha256": "cf965d3a8ffece639666a6d6a7cf99a0e8adabe2459b2b0576578f4cd6bdda46"
       },
@@ -3421,6 +3437,10 @@
       {
         "path": "tests/helpers/cel-wb-workbook-fixture.mjs",
         "sha256": "8ce481cc3b95f23e16040bff54552fe4aee422109843f3358aa7b6ddd75cc19a"
+      },
+      {
+        "path": "tests/helpers/d-batch-asset-transport-fixture.mjs",
+        "sha256": "68ab756bedcb8980ef442e40b69e3fe5c4cd046a2ea0ffa3527f41a80ddaf5b1"
       },
       {
         "path": "tests/helpers/d-batch-e-fixture.mjs",
@@ -3696,7 +3716,7 @@
       },
       {
         "path": "tests/ozon-account-read-api-boundary.test.mjs",
-        "sha256": "9108f088d0f6beb3d32f4f4ae89d4d329b66b30c448cbf2d3e60ddf781b9e395"
+        "sha256": "1bfc018b6b42b4b574c49bcfed74d40e8b2accb85cbe26da6fe9a1c1257db39e"
       },
       {
         "path": "tests/ozon-account-read-api.test.mjs",
@@ -3704,15 +3724,15 @@
       },
       {
         "path": "tests/ozon-account-read-integration.test.mjs",
-        "sha256": "477fdaef24cd78d3d4762c12f8d7373706c48f9851178ec6f8298f18dbd1b9bb"
+        "sha256": "b5f6eea19b1989462f7cb0f7d9396133954da98f2fea0a95834286ef929c28e7"
       },
       {
         "path": "tests/ozon-account-read-runtime.test.mjs",
-        "sha256": "cba73ba333c38424d31a02a96050d98911ea807ce8117d4b53640728ea47e95d"
+        "sha256": "3cc58bd98c88b5245566571981b0f7228c3947ac140214af35fe48ce0814905b"
       },
       {
         "path": "tests/ozon-account-read-ui.test.mjs",
-        "sha256": "d90906003fb5f326ab9eca036d53a1c0aa455ec09087d19f1788abf5cabda913"
+        "sha256": "139b5186421f7d85a2756c336215059dbec542431f970efb58b2b57a724da4b5"
       },
       {
         "path": "tests/ozon-category-read-step.test.mjs",
@@ -3860,7 +3880,7 @@
       },
       {
         "path": "tests/platform-write-preflight.test.mjs",
-        "sha256": "68cff7bb9402171dca428d27e9f9b71330f2fdb7e22fad54b74e43f875ad2008"
+        "sha256": "586cdd518d400aca6e1ec73be94085aff720fea0ad400dfa36b4342ca7df9ae1"
       },
       {
         "path": "tests/post-launch-observation.test.mjs",
@@ -4104,7 +4124,7 @@
       },
       {
         "path": "tests/sibling-batch-authorization-input.test.mjs",
-        "sha256": "def1baaa38f7463030df226f9fe778a4d30bb37f9b826429b9271747464e86b3"
+        "sha256": "79fb7d24ea25549b080139712ff000aaad6db9be1323dd93dc1e630f0a8caf7c"
       },
       {
         "path": "tests/sibling-batch-c1-preparation.test.mjs",
@@ -7529,6 +7549,7 @@
         "lib/ozon-de-preflight-evidence-reader.mjs",
         "lib/ozon-account-read-api.mjs",
         "lib/ozon-account-read-contract.mjs",
+        "lib/ozon-account-read-coordination.mjs",
         "lib/ozon-account-read-runtime.mjs",
         "lib/ozon-account-read-preparation.mjs",
         "lib/ozon-account-read-evidence.mjs",
@@ -7548,6 +7569,7 @@
         "tests/ozon-account-read-integration.test.mjs",
         "tests/ozon-account-read-api-boundary.test.mjs",
         "tests/ozon-account-read-ui.test.mjs",
+        "tests/helpers/account-read-concurrency-fixture.mjs",
         "lib/d-e-software-job-admission.mjs",
         "lib/d-e-software-job-handoff.mjs",
         "lib/d-e-software-job-results.mjs",
@@ -7634,6 +7656,9 @@
         "tests/d-batch-import-runtime.test.mjs",
         "tests/d-batch-import-software-service.test.mjs",
         "tests/d-batch-asset-transport.test.mjs",
+        "tests/d-batch-account-evidence.test.mjs",
+        "tests/d-batch-asset-send-expiry.test.mjs",
+        "tests/helpers/d-batch-asset-transport-fixture.mjs",
         "tests/d-batch-offer-readback.test.mjs",
         "tests/d-batch-in-sale-software-service.test.mjs",
         "tests/d-batch-e-media-review.test.mjs",

@@ -15,6 +15,8 @@ import { projectDBatchExecutionView } from '../lib/d-batch-execution-view.mjs';
 import { deSoftwareJobScopeFixture } from './fixtures/d-e-software-job-scope-fixture.mjs';
 import { validateProductionRecord } from '../lib/production-record-contract.mjs';
 import { loadOzonProductImportBatchLimitFact, createOzonProductImportBatchLimitUse } from '../lib/ozon-product-import-batch-limit.mjs';
+import { ozonAccountReadCoordinationState } from '../lib/ozon-account-read-coordination.mjs';
+import { accountReadConcurrencyFixture, waitForAccountReadBoundary } from './helpers/account-read-concurrency-fixture.mjs';
 
 const at = '2026-08-22T07:25:00.000Z';
 const observationPolicy = { schemaVersion: 'd-platform-observation-policy-v1',
@@ -25,7 +27,7 @@ const binding = { warehouseRef: 'warehouse:synthetic:dandanshu', credentialAlias
 async function fixture({ failReceipt = false, createAdapterFailures = 0, observationItems = null, count = 2,
   inventoryAction = null, maxItemsPerRequest = null, failImportCall = null,
   expireLimitAfterIntentChunk = null, failPrewriteCheckpoint = false,
-  importFailure = null, beforeImportResponse = null, beforeSendFailure = null, scopedLimit = false } = {}) {
+  importFailure = null, beforeImportResponse = null, beforeSendFailure = null, scopedLimit = false, beforeAdapter = null } = {}) {
   let currentTime = scopedLimit ? '2026-10-18T13:15:00.000Z' : at;
   const colors = count === 2 ? ['white', 'black'] : ['black', 'navy', 'khaki'];
   const sources = [];
@@ -126,6 +128,7 @@ async function fixture({ failReceipt = false, createAdapterFailures = 0, observa
         job.chunks.some(chunk => chunk.status === 'intent'))) throw beforeSendFailure;
     },
     createAdapter: async () => {
+      if (beforeAdapter) await beforeAdapter();
       if (remainingAdapterFailures > 0) { remainingAdapterFailures--; throw new Error('synthetic adapter startup failure'); }
       const adapter = createStoreIsolatedOzonSellerApiDEAdapter({ adapterCapabilities: capability,
       requestJson: async (request, options) => {
@@ -153,10 +156,97 @@ async function fixture({ failReceipt = false, createAdapterFailures = 0, observa
           }}) };
     } });
   const runtime = createPersistedDBatchImportRuntime(runtimeOptions());
-  return { repository, runtime, members, capability, calls, workerRegistry,
+  return { repository, runtime, members, capability, calls, workerRegistry, clock:()=>currentTime,
     restartRuntime:(registry=workerRegistry,runtimeRepository=repository)=>createPersistedDBatchImportRuntime({...runtimeOptions(runtimeRepository),workerRegistry:registry}),
     setTime: value => { currentTime = value; } };
 }
+
+async function accountForImportBatch(f, options={}) {
+  const document=await f.repository.readSnapshot(),candidate=document.candidates[1];
+  return accountReadConcurrencyFixture({repository:f.repository,clock:f.clock,candidateId:candidate.id,
+    productionBinding:f.members[1].executionContext.currentProductionBinding,...options});
+}
+async function importInputWithAccountState(f) {
+  const document=await f.repository.readSnapshot();
+  return {batchId:'d-batch:synthetic',members:f.members,adapterCapabilities:f.capability,workerId:'worker:batch-synthetic',
+    accountReadState:ozonAccountReadCoordinationState({document,candidateIds:document.runtime.dProductionBatches[0].members.map(member=>member.candidateId)})};
+}
+
+test('batch import cannot omit its prepared account source once real account reads exist',async()=>{
+  const f=await fixture(),account=await accountForImportBatch(f);await account.run();
+  const before=await f.repository.readSnapshot(),input=await importInputWithAccountState(f);delete input.accountReadState;
+  await assert.rejects(()=>f.runtime.run(input),/D_BATCH_IMPORT_ACCOUNT_READ_SOURCE_REQUIRED/);
+  assert.deepEqual(await f.repository.readSnapshot(),before);assert.deepEqual(f.calls,[]);
+});
+
+for(const status of ['queued','unknown_outcome'])test(`batch import admission rejects a real ${status} account read with no lease or intent`,async()=>{
+  const f=await fixture(),account=await accountForImportBatch(f,{responseMode:status==='unknown_outcome'?'unknown':'observed'});
+  const read=status==='queued'?await account.enqueue():await account.run();assert.equal(read.status,status);
+  const before=await f.repository.readSnapshot(),input=await importInputWithAccountState(f);
+  await assert.rejects(()=>f.runtime.run(input),/D_BATCH_IMPORT_ACCOUNT_READ_BLOCKED/);
+  assert.deepEqual(await f.repository.readSnapshot(),before);assert.deepEqual(f.calls,[]);
+});
+
+test('batch import admission prevents an expired refresh while its first adapter is still pending',async()=>{
+  const entered=Promise.withResolvers(),release=Promise.withResolvers();
+  const f=await fixture({beforeAdapter:async()=>{entered.resolve();await release.promise;}}),account=await accountForImportBatch(f);
+  const expiry=new Date(Date.parse(f.clock())+1000).toISOString(),completed=await account.run({expiresAt:expiry});await account.publish(completed);
+  const running=f.runtime.run(await importInputWithAccountState(f));
+  await waitForAccountReadBoundary(entered.promise,running,release.resolve);
+  try{
+    f.setTime(expiry);
+    const before=await f.repository.readSnapshot();assert.equal(before.runtime.dBatchImportJobs.length,1);assert.deepEqual(f.calls,[]);
+    await assert.rejects(()=>account.enqueue({refreshOfJobId:completed.job.jobId,idempotencyKey:'account:refresh:after-import-admission'}),
+      {code:'OZON_ACCOUNT_READ_REFRESH_PRODUCTION_BUSY'});
+    assert.deepEqual(await f.repository.readSnapshot(),before);assert.equal(account.requests.length,3);
+  }finally{release.resolve();await running;}
+});
+
+for(const expiresFirst of ['grant','roles'])test(`batch import preparation crossing ${expiresFirst} expiry creates no job or intent and preserves refresh`,async()=>{
+  const f=await fixture(),account=await accountForImportBatch(f),expiry=new Date(Date.parse(f.clock())+1000).toISOString();
+  if(expiresFirst==='roles')account.responses['/v1/roles'].expires_at=expiry;
+  const completed=await account.run(expiresFirst==='grant'?{expiresAt:expiry}:{});await account.publish(completed);
+  const before=await f.repository.readSnapshot(),prepared=await importInputWithAccountState(f);
+  const entered=Promise.withResolvers(),release=Promise.withResolvers();let paused=false;
+  const guardedRepository={...f.repository,transact:async mutator=>{
+    if(!paused){paused=true;entered.resolve();await release.promise;}
+    return f.repository.transact(mutator);
+  }};
+  const running=f.restartRuntime(f.workerRegistry,guardedRepository).run(prepared);
+  await waitForAccountReadBoundary(entered.promise,running,release.resolve);
+  f.setTime(expiry);release.resolve();
+  await assert.rejects(running,/D_BATCH_IMPORT_ACCOUNT_EVIDENCE_NOT_CURRENT/);
+  assert.deepEqual(await f.repository.readSnapshot(),before);assert.deepEqual(f.calls,[]);
+  const refreshed=await account.enqueue({refreshOfJobId:completed.job.jobId,idempotencyKey:`account:refresh:expired-${expiresFirst}-during-import`});
+  assert.equal(refreshed.status,'queued');assert.equal(account.requests.length,3);
+  const after=await f.repository.readSnapshot();assert.deepEqual(after.candidates,before.candidates);
+  assert.deepEqual(after.runtime.dProductionBatches,before.runtime.dProductionBatches);
+  assert.deepEqual(after.runtime.ozonAccountReadReceipts,before.runtime.ozonAccountReadReceipts);
+  assert.deepEqual(after.runtime.ozonDEPreflightEvidence,before.runtime.ozonDEPreflightEvidence);
+  assert.equal(after.runtime.dBatchImportJobs,undefined);
+});
+
+test('a completed-to-failed account refresh between import preparation and admission rejects the stale source atomically',async()=>{
+  const f=await fixture(),account=await accountForImportBatch(f),expiry=new Date(Date.parse(f.clock())+1000).toISOString();
+  const completed=await account.run({expiresAt:expiry});await account.publish(completed);
+  const prepared=await importInputWithAccountState(f),entered=Promise.withResolvers(),release=Promise.withResolvers();let paused=false;
+  const guardedRepository={...f.repository,transact:async mutator=>{
+    if(!paused){paused=true;entered.resolve();await release.promise;}
+    return f.repository.transact(mutator);
+  }};
+  const running=f.restartRuntime(f.workerRegistry,guardedRepository).run(prepared);
+  await waitForAccountReadBoundary(entered.promise,running,release.resolve);
+  let before;
+  try{
+    f.setTime(expiry);
+    const retry=await accountForImportBatch(f,{responseMode:'unavailable'});
+    const failed=await retry.run({refreshOfJobId:completed.job.jobId,idempotencyKey:'account:refresh:during-import-prepare'});
+    assert.equal(failed.status,'failed');assert.equal(retry.requests.length,1);
+    before=await f.repository.readSnapshot();assert.equal(before.runtime.dBatchImportJobs,undefined);
+  }finally{release.resolve();}
+  await assert.rejects(running,/D_BATCH_IMPORT_ACCOUNT_READ_CHANGED/);
+  assert.deepEqual(await f.repository.readSnapshot(),before);assert.deepEqual(f.calls,[]);
+});
 
 test('new batch keeps one import job after JSON reopen and cannot replay its adoption',async t=>{
   const f=await fixture({scopedLimit:true,createAdapterFailures:1,inventoryAction:'create_only'});

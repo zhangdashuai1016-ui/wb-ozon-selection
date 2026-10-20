@@ -86,6 +86,8 @@ export const SUBPROCESS_TESTS = Object.freeze([
 // These tests instrument network clients to prove that local domain work never uses them.
 // They make no requests and start no servers, but still run inside the isolated runner.
 export const OFFLINE_NETWORK_BOUNDARY_TESTS = Object.freeze([
+  "d-batch-account-evidence.test.mjs",
+  "d-batch-asset-send-expiry.test.mjs",
   "sibling-local-evidence-provider.test.mjs",
   "owner-target-price-flow.test.mjs",
   "sibling-owner-target-price.test.mjs",

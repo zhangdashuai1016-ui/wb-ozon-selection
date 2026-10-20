@@ -13,7 +13,7 @@ import {
   fingerprintProductionPlan,
   validateProductionPlanAuthorizationBinding
 } from "./production-plan.mjs";
-import { assertCurrentPlatformWritePreflight, assertCurrentProductionExecutionBinding, assertCurrentDExecutionContext, isStoreIdentityAnchored } from "./platform-write-preflight.mjs";
+import { assertCurrentPlatformWritePreflight, assertCurrentProductionExecutionBinding, assertCurrentDExecutionContext, platformWritePreflightExecutionGaps } from "./platform-write-preflight.mjs";
 import { buildOzonSellerImportRequest } from "./ozon-seller-api-production-adapter.mjs";
 import { resolveFinalUploads as resolveOzonFinalUploads } from "./ozon-seller-api-de-adapter.mjs";
 import { formatDReadbackMismatchReason } from "./production-execution-failure.mjs";
@@ -59,28 +59,6 @@ function deepFreeze(value) {
 
 function gap(code, field, message) {
   return { code, field, message };
-}
-
-function validPreflight(plan, inputs, preflight, gaps) {
-  if (preflight.sourceProductionPlanId !== plan.planId ||
-      preflight.sourceProductionPlanFingerprint !== fingerprintProductionPlan(plan)) {
-    gaps.push(gap("preflight_stale", "platformWritePreflight", "前检不属于当前ProductionPlan"));
-  }
-  // 同 draft 写入口：仓库反推下 observedStoreRef 恒为 null，身份靠 verifiedVia 那条锚成立；其余路径不变。
-  if (preflight.targetPlatform !== inputs.platform || preflight.storeIdentity.expectedStore !== inputs.store ||
-      preflight.storeIdentity.observedStore !== inputs.store || preflight.storeIdentity.status !== "matched" ||
-      !sameStoreRef(preflight.storeIdentity.expectedStoreRef, inputs.storeRef) ||
-      !isStoreIdentityAnchored({ via: preflight.storeIdentity.verifiedVia, observedStoreRef: preflight.storeIdentity.observedStoreRef, expectedStoreRef: inputs.storeRef })) {
-    gaps.push(gap("store_identity_not_ready", "platformWritePreflight.storeIdentity", "Seller API店铺身份未与授权店铺一致"));
-  }
-  if (preflight.permission.status !== "verified" || preflight.connectionStatus.api.status !== "connected") {
-    gaps.push(gap("seller_api_not_ready", "platformWritePreflight.connectionStatus.api", "Seller API权限或连接未验证"));
-  }
-  if (preflight.priceCurrency.status !== "matched" || preflight.priceCurrency.expected !== "CNY") {
-    gaps.push(gap("price_currency_not_ready", "platformWritePreflight.priceCurrency", "Ozon中国卖家写入币种必须验证为CNY"));
-  }
-  const missing = REQUIRED_WRITE_FIELDS.filter((field) => !preflight.effectiveWritableFields.includes(field));
-  if (missing.length > 0) gaps.push(gap("write_fields_not_ready", "platformWritePreflight.effectiveWritableFields", `平台当前不可写：${missing.join(",")}`));
 }
 
 function resolveAssets(plan, capabilities, gaps) {
@@ -141,7 +119,7 @@ export function prepareSingleSkuDExecution({
   if (!Number.isSafeInteger(inputs.stock) || inputs.stock < 0) gaps.push(gap("stock_not_locked", "stock", "新品库存必须由授权快照锁定为非负整数"));
   const missingFields = REQUIRED_WRITE_FIELDS.filter((field) => !inputs.allowedWriteFields.includes(field));
   if (missingFields.length > 0) gaps.push(gap("authorization_write_scope_incomplete", "allowedWriteFields", `主人授权未覆盖：${missingFields.join(",")}`));
-  validPreflight(productionPlan, inputs, platformWritePreflight, gaps);
+  gaps.push(...platformWritePreflightExecutionGaps({ productionPlan, platformWritePreflight, requiredWriteFields: REQUIRED_WRITE_FIELDS }));
   validateCapabilities(inputs, adapterCapabilities, gaps);
   if (adapterCapabilities?.inventoryWrite?.warehouseId !== executionBinding.warehouseId) {
     gaps.push(gap("authorized_warehouse_mismatch", "adapterCapabilities.inventoryWrite.warehouseId", "库存接口仓库不属于主人冻结的生产配置"));

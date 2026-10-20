@@ -206,6 +206,143 @@ test('completed evidence never becomes a refresh permission, even after it expir
  }
  assert.equal(f.calls,3);
 });
+
+function refreshInput(f, job, changes = {}) {
+ return {...f.input, idempotencyKey:'owner-read:explicit-refresh', expiresAt:'2026-09-10T00:00:00.000Z',
+  refreshOfJobId:job.jobId, ...changes};
+}
+
+for (const expirySource of ['grant','roles']) test(`explicit refresh uses the earlier ${expirySource} expiry and appends a new one-use read`,async()=>{
+ const due=expirySource==='grant'?frozenGrantExpiry():'2026-09-08T00:30:00.000Z';
+ const f=setup({request:async(req,options,{calls})=>{
+  await options.beforeRequestSend();
+  const value=structuredClone(responses[req.endpoint]);
+  if(expirySource==='roles'&&calls===1)value.expires_at=due;
+  return value;
+ }});
+ const original=await run(f),before=await f.repository.readSnapshot(),input=refreshInput(f,original.job);
+ f.setNow(new Date(Date.parse(due)-1).toISOString());
+ await assert.rejects(()=>f.runtime.authorizeAndEnqueue({actor,input}),{code:'OZON_ACCOUNT_READ_REFRESH_NOT_DUE'});
+ assert.deepEqual(await f.repository.readSnapshot(),before);assert.equal(f.calls,3);
+ f.setNow(due);
+ const fresh=await f.runtime.authorizeAndEnqueue({actor,input});
+ assert.equal(fresh.status,'queued');assert.notEqual(fresh.job.jobId,original.job.jobId);assert.equal(f.calls,3);
+ let document=await f.repository.readSnapshot();
+ assert.deepEqual(document.candidates,before.candidates);
+ assert.deepEqual(document.runtime.softwareJobs[0],before.runtime.softwareJobs[0]);
+ assert.deepEqual(document.runtime.ozonAccountReadReceipts[original.job.jobId],before.runtime.ozonAccountReadReceipts[original.job.jobId]);
+ assert.deepEqual(document.runtime.softwareJobAuthorizationRecords[0],before.runtime.softwareJobAuthorizationRecords[0]);
+ assert.deepEqual(document.runtime.softwareJobCredentialBindings[0],before.runtime.softwareJobCredentialBindings[0]);
+ assert.equal(document.runtime.softwareJobAuthorizationRecords.length,2);
+ assert.equal(document.runtime.softwareJobAuthorizationRecords[1].useCount,1);
+ assert.equal(document.runtime.softwareJobAuthorizationRecords[1].consumedByJobId,fresh.job.jobId);
+ const complete=await f.runtime.continueSaved({candidateId:f.input.candidateId,jobId:fresh.job.jobId,expectedRevision:0});
+ assert.equal(complete.status,'completed');assert.equal(complete.requestsSent,3);assert.equal(f.calls,6);
+ document=await f.repository.readSnapshot();
+ assert.equal(document.runtime.softwareJobAuthorizationRecords[1].useCount,1);
+ assert.equal(document.runtime.softwareJobs.filter(job=>job.jobType==='d_production_execution').length,0);
+ assert.equal((await f.runtime.authorizeAndEnqueue({actor,input})).job.jobId,fresh.job.jobId);
+ assert.equal((await f.runtime.authorizeAndEnqueue({actor,input:f.input})).job.jobId,original.job.jobId);
+ assert.deepEqual(await f.repository.readSnapshot(),document);assert.equal(f.calls,6);
+ const {loadPublishedSchemaValidator}=await import('./helpers/published-schema-validator.mjs'),validator=await loadPublishedSchemaValidator();
+ for(const [schema,value] of [['software-job-v1.schema.json',complete.job],['ozon-account-read-v1.schema.json#/$defs/receipt',complete.receipt],
+  ['software-job-admission-v1.schema.json#/$defs/softwareJobAuthorizationRecord',document.runtime.softwareJobAuthorizationRecords[1]],
+  ['software-job-admission-v1.schema.json#/$defs/softwareJobCredentialBinding',document.runtime.softwareJobCredentialBindings[1]]]){
+  const validate=validator.getSchema(schema);assert.equal(validate(value),true,JSON.stringify(validate.errors));
+ }
+});
+function frozenGrantExpiry(){return '2026-09-08T01:00:00.000Z';}
+
+test('explicit refresh requires authenticated human identity and the exact latest completed job without changing old permission',async()=>{
+ const f=setup(),original=await run(f);f.setNow(frozenGrantExpiry());
+ const before=await f.repository.readSnapshot();
+ for(const untrusted of [{...actor,source:'local_development'},{...actor,actorType:'service'}])
+  await assert.rejects(()=>f.runtime.authorizeAndEnqueue({actor:untrusted,input:refreshInput(f,original.job)}),
+   {code:'OZON_ACCOUNT_READ_AUTHENTICATED_OWNER_REQUIRED'});
+ await assert.rejects(()=>f.runtime.authorizeAndEnqueue({actor,input:refreshInput(f,original.job,{refreshOfJobId:'account-read-job:unrelated'})}),
+  {code:'OZON_ACCOUNT_READ_REFRESH_TARGET_CONFLICT'});
+ await assert.rejects(()=>f.runtime.authorizeAndEnqueue({actor,input:refreshInput(f,original.job,{refreshOfJobId:''})}),
+  {code:'OZON_ACCOUNT_READ_INPUT_INVALID'});
+ assert.deepEqual(await f.repository.readSnapshot(),before);assert.equal(f.calls,3);
+});
+
+test('explicit refresh preserves existing authenticated owner and operator read permissions',async()=>{
+ for(const role of ['owner','operator']){
+  const f=setup(),original=await run(f);f.setNow(frozenGrantExpiry());
+  const permitted={...actor,userId:`${role}:1`,roles:[role]};
+  const result=await f.runtime.authorizeAndEnqueue({actor:permitted,input:refreshInput(f,original.job)});
+  assert.equal(result.status,'queued');assert.equal(f.calls,3);
+  const document=await f.repository.readSnapshot();
+  assert.equal(document.runtime.softwareJobAuthorizationRecords.at(-1).authorizedByUserId,permitted.userId);
+ }
+});
+
+test('explicit refresh rejects damaged completed source instead of repairing its receipt, grant or credential',async()=>{
+ const cases=[
+  document=>{delete document.runtime.ozonAccountReadReceipts[document.runtime.softwareJobs[0].jobId];},
+  document=>{document.runtime.softwareJobAuthorizationRecords=[];},
+  document=>{document.runtime.softwareJobCredentialBindings=[];},
+  document=>{document.runtime.ozonAccountReadReceipts[document.runtime.softwareJobs[0].jobId].steps[2].result.facts.warehouses[0].warehouseId='999999';}
+ ];
+ for(const damage of cases){
+  const f=setup(),original=await run(f);f.setNow(frozenGrantExpiry());
+  await f.repository.transact(document=>{damage(document);return {changed:true,document};});
+  const before=await f.repository.readSnapshot();
+  await assert.rejects(()=>f.runtime.authorizeAndEnqueue({actor,input:refreshInput(f,original.job)}),
+   {code:'OZON_ACCOUNT_READ_REFRESH_SOURCE_INVALID'});
+  assert.deepEqual(await f.repository.readSnapshot(),before);assert.equal(f.calls,3);
+ }
+});
+
+test('concurrent explicit refresh clicks create one new grant and job, with no request during authorization',async()=>{
+ const f=setup(),original=await run(f);f.setNow(frozenGrantExpiry());
+ const input=refreshInput(f,original.job);
+ const outcomes=await Promise.allSettled([f.runtime.authorizeAndEnqueue({actor,input}),
+  f.runtime.authorizeAndEnqueue({actor,input:{...input,idempotencyKey:'owner-read:concurrent-refresh'}})]);
+ assert.equal(outcomes.filter(value=>value.status==='fulfilled').length,1);
+ assert.equal(outcomes.find(value=>value.status==='rejected').reason.code,'OZON_ACCOUNT_READ_SCOPE_ALREADY_AUTHORIZED');
+ const fresh=outcomes.find(value=>value.status==='fulfilled').value;
+ assert.equal(fresh.status,'queued');assert.equal(f.calls,3);
+ const document=await f.repository.readSnapshot();
+ assert.equal(document.runtime.softwareJobs.length,2);assert.equal(document.runtime.softwareJobAuthorizationRecords.length,2);
+ await Promise.all([f.runtime.continueSaved({candidateId:f.input.candidateId,jobId:fresh.job.jobId,expectedRevision:0}),
+  f.runtime.continueSaved({candidateId:f.input.candidateId,jobId:fresh.job.jobId,expectedRevision:0})]);
+ assert.equal(f.calls,6);
+});
+
+test('a failed explicit refresh permits a fresh known-failure authorization without reviving expired success',async()=>{
+ const f=setup({request:async(req,options,{calls})=>{await options.beforeRequestSend();return calls===4?{}:structuredClone(responses[req.endpoint]);}});
+ const original=await run(f);f.setNow(frozenGrantExpiry());
+ const fresh=await f.runtime.authorizeAndEnqueue({actor,input:refreshInput(f,original.job)});
+ const failed=await f.runtime.continueSaved({candidateId:f.input.candidateId,jobId:fresh.job.jobId,expectedRevision:0});
+ assert.equal(failed.status,'failed');assert.equal(failed.requestsSent,1);assert.equal(f.calls,4);
+ const before=await f.repository.readSnapshot();f.setNow('2026-09-08T01:00:00.001Z');
+ await assert.rejects(()=>f.runtime.authorizeAndEnqueue({actor,input:refreshInput(f,original.job,{idempotencyKey:'owner-read:stale-refresh'})}),
+  {code:'OZON_ACCOUNT_READ_REFRESH_TARGET_CONFLICT'});
+ assert.deepEqual(await f.repository.readSnapshot(),before);
+ const retry=await f.runtime.authorizeAndEnqueue({actor,input:{...f.input,expiresAt:'2026-09-10T00:00:00.000Z',idempotencyKey:'owner-read:after-known-failure'}});
+ const completed=await f.runtime.continueSaved({candidateId:f.input.candidateId,jobId:retry.job.jobId,expectedRevision:0});
+ assert.equal(completed.status,'completed');assert.equal(f.calls,7);
+ const after=await f.repository.readSnapshot();assert.equal(after.runtime.softwareJobs.length,3);
+ assert.deepEqual(after.runtime.softwareJobs.slice(0,2),before.runtime.softwareJobs);
+ for(const job of before.runtime.softwareJobs)assert.deepEqual(after.runtime.ozonAccountReadReceipts[job.jobId],before.runtime.ozonAccountReadReceipts[job.jobId]);
+});
+
+test('expiry and a refresh target cannot reopen an unknown account outcome, including after PA revision progress',async()=>{
+ const {OzonDEHttpTransportError}=await import('../lib/ozon-de-http-configuration.mjs');
+ for(const afterPA of [false,true]){
+  const f=setup({request:async(req,options)=>{await options.beforeRequestSend();throw new OzonDEHttpTransportError('OZON_DE_HTTP_TIMEOUT',
+   {externalRequestState:'unknown_outcome',requestTransmission:'attempted'});}}),original=await run(f);
+  if(afterPA)await persistSyntheticPA(f);
+  f.setNow('2026-09-09T00:00:00.000Z');const before=await f.repository.readSnapshot();
+  for(const extra of [{},{refreshOfJobId:original.job.jobId}]){
+   await assert.rejects(()=>f.runtime.authorizeAndEnqueue({actor,input:{...f.input,...extra,expectedRevision:afterPA?1:0,
+    expiresAt:'2026-09-10T00:00:00.000Z',idempotencyKey:`owner-read:unknown-refresh:${Object.keys(extra).length}`}}),
+   {code:'OZON_ACCOUNT_READ_OUTCOME_RECONCILIATION_REQUIRED'});
+   assert.deepEqual(await f.repository.readSnapshot(),before);assert.equal(f.calls,1);
+  }
+ }
+});
 test('a known failed read permits a new explicit one-use authorization and preserves the failed history',async()=>{
  const f=setup({request:async(req,options,{calls})=>{await options.beforeRequestSend();return calls===1?{}:structuredClone(responses[req.endpoint]);}});
  const failed=await run(f);assert.equal(failed.status,'failed');const before=await f.repository.readSnapshot();

@@ -1,3 +1,4 @@
+import { ozonAccountReadCoordinationState, ozonAccountReadProductionBlocker } from './ozon-account-read-coordination.mjs';
 import { A_SUPPLIER_IMAGE_SEARCH_JOB_TYPE, assertASupplierImageSearchScope, assertASupplierImageSearchSource, assertASupplierImageSearchAuthorization, assertASupplierImageSearchCredential } from "./a-supplier-image-search-contract.mjs";
 import { A_PRODUCT_DETAIL_JOB_TYPE, assertAProductDetailScope, assertAProductDetailCandidateSource, assertAProductDetailAuthorization, assertAProductDetailCredential } from "./a-product-detail-contract.mjs";
 import { A_DISCOVERY_JOB_TYPE, assertADiscoveryScope, assertADiscoveryBatchSource,
@@ -814,6 +815,10 @@ export function validateSoftwareJobAdmission({ document, job, observedAt, phase,
   if(job.jobType===D_PLATFORM_OBSERVATION_JOB_TYPE)return createDPlatformObservationAdmission({document,job,worker,executionBinding,phase,observedAt:observed});
   const candidate = candidateForJob(document, job);
   if (isDESoftwareJob(job)) {
+    if (job.jobType === 'd_production_execution' && ['claim', 'external_request'].includes(phase) &&
+        ozonAccountReadProductionBlocker(ozonAccountReadCoordinationState({ document, candidateIds: [job.candidateId] }))) {
+      throw new Error('SOFTWARE_JOB_ADMISSION_ACCOUNT_READ_BLOCKED');
+    }
     return createDEJobAdmissionDecision({ candidate, job, observedAt: observed, phase, worker, executionBinding });
   }
   const expectedRevision = phase === "enqueue_before_candidate_commit" ? job.scopeBinding.sourceRevision : job.revision;

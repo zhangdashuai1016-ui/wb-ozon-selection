@@ -1,3 +1,4 @@
+import { ozonAccountReadCoordinationState } from './ozon-account-read-coordination.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { createProductionPlan } from './production-plan.mjs';
 import { runPlatformWritePreflight } from './platform-write-preflight.mjs';
@@ -247,7 +248,8 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
       platformWritePreflight: preflight, adapterCapabilities: evidence.capabilities,
       ...grouping, sourceTechnicalStatus: 'not_started', observationPolicy });
     }
-    return { batch, members, adapterCapabilities: combineCapabilities(members,batch,serverClock()), workerId };
+    return { batch, members, adapterCapabilities: combineCapabilities(members,batch,serverClock()), workerId,
+      accountReadState: ozonAccountReadCoordinationState({ document, candidateIds: batch.members.map(member => member.candidateId) }) };
   }
   function observationSource(document,batchId,chunkIndex){
     const batch = savedBatch(document, batchId);
@@ -956,7 +958,7 @@ export function createDBatchImportSoftwareService({ repository, runtimeMode, wor
       if(assets.status!=='verified')return {...assets,executionStage:'asset_transport'};
       const ready = await prepare(batchId);
       const result=await runtime.run({ batchId, members: ready.members, adapterCapabilities: ready.adapterCapabilities,
-        workerId: ready.workerId });
+        workerId: ready.workerId, accountReadState: ready.accountReadState });
       return result;
     },
     async resumeAuthorizedBatchContinuations({batchId}){

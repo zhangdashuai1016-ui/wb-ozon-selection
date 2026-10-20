@@ -40,7 +40,7 @@ test("API test inventory contains every separately isolated suite once", () => {
 });
 
 test("offline network boundary suites are separately classified and retain real zero-call tripwires", async () => {
-  assert.deepEqual(OFFLINE_NETWORK_BOUNDARY_TESTS, ["sibling-local-evidence-provider.test.mjs",
+  assert.deepEqual(OFFLINE_NETWORK_BOUNDARY_TESTS, ["d-batch-account-evidence.test.mjs", "d-batch-asset-send-expiry.test.mjs", "sibling-local-evidence-provider.test.mjs",
     "owner-target-price-flow.test.mjs", "sibling-owner-target-price.test.mjs"]);
   assert.equal(Object.isFrozen(OFFLINE_NETWORK_BOUNDARY_TESTS), true);
   for (const file of OFFLINE_NETWORK_BOUNDARY_TESTS) {

@@ -8,7 +8,7 @@ import { assertCurrentProductionAuthorization } from "./production-authorization
 import { isRuntimeConfigurationTimestamp, normalizeProductionBindings } from "./runtime-configuration.mjs";
 import { ozonProductionConnectionRequirements } from "./ozon-production-strategy.mjs";
 
-import { PLATFORM_WRITE_PREFLIGHT_VERSION, STORE_IDENTITY_PATHS, assertValidPlatformWritePreflight, canStoreIdentityPathAnchor, isStoreIdentityAnchored, platformWritePreflightTechnicalStatus } from "./platform-write-preflight-contract.mjs";
+import { PLATFORM_WRITE_PREFLIGHT_VERSION, STORE_IDENTITY_PATHS, assertValidPlatformWritePreflight, assertCurrentPlatformWritePreflight, canStoreIdentityPathAnchor, isStoreIdentityAnchored, platformWritePreflightTechnicalStatus } from "./platform-write-preflight-contract.mjs";
 export { PLATFORM_WRITE_PREFLIGHT_VERSION, validatePlatformWritePreflight, assertValidPlatformWritePreflight, assertCurrentPlatformWritePreflight, isStoreIdentityAnchored } from "./platform-write-preflight-contract.mjs";
 /** Checks the current non-secret configuration against the owner's frozen execution scope. */
 export function assertCurrentProductionExecutionBinding({ productionAuthorization, currentProductionBinding, checkedAt }) {
@@ -139,6 +139,37 @@ function validateInspection(inspection) {
     throw new Error("PLATFORM_PREFLIGHT_INSPECTION_INVALID: 平台价格字段币种检查不完整");
   }
   if (!Array.isArray(inspection.risks)) throw new Error("PLATFORM_PREFLIGHT_INSPECTION_INVALID: 风险必须是数组");
+}
+
+/** Execution uses the normalized conclusions; explanatory risks remain in the evidence unchanged. */
+export function platformWritePreflightExecutionGaps({ productionPlan, platformWritePreflight, requiredWriteFields }) {
+  assertValidProductionPlan(productionPlan);
+  assertCurrentPlatformWritePreflight(platformWritePreflight);
+  if (!stringArray(requiredWriteFields) || requiredWriteFields.length === 0 ||
+      new Set(requiredWriteFields).size !== requiredWriteFields.length) throw new Error("PLATFORM_PREFLIGHT_REQUIRED_WRITE_FIELDS_INVALID");
+  const inputs = projectProductionPlanInputs(productionPlan), preflight = platformWritePreflight;
+  const gaps = [], add = (code, field, message) => gaps.push({ code, field, message });
+  if (preflight.sourceProductionPlanId !== productionPlan.planId ||
+      preflight.sourceProductionPlanFingerprint !== fingerprintProductionPlan(productionPlan)) {
+    add("preflight_stale", "platformWritePreflight", "前检不属于当前ProductionPlan");
+  }
+  if (preflight.targetPlatform !== inputs.platform || preflight.storeIdentity.expectedStore !== inputs.store ||
+      preflight.storeIdentity.observedStore !== inputs.store || preflight.storeIdentity.status !== "matched" ||
+      !sameStoreRef(preflight.storeIdentity.expectedStoreRef, inputs.storeRef) ||
+      !isStoreIdentityAnchored({ via: preflight.storeIdentity.verifiedVia, observedStoreRef: preflight.storeIdentity.observedStoreRef, expectedStoreRef: inputs.storeRef })) {
+    add("store_identity_not_ready", "platformWritePreflight.storeIdentity", "Seller API店铺身份未与授权店铺一致");
+  }
+  if (preflight.permission.status !== "verified" || preflight.connectionStatus.api.status !== "connected") {
+    add("seller_api_not_ready", "platformWritePreflight.connectionStatus.api", "Seller API权限或连接未验证");
+  }
+  if (preflight.priceCurrency.status !== "matched" || preflight.priceCurrency.expected !== "CNY") {
+    add("price_currency_not_ready", "platformWritePreflight.priceCurrency", "Ozon中国卖家写入币种必须验证为CNY");
+  }
+  const missing = requiredWriteFields.filter(field => !preflight.effectiveWritableFields.includes(field));
+  if (missing.length > 0) add("write_fields_not_ready", "platformWritePreflight.effectiveWritableFields", `平台当前不可写：${missing.join(",")}`);
+  if (preflight.technicalStatus !== "completed") add("technical_preflight_not_ready", "platformWritePreflight.technicalStatus", "当前平台前检尚未完成");
+  if (preflight.imagePermission.status !== "verified") add("image_permission_not_ready", "platformWritePreflight.imagePermission", "图片上传权限未验证");
+  return gaps;
 }
 
 /**

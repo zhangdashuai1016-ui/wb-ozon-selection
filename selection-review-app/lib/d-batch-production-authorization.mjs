@@ -1,3 +1,4 @@
+import { ozonAccountReadCoordinationState, ozonAccountReadProductionBlocker } from './ozon-account-read-coordination.mjs';
 import { assertSiblingPreparationMatchesFinal } from './sibling-preparation-consistency.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { assertBusinessStateRepositoryBoundary, assertCentralPersistenceBoundary } from './business-state-repository.mjs';
@@ -99,6 +100,10 @@ export async function commitBatchOwnerProductionAuthorization({ repository, runt
           reservedCandidateIds.has(candidate.id))
         throw new Error('D_BATCH_SELECTED_MEMBERS_CHANGED');
     }
+    const accountBlocker = ozonAccountReadProductionBlocker(ozonAccountReadCoordinationState({ document,
+      candidateIds: input.members.map(member => member.candidateId) }));
+    if (accountBlocker !== null) throw new Error(accountBlocker === 'unknown_outcome'
+      ? 'D_BATCH_ACCOUNT_READ_OUTCOME_UNRESOLVED' : 'D_BATCH_ACCOUNT_READ_IN_PROGRESS');
     const preparationDraft=(document.runtime?.siblingPreparationDrafts??[]).filter(record=>record.parentCandidateId===parent.id).at(-1);
     if (preparationDraft) assertSiblingPreparationMatchesFinal({parent,members:input.members.map(member=>byCandidateId.get(member.candidateId)),draft:preparationDraft,ownerInputs:input.members.map(member=>member.ownerInput)});
     const observedAt = serverClock();

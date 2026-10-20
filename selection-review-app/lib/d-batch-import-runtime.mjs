@@ -1,3 +1,4 @@
+import { ozonAccountReadCoordinationState, ozonAccountReadProductionBlocker, ozonAccountReadProductionEvidenceCurrent } from './ozon-account-read-coordination.mjs';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { assertBusinessStateRepositoryBoundary, assertCentralPersistenceBoundary } from './business-state-repository.mjs';
@@ -168,7 +169,7 @@ export function createPersistedDBatchImportRuntime({ repository, runtimeMode = '
     if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) throw new Error('D_BATCH_IMPORT_CLOCK_INVALID');
     return value;
   };
-  async function admit({ batchId, members, adapterCapabilities, workerId }) {
+  async function admit({ batchId, members, adapterCapabilities, workerId, accountReadState }) {
     const worker = assertWorker(workerRegistry, workerId);
     const observedAt = now();
     const prepared = members.map(member => ({ ...member, executionContext: { ...member.executionContext,
@@ -176,6 +177,12 @@ export function createPersistedDBatchImportRuntime({ repository, runtimeMode = '
     const snapshot = await repository.readSnapshot();
     const { batch, job: existingJob } = locate(snapshot, batchId);
     if (existingJob) return { job: clone(existingJob), admitted: false };
+    const snapshotReads = ozonAccountReadCoordinationState({ document: snapshot, candidateIds: batch.members.map(member => member.candidateId) });
+    // Legacy adapter-level callers with no account jobs have no account source to carry.
+    const preparedReads = accountReadState === undefined && snapshotReads.length === 0 ? [] : accountReadState;
+    if (preparedReads === undefined) throw new Error('D_BATCH_IMPORT_ACCOUNT_READ_SOURCE_REQUIRED');
+    if (ozonAccountReadProductionBlocker(snapshotReads)) throw new Error('D_BATCH_IMPORT_ACCOUNT_READ_BLOCKED');
+    if (!isDeepStrictEqual(snapshotReads, preparedReads)) throw new Error('D_BATCH_IMPORT_ACCOUNT_READ_CHANGED');
     assertCurrentMembers(snapshot, batch, prepared);
     assertOzonBatchImportLimitCapability(adapterCapabilities.productImport, { batch, checkedAt: observedAt });
     assertReadyMembers(prepared, adapterCapabilities, observedAt);
@@ -196,6 +203,12 @@ export function createPersistedDBatchImportRuntime({ repository, runtimeMode = '
       assertCurrentMembers(document, current.batch, prepared);
       if (current.job) return { changed: false, result: { job: clone(current.job), admitted: false } };
       if (!isDeepStrictEqual(current.batch,batch)) throw new Error('D_BATCH_IMPORT_BATCH_CHANGED_DURING_ADMISSION');
+      const currentReads = ozonAccountReadCoordinationState({ document, candidateIds: current.batch.members.map(member => member.candidateId) });
+      if (ozonAccountReadProductionBlocker(currentReads)) throw new Error('D_BATCH_IMPORT_ACCOUNT_READ_BLOCKED');
+      if (!isDeepStrictEqual(currentReads, preparedReads)) throw new Error('D_BATCH_IMPORT_ACCOUNT_READ_CHANGED');
+      if (!ozonAccountReadProductionEvidenceCurrent({ document, state: currentReads, observedAt: now() })) {
+        throw new Error('D_BATCH_IMPORT_ACCOUNT_EVIDENCE_NOT_CURRENT');
+      }
       const job = createDBatchImportJob({ batch: current.batch, chunks: frozenChunks, workerId,
         workerVersion: worker.version, leaseId, leaseExpiresAt, createdAt: observedAt,
         observationPolicy: prepared[0].observationPolicy });
@@ -288,8 +301,8 @@ export function createPersistedDBatchImportRuntime({ repository, runtimeMode = '
       return { changed: true, document, result: clone(next) };
     });
   }
-  async function run({ batchId, members, adapterCapabilities, workerId }) {
-    const admission = await admit({ batchId, members, adapterCapabilities, workerId });
+  async function run({ batchId, members, adapterCapabilities, workerId, accountReadState }) {
+    const admission = await admit({ batchId, members, adapterCapabilities, workerId, accountReadState });
     const { job } = admission;
     if (!admission.admitted && (job.workerId !== workerId || Date.parse(now()) >= Date.parse(job.leaseExpiresAt) ||
         job.chunks.some(chunk => ['intent','unknown_outcome','prewrite_blocked'].includes(chunk.status)) ||

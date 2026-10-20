@@ -5,12 +5,12 @@ import OzonAccountReadCard from './OzonAccountReadCard.jsx';
 import BatchMediaReview from './BatchMediaReview.jsx';
 import { api } from '../api.js';
 import { effectivePreparationValue, requiredPreparationNumber, preparationWorkflowAvailable, preparationDraftScopeCurrent } from '../siblingPreparationState.js';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { errorMessage, optionalNumber } from '../formState.js';
 import { BOSS_ONLY_NOTE } from '../ownerAccess.js';
 import { siblingBatchReview } from '../siblingBatchReview.js';
 import { siblingBatchSchemaPreparation } from '../siblingBatchSchemaPreparation.js';
-import { siblingBatchAuthorizationInput } from '../siblingBatchAuthorizationInput.js';
+import { siblingBatchAuthorizationInput, siblingBatchAccountReadBlocker } from '../siblingBatchAuthorizationInput.js';
 import { siblingMerchantSkuSuggestions, siblingBatchMemberDefaults } from '../siblingBatchFormDefaults.js';
 import { inForceSkuUniformSupply, capturedSkuWeightKg } from '../../lib/sku-choice-estimate.mjs';
 import { siblingFamilySalesSnapshot } from '../../lib/sibling-sales-snapshot.mjs';
@@ -87,6 +87,9 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
   const [stockEdits, setStockEdits] = useState({});
   const [finalConfirmed, setFinalConfirmed] = useState('');
   const [saving, setSaving] = useState(false);
+  const accountReadActions = useRef(new Set());
+  const [accountReadActionCount, setAccountReadActionCount] = useState(0);
+  const finalSubmission = useRef(false);
   const [sharedAssetId, setSharedAssetId] = useState('');
   const [c2Confirmed, setC2Confirmed] = useState(false);
   const [c1Confirmed, setC1Confirmed] = useState(false);
@@ -95,6 +98,21 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
   const [c1Preview, setC1Preview] = useState(null);
   const [error, setError] = useState('');
   if (!review?.rows.length) return null;
+  const persistedAccountReadBlocker = siblingBatchAccountReadBlocker(review.rows.map(row => siblings.find(child => child.id === row.candidateId)));
+  const accountReadBusy = accountReadActionCount > 0 || persistedAccountReadBlocker !== null;
+  const accountReadNotice = persistedAccountReadBlocker ?? '本批账户核验尚未结束，请等待已授权读取完成后再核对最终上架。';
+  async function runAccountRead(action, input) {
+    if (finalSubmission.current || saving) throw new Error('整批最终确认正在保存，请等待完成。');
+    if (accountReadActions.current.has(input.candidateId)) throw new Error('本规格账户读取正在执行。');
+    accountReadActions.current.add(input.candidateId);
+    setAccountReadActionCount(accountReadActions.current.size);
+    setFinalConfirmed('');
+    try { return await action(input); }
+    finally {
+      accountReadActions.current.delete(input.candidateId);
+      setAccountReadActionCount(accountReadActions.current.size);
+    }
+  }
   const allCreated = review.rows.every(row => row.candidateId !== null);
   const workflowAvailable = preparationWorkflowAvailable(workspaceStatus);
   const allAtA = allCreated && review.rows.every(row => !siblings.find(child => child.id === row.candidateId)?.lifecycleV11?.skuPackage);
@@ -232,9 +250,13 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
     finally { setSaving(false); }
   }
   async function submitFinal(event) {
-    event.preventDefault(); setError(''); setSaving(true);
+    event.preventDefault();
+    if (finalSubmission.current) return;
+    finalSubmission.current = true;
+    setError(''); setSaving(true);
     try {
       if (bossOnly) throw new Error(BOSS_ONLY_NOTE);
+      if (accountReadActions.current.size > 0 || persistedAccountReadBlocker !== null) throw new Error(accountReadNotice);
       if (!workflowAvailable) throw new Error('整批资料尚未读取成功，不能确认上架。');
       if (workspaceSaving) throw new Error('整批草稿正在保存；完成后可核对上架方案。');
       if (workspaceGaps.length) throw new Error(workspaceGaps.map(g=>g.message).join('；'));
@@ -245,7 +267,7 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
       if (!isFinalConfirmed || !finalInput.ready) throw new Error(finalInput.reason || '请核对整批最终内容');
       await onAuthorize(finalInput.input);
     } catch (cause) { setError(errorMessage(cause)); }
-    finally { setSaving(false); }
+    finally { finalSubmission.current = false; setSaving(false); }
   }
   async function saveBatchStock() {
     setError(''); setSaving(true);
@@ -504,13 +526,14 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
       <p>全成员 E 独立回读范围：{review.rows.map(row => row.merchantSku ?? `${row.color} 货号缺失`).join('、')}。首件历史导入不在本批范围。</p>
       <p>本批采用 2026-10-18 官方观察到的单次导入最多 100 件限制，仅供本批一次生产准入。另授权一次同店在售名单读取：最多 3 页、每页 1000 项、共 90 秒、单请求 30 秒。名单会经过其他在售商品，只保存本批货号与商品编号同时命中的结果；未命中保持未验证。</p>
       <p>平台回读完成后，请在本页并排核对批准原图与平台图片的内容、首图和顺序。人工核图与官方在售、价格、仓库库存核验全部通过后，才会记录本批 E 验证通过。</p>
-      <label><input type="checkbox" checked={isFinalConfirmed} disabled={!workflowAvailable || workspaceSaving || !finalInput.ready || workspaceGaps.length>0 || workspaceDirty || stockDirty || Boolean(executionError) || executionLoading}
+      <label><input type="checkbox" checked={isFinalConfirmed} disabled={accountReadBusy || !workflowAvailable || workspaceSaving || !finalInput.ready || workspaceGaps.length>0 || workspaceDirty || stockDirty || Boolean(executionError) || executionLoading}
         onChange={event => setFinalConfirmed(event.target.checked ? confirmationKey : '')} />我已核对本批全部规格的商品、RUB 买家价、CNY 写入价、库存、共同仓库、最终图、创建、上架审核提交和各款库存，一次确认全部成员。</label>
-      <button className="button primary" type="submit" disabled={!workflowAvailable || workspaceSaving || saving || workspaceGaps.length>0 || workspaceDirty || stockDirty || Boolean(executionError) || executionLoading || !isFinalConfirmed || !finalInput.ready || bossOnly}>
+      <button className="button primary" type="submit" disabled={accountReadBusy || !workflowAvailable || workspaceSaving || saving || workspaceGaps.length>0 || workspaceDirty || stockDirty || Boolean(executionError) || executionLoading || !isFinalConfirmed || !finalInput.ready || bossOnly}>
         {saving ? '正在保存整批授权…' : '确认上架（含创建和库存）'}</button>
       {bossOnly ? <p role="status">{BOSS_ONLY_NOTE}</p> : null}
       {!finalInput.ready ? <p role="status">{finalInput.reason}</p> : null}
       {executionLoading ? <p role="status">正在核对本批是否已有生产记录。</p> : null}
+      {accountReadBusy ? <p role="status">{accountReadNotice}</p> : null}
     </form> : null}
     {review.rows.some(row => siblings.find(child => child.id === row.candidateId)?.ozonAccountReadPreparation) ?
       <section aria-label="本批账户只读核验">
@@ -521,7 +544,9 @@ function SiblingBatchPreparationBody({ parent, siblings, preparationSaveState, o
           return child?.ozonAccountReadPreparation ? <article key={child.id}>
             <h5>{row.color} · {row.sourceSkuId}</h5>
             <OzonAccountReadCard preparation={child.ozonAccountReadPreparation}
-              onAuthorize={onAuthorizeAccountRead} onContinue={onContinueAccountRead}/>
+              disabled={saving}
+              onAuthorize={typeof onAuthorizeAccountRead === 'function' ? input => runAccountRead(onAuthorizeAccountRead, input) : undefined}
+              onContinue={typeof onContinueAccountRead === 'function' ? input => runAccountRead(onContinueAccountRead, input) : undefined}/>
           </article> : null;
         })}
       </section> : null}

@@ -74,6 +74,34 @@ test("D returns not_ready for local-only finalUploads and never invents browser 
   assert.ok(remoteWithoutProtocol.prepared.gaps.some((item) => item.code === "asset_transport_protocol_not_ready"));
 });
 
+test("single-SKU D shares the structured preflight image and technical gates without dropping source explanations", async () => {
+  const fixture = await preparedFixture(), inputs = projectProductionPlanInputs(fixture.plan);
+  const platformWritePreflight = structuredClone(fixture.preflight);
+  platformWritePreflight.risks.push({ code: "method_contract_not_product_result",
+    message: "The verified method contract is not a product outcome." });
+  const prepare = preflight => prepareSingleSkuDExecution({ productionPlan: fixture.plan,
+    productionAuthorization: fixture.authorization, platformWritePreflight: preflight,
+    adapterCapabilities: capabilities(inputs.store, inputs.finalUploads, inputs),
+    currentProductionBinding: fixture.currentProductionBinding, preparedAt: "2026-08-22T07:15:00.000Z" });
+  const before = structuredClone(platformWritePreflight);
+  assert.equal(prepare(platformWritePreflight).status, "ready");
+  for (const [name, mutate, code] of [
+    ["image_denied", value => { value.imagePermission.status = "denied"; }, "image_permission_not_ready"],
+    ["image_unknown", value => { value.imagePermission.status = "unknown"; }, "image_permission_not_ready"],
+    ["technical_incomplete", value => { value.connectionStatus.api.status = "unavailable";
+      value.technicalStatus = "system_error"; }, "technical_preflight_not_ready"]
+  ]) {
+    const current = structuredClone(platformWritePreflight); mutate(current);
+    const result = prepare(current);
+    assert.equal(result.status, "not_ready", name);
+    assert.equal(result.executableRequest, null, name);
+    assert.ok(result.gaps.some(gap => gap.code === code), name);
+    assert.throws(() => beginDSoftwareExecution({ preparedExecution: result,
+      startedAt: "2026-08-22T07:20:00.000Z" }), /D_SOFTWARE_NOT_READY/, name);
+  }
+  assert.deepEqual(platformWritePreflight, before);
+});
+
 test("D rejects missing authorization, authorization drift, and cross-store preflight", async () => {
   const fixture = authorizedProductionFixture();
   const authorization = fixture.productionAuthorization;

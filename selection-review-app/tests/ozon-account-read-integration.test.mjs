@@ -27,6 +27,7 @@ import { productionOwnerDecisionFixture } from './fixtures/production-owner-deci
 import { commitSiblingBatchC2Final } from '../lib/sibling-batch-c2-final.mjs';
 import { commitBatchOwnerProductionAuthorization } from '../lib/d-batch-production-authorization.mjs';
 import { enqueueDProductionHandoffInDocument } from '../lib/d-e-software-job-handoff.mjs';
+import { waitForAccountReadBoundary } from './helpers/account-read-concurrency-fixture.mjs';
 
 function accountRoutingFixture() {
   const storeRef = { stableStoreId: 'miska', platformStoreId: 'synthetic-routing-store', mappingVersion: 'synthetic:1' };
@@ -165,6 +166,7 @@ async function fixture({ clockOffsetMs = 0, deRuntimeServices = null, accountReq
     bindingId: option.bindingId, configurationVersion: option.configurationVersion, scopeRef: option.scopeRef,
     expiresAt: '2026-09-01T00:00:00.000Z', confirmReadOnce: true, idempotencyKey: 'owner-read:source-integration' };
   return { base, env, configuration, repository, source, reader, provider, services, input, requests, responses,
+    clock, transport,
     connectCatalog(protocolCatalog, overrides = {}) {
       const source = createOzonAccountReadEvidenceSource({ repository, loadCurrentReadBinding: resolver, protocolCatalog });
       const reader = createRepositoryBackedOzonDEPreflightEvidenceReader({ repository, verifySourceReceipt: source.verifySourceReceipt });
@@ -176,7 +178,7 @@ async function fixture({ clockOffsetMs = 0, deRuntimeServices = null, accountReq
         upload: overrides.upload ?? (async () => { throw new Error('unexpected asset request'); }),
         resolveLocalAsset: async () => { throw new Error('unexpected asset read'); },
         // 重启后的实例同样要接策略解析器，否则 D 执行层取不到策略、发导入之前就被拒。
-        loadDPlatformObservationPolicy: createDPlatformObservationPolicyResolver(configuration),
+        loadDPlatformObservationPolicy: overrides.loadDPlatformObservationPolicy ?? createDPlatformObservationPolicyResolver(configuration),
         preflightRequestMode: 'persisted_evidence_only' });
       const services = createOzonAccountReadServices({ configuration, repository, workerRegistry: restartedWorkers, serverClock: clock,
         requestJson: transport.requestJson, evidenceSource: source, preflightProvider: provider, deRuntimeServices: restartedDE });
@@ -190,13 +192,14 @@ async function authorizeProduction(f) {
 }
 
 async function batchAccountFixture(options = {}) {
+  const { memberCount = 2, ...accountOptions } = options;
   const continuations = [];
   const deRuntimeServices = { async continueAuthorizedBatchImport(input) {
     continuations.push(structuredClone(input));
     return { status: 'synthetic_batch_continued', platformWrites: 0 };
   } };
-  const f = await fixture({ ...options, deRuntimeServices });
-  const family = await threeColorC2Fixture(2);
+  const f = await fixture({ ...accountOptions, deRuntimeServices });
+  const family = await threeColorC2Fixture(memberCount);
   await commitSiblingBatchC2Final({ repository: family.repository, runtimeMode: 'local_development',
     actor: family.actor, input: family.input, verifiedAssets: family.verifiedAssets, serverClock: () => batchAt });
   const document = await family.repository.readSnapshot();
@@ -214,18 +217,21 @@ async function batchAccountFixture(options = {}) {
     members: decisions.map(value => ({ candidateId: value.candidate.id, ownerInput: value.ownerInput })),
     postImportScope: { schemaVersion: 'd-batch-post-import-scope-v1', inventoryAction: 'create_only',
       eReadbackOfferIds: decisions.map(value => value.ownerInput.merchantSku) } };
-  return { ...f, continuations, actor: family.actor,
+  async function memberInput(index, keySuffix = 'initial', overrides = {}) {
+    const snapshot = await f.repository.readSnapshot(), candidate = snapshot.candidates.find(value => value.id === input.members[index].candidateId);
+    const preparation = f.services.preparation({ candidate, document: snapshot }), option = preparation.options[0];
+    return { ...f.input, candidateId: candidate.id,
+      skuPackageId: preparation.skuPackageId, expectedRevision: preparation.expectedRevision,
+      bindingId: option.bindingId, configurationVersion: option.configurationVersion, scopeRef: option.scopeRef,
+      idempotencyKey: `owner-read:batch-member:${index}:${preparation.expectedRevision}:${keySuffix}`, ...overrides };
+  }
+  return { ...f, continuations, actor: family.actor, memberInput,
     async authorizeBatch() {
       return commitBatchOwnerProductionAuthorization({ repository: f.repository, runtimeMode: 'local_development',
         actor: family.actor, input, configuration: f.configuration, serverClock: () => batchAt });
     },
-    async readMember(index, keySuffix = 'initial') {
-      const snapshot = await f.repository.readSnapshot(), candidate = snapshot.candidates.find(value => value.id === input.members[index].candidateId);
-      const preparation = f.services.preparation({ candidate, document: snapshot }), option = preparation.options[0];
-      return f.services.authorizeAndRun({ actor: family.actor, input: { ...f.input, candidateId: candidate.id,
-        skuPackageId: preparation.skuPackageId, expectedRevision: preparation.expectedRevision,
-        bindingId: option.bindingId, configurationVersion: option.configurationVersion, scopeRef: option.scopeRef,
-        idempotencyKey: `owner-read:batch-member:${index}:${preparation.expectedRevision}:${keySuffix}` } });
+    async readMember(index, keySuffix = 'initial', overrides = {}) {
+      return f.services.authorizeAndRun({ actor: family.actor, input: await memberInput(index, keySuffix, overrides) });
     },
     reconnect(overrides = {}) {
       return createOzonAccountReadServices({ configuration: f.configuration, repository: f.repository,
@@ -235,6 +241,184 @@ async function batchAccountFixture(options = {}) {
     }, get secretReads() { return f.secretReads; }
   };
 }
+
+function accountRuntime(f, requestJson = f.transport.requestJson) {
+  const service = f.configuration.ozonAccountReadServiceBindings[0];
+  return createOzonAccountReadRuntime({ repository: f.repository, serverClock: f.clock,
+    workerRegistry: createLocalDevelopmentWorkerRegistry({ clock: f.clock }),
+    worker: { workerId: service.workerId, version: service.workerVersion, leaseDurationMs: service.leaseDurationMs },
+    loadCurrentReadBinding: createOzonAccountReadBindingResolver(f.configuration), requestJson });
+}
+
+for(const race of ['queued_refresh','failed_refresh','natural_expiry'])test(`account service reports ${race} at the real single-SKU D policy boundary without consuming a lease`,async()=>{
+  const f=await fixture(),catalog=await loadOzonDEProtocolCatalog(),entered=Promise.withResolvers(),release=Promise.withResolvers();
+  const policy=createDPlatformObservationPolicyResolver(f.configuration);
+  const connected=f.connectCatalog(catalog,{loadDPlatformObservationPolicy:async input=>{
+    entered.resolve();await release.promise;return policy(input);
+  }});
+  const expiry=new Date(Date.parse(f.clock())+1000).toISOString();
+  const completed=await connected.services.authorizeAndRun({actor:f.base.owner.args.actor,input:{...f.input,expiresAt:expiry}});
+  assert.equal(completed.status,'completed');
+  const saved=await authorizeProduction(f),input={candidateId:f.input.candidateId,
+    jobId:saved.result.softwareJobRef.jobId,expectedRevision:saved.candidate.dataRevision};
+  const running=connected.services.continueProduction(input);
+  await waitForAccountReadBoundary(entered.promise,running,release.resolve);
+  let before;const retryRequests=[];
+  try{
+    f.advanceClock(1000);
+    if(race!=='natural_expiry'){
+      const runtime=accountRuntime(f,async(request,options)=>{
+        await options.beforeRequestSend();retryRequests.push(request.endpoint);return {};
+      });
+      const queued=await runtime.authorizeAndEnqueue({actor:f.base.owner.args.actor,input:{...f.input,
+        expectedRevision:input.expectedRevision,refreshOfJobId:completed.jobId,idempotencyKey:`account:service-race:${race}`,
+        expiresAt:new Date(Date.parse(f.clock())+3600000).toISOString()}});
+      assert.equal(queued.status,'queued');
+      if(race==='failed_refresh')assert.equal((await runtime.continueSaved({candidateId:input.candidateId,
+        jobId:queued.job.jobId,expectedRevision:input.expectedRevision})).status,'failed');
+    }
+    before=await f.repository.readSnapshot();
+  }finally{release.resolve();}
+  const result=await running;
+  const reason={queued_refresh:'SOFTWARE_JOB_ADMISSION_ACCOUNT_READ_BLOCKED',failed_refresh:'SOFTWARE_JOB_ADMISSION_ACCOUNT_READ_CHANGED',
+    natural_expiry:'SOFTWARE_JOB_ADMISSION_ACCOUNT_EVIDENCE_NOT_CURRENT'}[race];
+  assert.equal(result.status,'account_read_incomplete');assert.equal(result.reasonCode,reason);
+  assert.equal(result.externalRequests,0);assert.equal(result.platformWrites,0);
+  const after=await f.repository.readSnapshot(),job=after.runtime.softwareJobs.find(value=>value.jobId===input.jobId);
+  assert.deepEqual(after,before);assert.equal(job.status,'queued');assert.equal(job.attempt,0);assert.equal(job.leaseId,null);
+  assert.equal(after.candidates[0].lifecycleV11.skuPackage.dAssetTransport,undefined);
+  assert.equal(after.candidates[0].lifecycleV11.skuPackage.dSoftwareExecution,undefined);
+  assert.equal(f.requests.length,3);assert.equal(retryRequests.length,race==='failed_refresh'?1:0);
+});
+
+for (const status of ['queued', 'claimed', 'waiting_platform']) test(`three-member authorization rejects an actual ${status} account read atomically then succeeds after completion`, async () => {
+  const f = await batchAccountFixture({ memberCount: 3 }), entered = Promise.withResolvers(), released = Promise.withResolvers();
+  const transmitted = [];
+  const runtime = accountRuntime(f, async (request, options) => {
+    if (request.endpoint === '/v1/roles' && status === 'claimed') { entered.resolve(); await released.promise; }
+    await options.beforeRequestSend(); transmitted.push(request.endpoint);
+    if (request.endpoint === '/v1/roles' && status === 'waiting_platform') { entered.resolve(); await released.promise; }
+    return structuredClone(f.responses[request.endpoint]);
+  });
+  const input = await f.memberInput(2), enqueued = await runtime.authorizeAndEnqueue({ actor: f.actor, input });
+  const continuation = { candidateId: input.candidateId, jobId: enqueued.job.jobId, expectedRevision: input.expectedRevision };
+  const running = status === 'queued' ? null : runtime.continueSaved(continuation);
+  if (running) await waitForAccountReadBoundary(entered.promise, running, released.resolve);
+  try {
+    const before = await f.repository.readSnapshot();
+    assert.equal(before.runtime.softwareJobs.find(job => job.jobId === enqueued.job.jobId).status, status);
+    await assert.rejects(() => f.authorizeBatch(), /D_BATCH_ACCOUNT_READ_IN_PROGRESS/);
+    assert.deepEqual(await f.repository.readSnapshot(), before, 'no member revision, authorization, batch or audit may commit');
+    assert.equal(before.candidates.slice(1).some(candidate => candidate.lifecycleV11.skuPackage.productionAuthorization), false);
+    assert.deepEqual(f.continuations, []);
+    assert.equal(transmitted.length, status === 'waiting_platform' ? 1 : 0);
+  } finally { released.resolve(); if (running) await running; }
+  const complete = running ? await running : await runtime.continueSaved(continuation);
+  assert.equal(complete.status, 'completed'); assert.equal(transmitted.length, 3);
+  const beforeAuthorization = await f.repository.readSnapshot(), batch = await f.authorizeBatch(), after = await f.repository.readSnapshot();
+  assert.equal(batch.members.length, 3);
+  for (const candidate of beforeAuthorization.candidates.slice(1))
+    assert.equal(after.candidates.find(value => value.id === candidate.id).dataRevision, candidate.dataRevision + 1);
+  assert.deepEqual(after.candidates[0], beforeAuthorization.candidates[0]);
+  assert.deepEqual(after.runtime.softwareJobs, beforeAuthorization.runtime.softwareJobs);
+  assert.deepEqual(await f.authorizeBatch(), batch); assert.deepEqual(await f.repository.readSnapshot(), after);
+  assert.deepEqual(f.continuations, []); assert.equal(f.secretReads, 0);
+});
+
+test('an unrelated queued account read does not block the selected three-member authorization', async () => {
+  const f = await batchAccountFixture({ memberCount: 3 });
+  await f.repository.transact(document => {
+    assert.equal(document.candidates.some(candidate => candidate.id === f.base.candidate.id), false);
+    document.candidates.push(structuredClone(f.base.candidate)); return { changed: true, document };
+  });
+  const runtime = accountRuntime(f), pending = await runtime.authorizeAndEnqueue({ actor: f.actor, input: f.input });
+  const before = await f.repository.readSnapshot(), batch = await f.authorizeBatch(), after = await f.repository.readSnapshot();
+  assert.equal(batch.members.length, 3);
+  assert.deepEqual(after.candidates.at(-1), before.candidates.at(-1));
+  assert.deepEqual(after.runtime.softwareJobs.find(job => job.jobId === pending.job.jobId), pending.job);
+  assert.equal(f.requests.length, 0); assert.equal(f.secretReads, 0);
+});
+
+test('an unknown member account read prevents a new three-member authorization without changing any revision', async () => {
+  let transmissions=0;
+  const f=await batchAccountFixture({memberCount:3,accountRequestJson:async(request,options)=>{
+    await options.beforeRequestSend();transmissions++;
+    throw new OzonDEHttpTransportError('SYNTHETIC_ACCOUNT_RESPONSE_LOST',{externalRequestState:'unknown_outcome',requestTransmission:'attempted'});
+  }});
+  assert.equal((await f.readMember(2)).status,'unknown_outcome');
+  const before=await f.repository.readSnapshot();
+  await assert.rejects(()=>f.authorizeBatch(),/D_BATCH_ACCOUNT_READ_OUTCOME_UNRESOLVED/);
+  assert.deepEqual(await f.repository.readSnapshot(),before);assert.equal(transmissions,1);assert.deepEqual(f.continuations,[]);
+});
+
+test('a new post-authorization read after one known failure reuses the other two completed receipts and preserves the original batch', async () => {
+  const f=await batchAccountFixture({memberCount:3});
+  const first=await f.readMember(0),second=await f.readMember(1),roles=structuredClone(f.responses['/v1/roles']);
+  f.responses['/v1/roles']={};const failed=await f.readMember(2);assert.equal(failed.status,'failed');
+  assert.equal(f.requests.length,7);f.responses['/v1/roles']=roles;
+  const batch=await f.authorizeBatch(),before=await f.repository.readSnapshot();f.advanceClock(1);
+  const recovered=await f.readMember(2,'new-known-failure-authorization');
+  assert.equal(recovered.status,'completed');assert.equal(recovered.productionStatus,'synthetic_batch_continued');
+  assert.equal(f.requests.length,10);assert.deepEqual(f.continuations,[{batchId:batch.batchId}]);
+  const saved=await f.repository.readSnapshot();
+  assert.deepEqual(saved.candidates,before.candidates);assert.deepEqual(saved.runtime.dProductionBatches,before.runtime.dProductionBatches);
+  for(const read of [first,second,failed]){
+    assert.deepEqual(saved.runtime.softwareJobs.find(job=>job.jobId===read.jobId),before.runtime.softwareJobs.find(job=>job.jobId===read.jobId));
+    assert.deepEqual(saved.runtime.ozonAccountReadReceipts[read.jobId],before.runtime.ozonAccountReadReceipts[read.jobId]);
+  }
+  assert.deepEqual(batch.members.map(member=>saved.runtime.ozonDEPreflightEvidence[member.authorizationId].provenance.softwareJobRef),
+    [first.jobId,second.jobId,recovered.jobId]);
+});
+
+test('expired completed reads require explicit per-member refresh before continuing the original three-member authorization', async () => {
+  const f = await batchAccountFixture({ memberCount: 3 });
+  const expiry = new Date(Date.parse(f.clock()) + 1000).toISOString();
+  const oldReads = [];
+  for (let index = 0; index < 3; index++) oldReads.push(await f.readMember(index, 'first', { expiresAt: expiry }));
+  const batch = await f.authorizeBatch(), original = await f.repository.readSnapshot();
+  assert.equal(f.requests.length, 9); assert.deepEqual(f.continuations, []);
+  f.advanceClock(1000);
+  const blocked = await f.services.continueAuthorizedBatch({ batchId: batch.batchId });
+  assert.notEqual(blocked.status, 'synthetic_batch_continued');
+  assert.deepEqual(f.continuations, []); assert.equal(f.requests.length, 9);
+  assert.deepEqual(await f.repository.readSnapshot(), original, 'expired records cannot be published as fresh batch evidence');
+  for (let index = 0; index < 3; index++) {
+    const snapshot = await f.repository.readSnapshot(), candidate = snapshot.candidates.find(value => value.id === batch.members[index].candidateId);
+    const current = f.services.preparation({ candidate, document: snapshot }).runtime.find(value => value.isCurrent);
+    assert.equal(current.jobId, oldReads[index].jobId); assert.equal(current.canRefresh, true);
+    assert.equal(current.evidenceExpiresAt, expiry);
+    const refreshed = await f.readMember(index, 'explicit-refresh', { refreshOfJobId: current.jobId });
+    assert.equal(refreshed.status, 'completed');
+    assert.equal(f.requests.length, 9 + (index + 1) * 3);
+    assert.equal(f.continuations.length, index === 2 ? 1 : 0);
+  }
+  const saved = await f.repository.readSnapshot();
+  assert.deepEqual(f.continuations, [{ batchId: batch.batchId }]);
+  assert.deepEqual(saved.candidates, original.candidates);
+  assert.deepEqual(saved.runtime.dProductionBatches, original.runtime.dProductionBatches);
+  for (const read of oldReads) {
+    assert.deepEqual(saved.runtime.softwareJobs.find(job => job.jobId === read.jobId), original.runtime.softwareJobs.find(job => job.jobId === read.jobId));
+    assert.deepEqual(saved.runtime.ozonAccountReadReceipts[read.jobId], original.runtime.ozonAccountReadReceipts[read.jobId]);
+  }
+  for (const member of batch.members) {
+    const evidence = saved.runtime.ozonDEPreflightEvidence[member.authorizationId];
+    assert.equal(evidence.scope.authorizationId, member.authorizationId);
+    assert.equal(oldReads.some(read => read.jobId === evidence.provenance.softwareJobRef), false);
+  }
+  assert.equal(saved.runtime.softwareJobs.filter(job => job.jobType === 'd_production_execution').length, 0,
+    'this synthetic test counts the existing D service continuation boundary, without claiming a platform execution');
+});
+
+test('roles expiry is visible before grant expiry and only the latest completed read can be refreshed', async () => {
+  const f = await fixture(), expiry = new Date(Date.parse(f.clock()) + 1000).toISOString();
+  f.responses['/v1/roles'].expires_at = expiry;
+  const read = await f.services.authorizeAndRun({ actor: f.base.owner.args.actor, input: f.input });
+  f.advanceClock(1000);
+  const before = await f.repository.readSnapshot(), current = f.services.preparation({ candidate: before.candidates[0], document: before }).runtime[0];
+  assert.equal(current.jobId, read.jobId); assert.equal(current.expired, false);
+  assert.equal(current.evidenceExpiresAt, expiry); assert.equal(current.canRefresh, true);
+  assert.deepEqual(await f.repository.readSnapshot(), before); assert.equal(f.requests.length, 3);
+});
 
 test('authorized batch reuses each pre-PA account receipt and publishes every new PA before D continuation', async () => {
   const f = await batchAccountFixture();
@@ -303,8 +487,9 @@ test('authorized batch reports genuine failed and unknown account reads without 
     throw new OzonDEHttpTransportError('SYNTHETIC_ACCOUNT_RESPONSE_LOST', { layer: 'network',
       externalRequestState: 'unknown_outcome', requestTransmission: 'unknown' });
   } });
+  const unknownBatch = await unknown.authorizeBatch();
   assert.equal((await unknown.readMember(0)).status, 'unknown_outcome');
-  const unknownBatch = await unknown.authorizeBatch(), unknownBefore = await unknown.repository.readSnapshot();
+  const unknownBefore = await unknown.repository.readSnapshot();
   const stopped = await unknown.services.continueAuthorizedBatch({ batchId: unknownBatch.batchId });
   assert.equal(stopped.status, 'account_read_incomplete'); assert.equal(stopped.members[0].jobStatus, 'unknown_outcome');
   assert.equal(attempted, 1); assert.deepEqual(unknown.continuations, []);

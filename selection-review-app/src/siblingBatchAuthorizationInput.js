@@ -1,6 +1,16 @@
 import { productionAuthorizationInputFromCard } from './productionAuthorizationInput.js';
 import { siblingBatchReview } from './siblingBatchReview.js';
 
+/** Unsettled work remains occupied even when its evidence is no longer the current selection. */
+export function siblingBatchAccountReadBlocker(candidates) {
+  const reads = candidates.flatMap(candidate => candidate?.ozonAccountReadPreparation?.runtime ?? []);
+  if (reads.some(read => read.status === 'unknown_outcome')) return '本批账户请求结果待核对，不能确认新的上架批次。';
+  if (reads.some(read => ['queued', 'claimed', 'waiting_platform'].includes(read.status))) {
+    return '本批账户核验尚未结束，请等待已授权读取完成后再核对最终上架。';
+  }
+  return null;
+}
+
 /** Compose a single owner decision from current server preparations only. */
 export function siblingBatchAuthorizationInput(parent, candidates, bindingId, options = {}) {
   if (typeof parent?.id !== 'string' || parent.id.trim() === '' ||
@@ -9,6 +19,8 @@ export function siblingBatchAuthorizationInput(parent, candidates, bindingId, op
   }
   const review = siblingBatchReview(parent, candidates);
   if (!review?.ready) return { ready: false, reason: '批次成员还有 A/B/C1/C2 或当前价格、库存缺项。', input: null };
+  const accountReadBlocker = siblingBatchAccountReadBlocker(review.rows.map(row => candidates.find(candidate => candidate.id === row.candidateId)));
+  if (accountReadBlocker !== null) return { ready: false, reason: accountReadBlocker, input: null };
   if (!['create_only', 'write_authorized_stock'].includes(options.inventoryAction)) {
     return { ready: false, reason: '请选择仅创建商品或写入已授权库存的明确范围。', input: null };
   }

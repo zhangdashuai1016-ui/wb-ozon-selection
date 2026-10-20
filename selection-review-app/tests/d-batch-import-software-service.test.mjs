@@ -21,6 +21,12 @@ import {loadOzonProductImportBatchLimitFact,createOzonProductImportBatchLimitUse
 import {projectDBatchEMediaReview,confirmDBatchEMediaReview} from '../lib/d-batch-e-media-review.mjs';
 import {createActorContext} from '../lib/runtime-identity.mjs';
 import {reclaimDBatchImportJob} from '../lib/d-batch-import-state.mjs';
+import { accountReadConcurrencyFixture, waitForAccountReadBoundary } from './helpers/account-read-concurrency-fixture.mjs';
+import { accountReadBindingForProduction, createOzonAccountReadBindingResolver } from '../lib/ozon-account-read-preparation.mjs';
+import { createOzonAccountReadEvidenceSource } from '../lib/ozon-account-read-evidence.mjs';
+import { createOzonAccountReadServices } from '../lib/ozon-account-read-services.mjs';
+import { createOzonDEPreflightProvider } from '../lib/ozon-de-preflight-provider.mjs';
+import { createRepositoryBackedOzonDEPreflightEvidenceReader } from '../lib/ozon-de-preflight-evidence-reader.mjs';
 
 const now = '2026-08-22T07:25:00.000Z';
 const observationPolicy = { schemaVersion: 'd-platform-observation-policy-v1',
@@ -300,8 +306,63 @@ async function localThreeColorFixture({batchVersion=2,runtimeNow=now}={}){
       throw new Error('Synthetic three-color endpoint not configured');
     }};
   return {repository,batch,files,models,calls,uploads,evidencePurposes,options,
+    advanceClock:value=>{runtimeNow=value;},
     restart:(overrides={})=>createDBatchImportSoftwareService({...options,...overrides})};
 }
+
+test('completed synthetic media remains reported when account evidence expires before batch import admission',async()=>{
+  const f=await localThreeColorFixture(),clock=f.options.serverClock;
+  await f.repository.transact(document=>{
+    for(const member of document.runtime.dProductionBatches[0].members){
+      const candidate=document.candidates.find(value=>value.id===member.candidateId);
+      member.sourceRevision=candidate.lifecycleV11.skuPackage.productionAuthorization.sourceCandidateRevision;
+    }
+    return {changed:true,document};
+  });
+  const initial=await f.repository.readSnapshot(),binding=f.options.loadCurrentProductionBinding(initial.candidates[0]);
+  const readService={productionBindingId:binding.bindingId,productionConfigurationVersion:binding.configurationVersion,
+    workerId:'worker:synthetic:account-after-media',workerVersion:'v1',leaseDurationMs:60000};
+  const configuration={productionBindings:[binding],ozonDECredentialBindings:[{credentialAlias:binding.credentialAlias,clientId:'700123'}],
+    ozonAccountReadServiceBindings:[readService]};
+  const readBinding=accountReadBindingForProduction(configuration,binding),accounts=[],completed=[];
+  const expiry=new Date(Date.parse(clock())+1000).toISOString();
+  for(const candidate of initial.candidates){
+    const account=await accountReadConcurrencyFixture({repository:f.repository,clock,productionBinding:binding,candidateId:candidate.id,readBinding});
+    accounts.push(account);completed.push(await account.run({expiresAt:expiry}));
+  }
+  const source=createOzonAccountReadEvidenceSource({repository:f.repository,loadCurrentReadBinding:createOzonAccountReadBindingResolver(configuration)});
+  const reader=createRepositoryBackedOzonDEPreflightEvidenceReader({repository:f.repository,verifySourceReceipt:source.verifySourceReceipt});
+  const provider=createOzonDEPreflightProvider({readEvidence:reader,serverClock:clock});
+  const entered=Promise.withResolvers(),release=Promise.withResolvers();let paused=false;
+  const production=f.restart({loadBatchMemberEvidence:async input=>{
+    const evidence=await f.options.loadBatchMemberEvidence(input);
+    const document=await f.repository.readSnapshot(),assets=document.runtime.dBatchAssetTransports;
+    if(!paused&&Array.isArray(assets)&&assets.length===3&&assets.every(record=>record.status==='verified')){
+      paused=true;entered.resolve();await release.promise;
+    }
+    return evidence;
+  }});
+  const services=createOzonAccountReadServices({configuration,repository:f.repository,
+    workerRegistry:createLocalDevelopmentWorkerRegistry({clock}),serverClock:clock,
+    requestJson:async()=>{throw new Error('Unexpected account request during continuation');},
+    evidenceSource:source,preflightProvider:provider,
+    deRuntimeServices:{continueAuthorizedBatchImport:input=>production.runAuthorizedBatch(input)}});
+  const running=services.continueAuthorizedBatch({batchId:f.batch.batchId});
+  await waitForAccountReadBoundary(entered.promise,running,release.resolve);
+  const afterMedia=await f.repository.readSnapshot();
+  f.advanceClock(expiry);release.resolve();
+  const result=await running;
+  assert.equal(afterMedia.runtime.dBatchAssetTransports.length,3);
+  assert.equal(afterMedia.runtime.dBatchAssetTransports.every(record=>record.status==='verified'),true);
+  assert.equal(afterMedia.runtime.dBatchImportJobs,undefined);assert.equal(f.uploads.length,3);assert.deepEqual(f.calls,[]);
+  assert.equal(result.status,'account_read_incomplete');assert.equal(result.reasonCode,'D_BATCH_IMPORT_ACCOUNT_EVIDENCE_NOT_CURRENT');
+  assert.equal(result.executionView.assetRequestTransmission,'attempted_or_unknown');assert.equal(result.externalRequests,'unknown');assert.equal(result.platformWrites,0);
+  const stopped=await f.repository.readSnapshot();assert.deepEqual(stopped,afterMedia);
+  await assert.rejects(()=>accounts[0].enqueue({refreshOfJobId:completed[0].job.jobId,idempotencyKey:'account:refresh:after-media-expiry'}),
+    {code:'OZON_ACCOUNT_READ_REFRESH_PRODUCTION_BUSY'});
+  assert.deepEqual(await f.repository.readSnapshot(),stopped);assert.deepEqual(f.calls,[]);
+  assert.equal(accounts.reduce((sum,account)=>sum+account.requests.length,0),9);
+});
 
 test('all batch import limits and observation policies are admitted before the first OSS intent',async()=>{
   const cases=[

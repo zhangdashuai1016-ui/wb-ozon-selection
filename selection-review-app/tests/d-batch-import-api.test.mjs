@@ -11,8 +11,40 @@ import { productionOwnerDecisionFixture } from './fixtures/production-owner-deci
 import { createMemoryBusinessStateRepository } from '../lib/business-state-repository.mjs';
 import { assertOzonProductImportBatchLimitUse, loadOzonProductImportBatchLimitEvidence,
   loadOzonProductImportBatchLimitFact } from '../lib/ozon-product-import-batch-limit.mjs';
+import { accountReadConcurrencyFixture } from './helpers/account-read-concurrency-fixture.mjs';
 
 const { api: port } = allocatedTestPorts();
+
+test('authenticated three-color HTTP authorization refuses a persisted queued account read before any member changes, including after restart',async t=>{
+  const fixture=await productionOwnerDecisionHttpFixture(),family=await threeColorC2Fixture(3);
+  await commitSiblingBatchC2Final({repository:family.repository,runtimeMode:'local_development',actor:family.actor,
+    input:family.input,verifiedAssets:family.verifiedAssets,serverClock:()=>at});
+  const prepared=await family.repository.readSnapshot(),parent=prepared.candidates[0];
+  const owners=prepared.candidates.slice(1).map(child=>productionOwnerDecisionFixture(createMemoryBusinessStateRepository,
+    {sourceCandidate:child,sourceAt:at}));
+  fixture.document.candidates=[parent,...owners.map(owner=>owner.candidate)];
+  fixture.document.evidencePacks=owners[0].evidencePacks.map(pack=>({...pack,expiresAt:'2099-01-01T00:00:00.000Z'}));
+  fixture.document.currentCommissionCatalogs=owners[0].currentCommissionCatalogs;
+  const repository=createMemoryBusinessStateRepository(fixture.document),account=await accountReadConcurrencyFixture({repository,
+    clock:()=>new Date().toISOString(),productionBinding:fixture.binding,candidateId:owners[2].candidate.id});
+  const queued=await account.enqueue();assert.equal(queued.status,'queued');assert.deepEqual(account.requests,[]);
+  const directory=await mkdtemp(path.join(tmpdir(),'batch-account-guard-http-'));
+  const api=await startSavedDEApi(t,{directory,port,document:await repository.readSnapshot(),binding:fixture.binding,services:[]});
+  await api.authenticate();const before=await api.readBytes();
+  const members=owners.map((owner,index)=>({candidateId:owner.candidate.id,ownerInput:{...owner.args.input,merchantSku:`HTTP-GUARD-COLOR-${index}`}}));
+  const input={confirmAll:true,parentCandidateId:parent.id,parentRevision:parent.dataRevision,excludedOfferIds:['SYNTHETIC-FIRST-UNKNOWN'],members,
+    postImportScope:{schemaVersion:'d-batch-post-import-scope-v1',inventoryAction:'create_only',eReadbackOfferIds:members.map(member=>member.ownerInput.merchantSku)}};
+  for(let attempt=0;attempt<2;attempt++){
+    if(attempt){await api.restart();await api.authenticate('login');}
+    const response=await api.post('/api/d-batches/authorize',input);
+    assert.equal(response.status,409,JSON.stringify(response.body));assert.equal(response.body.code,'D_BATCH_ACCOUNT_READ_IN_PROGRESS');
+    assert.deepEqual(await api.readBytes(),before);assert.equal(api.dependencyRequests(),0);
+    const saved=await api.readDocument();assert.deepEqual(saved.candidates,fixture.document.candidates);
+    assert.equal(saved.runtime.dProductionBatches?.length??0,0);assert.equal(saved.runtime.dBatchImportJobs?.length??0,0);
+    assert.equal(saved.candidates.slice(1).some(candidate=>candidate.lifecycleV11.skuPackage.productionAuthorization),false);
+  }
+  await api.assertClean();
+});
 
 test('one authenticated batch confirmation persists authorization and reports missing account routing without an external request', async t => {
   const fixture = await productionOwnerDecisionHttpFixture();

@@ -1,3 +1,4 @@
+import { ozonAccountReadCoordinationState } from './ozon-account-read-coordination.mjs';
 import { createSoftwareExecutionRuntime, openExceptionCase } from './software-execution-state.mjs';
 import { createDPlatformObservationRuntime } from './d-platform-observation-use-case.mjs';
 import { assertDPlatformObservationAdmission, assertDRemainingInventorySend, readOwnerStockDecision } from './d-platform-observation-contract.mjs';
@@ -529,7 +530,7 @@ export function createDEProductionRuntimeServices({ repository, runtimeMode, ser
       if(batchImportService===null) throw new DERuntimeUnavailableError('BATCH_IMPORT');
       return batchImportService.reclaimBatchLease(input);
     },
-    async continueSavedCurrent(input) {
+    async continueSavedCurrent(input, { accountReadState } = {}) {
       inputShape(input);let current=await snapshot(input);
       if(current.job.jobType==='e_independent_readback') return runE(input,current);
       if(current.job.jobType==='e_d_platform_observation') {
@@ -539,6 +540,10 @@ export function createDEProductionRuntimeServices({ repository, runtimeMode, ser
       if(current.job.status!=='queued') return replay(current,input);
       if(input.expectedRevision!==current.candidate.dataRevision) throw new Error('DE_RUNTIME_REVISION_CONFLICT');
       const service=available(current.candidate,current.job);refreshActiveWorker(service);
+      const currentReads = ozonAccountReadCoordinationState({ document: current.document, candidateIds: [current.candidate.id] });
+      const preparedReads = accountReadState === undefined && currentReads.length === 0 ? [] : accountReadState;
+      if (preparedReads === undefined) throw new Error('SOFTWARE_JOB_ADMISSION_ACCOUNT_READ_SOURCE_REQUIRED');
+      if (!isDeepStrictEqual(currentReads, preparedReads)) throw new Error('SOFTWARE_JOB_ADMISSION_ACCOUNT_READ_CHANGED');
       // 平台查询策略必须在「发导入之前」就查。2026-09-24 背心死在这一条上：策略在 r65 被设成
       // 一个绝对时刻（09-23 14:00Z），导入在 09-24 02:14Z 才发出，而过期判定写在导入被接受之后
       // （d-e-software-integration.mjs:651），于是平台已经收下商品、软件却自断后路，观察和库存全没做。
@@ -564,7 +569,8 @@ export function createDEProductionRuntimeServices({ repository, runtimeMode, ser
           candidate:clone(held.candidate),job:clone(held.job),externalRequests:0,platformWrites:0};
       }
       const leaseId=`lease:de:${randomUUID()}`,workerActor=actor(service);
-      const claimed=await jobStore.claim({jobId:input.jobId,worker:service.worker,leaseId,leaseDurationMs:service.binding.leaseDurationMs});
+      const claimed=await jobStore.claim({jobId:input.jobId,worker:service.worker,leaseId,leaseDurationMs:service.binding.leaseDurationMs,
+        accountReadState: preparedReads});
       const context={jobStore,jobId:input.jobId,workerId:service.worker.workerId,leaseId};
       try {
       current=await snapshot(input);

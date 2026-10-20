@@ -4,14 +4,17 @@ const statusLabels = { queued: '读取授权已保存，等待执行', claimed: 
   completed: '三项账户资料已保存', failed: '本次账户核验已停止', unknown_outcome: '请求结果待核对' };
 const methodLabels = { roles: '方法权限', seller_info: '公司币种', warehouse_list: '指定仓库' };
 
-export default function OzonAccountReadCard({ preparation, onAuthorize, onContinue }) {
+export default function OzonAccountReadCard({ preparation, onAuthorize, onContinue, disabled = false }) {
   const { saving, error, run } = useSubmit();
-  const [form, setForm, guard] = useCandidateForm({ id: preparation.candidateId, dataRevision: preparation.expectedRevision },
+  const current = preparation.runtime.find(value => value.isCurrent);
+  const refreshOfJobId = current?.canRefresh === true ? current.jobId : null;
+  const [form, setForm, guard] = useCandidateForm({ id: `${preparation.candidateId}:${current?.jobId ?? 'initial'}`, dataRevision: preparation.expectedRevision },
     { bindingId: '', scopeRef: '', expiresAt: '', confirmed: false, idempotencyKey: `account-read:${crypto.randomUUID()}` });
   const selected = preparation.options.find(option => option.bindingId === form.bindingId && option.scopeRef === form.scopeRef);
-  const current = preparation.runtime.find(value => value.isCurrent);
-  const occupied = current && ['queued', 'claimed', 'waiting_platform', 'unknown_outcome', 'completed'].includes(current.status);
-  const ready = selected && form.expiresAt && form.confirmed && !guard.conflict && !occupied && !saving && typeof onAuthorize === 'function';
+  const occupied = current && (['queued', 'claimed', 'waiting_platform', 'unknown_outcome'].includes(current.status) ||
+    current.status === 'completed' && refreshOfJobId === null);
+  const ready = selected && form.expiresAt && form.confirmed && !guard.conflict && !occupied && !saving && !disabled &&
+    (refreshOfJobId === null || selected.bindingId === current.bindingId && selected.configurationVersion === current.configurationVersion) && typeof onAuthorize === 'function';
   function update(fields) {
     setForm(value => ({ ...value, ...fields, confirmed: false, idempotencyKey: `account-read:${crypto.randomUUID()}` }));
   }
@@ -24,7 +27,8 @@ export default function OzonAccountReadCard({ preparation, onAuthorize, onContin
       if (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) throw new Error('请选择有效的读取截止时间。');
       await onAuthorize({ candidateId: preparation.candidateId, skuPackageId: preparation.skuPackageId,
         expectedRevision: preparation.expectedRevision, bindingId: selected.bindingId, configurationVersion: selected.configurationVersion,
-        scopeRef: selected.scopeRef, expiresAt: expiresAt.toISOString(), confirmReadOnce: true, idempotencyKey: form.idempotencyKey });
+        scopeRef: selected.scopeRef, expiresAt: expiresAt.toISOString(), confirmReadOnce: true, idempotencyKey: form.idempotencyKey,
+        ...(refreshOfJobId === null ? {} : { refreshOfJobId }) });
     });
   }
   return <section className="de-software-runtime-card" aria-label="Ozon账户只读核验">
@@ -33,6 +37,8 @@ export default function OzonAccountReadCard({ preparation, onAuthorize, onContin
     {current ? <div role="status">
       <strong>{statusLabels[current.status]}</strong>
       {current.expired ? <p>本次读取许可已过期，不能继续发送请求。</p> : null}
+      {current.evidenceExpiresAt ? <p>账户证据有效至：{current.evidenceExpiresAt}。</p> : null}
+      {current.canRefresh ? <p>这轮证据已到期；请重新选择准确账户、截止时间并确认一次新读取。旧授权与回执保留。</p> : null}
       {current.admissionBlocker ? <p>已保存的读取许可或凭据绑定未通过当前校验，不能继续发送请求。</p> : null}
       <p>已发送读取请求：{current.requestsSent === 'unknown' ? '待核对' : `${current.requestsSent} 次`}。</p>
       {current.observedMethods.length ? <p>已取得：{current.observedMethods.map(method => methodLabels[method]).join('、')}。</p> : null}
@@ -40,13 +46,14 @@ export default function OzonAccountReadCard({ preparation, onAuthorize, onContin
       {current.gaps.length ? <ul>{current.gaps.map(gap => <li key={`${gap.code}:${gap.field}`}>{gap.message}</li>)}</ul> : null}
       {current.status === 'completed' ? <p>账户资料已保存；能否继续生产，以生产任务的当前校验结果为准。</p> : null}
       {current.status === 'failed' || current.status === 'unknown_outcome' ? <p>已保留取得的资料和请求状态，未自动重发。</p> : null}
-      {current.canContinue ? <button type="button" disabled={saving || typeof onContinue !== 'function'} onClick={() => run(() =>
-        onContinue({ candidateId: preparation.candidateId, jobId: current.jobId, expectedRevision: current.expectedRevision }))}>
+      {current.canContinue ? <button type="button" disabled={saving || disabled || typeof onContinue !== 'function'} onClick={() => run(() => {
+        if (disabled) throw new Error('整批最终确认正在保存，请等待完成。');
+        return onContinue({ candidateId: preparation.candidateId, jobId: current.jobId, expectedRevision: current.expectedRevision }); })}>
         继续已授权的账户核验</button> : null}
     </div> : null}
     {preparation.options.length > 0 && !occupied ? <form onSubmit={submit}>
-      <FormRevisionNotice guard={guard} disabled={saving} />
-      <fieldset disabled={saving}>
+      <FormRevisionNotice guard={guard} disabled={saving || disabled} />
+      <fieldset disabled={saving || disabled}>
         <label>本次核验账户与仓库<select required value={form.bindingId} onChange={event => {
           const option = preparation.options.find(value => value.bindingId === event.target.value);
           update({ bindingId: option ? option.bindingId : '', scopeRef: option ? option.scopeRef : '' });
@@ -59,7 +66,7 @@ export default function OzonAccountReadCard({ preparation, onAuthorize, onContin
         <label><input type="checkbox" checked={form.confirmed} onChange={event => setForm(value => ({ ...value, confirmed: event.target.checked }))} />
           我确认以上账户和仓库，允许软件在截止时间前执行本次只读核验。</label>
       </fieldset>
-      <button type="submit" disabled={!ready}>{saving ? '正在核验…' : current?.status === 'failed' ? '重新授权读取一次' : '授权读取一次'}</button>
+      <button type="submit" disabled={!ready}>{saving ? '正在核验…' : refreshOfJobId !== null ? '授权刷新已过期的账户资料一次' : current?.status === 'failed' ? '重新授权读取一次' : '授权读取一次'}</button>
     </form> : null}
     {error ? <p role="alert">{error}</p> : null}
     <small>此卡只授权账户读取。商品生产范围以已保存的生产确认卡为准。</small>

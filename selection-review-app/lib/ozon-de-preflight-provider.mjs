@@ -267,6 +267,11 @@ export function inspectOzonDEPreflightCapabilities({candidate,authorization,scop
       writeScope:authorization.lockedScope.allowedWriteFields.every(field=>inspection.platformWritableFields.includes(field))};
     for (const name of ozonProductionConnectionRequirements('seller_api').requiredConnections) checks[`${name}Connection`] = inspection.connections[name].status === 'connected';
     for (const [field, ready] of Object.entries(checks)) if (!ready) gaps.push({code:'account_inspection_not_ready',field,message:'当前账户实证不满足生产范围'});
+    for (const risk of inspection.risks) {
+      if (risk.code === 'account_warehouse_not_rfbs' || risk.code === 'account_warehouse_paused') {
+        gaps.push({code:risk.code,field:'warehouse',message:risk.message});
+      }
+    }
 }
 return gaps.length === 0 ? result : {...structuredClone(result),status:'not_ready',evidenceRef:null,gaps};
 }
