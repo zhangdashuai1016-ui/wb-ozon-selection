@@ -3,6 +3,7 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
 const VERSION = "lifecycle-evidence-validity-v1";
 const PROVIDER_VERSION = "lifecycle-b-evidence-provider-v1.1";
+export const GUOO_MAIN_QUOTE_CALCULATION_RULE_STATUS = "main_sheet_quote_verified";
 const GENERATORS = Object.freeze({
   exchange_rate: "official-fx-reader:cbr-daily-v1",
   commission: "lifecycle-b-real-evidence-readers:official-commission-v1",
@@ -42,7 +43,7 @@ function knownGenerator(pack) {
       pack.scope.ruleVersion === "guoo-2026-08-19" && pack.ruleVersion === pack.scope.ruleVersion &&
       typeof pack.scope.route === "string" && /^guoo [a-z][a-z ]*$/.test(pack.scope.route) &&
       /^guoo-xlsx:GUOO产品资费测算表【2026\.8\.19更新】\.xlsx:sha256:[a-f0-9]{64}:row-[1-9][0-9]{0,5}$/.test(pack.sourceRef) &&
-      data.calculationRuleStatus === "main_sheet_quote_verified" &&
+      data.calculationRuleStatus === GUOO_MAIN_QUOTE_CALCULATION_RULE_STATUS &&
       ["actual_weight", "max_actual_volume"].includes(data.chargeableWeightRule) &&
       Number.isFinite(data.perKgRmb) && data.perKgRmb >= 0 && Number.isFinite(data.perParcelRmb) && data.perParcelRmb >= 0 &&
       data.minimumChargeableWeightKg === 0 && data.weightRoundingRule === "none" && data.weightRoundingKg === null) {

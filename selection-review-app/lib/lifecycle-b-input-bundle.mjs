@@ -1,6 +1,5 @@
-import { inspectLifecycleEvidenceValidity, isLifecycleEvidenceValidityMetadataValid } from "./lifecycle-evidence-validity.mjs";
+import { GUOO_MAIN_QUOTE_CALCULATION_RULE_STATUS, inspectLifecycleEvidenceValidity, isLifecycleEvidenceValidityMetadataValid } from "./lifecycle-evidence-validity.mjs";
 import { resolveLifecycleBCostPolicy } from "./global-pricing-policy.mjs";
-import { GUOO_MAIN_QUOTE_CALCULATION_RULE_STATUS } from "./guoo-tariff-reader.mjs";
 import { isDeepStrictEqual } from "node:util";
 import { buildExpectedEvidenceScope, evidenceScopeMatches, normalizeEvidenceScope } from "./lifecycle-evidence-scope.mjs";
 import { isCompleteStoreRef, sameStoreRef } from "./store-binding.mjs";

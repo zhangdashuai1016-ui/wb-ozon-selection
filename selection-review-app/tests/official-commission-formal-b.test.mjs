@@ -300,7 +300,7 @@ function requestShape() {
     readOnly: true, platformWritesAllowed: false, maximumAttempts: 1 };
 }
 
-function officialCommissionPack(source, packs) {
+function officialCommissionPack(source, packs, priceRub) {
   const pack = structuredClone(packs[0]);
   pack.id = "commission:official:pet-clothing";
   pack.sourceType = "ozon_official_commission_table";
@@ -311,7 +311,7 @@ function officialCommissionPack(source, packs) {
   pack.evidenceData = { ...structuredClone(pack.evidenceData), commissionRate: 0.12,
     commissionEvidenceMode: "official_reference", estimateAuthorized: false, exactCommissionRequiredAtC: true,
     officialCommissionBinding: { schemaVersion: "ozon-official-commission-binding-v1",
-      candidateId: source.id, candidateRevision: source.dataRevision, priceRub: 1455 } };
+      candidateId: source.id, candidateRevision: source.dataRevision, priceRub } };
   return [pack, ...packs.slice(1)];
 }
 
@@ -326,11 +326,14 @@ function estimatedCommissionPack(source, packs) {
 
 test("官方费表命中形成正式B并放行文案素材；估算佣金照旧被文案素材和上架两道闸门拦住", async () => {
   const official = addEvidenceContext(await candidate());
+  const card = buildRealAConfirmationCard(official);
+  const input = submission(card);
   const officialRun = runRealAConfirmationToBAndC1({
     candidate: official, otherCosts: currentOtherCosts(official),
-    submission: submission(buildRealAConfirmationCard(official)),
-    evidencePacks: officialCommissionPack(official, evidencePacks()), confirmedAt
+    submission: input,
+    evidencePacks: officialCommissionPack(official, evidencePacks(), 1462), confirmedAt
   });
+  assert.equal(officialRun.profitModel.recommendedSalePriceRub, 1462);
   assert.equal(officialRun.profitModel.commissionMode, "official_reference");
   assert.equal(officialRun.profitModel.calculationType, "formal");
   assert.equal(officialRun.profitModel.exactCommissionRequiredForFormalB, false);

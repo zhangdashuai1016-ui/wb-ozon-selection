@@ -14,6 +14,7 @@ import { finalPricingC1ReuseFixture } from './fixtures/final-pricing-c1-reuse-fi
 import { prepareC2FinalUploadManifest, confirmC2SoftwareFinalUploads } from '../lib/c2-software-orchestrator.mjs';
 import { finalAssets, ownerDecision } from './helpers/c2-software-fixture.mjs';
 import { createFinalProductPlanConfirmationCard } from '../lib/final-product-plan-confirmation-card.mjs';
+import { assertProductionProfitPriceCurrent } from '../lib/final-pricing-review.mjs';
 import { confirmedAt, officialCommissionPack, ownerTargetFlowFixture, profitInputs,
   saveFlowResult } from './fixtures/owner-target-price-regression-fixture.mjs';
 
@@ -25,6 +26,22 @@ function forbidNetwork(t) {
   ];
   t.after(() => { for (const tripwire of tripwires) assert.equal(tripwire.mock.callCount(), 0); });
 }
+
+test('production reuse keeps v4 exact-price binding even when another price has the same official tariff tier', async t => {
+  forbidNetwork(t);
+  const fixture = await ownerTargetFlowFixture({ targetPriceRub: 2000 });
+  const result = runRealAConfirmationToBAndC1(fixture.args);
+  const candidate = saveFlowResult(fixture.source, result);
+  const evidencePacks = structuredClone(fixture.packs);
+  const inspect = () => assertProductionProfitPriceCurrent({ candidate,
+    skuPackage: candidate.lifecycleV11.skuPackage, evidencePacks, observedAt: confirmedAt });
+  assert.equal(inspect().recommendedSalePriceRub, 2000);
+  candidate.lifecycleV11.bSystemEvidenceBundle.platformFeeEvidence.officialCommissionBinding.priceRub = 2001;
+  evidencePacks[0].evidenceData.officialCommissionBinding.priceRub = 2001;
+  const before = structuredClone({ candidate, evidencePacks });
+  assert.throws(inspect, { code: 'PRODUCTION_AUTHORIZATION_OFFICIAL_COMMISSION_BINDING_INVALID' });
+  assert.deepEqual({ candidate, evidencePacks }, before);
+});
 
 
 test('real A uses owner 848 for formal profit while preserving the observed 475 market and its conflict', async t => {

@@ -1,7 +1,7 @@
 {
   "snapshotVersion": "three-store-capability-snapshot-v2",
   "registryVersion": "three-store-capability-registry-v3",
-  "frozenAt": "2026-10-20T01:27:48.598Z",
+  "frozenAt": "2026-10-20T02:04:55.178Z",
   "purpose": "当前集成源码、归属及锚点的只读快照；历史观察单独保留，不代表当前运行或平台完成。",
   "numbering": {
     "frozen": true,
@@ -17,7 +17,7 @@
     "integration": {
       "status": "inspected",
       "artifactCount": 1079,
-      "sha256": "66f67890035f5e0674cad17f0d09e21705739941c05f8147e9b46ac12c1881ce",
+      "sha256": "b4e7b1e6bb363ae1ef61e42b61c572efc33566dc042409cdf501e665c4fdc7f5",
       "digestPurpose": "detect accidental source drift"
     },
     "main": {
@@ -676,7 +676,7 @@
       },
       {
         "path": "lib/final-pricing-review.mjs",
-        "sha256": "b12553712829bc3156f9929ed2c88b446d679c77d58cb0208e96af3f6cafc831"
+        "sha256": "728e0285833daa9b02d5d058113bc5aad84c2089a880ac6fe037c99d68dcf5f3"
       },
       {
         "path": "lib/final-product-plan-confirmation-card.mjs",
@@ -724,7 +724,7 @@
       },
       {
         "path": "lib/guoo-tariff-reader.mjs",
-        "sha256": "6f963cd47fa97988987fdbe34182ad2a0c97728cb1200dc1a5284d9e28931c1d"
+        "sha256": "776801b3e52450b1d88d466b640361fa312fb71b61191acfe7729318a2ebbc4c"
       },
       {
         "path": "lib/http-api-boundary.mjs",
@@ -804,7 +804,7 @@
       },
       {
         "path": "lib/lifecycle-b-input-bundle.mjs",
-        "sha256": "b6867d131e4e68393b5447dc52ff9759a20d4e0d70b7f4fa9dccfe8ace1a57b8"
+        "sha256": "ac722a8a8c64e94b602a6c4f1882161f45a168fb1e255a8a58498510cc8f790d"
       },
       {
         "path": "lib/lifecycle-b-real-evidence-readers.mjs",
@@ -820,7 +820,7 @@
       },
       {
         "path": "lib/lifecycle-evidence-validity.mjs",
-        "sha256": "42bbdf53ce22a82e6ac5d71b808759c150ea43b5b35491cdaa7b696778af0228"
+        "sha256": "120bd6fe5d6aca9474fe02e1b6e7469e4948216d780107eaf3b46e57a9c429a1"
       },
       {
         "path": "lib/linkfox-discovery-api.mjs",
@@ -3212,7 +3212,7 @@
       },
       {
         "path": "tests/fixtures/formal-c1-flow-fixture.mjs",
-        "sha256": "cdf076c06928daebbefa041b988538dc9734de888dd33c524d577da66419d000"
+        "sha256": "9617e34697dd211e0ea6d5b2aad1c2679ff695c301e3a5ba096f4e7ca63f4bac"
       },
       {
         "path": "tests/fixtures/integrated-workbench-browser.html",
@@ -3660,7 +3660,7 @@
       },
       {
         "path": "tests/official-commission-formal-b.test.mjs",
-        "sha256": "9bfd685cb66996b4c30adc07b201b8575df38b2f291b576a185630567d058141"
+        "sha256": "2b13d3328dad9966024718e0ace6d6914d200293aa8a672fd791b7b0b40ddbcf"
       },
       {
         "path": "tests/owner-inbox-board-ui.test.mjs",
@@ -3676,7 +3676,7 @@
       },
       {
         "path": "tests/owner-target-price-flow.test.mjs",
-        "sha256": "106868a3150a8f3fe29a6f4df5a9928db386609dcaa726cd8446a58abcdc688c"
+        "sha256": "04f21edff7af3962dea8355b3fd12e6192a5ef14743e82f1ab051e94c96d3353"
       },
       {
         "path": "tests/ozon-account-discovery-configuration.test.mjs",
@@ -3968,7 +3968,7 @@
       },
       {
         "path": "tests/real-a-b-evidence-orchestration.test.mjs",
-        "sha256": "240fe45de901d2459f57eb69eb4f7a717fcc380219069a17130aff938c0797cc"
+        "sha256": "082b655591844412d89de79dca5c0e0e868d88c970c09cbb73624d5182875135"
       },
       {
         "path": "tests/real-a-confirmation-card.test.mjs",

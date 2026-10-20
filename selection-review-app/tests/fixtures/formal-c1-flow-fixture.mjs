@@ -133,6 +133,10 @@ export function phase7PassedState({ sellerType = "cross_border_cn", fullC1Facts 
       costPolicyContext, costPolicySnapshot,
       evidenceId: "platform-fees:ozon:dandanshu:17028665:rfbs:2026-08-12",
       commissionEvidenceMode: commissionMode,
+      ...(commissionMode === "official_reference" ? {
+        officialCommissionBinding: { schemaVersion: "ozon-official-commission-binding-v1", candidateId: candidate.id,
+          candidateRevision: candidate.dataRevision, priceRub: expectedPriceRub }
+      } : {}),
       commissionRate: 0.14,
       sourceType: "real_same_description_category_seller_api",
       otherCosts: {

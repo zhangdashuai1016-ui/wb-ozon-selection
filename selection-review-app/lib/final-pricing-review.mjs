@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { resolveLifecycleBCostPolicy } from "./global-pricing-policy.mjs";
 import { validateProfitModel } from "./profit-model.mjs";
-import { COST_POLICY_PROFIT_CALCULATION_VERSIONS, OWNER_TARGET_PROFIT_CALCULATION_VERSION, validateOwnerTargetPriceSource } from "./profit-model-calculation.mjs";
+import { COST_POLICY_PROFIT_CALCULATION_VERSIONS, PROFIT_CALCULATION_VERSION, OWNER_TARGET_PROFIT_CALCULATION_VERSION, validateOwnerTargetPriceSource } from "./profit-model-calculation.mjs";
 import { validateLifecycleBInputBundle, inspectCommissionCatalogValidity } from "./lifecycle-b-input-bundle.mjs";
 import { inspectProductionEvidenceReadiness } from "./production-evidence-readiness.mjs";
 import { inspectLifecycleEvidenceValidity } from "./lifecycle-evidence-validity.mjs";
@@ -120,8 +120,12 @@ export function assertProductionProfitPriceCurrent({ candidate, skuPackage, evid
     const price = model.recommendedSalePriceRub;
     const priceTier = value => value <= 1500 ? "le1500" : value <= 5000 ? "1500_5000" : "gt5000";
     const bindingPrice = fees.officialCommissionBinding.priceRub;
+    // Existing v3 records used the official tariff tier. New owner-priced v4
+    // records bind the exact confirmed price; neither path rewrites frozen B.
+    const priceBindingMatches = model.calculation.version === PROFIT_CALCULATION_VERSION
+      ? priceTier(bindingPrice) === priceTier(price) : bindingPrice === price;
     if (commission.sourceType !== "ozon_official_commission_table" || !ref || ref.priceTier !== priceTier(price) ||
-        Date.parse(ref.effectiveFrom) > Date.parse(observedAt) || bindingPrice !== price ||
+        Date.parse(ref.effectiveFrom) > Date.parse(observedAt) || !priceBindingMatches ||
         !isDeepStrictEqual(commission.evidenceData?.officialCommissionBinding, fees.officialCommissionBinding) ||
         commission.evidenceData?.commissionRate !== fees.commissionRate || commission.evidenceData?.commissionEvidenceMode !== fees.commissionEvidenceMode) {
       fail("PRODUCTION_AUTHORIZATION_OFFICIAL_COMMISSION_BINDING_INVALID", "官方费表与冻结售价、适用价格档或生效时间不一致。");
